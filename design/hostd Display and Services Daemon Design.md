@@ -566,7 +566,8 @@ The API is reachable only from the home network, every request needs a token, an
 | `admin` | Tokens, config reload, everything else |
 
 - The first start prints a one-time `admin` token. `hostctl login` on the laptop stores it.
-- Each device or script gets its own named token (`hostctl token create phone --scopes read,apps,audio`). Tokens are stored hashed and can be revoked individually.
+- Each device or script gets its own named token (`hostctl token create phone --scopes read,apps,audio`). Tokens are stored hashed (SHA-256; secrets start with `hostd_` so leaked ones are easy to spot) and can be revoked individually.
+- Every token has a **kind** that sets the priority of the actions sent with it: `manual` for a person's device (the default), `automation` for scripts, `local` for the on-screen switcher. A token can only create tokens with scopes it has itself.
 - Scripts run by rules get short-lived tokens limited to their declared scopes.
 
 **Process isolation**

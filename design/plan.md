@@ -205,17 +205,19 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.4 Core: storage, tokens and audit
 
-- [ ] SQLite via `modernc.org/sqlite` at `~/.local/share/hostd/state.db`; WAL mode
-- [ ] Migrations with a `schema_version` table from day one (needed by update rollback)
-- [ ] Tokens: 32 random bytes, shown once, stored as SHA-256 hash; fields `id, name, scopes, created, expires, revoked`
-- [ ] First start with an empty token table prints one `admin` token to the journal and to `$XDG_RUNTIME_DIR/hostd-admin-token` (mode 0600, deleted after first use)
-- [ ] Short-lived tokens (for scripts, M5) supported now: `expires` field + scope subset check
-- [ ] Audit trail: every action (incl. skipped and observed) → `time, type, args, source, cause, status, reason, version, duration`; capped at 10,000 rows (delete oldest in batches)
+- [x] SQLite via `modernc.org/sqlite` at `~/.local/share/hostd/state.db`; WAL mode
+- [x] Migrations with a `schema_version` table from day one (needed by update rollback)
+- [x] Tokens: 32 random bytes, shown once, stored as SHA-256 hash; fields `id, name, scopes, created, expires, revoked`
+- [x] First start with an empty token table prints one `admin` token to the journal and to `$XDG_RUNTIME_DIR/hostd-admin-token` (mode 0600, deleted after first use)
+- [x] Short-lived tokens (for scripts, M5) supported now: `expires` field + scope subset check
+- [x] Audit trail: every action (incl. skipped and observed) → `time, type, args, source, cause, status, reason, version, duration`; capped at 10,000 rows (delete oldest in batches)
 
 **Tests**
 - Migrations apply from empty and from every earlier version (fixtures added as versions appear).
 - Token create / verify / revoke / expiry; hash never equals the plaintext; scope subset rules.
 - Audit: trimming at 10,000; ordering; skipped entries carry `held_by`/`until`.
+
+*Done 2026-10-07: `core/store` (85.1% coverage; pure-Go SQLite keeps the binary static). Decided while building: tokens have a kind (local, manual, automation) that becomes the action source kind; secrets start with `hostd_`; revoked names can be reused; `EnsureAdminToken` mints only when the token table is empty, so a restart never creates a second admin token; audit writes are batched off the action path and dropped (with a log line) only if the writer falls 1,024 entries behind; a database from a newer hostd is refused with a hint to restore the backup. Writing the first admin token to `$XDG_RUNTIME_DIR` is the daemon's job (3.11).*
 
 ### 3.5 Core: HTTP API and WebSocket
 
