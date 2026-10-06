@@ -205,6 +205,8 @@ fi
 # Session config.
 install_file "$FILES/sway/config" "$SCREEN_HOME/.config/sway/config" 644 "$SCREEN_USER" || info "sway config up to date"
 install_file "$FILES/mako/config" "$SCREEN_HOME/.config/mako/config" 644 "$SCREEN_USER" || info "mako config up to date"
+install_file "$FILES/systemd/wayvnc.service" "$SCREEN_HOME/.config/systemd/user/wayvnc.service" 644 "$SCREEN_USER" ||
+	info "VNC service up to date"
 
 # Rootless Podman API socket, used by hostd's docker runner.
 wants=$SCREEN_HOME/.config/systemd/user/sockets.target.wants

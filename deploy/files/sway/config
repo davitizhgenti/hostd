@@ -6,14 +6,12 @@ default_floating_border none
 focus_follows_mouse no
 
 # Make the session's variables visible to systemd user units, so apps that
-# hostd starts as transient services can reach Wayland and Sway.
-exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
-exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+# hostd starts as transient services can reach Wayland and Sway. Then start
+# the session's user services (VNC), which need those variables.
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart wayvnc.service
 
-# On-screen notices, and VNC for watching the screen remotely. VNC listens on
-# localhost only; reach it with an SSH tunnel (ssh -L 5900:127.0.0.1:5900).
+# On-screen notices.
 exec mako
-exec wayvnc 127.0.0.1 5900
 
 set $mod Mod4
 bindsym $mod+Return exec foot

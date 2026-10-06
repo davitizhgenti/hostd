@@ -54,13 +54,16 @@ check "lingering is on" bash -c 'loginctl show-user "$(id -un)" -p Linger | grep
 echo "display"
 check "sway is running" wait_for swaymsg -t get_version
 check "an output is active" bash -c 'swaymsg -t get_outputs -r | jq -e "[.[] | select(.active)] | length > 0"'
-check "VNC listening on 5900" bash -c 'ss -ltn | grep -q ":5900 "'
+check "VNC listening on 5900" wait_for bash -c 'ss -ltn | grep -q ":5900 "'
 check "notification daemon is running" bash -c 'busctl --user status org.freedesktop.Notifications >/dev/null'
 
 echo "apps as transient services (how hostd starts them)"
+# Clear what a previous run may have left. hostd's units use the same
+# CollectMode, so a stopped or failed unit never blocks its name.
 systemctl --user stop "$UNIT.service" >/dev/null 2>&1
+systemctl --user reset-failed "$UNIT.service" >/dev/null 2>&1
 before=$(foot_windows 2>/dev/null || echo 0)
-check "start foot as $UNIT.service" systemd-run --user --unit="$UNIT" -p Type=exec foot
+check "start foot as $UNIT.service" systemd-run --user --unit="$UNIT" -p Type=exec -p CollectMode=inactive-or-failed foot
 check "its window appears in sway" wait_for bash -c "[ \"\$(swaymsg -t get_tree -r | jq '[.. | objects | select(.app_id? == \"foot\")] | length')\" -gt $before ]"
 check "window PID maps to the unit via cgroup" bash -c '
 	for pid in $(swaymsg -t get_tree -r | jq -r "[.. | objects | select(.app_id? == \"foot\")][].pid"); do

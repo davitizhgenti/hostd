@@ -1,0 +1,13 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+#
+# VNC server for watching the screen remotely, on localhost only (reach it
+# with ssh -L 5900:127.0.0.1:5900). Started by the Sway config once the
+# session's variables are imported; restarted if it ever exits.
+[Unit]
+Description=VNC server for the hostd screen (localhost only)
+After=graphical-session-pre.target
+
+[Service]
+ExecStart=/usr/bin/wayvnc 127.0.0.1 5900
+Restart=always
+RestartSec=2
