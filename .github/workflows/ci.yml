@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: make lint
+      - run: make test
+      - run: make build
+      - run: make cover
+
+# Added as the tests appear (plan.md §2):
+#   integration: make test-integration on pull requests (podman on the runner)
+#   nightly:     make fuzz FUZZTIME=5m and make test-e2e on a schedule

@@ -1,0 +1,17 @@
+[Unit]
+Description=Headless Sway (the fake TV screen)
+After=dbus.socket
+
+[Service]
+Environment=WLR_BACKENDS=headless
+Environment=WLR_HEADLESS_OUTPUTS=1
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+Environment=WLR_RENDERER=pixman
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_CURRENT_DESKTOP=sway
+ExecStart=/usr/bin/sway
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

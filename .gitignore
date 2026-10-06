@@ -1,0 +1,6 @@
+/bin/
+/dist/
+coverage.out
+core.out
+*.test
+/test/e2e/.vm/

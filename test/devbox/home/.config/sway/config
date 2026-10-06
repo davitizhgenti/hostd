@@ -1,0 +1,21 @@
+# Sway config for the devbox's fake TV screen.
+
+output HEADLESS-1 resolution 1920x1080 bg #1d2430 solid_color
+
+default_border none
+default_floating_border none
+focus_follows_mouse no
+
+# Make the session's variables visible to systemd user units, so units that
+# hostd starts (and `systemctl --user`) can reach Wayland and Sway.
+exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+
+# VNC server so you can watch the screen from the host (published on
+# 127.0.0.1:5900 only), and a notification daemon for on-screen notices.
+exec wayvnc 0.0.0.0 5900
+exec mako
+
+set $mod Mod4
+bindsym $mod+Return exec foot
+bindsym $mod+Shift+q kill

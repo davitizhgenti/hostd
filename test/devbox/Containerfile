@@ -1,0 +1,55 @@
+# hostd devbox: a stand-in for the mini PC, in one container.
+#
+# systemd runs as PID 1, the `screen` user has lingering enabled, and its
+# user session runs headless Sway (viewable over VNC), PipeWire with a fake
+# sink, and rootless Podman. See test/devbox/README.md.
+FROM docker.io/library/debian:trixie
+
+ENV container=podman \
+    DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus dbus-user-session libpam-systemd \
+      sway wayvnc foot mako-notifier libnotify-bin grim \
+      pipewire pipewire-pulse pipewire-bin wireplumber pulseaudio-utils rtkit \
+      podman crun fuse-overlayfs uidmap passt catatonit \
+      ca-certificates curl jq procps iproute2 less git fonts-dejavu-core \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Units that make no sense in a container.
+RUN systemctl mask \
+      systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
+      getty@tty1.service console-getty.service \
+      systemd-modules-load.service proc-sys-fs-binfmt_misc.automount \
+      sys-kernel-config.mount sys-kernel-debug.mount sys-kernel-tracing.mount \
+ && systemctl set-default multi-user.target
+
+# The screen user, as on the real machine: no sudo, lingering on so its
+# user manager starts at boot. Subordinate IDs fit inside the 65536 IDs that
+# rootless Podman on the host gives this container.
+RUN groupadd -f input && groupadd -f render \
+ && useradd -m -u 1000 -s /bin/bash -G video,render,input screen \
+ && echo "screen:10000:50000" > /etc/subuid \
+ && echo "screen:10000:50000" > /etc/subgid \
+ && mkdir -p /var/lib/systemd/linger \
+ && touch /var/lib/systemd/linger/screen \
+ && mkdir -p /opt/hostd
+
+COPY --chown=1000:1000 home/ /home/screen/
+
+RUN cd /home/screen/.config/systemd/user \
+ && mkdir -p default.target.wants sockets.target.wants \
+ && ln -sf ../sway.service default.target.wants/sway.service \
+ && ln -sf /usr/lib/systemd/user/pipewire.service default.target.wants/pipewire.service \
+ && ln -sf /usr/lib/systemd/user/wireplumber.service default.target.wants/wireplumber.service \
+ && ln -sf /usr/lib/systemd/user/pipewire.socket sockets.target.wants/pipewire.socket \
+ && ln -sf /usr/lib/systemd/user/pipewire-pulse.socket sockets.target.wants/pipewire-pulse.socket \
+ && ln -sf /usr/lib/systemd/user/podman.socket sockets.target.wants/podman.socket \
+ && mkdir -p /home/screen/.local/share/containers \
+ && chown -R 1000:1000 /home/screen
+
+EXPOSE 7300 5900
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
