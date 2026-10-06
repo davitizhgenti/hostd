@@ -174,19 +174,19 @@ Build in the order below; each step has its own tests and does not depend on lat
 
 Stages: **validate → authorize → prioritize → queue → execute → publish**.
 
-- [ ] **Validate (early):** action type known, args match schema → `invalid_args`
-- [ ] **Authorize:** token scopes include the action's scope (and `display.front` when relevant) → `forbidden`
-- [ ] **Resource queues:** one FIFO per key, created lazily, garbage-collected when idle. Multi-key actions acquire keys in sorted order.
-- [ ] **Reentrant keys for child actions:** a module's `Handle` holds its keys while calling `core.Do`; if the child needs one of them, both wait forever. Example: `app.start firefox` with `if_running = "restart"` holds `instance:firefox` and calls `instance.stop firefox`, which needs the same key. Fix: the `ctx` passed to `Handle` carries the set of keys held by the action and its ancestors; a `core.Do` child made with that `ctx` (it gets `parent` set) skips keys already held in its chain and queues only for the rest. Reentrancy follows `parent` only, never `cause`: event-triggered actions are asynchronous and queue normally.
-- [ ] **Validate (late):** when the action reaches the front of its queue, the core calls the module's `Validate` (§3.1) → `not_found` / `instance_not_running`
-- [ ] **Versions:** a counter per resource key, bumped on each applied or observed change; `expect_version` mismatch → `precondition_failed` with current state
-- [ ] **Holds:** per key, `{priority, until}`. Action priority < hold → `skipped` with `reason: held`, `held_by`, `until`. ≥ hold → applies and renews at its own priority. Hold window default 3 min, configurable per key prefix. `external` changes never create a hold.
-- [ ] **Priority from chain origin:** an action with `cause` inherits the priority of the chain's root action
-- [ ] **Execute:** call `Module.Handle` with a context deadline from the action spec; on deadline → `timeout`, and the late result is published as an event
-- [ ] **module_unavailable:** module registered but not started/attached
-- [ ] **Cause chain:** every action carries `cause`, every event carries the causing action ID. Depth > 5 rule-triggered steps → refused + `loop_detected`. Per-rule rate limit (> 10/min → paused 10 min) is a core service the automation module calls.
-- [ ] **Publish:** `action.done` / `action.skipped` events with action ID, plus the module's own events
-- [ ] `Core.Do` for modules goes through the same pipeline, with the calling module recorded in `source`
+- [x] **Validate (early):** action type known, args match schema → `invalid_args`
+- [x] **Authorize:** token scopes include the action's scope (and `display.front` when relevant) → `forbidden`
+- [x] **Resource queues:** one FIFO per key, created lazily, garbage-collected when idle. Multi-key actions acquire keys in sorted order.
+- [x] **Reentrant keys for child actions:** a module's `Handle` holds its keys while calling `core.Do`; if the child needs one of them, both wait forever. Example: `app.start firefox` with `if_running = "restart"` holds `instance:firefox` and calls `instance.stop firefox`, which needs the same key. Fix: the `ctx` passed to `Handle` carries the set of keys held by the action and its ancestors; a `core.Do` child made with that `ctx` (it gets `parent` set) skips keys already held in its chain and queues only for the rest. Reentrancy follows `parent` only, never `cause`: event-triggered actions are asynchronous and queue normally.
+- [x] **Validate (late):** when the action reaches the front of its queue, the core calls the module's `Validate` (§3.1) → `not_found` / `instance_not_running`
+- [x] **Versions:** a counter per resource key, bumped on each applied or observed change; `expect_version` mismatch → `precondition_failed` with current state
+- [x] **Holds:** per key, `{priority, until}`. Action priority < hold → `skipped` with `reason: held`, `held_by`, `until`. ≥ hold → applies and renews at its own priority. Hold window default 3 min, configurable per key prefix. `external` changes never create a hold.
+- [x] **Priority from chain origin:** an action with `cause` inherits the priority of the chain's root action
+- [x] **Execute:** call `Module.Handle` with a context deadline from the action spec; on deadline → `timeout`, and the late result is published as an event
+- [x] **module_unavailable:** module registered but not started/attached
+- [x] **Cause chain:** every action carries `cause`, every event carries the causing action ID. Depth > 5 rule-triggered steps → refused + `loop_detected`. Per-rule rate limit (> 10/min → paused 10 min) is a core service the automation module calls.
+- [x] **Publish:** `action.done` / `action.skipped` events with action ID, plus the module's own events
+- [x] `Core.Do` for modules goes through the same pipeline, with the calling module recorded in `source`
 
 **Tests**
 - Ordering: 1,000 goroutines send actions on one key; the applied order equals the enqueue order.
@@ -200,6 +200,8 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 - Loop: synthetic A→B→A chain stops at depth 5 with `loop_detected`.
 - Timeout: handler sleeping past its deadline → `timeout`, then a later event with the real result.
 - **Property test** (`pgregory.net/rapid`): random sequences of actions from random sources over random keys, compared to a simple reference model (last-applied value + hold state) after every step.
+
+*Done 2026-10-07: `core/engine.go`, `locks.go`, `auth.go`, `audit.go`, `limits.go` (97.1% coverage; 2,000-case property test against a reference model of holds and versions). Decided while building: holds and `expect_version` are checked after queueing, not before, so an action queued behind a manual change is skipped once that change applies; `expect_version` needs an action on exactly one key; child actions inherit the caller's authorization, and a module's own actions are trusted; a timed-out handler keeps its keys until it returns and is cancelled after a second timeout; core events `action.failed` and `action.loop_detected` added. The audit trail is in memory until 3.4 (`MemoryAudit` behind the `Auditor` interface).*
 
 ### 3.4 Core: storage, tokens and audit
 

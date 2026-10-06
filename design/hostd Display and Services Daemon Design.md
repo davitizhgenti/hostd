@@ -323,8 +323,8 @@ Every change, from any source, is an action that passes through one pipeline: va
 2. **Authorize** against the token's scopes.
 3. **Prioritize** against recent actions on the same resource (rules below).
 4. **Queue** on the resource's queue. Each resource (master audio, each output, each instance, the focus, the display) has its own FIFO queue, so actions on one resource never race, and unrelated ones run in parallel.
-5. **Execute** through the controller (Sway, PipeWire, a runner), with a timeout per action type.
-6. **Publish** the result as an event with the action ID, so the caller and every listener see the outcome.
+5. **Execute** through the controller (Sway, PipeWire, a runner), with a timeout per action type. On timeout the caller gets `timeout` at once, but the action keeps its resource keys until its handler really returns, so nothing races it; the outcome follows as an event. If the handler is still busy after a second timeout, its context is cancelled.
+6. **Publish** the result as an event with the action ID, so the caller and every listener see the outcome. A module links its own events to the action it is handling by setting the event's `action`; events that change a resource are published after the action finishes, carrying the version it produced.
 
 ### Conflict handling
 
@@ -405,7 +405,7 @@ Every action triggered by an event carries that event's ID, and every event carr
 
 - A chain deeper than 5 rule-triggered steps is stopped.
 - A rule firing more than 10 times in one minute is paused for 10 minutes.
-- Both produce a `loop_detected` event naming the rules involved, and `hostctl rules` shows paused rules.
+- Both produce an `action.loop_detected` event naming the rules involved, and `hostctl rules` shows paused rules.
 - Rules can also set their own `cooldown`.
 
 #### 6. Outside changes: modules mirror the real system
@@ -418,7 +418,7 @@ A module may handle only actions in its own namespace and emit only its own even
 
 #### Multi-step sequences
 
-There are no locks spanning several actions in v1. Something that must reach several states together should be a scene, which applies its steps in a fixed order and reports each step's result. Short-lived leases ("keep the display for me for 10 seconds") are a candidate for a later version.
+There are no locks spanning several actions in v1. One limit of child actions reusing their parent's keys: a child that waits for a key held by an unrelated action, which in turn waits for a key of the child's ancestors, would deadlock; the parent's timeout then reports it. Modules avoid this by sending child actions only for resources their action already holds or for keys no other action combines with theirs. Something that must reach several states together should be a scene, which applies its steps in a fixed order and reports each step's result. Short-lived leases ("keep the display for me for 10 seconds") are a candidate for a later version.
 
 ### Audit trail
 
@@ -524,7 +524,7 @@ The event stream accepts the token either in the `Authorization` header or as a 
 
 **Errors** use one shape: `{"error": {"code": "instance_not_running", "message": "…", "action": "act_…"}}` with stable codes scripts can branch on. Skipped actions return `200` with `"status": "skipped"` and the reason, not an error.
 
-**Events** (all carry a timestamp and, when caused by an action, its ID and source): `instance.starting`, `instance.started`, `instance.exited`, `instance.failed`, `window.opened`, `window.focused`, `window.closed`, `audio.volume.changed`, `audio.output.changed`, `media.changed`, `display.power.changed`, `display.idle`, `display.active`, `display.notice`, `deploy.started`, `deploy.done`, `deploy.failed`, `deploy.rolled_back`, `action.done`, `action.skipped`.
+**Events** (all carry a timestamp and, when caused by an action, its ID and source): `instance.starting`, `instance.started`, `instance.exited`, `instance.failed`, `window.opened`, `window.focused`, `window.closed`, `audio.volume.changed`, `audio.output.changed`, `media.changed`, `display.power.changed`, `display.idle`, `display.active`, `display.notice`, `deploy.started`, `deploy.done`, `deploy.failed`, `deploy.rolled_back`, `action.done`, `action.skipped`, `action.failed`, `action.loop_detected`, `bus.lagged` (the last event a subscriber gets before it is dropped for falling behind).
 
 **CLI.** `hostctl` is a thin client of the same API, so anything the CLI can do, a script or phone can do. It reads the server address and token from `~/.config/hostctl/config.toml` on the laptop, or from `HOSTD_URL`/`HOSTD_TOKEN` inside scripts.
 
