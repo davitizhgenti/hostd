@@ -83,9 +83,9 @@ type Module interface {
 
 // What the core gives every module.
 type Core interface {
-    Emit(e Event)                                       // publish a state change
+    Emit(e Event)                                       // publish a state change (Resource set: bump its version)
     Do(ctx context.Context, a Action) (Result, error)  // ask another module, via the pipeline
-    Subscribe(filter string) <-chan Event
+    Subscribe(ctx context.Context, filter string) <-chan Event  // closed when ctx is done
 }
 ```
 
@@ -95,6 +95,8 @@ type Core interface {
 2. Modules never touch each other's resources. Cross-module work goes through `core.Do`, so priority, permissions and the audit trail always apply. Example: `automation` applies a scene only by sending actions.
 3. A module declares what it `requires` (`deploy` requires `apps`); the core starts modules in dependency order and refuses a missing dependency at startup.
 4. Extension points inside a module follow the same pattern: the `apps` module accepts runners and catalog sources, `display` and `audio` accept backends, each as a Go interface for built-ins or the socket contract for external ones.
+
+**Conditional scopes.** An action names the scope it needs, plus `arg_scopes` for scopes needed only when a boolean argument is true: `app.start` declares `{"front": "display.front"}`.
 
 **Resource keys** for each action are declared in the manifest as templates over its arguments (`"instance:{id}"`, `"audio.stream:{instance}"`), so built-in and external modules declare them the same way. `Validate` exists so the core can refuse a stale target with a uniform error code before `Handle` runs, and so the audit trail can tell a refused action from a failed one.
 
@@ -394,6 +396,8 @@ Presence means keyboard, mouse or controller input within the last 5 minutes. Wh
 | `forbidden` | Token lacks the scope |
 | `timeout` | The module did not finish in time; the outcome is reported later by event |
 | `module_unavailable` | The owning module is not running, e.g. `display` before the session starts |
+| `loop_detected` | The cause chain is too deep, or the rule that sent the action is paused (see loops below) |
+| `internal` | Anything else: a bug or an unexpected system error |
 
 #### 5. Loops: cause chain with limits
 

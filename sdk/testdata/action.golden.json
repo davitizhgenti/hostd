@@ -1,0 +1,14 @@
+{
+  "id": "act_01J9ZQ3XK2V5N8M7P6R4T3W2Y1",
+  "type": "audio.volume.set",
+  "args": {
+    "percent": 40
+  },
+  "expect_version": 17,
+  "source": {
+    "kind": "automation",
+    "name": "evening.sh",
+    "token": "tok_01J9ZQ3XK2V5N8M7P6R4T3W2Y2"
+  },
+  "cause": "evt_01J9ZQ3XK2V5N8M7P6R4T3W2Y3"
+}

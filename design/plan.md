@@ -138,19 +138,21 @@ Build in the order below; each step has its own tests and does not depend on lat
 
 ### 3.1 SDK: the module contract (`sdk/`)
 
-- [ ] Types: `Module`, `Core`, `Manifest`, `ActionSpec`, `EventSpec`, `Action`, `Result`, `Event`, `Source`, `Error`
-- [ ] `Module` gains `Validate(ctx, Action) error` (not in the design's interface): called by the core when the action reaches the front of its queue, while its keys are held, to re-check targets. Kept separate from `Handle` so the core can report `not_found` / `instance_not_running` uniformly and the audit can tell "refused" from "failed".
-- [ ] `Action` gains `parent` (action ID) for synchronous `core.Do` children, alongside `cause` (event ID) for event-triggered actions
-- [ ] `Manifest` fields: `name`, `version`, `owns` (action/event prefixes, D1), `requires`, `scopes`, `actions[]` → `{type, schema (JSON Schema), keys (templates, D5), scope, timeout, route (method + path template for the friendly API)}`, `events[]`
-- [ ] `Source.Kind`: `local | manual | automation | external`, plus `Priority()` (3/2/1/none)
-- [ ] `Result.Status`: `applied | skipped | observed | accepted` (202 for slow actions)
-- [ ] Stable error codes as constants: `invalid_args`, `not_found`, `instance_not_running`, `precondition_failed`, `forbidden`, `timeout`, `module_unavailable` (+ internal `conflict` for registration errors)
-- [ ] JSON Schema validation: pick `santhosh-tekuri/jsonschema` (draft 2020-12)
+- [x] Types: `Module`, `Core`, `Manifest`, `ActionSpec`, `EventSpec`, `Action`, `Result`, `Event`, `Source`, `Error`
+- [x] `Module` gains `Validate(ctx, Action) error` (not in the design's interface): called by the core when the action reaches the front of its queue, while its keys are held, to re-check targets. Kept separate from `Handle` so the core can report `not_found` / `instance_not_running` uniformly and the audit can tell "refused" from "failed".
+- [x] `Action` gains `parent` (action ID) for synchronous `core.Do` children, alongside `cause` (event ID) for event-triggered actions
+- [x] `Manifest` fields: `name`, `version`, `owns` (action/event prefixes, D1), `requires`, `scopes`, `actions[]` → `{type, schema (JSON Schema), keys (templates, D5), scope, timeout, route (method + path template for the friendly API)}`, `events[]`
+- [x] `Source.Kind`: `local | manual | automation | external`, plus `Priority()` (3/2/1/none)
+- [x] `Result.Status`: `applied | skipped | observed | accepted` (202 for slow actions)
+- [x] Stable error codes as constants: `invalid_args`, `not_found`, `instance_not_running`, `precondition_failed`, `forbidden`, `timeout`, `module_unavailable` (+ internal `conflict` for registration errors)
+- [x] JSON Schema validation: pick `santhosh-tekuri/jsonschema` (draft 2020-12)
 
 **Tests**
 - JSON round-trip of every type (golden files).
 - Schema validation: unknown fields, wrong types, ranges (volume 0–150).
 - Key template expansion: `"instance:{id}"` with and without the arg; missing arg → `invalid_args`.
+
+*Done 2026-10-07: `sdk/` (96.5% coverage). Beyond the list above: `Core.Subscribe` takes a ctx; codes `loop_detected` and `internal`; `Event.Resource` for observed changes; `Source.Module`; `arg_scopes`; `Manifest.Validate` reports every problem at once; object schemas reject unknown arguments unless they say otherwise; `$ref` to files or URLs is refused.*
 
 ### 3.2 Core: registry and event bus
 

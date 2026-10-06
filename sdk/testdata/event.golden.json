@@ -1,0 +1,14 @@
+{
+  "id": "evt_01J9ZQ3XK2V5N8M7P6R4T3W2Y6",
+  "type": "audio.volume.changed",
+  "time": "2026-10-04T19:04:05Z",
+  "data": {
+    "percent": 55
+  },
+  "source": {
+    "kind": "external",
+    "name": "pipewire"
+  },
+  "resource": "audio.master",
+  "version": 18
+}

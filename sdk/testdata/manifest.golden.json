@@ -1,0 +1,89 @@
+{
+  "name": "audio",
+  "version": "0.1.0",
+  "owns": [
+    "audio.*",
+    "media.*"
+  ],
+  "scopes": [
+    {
+      "name": "audio",
+      "description": "Volume, outputs, media"
+    }
+  ],
+  "actions": [
+    {
+      "type": "audio.volume.set",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 150
+          },
+          "relative": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "percent"
+        ]
+      },
+      "keys": [
+        "audio.master"
+      ],
+      "scope": "audio",
+      "arg_scopes": {
+        "relative": "audio"
+      },
+      "timeout": "5s",
+      "route": {
+        "method": "POST",
+        "path": "/v1/audio/volume"
+      }
+    },
+    {
+      "type": "audio.app.volume.set",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "instance": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instance",
+          "percent"
+        ]
+      },
+      "keys": [
+        "audio.stream:{instance}"
+      ],
+      "scope": "audio",
+      "route": {
+        "method": "POST",
+        "path": "/v1/audio/apps/{instance}/volume"
+      }
+    },
+    {
+      "type": "media.pause",
+      "scope": "audio",
+      "route": {
+        "method": "POST",
+        "path": "/v1/media/pause"
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "audio.volume.changed"
+    },
+    {
+      "type": "media.changed"
+    }
+  ]
+}

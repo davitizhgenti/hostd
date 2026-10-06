@@ -1,0 +1,13 @@
+{
+  "id": "act_01J9ZQ3XK2V5N8M7P6R4T3W2Y5",
+  "type": "instance.stop",
+  "args": {
+    "id": "firefox"
+  },
+  "source": {
+    "kind": "manual",
+    "name": "phone",
+    "module": "apps"
+  },
+  "parent": "act_01J9ZQ3XK2V5N8M7P6R4T3W2Y4"
+}
