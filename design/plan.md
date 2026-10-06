@@ -156,10 +156,10 @@ Build in the order below; each step has its own tests and does not depend on lat
 
 ### 3.2 Core: registry and event bus
 
-- [ ] Registry: register modules, topological start order by `requires`, reverse order on stop
-- [ ] Refuse at startup: missing dependency, dependency cycle, overlapping `owns`, action type outside `owns`
-- [ ] Event bus: `Subscribe(filter)` with glob filters (`instance.*`, `*`), bounded per-subscriber buffer; a subscriber that falls behind is dropped and receives a final `bus.lagged` event (publishers never block)
-- [ ] `Emit` from a module checks the event type is in its `owns`; violations are logged and dropped
+- [x] Registry: register modules, topological start order by `requires`, reverse order on stop
+- [x] Refuse at startup: missing dependency, dependency cycle, overlapping `owns`, action type outside `owns`
+- [x] Event bus: `Subscribe(filter)` with glob filters (`instance.*`, `*`), bounded per-subscriber buffer; a subscriber that falls behind is dropped and receives a final `bus.lagged` event (publishers never block)
+- [x] `Emit` from a module checks the event type is in its `owns`; violations are logged and dropped
 
 **Tests** (fake modules in `internal/testutil`)
 - Start order for a diamond dependency graph; reverse stop order.
@@ -167,6 +167,8 @@ Build in the order below; each step has its own tests and does not depend on lat
 - Glob matching table.
 - Fan-out to N subscribers; a blocked subscriber does not delay others (`goleak` + timing with fake clock).
 - A module emitting outside its namespace is rejected.
+
+*Done 2026-10-07: `core/registry.go`, `core/bus.go` (97.6% coverage, goleak on every core test). The core reserves `action.*`, `bus.*` and `core.*` for its own events. A module whose `Start` fails stops the ones already started, so nothing is left half-started. Emit rights are per declared event type, not just per namespace.*
 
 ### 3.3 Core: the action pipeline
 

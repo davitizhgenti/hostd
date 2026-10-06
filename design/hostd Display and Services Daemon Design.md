@@ -91,7 +91,7 @@ type Core interface {
 
 **Four rules keep modules independent**
 
-1. A module owns its namespaces: only `audio` handles `audio.*` and `media.*` actions and emits those events. Each manifest declares the namespaces it owns (`owns`); the core refuses overlapping claims at startup and rejects any action or event outside them.
+1. A module owns its namespaces: only `audio` handles `audio.*` and `media.*` actions and emits those events. Each manifest declares the namespaces it owns (`owns`); the core refuses overlapping claims at startup and rejects any action or event outside them. The core keeps `action.*`, `bus.*` and `core.*` for its own events.
 2. Modules never touch each other's resources. Cross-module work goes through `core.Do`, so priority, permissions and the audit trail always apply. Example: `automation` applies a scene only by sending actions.
 3. A module declares what it `requires` (`deploy` requires `apps`); the core starts modules in dependency order and refuses a missing dependency at startup.
 4. Extension points inside a module follow the same pattern: the `apps` module accepts runners and catalog sources, `display` and `audio` accept backends, each as a Go interface for built-ins or the socket contract for external ones.
