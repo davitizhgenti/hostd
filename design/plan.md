@@ -50,14 +50,8 @@ Current dev machine (checked 2026-10-04): x86_64, Debian 13, systemd 257, git 2.
 
 Integration tests run **in containers**, so the dev desktop session is never touched.
 
-### 1.3 devbox: the mini PC in a container (until hardware exists)
-
-- [x] `test/devbox/`: one Podman container with systemd as PID 1, the `screen` user with lingering, headless Sway (VNC on `127.0.0.1:5900`), PipeWire with fake sinks, rootless Podman and mako. `make devbox`, `make devbox-check` (16 checks, all passing 2026-10-05), `make devbox-shell`. See [test/devbox/README.md](../test/devbox/README.md).
-- Each milestone's manual gate runs here first, then on the real machine. It covers M1, M4 and M5 fully and M2/M3 partly (no controllers, games, HDMI or Bluetooth).
-- It is also the starting point for the `hostd-all` integration image (§9.3).
-
 ### 1.2 Target machine (mini PC)
-- [x] Debian 13, user `screen` (no sudo), member of `input`, `video`, `render`. Machine `core` (192.168.18.33): Ryzen 5 2400G, GTX 1050 Ti on nouveau, Epson projector on HDMI-A-1 at 1280×800.
+- [x] Debian 13, user `screen` (no sudo), member of `input`, `video`, `render`. Machine `core` (192.168.18.33): Ryzen 5 2400G, GTX 1050 Ti (NVIDIA 550 driver), Epson projector on HDMI-A-1 at 1280×800.
 - [x] greetd autologin → Sway session; PipeWire + WirePlumber user services. **greetd needs `vt = 7`**: Debian runs agetty on tty1, and with `vt = 1` the session died silently.
 - [x] `loginctl enable-linger screen`
 - [~] Rootless Podman (or rootless Docker) socket for `screen` (Podman 5.4.2 installed; socket not enabled yet)
@@ -65,6 +59,19 @@ Integration tests run **in containers**, so the dev desktop session is never tou
 - [x] Install `grim` (screenshots for checks)
 - [x] GPU: **proprietary NVIDIA 550** (Debian `nvidia-driver`, contrib/non-free). `nvidia-drm modeset=1 fbdev=1`; greetd runs `env WLR_NO_HARDWARE_CURSORS=1 sway --unsupported-gpu`. Reclocking works (139–1987 MHz), unlike nouveau.
 - [x] mako `layer=overlay` (`~/.config/mako/config`): the default `top` layer is hidden under fullscreen windows, so notices would not show over games.
+
+### 1.2.1 Installer
+
+- [x] `deploy/install.sh`: everything in §1.2, done by hand on `core`, as one re-runnable script for a fresh Debian 13 machine (NVIDIA driver when present, packages, `screen` user, SSH keys, lingering, Podman socket, Sway and mako config, greetd on VT 7). Installing hostd itself is added once M1 has a release.
+- [x] `make test-install`: runs it twice on a fresh Debian 13 container; the second run must change nothing, then 15 checks on the result. Not covered there: the NVIDIA driver, greetd on a real console, reboot. Those are covered by `core` and later the VM (§9.4).
+- [x] `deploy/check.sh` checks a running machine (17 checks); `make devbox-check` and `make check-server` run the same script.
+- [ ] Run the installer on `core` (already set up by hand: expect it to fill gaps such as `curl` and the Podman socket, then pass all checks).
+
+### 1.3 devbox: the mini PC in a container (until hardware exists)
+
+- [x] `test/devbox/`: one Podman container with systemd as PID 1, the `screen` user with lingering, headless Sway (VNC on `127.0.0.1:5900`), PipeWire with fake sinks, rootless Podman and mako. `make devbox`, `make devbox-check` (16 checks, all passing 2026-10-05), `make devbox-shell`. See [test/devbox/README.md](../test/devbox/README.md).
+- Each milestone's manual gate runs here first, then on the real machine. It covers M1, M4 and M5 fully and M2/M3 partly (no controllers, games, HDMI or Bluetooth).
+- It is also the starting point for the `hostd-all` integration image (§9.3).
 
 ---
 
@@ -479,7 +486,7 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
 - [ ] **OpenAPI** generated from manifests at `/v1/openapi.json`; golden-file test; validated with an OpenAPI linter in CI
 - [ ] **External modules:** core host for JSON-RPC over a unix socket (`hostd.handshake`, `manifest`, `start`, `handle`, `stop`, `emit`, `do`, `subscribe`); process supervision with backoff; same ownership rules. Protocol spec in `sdk/PROTOCOL.md`.
 - [ ] `examples/python-module`: a `lights`-style example using only the standard library
-- [ ] **Packaging:** nfpm `.deb` (binaries, user units, docs); `install.sh` creates the `screen` user, enables lingering, installs greetd + Sway config
+- [ ] **Packaging:** nfpm `.deb` (binaries, user units, docs); `deploy/install.sh` (base system done early, §1.2.1) gains the hostd install step
 - [ ] **Releases:** GitHub Actions builds `amd64` + `arm64`, signs the checksum file (minisign or cosign); hostd verifies before staging
 - [ ] **Update channels:** `github-release` (stable/prerelease), `github-branch` (build on the server), `push-only`; `apply = auto|notify|manual`; wait-for-quiet (no deploy/scene in progress, max 5 min)
 - [ ] **Full rollback:** dedicated `hostd-rollback.service`, crash-loop detection (3 failures), state/config migration from the backup

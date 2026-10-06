@@ -1,0 +1,6 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Draw notices above fullscreen windows (games). mako's default layer, top,
+# is hidden under fullscreen windows in Sway.
+layer=overlay
+anchor=top-right
+default-timeout=8000

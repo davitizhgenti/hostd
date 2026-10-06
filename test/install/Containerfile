@@ -1,0 +1,22 @@
+# A "fresh computer" for testing deploy/install.sh: minimal Debian 13 with
+# systemd, and an admin user with sudo and an SSH key, as after a normal
+# Debian install with ssh-copy-id.
+FROM docker.io/library/debian:trixie
+
+ENV container=podman
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus sudo \
+ && apt-get clean && rm -rf /var/lib/apt/lists/* \
+ && systemctl mask systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
+      getty@tty1.service console-getty.service systemd-modules-load.service \
+      proc-sys-fs-binfmt_misc.automount sys-kernel-config.mount sys-kernel-debug.mount \
+      sys-kernel-tracing.mount \
+ && useradd -m -s /bin/bash -G sudo admin \
+ && echo "admin ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/admin \
+ && install -d -m 700 -o admin -g admin /home/admin/.ssh \
+ && echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostdInstallTestKeyNotARealKey0000000000 laptop" \
+      > /home/admin/.ssh/authorized_keys \
+ && chown admin:admin /home/admin/.ssh/authorized_keys && chmod 600 /home/admin/.ssh/authorized_keys
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

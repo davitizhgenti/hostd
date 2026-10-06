@@ -1,0 +1,16 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+#
+# Log the screen user straight into Sway at boot, with no login prompt.
+# VT 7, not 1: Debian runs a text login (agetty) on tty1, and a Sway session
+# started there dies silently. Debian's greetd unit already reserves tty7.
+
+[terminal]
+vt = 7
+
+[default_session]
+command = "agreety --cmd /bin/sh"
+user = "_greetd"
+
+[initial_session]
+command = "@SWAY_COMMAND@"
+user = "@SCREEN_USER@"

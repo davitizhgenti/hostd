@@ -7,7 +7,8 @@ FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
 .PHONY: all build test test-integration test-e2e fuzz lint cover tidy clean \
-	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop
+	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop \
+	check-server test-install
 
 all: lint test build
 
@@ -78,7 +79,7 @@ devbox: devbox-build build
 		--systemd=always --privileged \
 		-p 127.0.0.1:5900:5900 -p 127.0.0.1:7300:7300 \
 		-v $(CURDIR)/bin:/opt/hostd/bin:ro \
-		-v $(CURDIR)/test/devbox:/opt/devbox:ro \
+		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro \
 		-v $(DEVBOX)-containers:/home/screen/.local/share/containers \
 		$(DEVBOX)
 	@echo "devbox started: make devbox-check, make devbox-shell, VNC to 127.0.0.1:5900"
@@ -87,8 +88,8 @@ devbox-shell:
 	$(PODMAN) exec -it -u screen -w /home/screen $(DEVBOX) bash
 
 devbox-check:
-	$(DEVBOX_EXEC) bash /opt/devbox/check.sh; rc=$$?; \
-	$(PODMAN) cp $(DEVBOX):/tmp/devbox-screen.png bin/devbox-screen.png 2>/dev/null && \
+	$(DEVBOX_EXEC) bash /opt/hostd-deploy/check.sh; rc=$$?; \
+	$(PODMAN) cp $(DEVBOX):/tmp/hostd-check.png bin/devbox-screen.png 2>/dev/null && \
 		echo "screenshot: bin/devbox-screen.png"; exit $$rc
 
 devbox-logs:
@@ -96,3 +97,33 @@ devbox-logs:
 
 devbox-stop:
 	$(PODMAN) rm -f $(DEVBOX)
+
+# --- the real machine ---------------------------------------------------------
+# SERVER is an SSH destination that logs in as the screen user.
+SERVER ?= core-screen
+
+# Runs deploy/check.sh on the server and copies its screenshot back.
+check-server:
+	ssh $(SERVER) 'bash -s' < deploy/check.sh; rc=$$?; \
+	scp -q $(SERVER):/tmp/hostd-check.png bin/server-screen.png 2>/dev/null && \
+		echo "screenshot: bin/server-screen.png"; exit $$rc
+
+# Runs deploy/install.sh twice on a fresh Debian 13 container and checks the
+# result; the second run must change nothing. Covers everything except the
+# NVIDIA driver, greetd on a real console and the reboot.
+INSTALL_TEST := hostd-install-test
+
+test-install:
+	$(PODMAN) build -q -t $(INSTALL_TEST) test/install >/dev/null
+	-@$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null 2>&1
+	$(PODMAN) run -d --name $(INSTALL_TEST) --systemd=always --privileged \
+		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro -v $(CURDIR)/test/install:/opt/hostd-test:ro \
+		$(INSTALL_TEST) >/dev/null
+	@$(PODMAN) exec $(INSTALL_TEST) systemctl is-system-running --wait >/dev/null || true
+	@mkdir -p bin
+	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other
+	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other | tee bin/install-second-run.log
+	grep -q "No changes needed" bin/install-second-run.log
+	$(PODMAN) exec $(INSTALL_TEST) bash /opt/hostd-test/verify.sh
+	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null
+	@echo "install test passed"
