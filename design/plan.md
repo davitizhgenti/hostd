@@ -54,7 +54,7 @@ Integration tests run **in containers**, so the dev desktop session is never tou
 - [x] Debian 13, user `screen` (no sudo), member of `input`, `video`, `render`. Machine `core` (192.168.18.33): Ryzen 5 2400G, GTX 1050 Ti (NVIDIA 550 driver), Epson projector on HDMI-A-1 at 1280×800.
 - [x] greetd autologin → Sway session; PipeWire + WirePlumber user services. **greetd needs `vt = 7`**: Debian runs agetty on tty1, and with `vt = 1` the session died silently.
 - [x] `loginctl enable-linger screen`
-- [~] Rootless Podman (or rootless Docker) socket for `screen` (Podman 5.4.2 installed; socket not enabled yet)
+- [x] Rootless Podman (or rootless Docker) socket for `screen` (Podman 5.4.2; socket enabled by the installer)
 - [x] SSH key from the laptop in `screen`'s `authorized_keys` (aliases `core` and `core-screen`)
 - [x] Install `grim` (screenshots for checks)
 - [x] GPU: **proprietary NVIDIA 550** (Debian `nvidia-driver`, contrib/non-free). `nvidia-drm modeset=1 fbdev=1`; greetd runs `env WLR_NO_HARDWARE_CURSORS=1 sway --unsupported-gpu`. Reclocking works (139–1987 MHz), unlike nouveau.
@@ -65,7 +65,7 @@ Integration tests run **in containers**, so the dev desktop session is never tou
 - [x] `deploy/install.sh`: everything in §1.2, done by hand on `core`, as one re-runnable script for a fresh Debian 13 machine (NVIDIA driver when present, packages, `screen` user, SSH keys, lingering, Podman socket, Sway and mako config, greetd on VT 7). Installing hostd itself is added once M1 has a release.
 - [x] `make test-install`: runs it twice on a fresh Debian 13 container; the second run must change nothing, then 15 checks on the result. Not covered there: the NVIDIA driver, greetd on a real console, reboot. Those are covered by `core` and later the VM (§9.4).
 - [x] `deploy/check.sh` checks a running machine (17 checks); `make devbox-check` and `make check-server` run the same script.
-- [ ] Run the installer on `core` (already set up by hand: expect it to fill gaps such as `curl` and the Podman socket, then pass all checks).
+- [x] Run the installer on `core`: it filled the gaps from the manual setup (`xwayland`, `libnotify-bin`, `curl`, Podman socket), a second run changed nothing, and after a clean reboot `make check-server` passes 17/17 (2026-10-07).
 
 ### 1.3 devbox: the mini PC in a container (until hardware exists)
 
@@ -119,14 +119,14 @@ hostd/
 | `lint` | `golangci-lint run`, `govulncheck ./...` |
 | `cover` | coverage report, fails if `core/` < 85 % |
 
-- [~] CI (GitHub Actions): `.github/workflows/ci.yml` runs lint, test, build, cover on every push; integration and nightly jobs are added when those tests exist
+- [x] CI (GitHub Actions): `.github/workflows/ci.yml` runs lint, test, build, cover on every push; integration and nightly jobs are added when those tests exist
   - `lint` + `test` on every push
   - `test-integration` on every PR (Ubuntu runner with podman)
   - nightly: `fuzz` (5 min per target) + `test-e2e`
 - [x] `internal/clock`: `Clock` interface (`Now`, `After`, `NewTimer`, `NewTicker`) with a fake you can `Advance(d)`. **Every time-dependent component takes a `Clock`**: holds, idle detection, cooldowns, polling, timeouts, audit timestamps.
 - [x] `internal/ids`: monotonic ULIDs with prefixes.
 
-**Done when:** `make build test lint` pass on an empty skeleton in CI. *Locally passing (2026-10-05); not yet run on GitHub, since nothing is pushed.*
+**Done when:** `make build test lint` pass on an empty skeleton in CI. *Passing on GitHub Actions since the first push (2026-10-06).*
 
 ---
 
