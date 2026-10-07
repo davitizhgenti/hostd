@@ -290,15 +290,15 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.8 Module `apps`: instances and runners
 
-- [ ] `Runner` interface (design): `Start`, `Stop`, `Status`, `Logs`, `Events`, plus `Adopt(ctx) ([]Instance, error)`
-- [ ] Instance state machine: `starting → running → stopping → exited`; `starting|running → failed`. Emits `instance.starting/started/exited/failed`.
-- [ ] IDs: `<app>` for single instances, `<app>#<n>` for extra copies; `hostctl focus firefox` resolves when exactly one instance runs
-- [ ] `policy`/`if_running`: `focus` → `core.Do(window.focus)`; `new` → new instance; `restart` → `core.Do(instance.stop)` (reenters `instance:<id>`, §3.3), then start
-- [ ] **`exec` runner:** launches each instance as a transient systemd **service** `hostd-<instance>.service` (`Type=exec`, what `systemd-run --user` does) via `coreos/go-systemd/v22/dbus` `StartTransientUnit`. Not a scope: a scope can only adopt a process that already exists, so hostd would have to fork the app, the app would be hostd's child, and after a hostd restart nobody could collect its exit status. With a service, systemd starts the process, owns its lifetime and records `ExecMainStatus`.
+- [x] `Runner` interface (design): `Start`, `Stop`, `Status`, `Logs`, `Events`, plus `Adopt(ctx) ([]Instance, error)`
+- [x] Instance state machine: `starting → running → stopping → exited`; `starting|running → failed`. Emits `instance.starting/started/exited/failed`.
+- [x] IDs: `<app>` for single instances, `<app>#<n>` for extra copies; `hostctl focus firefox` resolves when exactly one instance runs
+- [x] `policy`/`if_running`: `focus` → `core.Do(window.focus)`; `new` → new instance; `restart` → `core.Do(instance.stop)` (reenters `instance:<id>`, §3.3), then start
+- [x] **`exec` runner:** launches each instance as a transient systemd **service** `hostd-<instance>.service` (`Type=exec`, what `systemd-run --user` does) via `coreos/go-systemd/v22/dbus` `StartTransientUnit`. Not a scope: a scope can only adopt a process that already exists, so hostd would have to fork the app, the app would be hostd's child, and after a hostd restart nobody could collect its exit status. With a service, systemd starts the process, owns its lifetime and records `ExecMainStatus`.
   - The unit's `Environment=` is set explicitly: `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE`, `DBUS_SESSION_BUS_ADDRESS`, `SWAYSOCK`, plus the app's `[env]`, because the user manager's environment may not have the session variables.
   - `instance.stop` → `StopUnit`; exit status and code read from unit properties (`ExecMainStatus`, `Result`); units set `CollectMode=inactive-or-failed` so they don't pile up.
-- [ ] **`docker` runner:** Docker Engine API over a configurable socket (default `$XDG_RUNTIME_DIR/podman/podman.sock`, then `docker.sock`). Labels `hostd.instance`, `hostd.app`. Pulls the image if missing. Mirrors `/events` into instance events. `restart` policy mapped to the container restart policy.
-- [ ] **Adoption on start:** list `hostd-*` units and labelled containers, rebuild instances, emit nothing new for already-running ones
+- [x] **`docker` runner:** Docker Engine API over a configurable socket (default `$XDG_RUNTIME_DIR/podman/podman.sock`, then `docker.sock`). Labels `hostd.instance`, `hostd.app`. Pulls the image if missing. Mirrors `/events` into instance events. `restart` policy mapped to the container restart policy.
+- [x] **Adoption on start:** list `hostd-*` units and labelled containers, rebuild instances, emit nothing new for already-running ones
 
 **Tests**
 - State machine: table of every (state, event) → next state or error.
@@ -309,6 +309,15 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
   - `docker`: rootless Podman socket in CI; start `nginx:alpine`, assert running, stop, assert exited.
   - `exec`: systemd-as-PID-1 container (`podman run --systemd=always`) with a user manager, start `sleep 300` as a transient service, kill hostd, restart hostd, assert the instance is adopted with the same ID; then make the process `exit 3` and assert hostd reports exit code 3 (proves exit status survives a hostd restart).
   - `exec` environment: a test app that prints its env shows the session variables set.
+
+*Done 2026-10-07: `modules/apps` instances, `ExecRunner` (systemd over D-Bus), `DockerRunner` (Engine API on the Podman socket), `hostctl start/stop/ps`. Tried in the devbox: `hostctl start foot` opens a real window whose process maps to `hostd-foot.service`; closing it inside Sway is noticed; a container app (nginx) starts, answers, survives a hostd restart, is found again by its labels, and stops. Decided while building:*
+- *Units use `RemainAfterExit=yes`, not `CollectMode=inactive-or-failed`: with collection the unit vanishes the moment the app exits and its exit status is lost. The runner reads the status, then stops or resets the unit. `#` in instance IDs is escaped in unit names (`hostd-firefox\x232.service`); units are recognised by their description, so units started by hand are never adopted.*
+- *The runner finds the Sway session itself (Wayland and Sway sockets in `$XDG_RUNTIME_DIR`) and refuses window apps with `module_unavailable` when Sway is not running.*
+- *Ending with a non-zero code (or a signal) is `failed`, except after `instance.stop`. A closed terminal often exits 1, so `failed` does not always mean a crash; `hostctl ps --all` shows the code.*
+- *`sdk.Core.Handles(type)` lets a module skip optional actions: `if_running = "focus"` only asks to focus a window when a display module is loaded.*
+- *A failed stop puts the instance back to running so it can be retried; a container that stopped but whose cleanup failed counts as stopped.*
+- *Building images (`build = ...`) waits for M4; docker apps need `image` for now. Flatpak, Steam and URL runners come in M2.*
+- *The installer now installs `nftables` (Podman's port publishing needs it). The devbox sets `pids_limit = 0`, because nested Podman cannot use the pids cgroup controller.*
 
 ### 3.9 Module `display`: Sway backend
 

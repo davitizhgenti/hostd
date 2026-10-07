@@ -928,3 +928,11 @@ func TestModuleState(t *testing.T) {
 	}
 	_ = e.Stop(context.Background())
 }
+
+func TestHandles(t *testing.T) {
+	h := newHarness(t, Options{})
+	c := h.res.Core()
+	if !c.Handles("res.set") || c.Handles("window.focus") || c.Handles("res.nope") {
+		t.Fatal("Handles wrong")
+	}
+}

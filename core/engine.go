@@ -613,6 +613,11 @@ func (mc moduleCore) Subscribe(ctx context.Context, filter string) <-chan sdk.Ev
 	return mc.e.bus.Subscribe(ctx, filter)
 }
 
+func (mc moduleCore) Handles(actionType string) bool {
+	m, _, ok := mc.e.reg.lookup(actionType)
+	return ok && mc.e.reg.started(m)
+}
+
 // Do sends an action for a module. Called with a handler's context, the
 // action joins that chain: same origin and authorization, Parent set, and
 // it may reuse the keys its ancestors hold. Otherwise it is the module's

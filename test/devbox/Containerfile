@@ -13,7 +13,7 @@ RUN apt-get update \
       systemd systemd-sysv dbus dbus-user-session libpam-systemd \
       sway wayvnc foot mako-notifier libnotify-bin grim \
       pipewire pipewire-pulse pipewire-bin wireplumber pulseaudio-utils rtkit \
-      podman crun fuse-overlayfs uidmap passt catatonit \
+      podman crun fuse-overlayfs uidmap passt catatonit nftables \
       ca-certificates curl jq procps iproute2 less git fonts-dejavu-core \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

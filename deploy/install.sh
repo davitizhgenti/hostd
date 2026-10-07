@@ -117,7 +117,7 @@ log "Installing packages"
 PACKAGES=(
 	sway swaybg xwayland foot greetd mako-notifier libnotify-bin wayvnc grim
 	pipewire pipewire-pulse wireplumber rtkit dbus-user-session
-	podman uidmap fuse-overlayfs passt catatonit
+	podman uidmap fuse-overlayfs passt catatonit nftables
 	jq curl ca-certificates
 )
 if [ "$GPU" = nvidia ]; then
@@ -277,7 +277,12 @@ if [ -n "$FROM" ]; then
 	info "using the binaries in $FROM"
 else
 	for f in "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS; do
-		curl -fsSL --retry 3 -o "$work/$f" "$RELEASE_URL/$f" || die "cannot download $RELEASE_URL/$f"
+		if ! curl -fsSL --retry 3 -o "$work/$f" "$RELEASE_URL/$f" 2>"$work/curl.err"; then
+			if grep -q "404" "$work/curl.err"; then
+				die "no published build at $RELEASE_URL yet. CI publishes one a few minutes after each push to main; try again shortly"
+			fi
+			die "cannot download $RELEASE_URL/$f: $(cat "$work/curl.err")"
+		fi
 	done
 	(cd "$work" && sha256sum --check --ignore-missing --quiet SHA256SUMS) || die "downloaded binaries do not match SHA256SUMS"
 	mv "$work/hostd-linux-$ARCH" "$work/hostd"

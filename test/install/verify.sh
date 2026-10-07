@@ -27,5 +27,5 @@ t "hostctl installed for everyone"     'test -x /usr/local/bin/hostctl'
 t "screen user hostctl is logged in"   'runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl version | grep -q "^hostd "'
 t "admin token file used up"           '! test -e /run/user/$(id -u screen)/hostd-admin-token'
 t "screen user hostctl config private" '[ "$(stat -c "%U %a" /home/screen/.config/hostctl/config.toml)" = "screen 600" ]'
-t "packages present"                   'for b in sway foot mako wayvnc grim wpctl podman greetd; do command -v $b || exit 1; done'
+t "packages present"                   'for b in sway foot mako wayvnc grim wpctl podman greetd /usr/sbin/nft; do command -v $b || exit 1; done'
 exit $fail

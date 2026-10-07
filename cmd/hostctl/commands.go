@@ -25,7 +25,8 @@ import (
 // looked up in the server's manifests.
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "apps": true, "help": true, "completion": true,
+	"action": true, "apps": true, "start": true, "stop": true, "ps": true,
+	"help": true, "completion": true,
 }
 
 func (a *app) rootCommand() *cobra.Command {
@@ -43,7 +44,7 @@ see them all.`,
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
-		a.eventsCommand(), a.actionCommand(), a.appsCommand())
+		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand())
 	return root
 }
 
@@ -303,7 +304,7 @@ func (a *app) logCommand() *cobra.Command {
 			tw := tabwriter.NewWriter(a.stdout, 0, 0, 3, ' ', 0)
 			for i := len(recs) - 1; i >= 0; i-- {
 				r := recs[i]
-				what := strings.TrimSpace(r.Type + " " + argSummary(r.Args))
+				what := strings.TrimSpace(r.Type + " " + shorten(argSummary(r.Args), 40))
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Time.Local().Format("15:04:05"), what, r.Source, outcome(r))
 			}
 			return tw.Flush()
@@ -341,6 +342,15 @@ func argSummary(raw json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
+// shorten cuts s to n runes, marking the cut with "…".
+func shorten(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
 func outcome(r client.AuditRecord) string {
 	switch r.Status {
 	case "skipped":
@@ -349,7 +359,7 @@ func outcome(r client.AuditRecord) string {
 		}
 		return "skipped\t" + r.Reason
 	case "failed":
-		return fmt.Sprintf("failed\t%s: %s", r.Code, r.Reason)
+		return fmt.Sprintf("failed\t%s: %s", r.Code, shorten(r.Reason, 80))
 	default:
 		if r.Version > 0 {
 			return fmt.Sprintf("%s\tv%d", r.Status, r.Version)
@@ -569,4 +579,132 @@ func (a *app) appsCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "include hidden apps")
 	return cmd
+}
+
+// --- start, stop, ps ----------------------------------------------------------
+
+func (a *app) startCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "start <app>",
+		Short: "Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)",
+		Example: `  hostctl start foot
+  hostctl start jellyfin`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "app.start", Args: mustArgs(map[string]string{"id": args[0]})})
+			if err != nil || a.jsonOut {
+				return err
+			}
+			var d struct {
+				Instance       string `json:"instance"`
+				State          string `json:"state"`
+				AlreadyRunning bool   `json:"already_running"`
+			}
+			_ = json.Unmarshal(res.Data, &d)
+			switch {
+			case res.Status == sdk.StatusSkipped:
+				fmt.Fprintf(a.stdout, "skipped: held by %s\n", res.HeldBy)
+			case d.AlreadyRunning:
+				fmt.Fprintf(a.stdout, "%s is already running\n", d.Instance)
+			default:
+				fmt.Fprintf(a.stdout, "started %s (%s)\n", d.Instance, d.State)
+			}
+			return nil
+		},
+	}
+}
+
+func (a *app) stopCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "stop <instance>",
+		Short:   "Stop a running instance (see hostctl ps)",
+		Example: "  hostctl stop foot\n  hostctl stop firefox#2",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "instance.stop", Args: mustArgs(map[string]string{"id": args[0]})})
+			if err != nil || a.jsonOut {
+				return err
+			}
+			if res.Status == sdk.StatusSkipped {
+				fmt.Fprintf(a.stdout, "skipped: held by %s\n", res.HeldBy)
+				return nil
+			}
+			fmt.Fprintf(a.stdout, "stopped %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func (a *app) psCommand() *cobra.Command {
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "ps",
+		Short: "List running instances",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			path := "/v1/instances"
+			if all {
+				path += "?all=true"
+			}
+			var list []struct {
+				ID       string     `json:"id"`
+				App      string     `json:"app"`
+				Runner   string     `json:"runner"`
+				State    string     `json:"state"`
+				PID      int        `json:"pid"`
+				Started  time.Time  `json:"started"`
+				Ended    *time.Time `json:"ended"`
+				ExitCode *int       `json:"exit_code"`
+				Error    string     `json:"error"`
+			}
+			if err := c.Get(cmd.Context(), path, &list); err != nil {
+				return err
+			}
+			if a.jsonOut {
+				return a.printJSON(list)
+			}
+			tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "INSTANCE\tAPP\tRUNNER\tSTATE\tPID\tSINCE")
+			for _, in := range list {
+				since := in.Started
+				state := in.State
+				if in.Ended != nil {
+					since = *in.Ended
+					if in.ExitCode != nil {
+						state += fmt.Sprintf(" (%d)", *in.ExitCode)
+					}
+				}
+				pid := "-"
+				if in.PID > 0 && in.Ended == nil {
+					pid = strconv.Itoa(in.PID)
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", in.ID, in.App, in.Runner, state, pid, since.Local().Format("15:04:05"))
+			}
+			return tw.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "also show instances that ended recently")
+	return cmd
+}
+
+// submitQuiet sends an action and returns its result without printing it.
+func (a *app) submitQuiet(cmd *cobra.Command, req client.ActionRequest) (sdk.Result, error) {
+	c, err := a.client()
+	if err != nil {
+		return sdk.Result{}, err
+	}
+	res, err := c.Submit(cmd.Context(), req)
+	if err == nil && a.jsonOut {
+		err = a.printJSON(res)
+	}
+	return res, err
+}
+
+func mustArgs(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
 }

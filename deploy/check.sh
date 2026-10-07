@@ -88,6 +88,14 @@ echo "containers"
 check "podman API socket answers" bash -c 'curl -fsS --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/_ping | grep -q OK'
 check "run a container" bash -c 'podman run --rm docker.io/library/alpine:latest echo hello | grep -q hello'
 
+echo "hostd"
+if systemctl --user cat hostd.service >/dev/null 2>&1; then
+	check "hostd service is running" systemctl --user is-active --quiet hostd
+	check "hostctl talks to hostd" bash -c 'hostctl version | grep -q "^hostd "'
+else
+	echo "  (hostd not installed as a service here; skipped)"
+fi
+
 echo "screenshot"
 check "grim captures the screen to $SHOT" grim "$SHOT"
 

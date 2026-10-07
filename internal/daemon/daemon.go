@@ -58,8 +58,17 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	home, _ := os.UserHomeDir()
+	systemd := &apps.UserSystemd{}
+	defer systemd.Close()
 	mods := []sdk.Module{
-		apps.New(apps.Options{DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log}),
+		apps.New(apps.Options{
+			DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log,
+			Backends: map[string]apps.Backend{
+				apps.RunnerExec:   &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home},
+				apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
+			},
+		}),
 	}
 	if *withDemo {
 		mods = append(mods, demo.New())

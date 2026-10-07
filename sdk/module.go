@@ -42,6 +42,11 @@ type Core interface {
 	// Subscribe delivers events whose type matches filter (see MatchType)
 	// until ctx is done, then closes the channel.
 	Subscribe(ctx context.Context, filter string) <-chan Event
+
+	// Handles reports whether some loaded module handles an action type,
+	// so a module can skip optional work (focusing a window on a machine
+	// without a display) instead of sending an action that must fail.
+	Handles(actionType string) bool
 }
 
 // StateReporter is implemented by modules that expose their current state

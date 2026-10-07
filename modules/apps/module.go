@@ -32,6 +32,10 @@ type Options struct {
 	Desktop     string   // for OnlyShowIn/NotShowIn; default "sway"
 	LookPath    func(string) (string, error)
 
+	// Backends run instances, by runner type (exec, docker...). Apps
+	// whose runner has no backend are in the catalog but cannot start.
+	Backends map[string]Backend
+
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	Debounce time.Duration // wait after the last file change before rescanning (default 500ms)
@@ -62,6 +66,11 @@ type Module struct {
 
 	watcher *fsnotify.Watcher
 	done    chan struct{}
+
+	instances   map[string]*Instance // live instances by ID
+	ended       []Instance           // recently ended, newest first
+	stopWatch   context.CancelFunc
+	watchersRun sync.WaitGroup
 }
 
 // New returns the apps module.
@@ -75,7 +84,8 @@ func New(opts Options) *Module {
 	if opts.Debounce == 0 {
 		opts.Debounce = 500 * time.Millisecond
 	}
-	return &Module{opts: opts, log: opts.Logger, cat: Build(nil, nil, nil), reported: map[string]bool{}}
+	return &Module{opts: opts, log: opts.Logger, cat: Build(nil, nil, nil), reported: map[string]bool{},
+		instances: map[string]*Instance{}}
 }
 
 func (m *Module) Manifest() sdk.Manifest {
@@ -83,18 +93,18 @@ func (m *Module) Manifest() sdk.Manifest {
 		Name: "apps", Version: "0.1.0",
 		Owns:   []string{"app.*", "instance.*"},
 		Scopes: []sdk.ScopeSpec{{Name: "apps", Description: "Start and stop apps, focus and close their windows"}},
-		Actions: []sdk.ActionSpec{
+		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: "apps",
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
-		},
-		Events: []sdk.EventSpec{
+		}, instanceActions()...),
+		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
 			{Type: EventFileRejected, Description: "An app file could not be used"},
-		},
-		Reads: []sdk.ReadSpec{
+		}, instanceEvents()...),
+		Reads: append([]sdk.ReadSpec{
 			{Name: "apps", Description: "The catalog (?all=true includes hidden apps)", Path: "/v1/apps"},
 			{Name: "app", Description: "One app, by ID or alias", Path: "/v1/apps/{id}"},
-		},
+		}, instanceReads()...),
 	}
 }
 
@@ -109,6 +119,16 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 		}
 	}
 	m.rescan()
+
+	// Instances first: find what already runs, then follow it.
+	m.adopt(context.Background())
+	wctx, cancel := context.WithCancel(context.Background())
+	m.stopWatch = cancel
+	for name, b := range m.opts.Backends {
+		m.watchersRun.Add(1)
+		go func() { defer m.watchersRun.Done(); m.watchBackend(wctx, name, b) }()
+	}
+
 	if m.opts.NoWatch {
 		return nil
 	}
@@ -131,6 +151,10 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 }
 
 func (m *Module) Stop(context.Context) error {
+	if m.stopWatch != nil {
+		m.stopWatch()
+		m.watchersRun.Wait()
+	}
 	if m.watcher != nil {
 		_ = m.watcher.Close()
 		<-m.done
@@ -228,9 +252,23 @@ func diff(old, cur *Catalog) (added, removed, changed []string) {
 	return added, removed, changed
 }
 
-func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
+func (m *Module) Validate(_ context.Context, a sdk.Action) error {
+	switch a.Type {
+	case "app.start":
+		return m.validateStart(a)
+	case "instance.stop":
+		return m.validateStop(a)
+	}
+	return nil
+}
 
-func (m *Module) Handle(_ context.Context, a sdk.Action) (sdk.Result, error) {
+func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	switch a.Type {
+	case "app.start":
+		return m.handleStart(ctx, a)
+	case "instance.stop":
+		return m.handleStop(ctx, a)
+	}
 	if a.Type == "app.rescan" {
 		m.rescan()
 		cat := m.catalog()
@@ -269,13 +307,18 @@ func (m *Module) Read(_ context.Context, name string, params map[string]string) 
 			return a, nil
 		}
 		return nil, sdk.Errorf(sdk.CodeNotFound, "no app %q", params["id"])
+	case "instances":
+		return m.readInstances(params), nil
+	case "instance":
+		return m.readInstance(params["id"])
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "apps module has no read %q", name)
 }
 
-// State is the whole catalog, hidden apps included.
+// State is the whole catalog, hidden apps included, and the instances.
 func (m *Module) State(ctx context.Context) (any, error) {
-	return m.Read(ctx, "apps", map[string]string{"all": "true"})
+	apps, _ := m.Read(ctx, "apps", map[string]string{"all": "true"})
+	return map[string]any{"catalog": apps, "instances": m.readInstances(map[string]string{"all": "true"})}, nil
 }
 
 func mustJSON(v any) json.RawMessage {

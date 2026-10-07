@@ -266,6 +266,7 @@ func (f *fakeCore) Do(context.Context, sdk.Action) (sdk.Result, error) {
 	return sdk.Result{}, nil
 }
 func (f *fakeCore) Subscribe(context.Context, string) <-chan sdk.Event { return nil }
+func (f *fakeCore) Handles(string) bool                                { return false }
 func (f *fakeCore) take() []sdk.Event {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -342,7 +343,7 @@ func TestModuleReadsAndRescan(t *testing.T) {
 	if ev := core.take(); len(ev) != 0 {
 		t.Fatalf("problem reported twice: %+v", ev)
 	}
-	if st, _ := m.State(ctx); len(st.(AppList).Problems) == 0 {
+	if st, _ := m.State(ctx); len(st.(map[string]any)["catalog"].(AppList).Problems) == 0 {
 		t.Fatal("State has no problems")
 	}
 }
