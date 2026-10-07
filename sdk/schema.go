@@ -97,12 +97,26 @@ var printer = message.NewPrinter(language.English)
 
 // problems flattens a validation error into one line per failing value,
 // such as "/percent: maximum: got 200, want 150".
+//
+// When a value may take several forms (oneOf, anyOf) and failed them all,
+// the forms that failed only on their type say nothing useful ("got
+// number, want string"), so they are left out if another form of the same
+// value failed for a real reason ("maximum: got 200, want 150").
 func problems(ve *jsonschema.ValidationError) []string {
-	var out []string
+	type leaf struct {
+		loc, msg string
+		typeOnly bool
+	}
+	var leaves []leaf
 	var walk func(*jsonschema.ValidationError)
 	walk = func(e *jsonschema.ValidationError) {
 		if len(e.Causes) == 0 {
-			out = append(out, "/"+strings.Join(e.InstanceLocation, "/")+": "+e.ErrorKind.LocalizedString(printer))
+			kp := e.ErrorKind.KeywordPath()
+			leaves = append(leaves, leaf{
+				loc:      "/" + strings.Join(e.InstanceLocation, "/"),
+				msg:      e.ErrorKind.LocalizedString(printer),
+				typeOnly: len(kp) > 0 && kp[len(kp)-1] == "type",
+			})
 			return
 		}
 		for _, c := range e.Causes {
@@ -110,6 +124,19 @@ func problems(ve *jsonschema.ValidationError) []string {
 		}
 	}
 	walk(ve)
+	realAt := map[string]bool{}
+	for _, l := range leaves {
+		if !l.typeOnly {
+			realAt[l.loc] = true
+		}
+	}
+	var out []string
+	for _, l := range leaves {
+		if l.typeOnly && realAt[l.loc] {
+			continue
+		}
+		out = append(out, l.loc+": "+l.msg)
+	}
 	sort.Strings(out)
 	return out
 }

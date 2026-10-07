@@ -116,3 +116,17 @@ func TestArgsSchemaCompileErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestOneOfReportsTheRealProblem(t *testing.T) {
+	s := mustCompile(t, `{"type":"object","properties":{"percent":{"oneOf":[
+		{"type":"integer","minimum":0,"maximum":150},{"type":"string","pattern":"^[+-][0-9]+$"}]}}}`)
+	err := s.Validate(json.RawMessage(`{"percent":200}`))
+	if err == nil || strings.Contains(err.Error(), "want string") || !strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("err = %v; want only the maximum problem", err)
+	}
+	// When every form fails only on its type, those are the message.
+	err = s.Validate(json.RawMessage(`{"percent":true}`))
+	if err == nil || !strings.Contains(err.Error(), "want") {
+		t.Fatalf("err = %v", err)
+	}
+}

@@ -196,6 +196,10 @@ func convert(name, typ, v string) (json.RawMessage, error) {
 	case "string":
 		return json.Marshal(v)
 	default: // untyped: JSON if it parses, else a string
+		// "+5" and "-5" are relative changes (e.g. volume), not numbers.
+		if (strings.HasPrefix(v, "+") || strings.HasPrefix(v, "-")) && len(v) > 1 {
+			return json.Marshal(v)
+		}
 		if json.Valid([]byte(v)) {
 			return json.RawMessage(v), nil
 		}

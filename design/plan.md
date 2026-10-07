@@ -347,17 +347,22 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.10 Module `audio`: master volume and mute
 
-- [ ] `AudioBackend` interface: `Master()`, `SetVolume(pct)`, `SetMute(bool)`, `Subscribe()`
-- [ ] `wireplumber` backend: `wpctl get-volume|set-volume|set-mute @DEFAULT_AUDIO_SINK@`; mirroring via `pw-dump --monitor` (JSON stream), debounced
-- [ ] Actions: `audio.volume.set` (absolute 0–150, or relative `+5`/`-5`, clamped), `audio.mute.set` (`true|false|toggle`)
-- [ ] External changes → `audio.volume.changed` with source `external`, status `observed`, version bump, no hold
-- [ ] Module waits for PipeWire (the user service may start after hostd); `module_unavailable` until then
+- [x] `AudioBackend` interface: `Master()`, `SetVolume(pct)`, `SetMute(bool)`, `Subscribe()`
+- [x] `wireplumber` backend: `wpctl get-volume|set-volume|set-mute @DEFAULT_AUDIO_SINK@`; mirroring via `pw-dump --monitor` (JSON stream), debounced
+- [x] Actions: `audio.volume.set` (absolute 0–150, or relative `+5`/`-5`, clamped), `audio.mute.set` (`true|false|toggle`)
+- [x] External changes → `audio.volume.changed` with source `external`, status `observed`, version bump, no hold
+- [x] Module waits for PipeWire (the user service may start after hostd); `module_unavailable` until then
 
 **Tests**
 - Parsers over captured `wpctl` and `pw-dump` output (fixtures).
 - Relative/absolute/clamp table.
 - Fake backend: external change produces an observed audit entry and no hold.
 - Integration: container with `pipewire` + `wireplumber` + a `support.null-audio-sink` node as the default sink; set volume via the API, verify with `wpctl`; change with `wpctl`, verify the observed event.
+
+*Done 2026-10-07: `modules/audio` (88.8% coverage), `hostctl volume [n|+n|-n]` and `hostctl mute [on|off|toggle]`. Tried in the devbox: set, relative changes, clamping, mute toggling, and a change made with `wpctl` directly showing up as `external (pipewire) observed`. Decided while building:*
+- *`pw-dump --monitor` is only a cue that something changed; the module waits 150 ms for changes to settle, reads volume and mute with `wpctl`, and reports an outside change only if they differ from what hostd last set or saw. hostd records what it is about to set before setting it, so PipeWire's echo of hostd's own change is never reported as an outside one.*
+- *`percent` takes a number (absolute) or a signed string ("+5", "-5", relative); hostctl sends values starting with + or - as strings. `hostctl volume` reads its argument itself, so `-5` is not taken for a flag.*
+- *Validation messages for values with several accepted forms (oneOf) now leave out the forms that failed only on their type: "maximum: got 200, want 150" instead of also "got number, want string".*
 
 ### 3.11 Daemon lifecycle
 
