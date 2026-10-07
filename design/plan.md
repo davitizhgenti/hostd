@@ -67,6 +67,8 @@ Integration tests run **in containers**, so the dev desktop session is never tou
 - [x] `deploy/check.sh` checks a running machine (17 checks); `make devbox-check` and `make check-server` run the same script.
 - [x] Run the installer on `core`: it filled the gaps from the manual setup (`xwayland`, `libnotify-bin`, `curl`, Podman socket), a second run changed nothing, and after a clean reboot `make check-server` passes 17/17 (2026-10-07).
 
+- [x] The installer also installs **hostd** (2026-10-07): the binaries come from the rolling `edge` release that CI publishes after the tests pass on `main` (checked against `SHA256SUMS`; `--from DIR` installs a local build), side by side in `~screen/.local/lib/hostd/versions/<version>` with a `current` symlink; `hostd.service` is a user unit (`Type=notify`: hostd reports ready over `sd_notify` once its API listens) enabled at boot; `hostctl` goes to `/usr/local/bin`, and the screen user's hostctl is logged in with the first admin token. Nothing is set up on other computers: they use the API with their own token. `make test-install` checks all of it.
+
 ### 1.3 devbox: the mini PC in a container (until hardware exists)
 
 - [x] `test/devbox/`: one Podman container with systemd as PID 1, the `screen` user with lingering, headless Sway (VNC on `127.0.0.1:5900`), PipeWire with fake sinks, rootless Podman and mako. `make devbox`, `make devbox-check` (16 checks, all passing 2026-10-05), `make devbox-shell`. See [test/devbox/README.md](../test/devbox/README.md).

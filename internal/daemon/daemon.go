@@ -19,6 +19,7 @@ import (
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/sdnotify"
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/demo"
@@ -85,12 +86,6 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 	if err != nil {
 		return err
 	}
-	if created {
-		if err := os.WriteFile(adminFile, []byte(secret+"\n"), 0o600); err != nil {
-			return err
-		}
-		fmt.Fprintf(stderr, "\nFirst start: created the admin token. It is shown only now, and saved in\n%s\nuntil its first use. On your laptop: hostctl login <address>\n\n    %s\n\n", adminFile, secret)
-	}
 
 	// Built-in modules are added here as they are written (M1 steps 3.7 on).
 	reg := core.NewRegistry()
@@ -111,7 +106,21 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		}
 	}()
 
-	srv, err := api.New(eng, st, api.Options{Logger: log, AdminTokenFile: adminFile})
+	// Once the API is listening: hand over the first admin token (so
+	// whoever waits for that file can use it at once), then tell systemd
+	// hostd is ready.
+	onListening := func() {
+		if created {
+			if err := os.WriteFile(adminFile, []byte(secret+"\n"), 0o600); err != nil {
+				log.Error("writing the first admin token", "file", adminFile, "err", err)
+			}
+			fmt.Fprintf(stderr, "\nFirst start: created the admin token. It is shown only now, and saved in\n%s\nuntil its first use. On your laptop: hostctl login <address>\n\n    %s\n\n", adminFile, secret)
+		}
+		if err := sdnotify.Ready(); err != nil {
+			log.Warn("telling systemd hostd is ready", "err", err)
+		}
+	}
+	srv, err := api.New(eng, st, api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening})
 	if err != nil {
 		return err
 	}
@@ -121,6 +130,7 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		err = nil
 	}
 	log.Info("hostd stopping")
+	_ = sdnotify.Stopping()
 	return err
 }
 

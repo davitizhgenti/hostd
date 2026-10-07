@@ -23,6 +23,34 @@ jobs:
       - run: make build
       - run: make cover
 
+  # After the tests pass on main, publish the binaries as the rolling
+  # "edge" pre-release. deploy/install.sh downloads them from there and
+  # checks them against SHA256SUMS.
+  edge:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: edge-release
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: make dist VERSION=edge-${GITHUB_SHA::7}
+      - name: Publish the edge release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete edge --yes --cleanup-tag || true
+          gh release create edge dist/* --prerelease --target "$GITHUB_SHA" \
+            --title "edge: latest main" \
+            --notes "Built from $GITHUB_SHA after the tests passed. deploy/install.sh installs this build."
+
 # Added as the tests appear (plan.md §2):
 #   integration: make test-integration on pull requests (podman on the runner)
 #   nightly:     make fuzz FUZZTIME=5m and make test-e2e on a schedule

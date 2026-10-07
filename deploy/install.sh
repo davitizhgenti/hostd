@@ -8,6 +8,9 @@
 #   - creates the `screen` user (no sudo) with lingering, copies the admin
 #     user's SSH keys to it, and enables its Podman API socket
 #   - logs `screen` straight into Sway at boot (greetd on VT 7)
+#   - installs hostd (from the "edge" release, checked against SHA256SUMS)
+#     as a user service that starts at boot, and hostctl in /usr/local/bin;
+#     the screen user's hostctl is logged in with the first admin token
 #
 # Safe to run again: every step checks first and changes only what is
 # missing or different. Files it manages are backed up once as *.orig.
@@ -18,11 +21,15 @@
 # Options:
 #   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
 #   --user NAME               screen user name (default: screen)
+#   --from DIR                install hostd and hostctl from DIR instead of
+#                             downloading them (e.g. a local build)
 #   -h, --help                show this help
 set -euo pipefail
 
 SCREEN_USER=screen
 GPU=auto
+FROM=""
+RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/download/edge}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FILES=$HERE/files
 
@@ -40,6 +47,7 @@ while [ $# -gt 0 ]; do
 	case $1 in
 	--gpu) GPU=${2:?--gpu needs a value}; shift 2 ;;
 	--user) SCREEN_USER=${2:?--user needs a value}; shift 2 ;;
+	--from) FROM=${2:?--from needs a directory}; shift 2 ;;
 	-h | --help) usage; exit 0 ;;
 	*) die "unknown option: $1 (see --help)" ;;
 	esac
@@ -181,7 +189,7 @@ fi
 SCREEN_HOME=$(getent passwd "$SCREEN_USER" | cut -d: -f6)
 SCREEN_UID=$(id -u "$SCREEN_USER")
 
-# SSH keys: copy the keys of the admin who ran sudo, so the laptop that
+# SSH keys: copy the keys of the admin who ran sudo, so whoever
 # reaches the admin account can reach the screen user too.
 if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
 	admin_keys=$(getent passwd "$SUDO_USER" | cut -d: -f6)/.ssh/authorized_keys
@@ -245,9 +253,100 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-log "hostd"
-info "not installed: hostd has no release yet (milestone M1). Run this again"
-info "once it does; the base system above is everything hostd needs."
+log "Installing hostd"
+
+# as_screen runs a command as the screen user, inside its systemd session.
+as_screen() {
+	runuser -u "$SCREEN_USER" -- env HOME="$SCREEN_HOME" USER="$SCREEN_USER" \
+		XDG_RUNTIME_DIR="/run/user/$SCREEN_UID" \
+		DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$SCREEN_UID/bus" "$@"
+}
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+if [ -n "$FROM" ]; then
+	for cmd in hostd hostctl; do
+		if [ -f "$FROM/$cmd-linux-$ARCH" ]; then
+			cp "$FROM/$cmd-linux-$ARCH" "$work/$cmd"
+		elif [ -f "$FROM/$cmd" ]; then
+			cp "$FROM/$cmd" "$work/$cmd"
+		else
+			die "$FROM has no $cmd or $cmd-linux-$ARCH"
+		fi
+	done
+	info "using the binaries in $FROM"
+else
+	for f in "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS; do
+		curl -fsSL --retry 3 -o "$work/$f" "$RELEASE_URL/$f" || die "cannot download $RELEASE_URL/$f"
+	done
+	(cd "$work" && sha256sum --check --ignore-missing --quiet SHA256SUMS) || die "downloaded binaries do not match SHA256SUMS"
+	mv "$work/hostd-linux-$ARCH" "$work/hostd"
+	mv "$work/hostctl-linux-$ARCH" "$work/hostctl"
+	info "downloaded from $RELEASE_URL (checksums match)"
+fi
+chmod 755 "$work/hostd" "$work/hostctl"
+VERSION=$("$work/hostd" -version 2>&1 | awk '{print $2}')
+[ -n "$VERSION" ] || die "the hostd binary does not run on this machine"
+
+# Versions sit side by side; "current" points at the running one, which is
+# what updates and rollbacks switch.
+lib=$SCREEN_HOME/.local/lib/hostd
+hostd_changed=0
+if [ -f "$lib/versions/$VERSION/hostd" ] && cmp -s "$work/hostd" "$lib/versions/$VERSION/hostd"; then
+	info "hostd $VERSION already installed"
+else
+	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.local" "$SCREEN_HOME/.local/lib" \
+		"$lib" "$lib/versions" "$lib/versions/$VERSION"
+	install -m 755 -o "$SCREEN_USER" -g "$SCREEN_USER" "$work/hostd" "$lib/versions/$VERSION/hostd"
+	changed "installed hostd $VERSION"
+	hostd_changed=1
+fi
+if [ "$(readlink "$lib/current" 2>/dev/null)" != "versions/$VERSION" ]; then
+	ln -sfn "versions/$VERSION" "$lib/current"
+	chown -h "$SCREEN_USER:$SCREEN_USER" "$lib/current"
+	changed "hostd $VERSION is now the current version"
+	hostd_changed=1
+fi
+install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up to date"
+if install_file "$FILES/systemd/hostd.service" "$SCREEN_HOME/.config/systemd/user/hostd.service" 644 "$SCREEN_USER"; then
+	hostd_changed=1
+else
+	info "hostd service up to date"
+fi
+wants=$SCREEN_HOME/.config/systemd/user/default.target.wants
+if [ ! -L "$wants/hostd.service" ]; then
+	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$wants"
+	ln -s ../hostd.service "$wants/hostd.service"
+	chown -h "$SCREEN_USER:$SCREEN_USER" "$wants/hostd.service"
+	changed "hostd starts at boot"
+fi
+
+# Lingering starts the user's systemd; wait for it before talking to it.
+for _ in $(seq 1 60); do
+	[ -S "/run/user/$SCREEN_UID/bus" ] && break
+	sleep 0.5
+done
+[ -S "/run/user/$SCREEN_UID/bus" ] || die "the $SCREEN_USER user's systemd did not start"
+as_screen systemctl --user daemon-reload
+if [ $hostd_changed -eq 1 ] || ! as_screen systemctl --user is-active --quiet hostd; then
+	# Type=notify: this returns once hostd is serving, or fails.
+	if ! as_screen systemctl --user restart hostd; then
+		as_screen journalctl --user -u hostd -n 20 --no-pager >&2 || true
+		die "hostd did not start"
+	fi
+	changed "hostd is running"
+else
+	info "hostd is running"
+fi
+
+# On its first start hostd writes an admin token for the first login. Give
+# it to the screen user's own hostctl, so hostctl works on this machine and
+# can create tokens for other devices.
+token_file=/run/user/$SCREEN_UID/hostd-admin-token
+if [ -f "$token_file" ] && [ ! -f "$SCREEN_HOME/.config/hostctl/config.toml" ]; then
+	as_screen hostctl login "unix:///run/user/$SCREEN_UID/hostd.sock" --token-file "$token_file" >/dev/null
+	changed "logged the $SCREEN_USER user's hostctl in"
+fi
 
 # ---------------------------------------------------------------------------
 log "Done"
@@ -258,5 +357,8 @@ if [ $NEED_REBOOT -eq 1 ]; then
 	info "Reboot to finish: sudo reboot"
 	info "After the reboot the screen shows a plain dark background, with no login prompt."
 fi
-info "Check it from the machine as $SCREEN_USER, or from the laptop:"
-info "  ssh $SCREEN_USER@<this-machine> 'bash -s' < deploy/check.sh"
+ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+info "hostd $VERSION is running. hostctl works on this machine as $SCREEN_USER:"
+info "  ssh $SCREEN_USER@${ip:-<this-machine>} hostctl apps --all"
+info "Other devices (a phone, a script) use the API at http://${ip:-<this-machine>}:7300"
+info "with their own token, made with: hostctl token create <name> --scopes read,apps"

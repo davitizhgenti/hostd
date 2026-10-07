@@ -1,0 +1,21 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+#
+# hostd runs as the screen user, started at boot thanks to lingering.
+# Type=notify: the unit is "started" only once hostd is serving its API.
+[Unit]
+Description=hostd, the display and services daemon
+Documentation=https://github.com/davitizhgenti/hostd
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=notify
+ExecStart=%h/.local/lib/hostd/current/hostd
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=30
+# Apps run in their own units, so stopping hostd never stops them.
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

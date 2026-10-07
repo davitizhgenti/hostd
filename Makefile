@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
-.PHONY: all build test test-integration test-e2e fuzz lint cover tidy clean \
+.PHONY: all build dist test test-integration test-e2e fuzz lint cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop \
 	check-server test-install
 
@@ -14,6 +14,17 @@ all: lint test build
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/ ./cmd/...
+
+# Release binaries for every architecture, with a checksum file. CI
+# publishes these as the "edge" release that deploy/install.sh downloads.
+DIST_ARCHES ?= amd64 arm64
+dist:
+	rm -rf dist && mkdir -p dist
+	for arch in $(DIST_ARCHES); do for cmd in hostd hostctl; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
+			-o dist/$$cmd-linux-$$arch ./cmd/$$cmd || exit 1; \
+	done; done
+	cd dist && sha256sum hostd-* hostctl-* > SHA256SUMS
 
 test:
 	$(GO) test -race -shuffle=on ./...
@@ -62,7 +73,7 @@ tidy:
 	$(GO) mod tidy -modfile=tools/go.mod
 
 clean:
-	rm -rf bin coverage.out core.out
+	rm -rf bin dist coverage.out core.out
 
 # --- devbox: a stand-in for the mini PC in one Podman container -------------
 # See test/devbox/README.md. VNC on 127.0.0.1:5900, API on 127.0.0.1:7300.
@@ -113,16 +124,17 @@ check-server:
 # NVIDIA driver, greetd on a real console and the reboot.
 INSTALL_TEST := hostd-install-test
 
-test-install:
+test-install: dist
 	$(PODMAN) build -q -t $(INSTALL_TEST) test/install >/dev/null
 	-@$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null 2>&1
 	$(PODMAN) run -d --name $(INSTALL_TEST) --systemd=always --privileged \
 		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro -v $(CURDIR)/test/install:/opt/hostd-test:ro \
+		-v $(CURDIR)/dist:/opt/hostd-dist:ro \
 		$(INSTALL_TEST) >/dev/null
 	@$(PODMAN) exec $(INSTALL_TEST) systemctl is-system-running --wait >/dev/null || true
 	@mkdir -p bin
-	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other
-	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other | tee bin/install-second-run.log
+	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other --from /opt/hostd-dist
+	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other --from /opt/hostd-dist | tee bin/install-second-run.log
 	grep -q "No changes needed" bin/install-second-run.log
 	$(PODMAN) exec $(INSTALL_TEST) bash /opt/hostd-test/verify.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null

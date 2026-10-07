@@ -39,6 +39,9 @@ type Options struct {
 	// ReplayEvents is how many recent events are kept for ?since= (default
 	// 1,000).
 	ReplayEvents int
+	// OnListening, if set, runs once every listener is open, before
+	// requests are served: the moment hostd can tell systemd it is ready.
+	OnListening func()
 }
 
 // Server is the HTTP API.
@@ -187,6 +190,9 @@ func (s *Server) Serve(ctx context.Context, unixPath, tcpAddr string) error {
 		servers = append(servers, &http.Server{Handler: s.withBasics(privateOnly(s.mux)), ReadHeaderTimeout: 10 * time.Second})
 	}
 
+	if s.opts.OnListening != nil {
+		s.opts.OnListening()
+	}
 	errc := make(chan error, len(servers))
 	for i := range servers {
 		go func() { errc <- servers[i].Serve(listeners[i]) }()

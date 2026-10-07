@@ -20,5 +20,12 @@ t "greetd on VT 7, logs in screen"     'grep -qx "vt = 7" /etc/greetd/config.tom
 t "greetd starts plain sway (no GPU flags)" 'grep -qx "command = \"sway\"" /etc/greetd/config.toml'
 t "greetd enabled"                     'systemctl is-enabled greetd'
 t "original greetd config backed up"   'test -f /etc/greetd/config.toml.orig'
+t "hostd installed as current version" 'test -x /home/screen/.local/lib/hostd/current/hostd && readlink /home/screen/.local/lib/hostd/current | grep -q "^versions/"'
+t "hostd starts at boot"               'test -L /home/screen/.config/systemd/user/default.target.wants/hostd.service'
+t "hostd is running"                   'runuser -u screen -- env XDG_RUNTIME_DIR=/run/user/$(id -u screen) systemctl --user is-active --quiet hostd'
+t "hostctl installed for everyone"     'test -x /usr/local/bin/hostctl'
+t "screen user hostctl is logged in"   'runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl version | grep -q "^hostd "'
+t "admin token file used up"           '! test -e /run/user/$(id -u screen)/hostd-admin-token'
+t "screen user hostctl config private" '[ "$(stat -c "%U %a" /home/screen/.config/hostctl/config.toml)" = "screen 600" ]'
 t "packages present"                   'for b in sway foot mako wayvnc grim wpctl podman greetd; do command -v $b || exit 1; done'
 exit $fail

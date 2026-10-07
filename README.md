@@ -13,9 +13,9 @@ Status: early development, nothing usable yet.
 ## Install on a machine
 
 Needs a fresh **Debian 13 (trixie)** install: minimal, with only "SSH server"
-and "standard system utilities" selected, and an admin user with sudo. Put
-your laptop's key on that admin user first (`ssh-copy-id admin@machine`); the
-installer copies it to the `screen` user.
+and "standard system utilities" selected, and an admin user with sudo. If you
+log in to that admin user with an SSH key, the installer copies the key to the
+`screen` user too.
 
 On the machine, as the admin user:
 
@@ -25,20 +25,31 @@ sudo ./hostd-main/deploy/install.sh
 sudo reboot
 ```
 
-The installer detects an NVIDIA GPU and installs the driver (enabling
-Debian's `contrib` and `non-free`), installs Sway, PipeWire, Podman and
-greetd, creates the `screen` user, and logs it into Sway at boot. It is safe
-to run again: it only changes what is missing. After the reboot the screen
-shows a plain dark background with no login prompt.
+The installer sets up everything, and is safe to run again (it only changes
+what is missing):
 
-Check the machine from the laptop, from a clone of this repository:
+- the NVIDIA driver when an NVIDIA GPU is present, Sway, PipeWire, Podman,
+  greetd, and the `screen` user that is logged into Sway at boot;
+- **hostd**, downloaded from the latest tested build (the `edge` release,
+  checked against its checksums), running as a service that starts at boot;
+- **hostctl** in `/usr/local/bin`, already logged in for the `screen` user.
+
+After the reboot the screen shows a plain dark background with no login
+prompt, and hostd is running. Use it on the machine:
 
 ```sh
-make check-server SERVER=screen@<machine>
+ssh screen@<machine> hostctl apps --all
 ```
 
-hostd itself is not released yet (milestone M1). Once it is, the same
-installer installs it.
+Any other device or script talks to the API at `http://<machine>:7300` with
+its own token (home network only):
+
+```sh
+ssh screen@<machine> hostctl token create phone --scopes read,apps,audio
+```
+
+Check the whole machine with `ssh screen@<machine> 'bash -s' < deploy/check.sh`
+(or `make check-server SERVER=screen@<machine>` from a clone).
 
 ## Development
 
