@@ -157,7 +157,8 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return ok && !in.State.Ended()
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
-		State: StateStarting, Started: m.opts.Clock.Now().UTC()}
+		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen,
+		State:      StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
 	m.mu.Unlock()
 	m.emitInstance(EventStarting, a.ID, *inst)
@@ -335,6 +336,7 @@ func (m *Module) adopt(ctx context.Context) {
 			in.Runner = name
 			if app, ok := m.catalog().Get(in.App); ok {
 				in.Name, in.Surface = app.Name, app.Surface
+				in.Fullscreen = app.Surface == SurfaceWindow && app.Window.Fullscreen
 			}
 			in.Started = m.opts.Clock.Now().UTC()
 			m.mu.Lock()

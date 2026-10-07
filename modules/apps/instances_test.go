@@ -860,3 +860,37 @@ func TestUserSystemdNeverAutolaunchesABus(t *testing.T) {
 		t.Fatalf("took %v to give up", time.Since(start))
 	}
 }
+
+func TestWatchIgnoresStopsOfReplacedUnits(t *testing.T) {
+	// Starting over a unit that ended earlier stops it first; that stop
+	// must not be taken for the new instance ending.
+	sd := newFakeSystemd()
+	r := &ExecRunner{Systemd: sd, RuntimeDir: fakeSession(t)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ended := make(chan Ended, 4)
+	go func() { _ = r.Watch(ctx, func(e Ended) { ended <- e }) }()
+	waitUntil(t, func() bool { return sd.watching() == 1 })
+
+	inst := Instance{ID: "foot", App: "foot", Surface: SurfaceWindow}
+	if _, err := r.Start(ctx, inst, execApp("foot", "foot")); err != nil {
+		t.Fatal(err)
+	}
+	sd.exit(unitName("foot"), 0, 1)
+	<-ended // the first one ended on its own
+	sd.mu.Lock()
+	sd.units[unitName("foot")] = &fakeUnit{info: UnitInfo{Name: unitName("foot"), Description: "hostd instance foot of app foot",
+		ActiveState: "active", SubState: "exited"}} // left over: not cleaned up yet
+	sd.mu.Unlock()
+	if _, err := r.Start(ctx, inst, execApp("foot", "foot")); err != nil {
+		t.Fatalf("start over a leftover unit: %v", err)
+	}
+	select {
+	case e := <-ended:
+		t.Fatalf("the replaced unit's stop was reported as an exit: %+v", e)
+	default:
+	}
+	if info, ok, _ := sd.Unit(ctx, unitName("foot")); !ok || info.SubState != "running" {
+		t.Fatalf("new unit = %+v %v", info, ok)
+	}
+}

@@ -107,6 +107,27 @@ func (r *Registry) Resolve() error {
 			}
 		}
 	}
+	// Every scope an action needs must be declared by some module (or be
+	// one of the core's), so no action is unreachable by any token.
+	declared := map[string]bool{sdk.ScopeRead: true, sdk.ScopeAdmin: true}
+	for _, m := range r.modules {
+		for _, sc := range m.man.Scopes {
+			declared[sc.Name] = true
+		}
+	}
+	for _, m := range r.modules {
+		for _, a := range m.man.Actions {
+			if !declared[a.Scope] {
+				errs = append(errs, fmt.Errorf("module %q, action %q: scope %q is not declared by any module", m.man.Name, a.Type, a.Scope))
+			}
+			for arg, sc := range a.ArgScopes {
+				if !declared[sc] {
+					errs = append(errs, fmt.Errorf("module %q, action %q: arg_scopes %q: scope %q is not declared by any module",
+						m.man.Name, a.Type, arg, sc))
+				}
+			}
+		}
+	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

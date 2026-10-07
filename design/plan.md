@@ -321,14 +321,14 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.9 Module `display`: Sway backend
 
-- [ ] `DisplayBackend` interface: `Windows()`, `Focus(ws)`, `MoveToWorkspace(win, ws)`, `Fullscreen(win, bool)`, `Close(win)`, `Subscribe()`; module logic is backend-agnostic
-- [ ] Sway IPC client (own, small): framing (`i3-ipc` magic + length + type), `RUN_COMMAND`, `GET_TREE`, `GET_WORKSPACES`, `GET_OUTPUTS`, `SUBSCRIBE` (`window`, `workspace`, `output`, `shutdown`)
-- [ ] Session attach: watch `$XDG_RUNTIME_DIR` for `sway-ipc.*.sock` (or `SWAYSOCK`); until attached, `display.*` actions → `module_unavailable`; re-attach after Sway restarts
-- [ ] Window → instance matching: PID → `/proc/<pid>/cgroup` → `hostd-<instance>.service` → instance. `/proc` root is injectable for tests. Fallback: `match` rules (M2). Otherwise: unowned.
-- [ ] Workspace per instance (`hostd:<instance>`), new windows fullscreen by default (per-app `window.fullscreen` setting)
-- [ ] Focus stack: on window close, focus the previously focused instance
-- [ ] Actions: `window.focus <instance>` (key `display.focus`), `window.fullscreen`, `window.close` (key `instance:<id>`; polite close via Sway `kill`, then `core.Do(instance.stop)` after a timeout)
-- [ ] State: `GET /v1/windows` including unowned windows; `GET /v1/display`
+- [x] `DisplayBackend` interface: `Windows()`, `Focus(ws)`, `MoveToWorkspace(win, ws)`, `Fullscreen(win, bool)`, `Close(win)`, `Subscribe()`; module logic is backend-agnostic
+- [x] Sway IPC client (own, small): framing (`i3-ipc` magic + length + type), `RUN_COMMAND`, `GET_TREE`, `GET_WORKSPACES`, `GET_OUTPUTS`, `SUBSCRIBE` (`window`, `workspace`, `output`, `shutdown`)
+- [x] Session attach: watch `$XDG_RUNTIME_DIR` for `sway-ipc.*.sock` (or `SWAYSOCK`); until attached, `display.*` actions → `module_unavailable`; re-attach after Sway restarts
+- [x] Window → instance matching: PID → `/proc/<pid>/cgroup` → `hostd-<instance>.service` → instance. `/proc` root is injectable for tests. Fallback: `match` rules (M2). Otherwise: unowned.
+- [x] Workspace per instance (`hostd:<instance>`), new windows fullscreen by default (per-app `window.fullscreen` setting)
+- [x] Focus stack: on window close, focus the previously focused instance
+- [x] Actions: `window.focus <instance>` (key `display.focus`), `window.fullscreen`, `window.close` (key `instance:<id>`; polite close via Sway `kill`, then `core.Do(instance.stop)` after a timeout)
+- [x] State: `GET /v1/windows` including unowned windows; `GET /v1/display`
 
 **Tests**
 - IPC framing unit tests (partial reads, multiple messages per read).
@@ -336,6 +336,14 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 - cgroup matching over a fake `/proc` dir: main process, grandchild in the same unit, a process in another unit, a process in no `hostd-*` unit.
 - Focus stack table test.
 - Integration: **headless Sway container** (`WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 sway`, `swaymsg create_output`), apps = `foot` (or a tiny Wayland test client). Assert: own workspace, fullscreen flag, focus returns on close, an unowned window appears in `/windows`. On failure, save a `grim` screenshot as a CI artifact.
+
+*Done 2026-10-07: `modules/display` (83.1% coverage; fixtures captured from a real Sway), `hostctl focus` and `hostctl windows`. Tried in the devbox twice over: two apps on their own workspaces (one fullscreen, one windowed by its app file), focus switching, a second `start` bringing the app forward, closing one bringing the other back. Decided while building:*
+- *A module may use another module's scope (window.focus and window.close need `apps`): whether a scope exists is now checked by the registry across all modules, not per manifest.*
+- *Instances carry their app's fullscreen preference, which the display module learns from `instance.*` events. If a window appears before that event, it is placed fullscreen, and a later "windowed" preference turns fullscreen off.*
+- *Window placement on `new` is the module reacting to the compositor, not an action; focus protection (M2) will hook in there.*
+- *`window.close` waits for the windows to close (default 5 s), then stops the app through `instance.stop`, a child action reusing the instance key.*
+- *The exec runner's watcher reacts only to units that end on their own (`exited`/`failed` with `RemainAfterExit`), never to `dead`, which follows a stop: reacting to it raced with starting a new instance under the same unit name and cancelled that start (found in the devbox; a regression test with a fake systemd that keeps stopped units loaded, as systemd does, now catches it).*
+- *goleak caught a goroutine leaked on every Sway restart; fixed with `context.AfterFunc`.*
 
 ### 3.10 Module `audio`: master volume and mute
 

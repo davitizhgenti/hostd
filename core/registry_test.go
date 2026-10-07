@@ -164,6 +164,15 @@ func TestRegistryRefusals(t *testing.T) {
 			"reserved for the core",
 		},
 		{
+			"scope nobody declares",
+			func() []*testutil.Module {
+				m := testutil.NewModule("lights", nil, []string{"lights.on"}, nil)
+				m.M.Actions[0].Scope = "lights"
+				return []*testutil.Module{m}
+			}(),
+			`scope "lights" is not declared by any module`,
+		},
+		{
 			"invalid manifest",
 			func() []*testutil.Module {
 				m := testutil.NewModule("bad", nil, []string{"other.thing"}, nil)
@@ -237,5 +246,17 @@ func TestRegistryStartBeforeResolve(t *testing.T) {
 	mustAdd(t, r, testutil.NewModule("a", nil, nil, nil))
 	if err := r.StartAll(context.Background(), noCore); err == nil {
 		t.Fatal("StartAll before Resolve accepted")
+	}
+}
+
+func TestRegistryScopeFromAnotherModule(t *testing.T) {
+	apps := testutil.NewModule("apps", nil, nil, nil)
+	apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}}
+	display := testutil.NewModule("display", nil, []string{"display.focus"}, nil)
+	display.M.Actions[0].Scope = "apps"
+	r := NewRegistry()
+	mustAdd(t, r, apps, display)
+	if err := r.Resolve(); err != nil {
+		t.Fatalf("a module may use another module's scope: %v", err)
 	}
 }

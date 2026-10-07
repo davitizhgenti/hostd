@@ -23,6 +23,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/demo"
+	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -69,6 +70,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 				apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
 			},
 		}),
+		display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log}),
 	}
 	if *withDemo {
 		mods = append(mods, demo.New())

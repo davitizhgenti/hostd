@@ -30,6 +30,8 @@ type Instance struct {
 	Runner  string `json:"runner"`
 	Surface string `json:"surface"`
 	State   State  `json:"state"`
+	// Fullscreen is the app's window preference, for the display module.
+	Fullscreen bool `json:"fullscreen"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

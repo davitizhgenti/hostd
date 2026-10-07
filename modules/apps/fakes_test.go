@@ -33,7 +33,7 @@ func newFakeSystemd() *fakeSystemd {
 func (f *fakeSystemd) StartTransient(_ context.Context, name string, spec UnitSpec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if _, ok := f.units[name]; ok {
+	if u, ok := f.units[name]; ok && u.info.SubState != "dead" {
 		return fmt.Errorf("Unit %s was already loaded or has a fragment file", name)
 	}
 	f.started = append(f.started, spec)
@@ -48,11 +48,14 @@ func (f *fakeSystemd) StartTransient(_ context.Context, name string, spec UnitSp
 	return nil
 }
 
+// Stop leaves the unit loaded as inactive/dead, as systemd does until it
+// garbage-collects it; that window is where a watcher could mistake a
+// stop for an app ending.
 func (f *fakeSystemd) Stop(_ context.Context, name string) error {
 	f.mu.Lock()
 	u, ok := f.units[name]
 	if ok && u.info.ActiveState != "failed" {
-		delete(f.units, name)
+		u.info.ActiveState, u.info.SubState, u.info.MainPID = "inactive", "dead", 0
 	}
 	f.mu.Unlock()
 	if ok {
@@ -85,6 +88,9 @@ func (f *fakeSystemd) List(_ context.Context, pattern string) ([]UnitInfo, error
 	defer f.mu.Unlock()
 	var out []UnitInfo
 	for name, u := range f.units {
+		if u.info.SubState == "dead" {
+			continue // inactive units are not listed as loaded
+		}
 		if ok, _ := filepath.Match(pattern, name); ok {
 			out = append(out, u.info)
 		}
@@ -139,7 +145,10 @@ func (f *fakeSystemd) unitNames() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []string
-	for n := range f.units {
+	for n, u := range f.units {
+		if u.info.SubState == "dead" {
+			continue
+		}
 		out = append(out, n)
 	}
 	sort.Strings(out)

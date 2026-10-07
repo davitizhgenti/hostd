@@ -128,8 +128,9 @@ var (
 var methods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 
 // Validate checks the manifest on its own: names, ownership of every type,
-// declared scopes, schemas, key templates and routes. Checks across
-// modules, such as overlapping namespaces, are the core's job. All problems
+// schemas, key templates and routes. Checks across modules, such as
+// overlapping namespaces and whether every scope used is declared
+// somewhere, are the core's job. All problems
 // are reported together.
 func (m *Manifest) Validate() error {
 	var errs []error
@@ -195,14 +196,17 @@ func (m *Manifest) Validate() error {
 		}
 		seen[a.Type] = true
 
+		// Whether a scope exists is checked by the core across all modules
+		// (a module may use another's scope, e.g. display actions need
+		// "apps"); here only the form.
 		if a.Scope == "" {
 			bad("%s: scope is required", where)
-		} else if !scopes[a.Scope] {
-			bad("%s: scope %q is not declared", where, a.Scope)
+		} else if !reScope.MatchString(a.Scope) {
+			bad("%s: scope %q is not a scope name", where, a.Scope)
 		}
 		for arg, scope := range a.ArgScopes {
-			if !scopes[scope] {
-				bad("%s: arg_scopes %q: scope %q is not declared", where, arg, scope)
+			if !reScope.MatchString(scope) {
+				bad("%s: arg_scopes %q: %q is not a scope name", where, arg, scope)
 			}
 		}
 

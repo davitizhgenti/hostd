@@ -190,10 +190,13 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 	return out, nil
 }
 
-// Watch reports units that end on their own.
+// Watch reports units that end on their own. With RemainAfterExit an app
+// that ends leaves its unit "exited" or "failed"; "dead" only follows a
+// stop (hostd's, or a unit being replaced by a new start under the same
+// name), so reacting to it would clean up, and cancel, the new start.
 func (r *ExecRunner) Watch(ctx context.Context, fn func(Ended)) error {
 	return r.Systemd.Watch(ctx, func(name, sub string) {
-		if !strings.HasPrefix(name, "hostd-") || (sub != "exited" && sub != "failed" && sub != "dead") {
+		if !strings.HasPrefix(name, "hostd-") || (sub != "exited" && sub != "failed") {
 			return
 		}
 		info, ok, err := r.Systemd.Unit(ctx, name)

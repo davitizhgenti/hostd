@@ -25,7 +25,7 @@ import (
 // looked up in the server's manifests.
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "apps": true, "start": true, "stop": true, "ps": true,
+	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "windows": true,
 	"help": true, "completion": true,
 }
 
@@ -44,7 +44,8 @@ see them all.`,
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
-		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand())
+		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand(),
+		a.focusCommand(), a.windowsCommand())
 	return root
 }
 
@@ -707,4 +708,71 @@ func (a *app) submitQuiet(cmd *cobra.Command, req client.ActionRequest) (sdk.Res
 func mustArgs(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// --- focus, windows -----------------------------------------------------------
+
+func (a *app) focusCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "focus <instance>",
+		Short:   "Bring an instance's window to the front",
+		Example: "  hostctl focus firefox\n  hostctl focus firefox#2",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "window.focus", Args: mustArgs(map[string]string{"instance": args[0]})})
+			if err != nil || a.jsonOut {
+				return err
+			}
+			if res.Status == sdk.StatusSkipped {
+				fmt.Fprintf(a.stdout, "skipped: held by %s\n", res.HeldBy)
+				return nil
+			}
+			fmt.Fprintf(a.stdout, "focused %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func (a *app) windowsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "windows",
+		Short: "List all windows on the screen, including ones hostd did not start",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			var list []struct {
+				ID         int64  `json:"id"`
+				Instance   string `json:"instance"`
+				AppID      string `json:"app_id"`
+				Class      string `json:"class"`
+				Title      string `json:"title"`
+				Workspace  string `json:"workspace"`
+				Focused    bool   `json:"focused"`
+				Fullscreen bool   `json:"fullscreen"`
+			}
+			if err := c.Get(cmd.Context(), "/v1/windows", &list); err != nil {
+				return err
+			}
+			if a.jsonOut {
+				return a.printJSON(list)
+			}
+			tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "INSTANCE\tAPP ID\tWORKSPACE\tFOCUSED\tFULLSCREEN\tTITLE")
+			for _, w := range list {
+				inst := w.Instance
+				if inst == "" {
+					inst = "-"
+				}
+				app := w.AppID
+				if app == "" {
+					app = w.Class
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%v\t%s\n", inst, app, w.Workspace, w.Focused, w.Fullscreen, shorten(w.Title, 40))
+			}
+			return tw.Flush()
+		},
+	}
 }
