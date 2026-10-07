@@ -1,0 +1,54 @@
+exec hostd -listen= -demo &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd-admin-token
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+# Module commands come from the server's manifests.
+exec hostctl --help
+stdout 'demo'
+exec hostctl demo lamp set --help
+stdout 'set <lamp> <brightness>'
+stdout '--brightness string +0-100'
+
+# Required arguments in order, or as flags.
+exec hostctl demo lamp set desk 40
+stdout '^applied \(v1\)$'
+exec hostctl demo lamp set --lamp hall --brightness 7
+stdout '^applied \(v1\)$'
+exec hostctl demo lamp set desk 55 --json
+stdout '"status": "applied"'
+stdout '"version": 2'
+
+# The raw form works for any action.
+exec hostctl action demo.lamp.set '{"lamp":"desk","brightness":60}'
+stdout 'applied \(v3\)'
+
+# Bad input (exit 10), unknown actions (exit 4 from the server, 2 locally).
+exits 10 hostctl demo lamp set desk 400
+stderr '/brightness: maximum: got 400, want 100'
+exits 10 hostctl demo lamp set desk bright
+stderr 'brightness must be a whole number'
+exits 4 hostctl action demo.lamp.explode
+exits 2 hostctl demo lamp explode
+exits 2 hostctl demo lamp set a b c
+
+# A person's change holds the lamp against automation for 3 minutes.
+exec hostctl token create evening.sh --kind automation --scopes demo
+envfrom SCRIPT '(hostd_\S+)'
+env HOSTD_TOKEN=$SCRIPT
+exec hostctl demo lamp set desk 99
+stdout '^skipped: held by manual until \d\d:\d\d:\d\d$'
+# ...but not other lamps.
+exec hostctl demo lamp set porch 10
+stdout '^applied'
+env HOSTD_TOKEN=
+
+# The log explains what happened, and who did it.
+exec hostctl log
+stdout 'demo.lamp.set desk 40 +manual \(admin\) +applied +v1'
+stdout 'demo.lamp.set desk 99 +automation \(evening.sh\) +skipped +held by manual until'
+stdout 'demo.lamp.set desk 400 +manual \(admin\) +failed +invalid_args'
+exec hostctl log --type 'demo.lamp.*' --limit 2 --json
+stdout '"seq"'
+
+kill -INT hostd
+wait hostd

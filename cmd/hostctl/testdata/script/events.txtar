@@ -1,0 +1,18 @@
+exec hostd -listen= -demo &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd-admin-token
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl demo lamp set desk 30
+exec hostctl demo lamp off
+
+# --recent replays what the server still has; --count stops after two.
+exec hostctl events --type 'demo.*' --recent --count 2
+stdout 'demo.lamp.changed \{"brightness":30,"lamp":"desk"\}  manual \(admin\) v1'
+stdout 'demo.lamp.changed \{"brightness":0,"lamp":"desk"\}  manual \(admin\)$'
+! stdout 'action.done'
+
+exec hostctl events --type 'action.*' --recent --count 1 --json
+stdout '"type":"action.done"'
+
+kill -INT hostd
+wait hostd

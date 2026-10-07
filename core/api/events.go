@@ -37,9 +37,13 @@ func websocketProtocols(r *http.Request) []string {
 	return out
 }
 
+// sinceStart asks for every event still in the replay window.
+const sinceStart = "start"
+
 // getEvents streams events as JSON text messages. ?type= filters by type
 // pattern (default "*"); ?since=<event id> first replays what the client
-// missed, from the last ReplayEvents events. A client that reads too slowly
+// missed, from the last ReplayEvents events, and ?since=start replays all
+// of them. A client that reads too slowly
 // gets bus.lagged and the connection is closed; it can reconnect with since.
 func (s *Server) getEvents(w http.ResponseWriter, r *http.Request, _ store.Token) error {
 	filter := r.URL.Query().Get("type")
@@ -65,6 +69,9 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request, _ store.Token
 	last := ""
 	if since != "" {
 		missed, found := s.ring.since(since)
+		if since == sinceStart { // the whole replay window, oldest first
+			found = true
+		}
 		if !found {
 			if err := send(ctx, conn, sdk.Event{Type: "bus.gap", Time: time.Now().UTC(),
 				Data: json.RawMessage(`{"reason":"since is older than the replay window"}`)}); err != nil {

@@ -69,8 +69,10 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		scope   string
 		h       func(http.ResponseWriter, *http.Request, store.Token) error
 	}{
-		{"GET /v1/version", sdk.ScopeRead, srv.getVersion},
-		{"GET /v1/manifests", sdk.ScopeRead, srv.getManifests},
+		// Any valid token may read these: they describe the API, not the
+		// machine, and hostctl needs them to build its commands.
+		{"GET /v1/version", "", srv.getVersion},
+		{"GET /v1/manifests", "", srv.getManifests},
 		{"GET /v1/state/{module}", sdk.ScopeRead, srv.getState},
 		{"POST /v1/actions", "", srv.postAction}, // scope depends on the action
 		{"GET /v1/actions", sdk.ScopeRead, srv.getAudit},

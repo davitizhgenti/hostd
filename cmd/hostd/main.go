@@ -1,19 +1,14 @@
 // Command hostd is the display and services daemon: the core plus the
-// built-in modules.
+// built-in modules. See internal/daemon.
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
 
-	"github.com/davitizhgenti/hostd/internal/version"
+	"github.com/davitizhgenti/hostd/internal/daemon"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println("hostd", version.Version)
-		return
-	}
-	fmt.Fprintln(os.Stderr, "hostd: not implemented yet")
-	os.Exit(1)
+	os.Exit(daemon.Run(context.Background(), os.Args[1:], os.Stderr))
 }

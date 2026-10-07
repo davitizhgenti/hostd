@@ -1,0 +1,62 @@
+# First start: hostd creates the admin token and saves it for hostctl login.
+exec hostd -listen= -demo &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+waitfile $XDG_RUNTIME_DIR/hostd-admin-token
+
+# Without a token, hostctl says how to get one (exit 2: usage).
+exits 2 hostctl version
+stderr 'run hostctl login'
+
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+stdout 'Logged in to hostd'
+exists $XDG_CONFIG_HOME/hostctl/config.toml
+# The admin token file is deleted once the admin token has been used.
+! exists $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl version
+stdout '^hostctl '
+stdout '^hostd +.*linux/'
+
+# A wrong token is refused (exit 3: unauthorized or forbidden).
+env HOSTD_TOKEN=hostd_wrong
+exits 3 hostctl version
+stderr 'unauthorized'
+env HOSTD_TOKEN=
+
+# Tokens for a phone and a script.
+exec hostctl token create phone --scopes read,demo
+stdout 'Created token "phone" \(manual, scopes read,demo\)'
+envfrom PHONE '(hostd_\S+)'
+exec hostctl token create evening.sh --kind automation --scopes demo
+envfrom SCRIPT '(hostd_\S+)'
+
+exec hostctl token list
+stdout 'admin +manual +admin'
+stdout 'phone +manual +read,demo +never +active'
+stdout 'evening.sh +automation +demo'
+
+# Unknown scope, and a name in use (exit 10: invalid arguments).
+exits 10 hostctl token create tv --scopes read,lights
+stderr 'unknown scope "lights"'
+exits 10 hostctl token create phone --scopes read
+stderr 'already exists'
+
+# The phone token cannot make tokens.
+env HOSTD_TOKEN=$PHONE
+exits 3 hostctl token list
+stderr 'forbidden'
+env HOSTD_TOKEN=
+
+exec hostctl token revoke phone
+stdout 'Revoked phone'
+env HOSTD_TOKEN=$PHONE
+exits 3 hostctl version
+env HOSTD_TOKEN=
+exits 4 hostctl token revoke phone
+
+# A typo in a subcommand is an error, not help (exit 2).
+exits 2 hostctl token revok phone
+stderr 'unknown command "revok"'
+
+kill -INT hostd
+wait hostd

@@ -268,8 +268,8 @@ func TestScopeMatrix(t *testing.T) {
 		method, path, body string
 		allowed            []string
 	}{
-		{"GET", "/v1/version", "", []string{"read", "both", "admin"}},
-		{"GET", "/v1/manifests", "", []string{"read", "both", "admin"}},
+		{"GET", "/v1/version", "", []string{"read", "lamp", "both", "admin"}},
+		{"GET", "/v1/manifests", "", []string{"read", "lamp", "both", "admin"}},
 		{"GET", "/v1/state/lamp", "", []string{"read", "both", "admin"}},
 		{"GET", "/v1/actions", "", []string{"read", "both", "admin"}},
 		{"POST", "/v1/lamps/a/brightness", `{"brightness":1}`, []string{"lamp", "both", "admin"}},

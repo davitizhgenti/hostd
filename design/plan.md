@@ -205,7 +205,7 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.4 Core: storage, tokens and audit
 
-- [x] SQLite via `modernc.org/sqlite` at `~/.local/share/hostd/state.db`; WAL mode
+- [x] SQLite via `modernc.org/sqlite` at `~/.local/state/hostd/state.db` (XDG state directory); WAL mode
 - [x] Migrations with a `schema_version` table from day one (needed by update rollback)
 - [x] Tokens: 32 random bytes, shown once, stored as SHA-256 hash; fields `id, name, scopes, created, expires, revoked`
 - [x] First start with an empty token table prints one `admin` token to the journal and to `$XDG_RUNTIME_DIR/hostd-admin-token` (mode 0600, deleted after first use)
@@ -243,16 +243,23 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.6 CLI: `hostctl`
 
-- [ ] Config: `~/.config/hostctl/config.toml` (`url`, `token`, optional `fingerprint`), overridden by `HOSTD_URL` / `HOSTD_TOKEN`; supports `unix:///path` and `http://host:7300`
-- [ ] `hostctl login <url>` stores URL + token
-- [ ] Command tree built at runtime from `GET /v1/manifests` (cached on disk with the daemon version; refreshed on mismatch). `hostctl <module> <action...> [args]`
-- [ ] Hand-written aliases: `apps`, `start`, `stop`, `ps`, `focus`, `log`, `events`, `token create/list/revoke`, `update push`, `version`
-- [ ] Output: human tables by default, `--json` everywhere; exit codes map to error codes (documented)
+- [x] Config: `~/.config/hostctl/config.toml` (`url`, `token`, optional `fingerprint`), overridden by `HOSTD_URL` / `HOSTD_TOKEN`; supports `unix:///path` and `http://host:7300`
+- [x] `hostctl login <url>` stores URL + token
+- [x] Command tree built at runtime from `GET /v1/manifests` (cached on disk with the daemon version; refreshed on mismatch). `hostctl <module> <action...> [args]`
+- [~] Hand-written commands: `login`, `version`, `token create/list/revoke`, `log`, `events`, `action` done; `apps`, `start`, `stop`, `ps`, `focus` come with their modules (3.7–3.9), `update push` with 3.12
+- [x] Output: human tables by default, `--json` everywhere; exit codes map to error codes (documented)
 
 **Tests**
 - `testscript` (`github.com/rogpeppe/go-internal/testscript`): `.txtar` scenarios run `hostctl` against an in-process daemon with fake modules. They double as CLI documentation.
 - Exit-code mapping table.
 - A new fake module's actions appear as CLI commands with no CLI change.
+
+*Done 2026-10-07: `cmd/hostctl`, `internal/client`, and three testscript files that run real `hostd` and `hostctl` processes against each other. Decided while building:*
+- *Module commands are built from `GET /v1/manifests` on each run, not from a disk cache: one small request on the home network, and never stale. Action `a.b.c` becomes `hostctl a b c`; required arguments go in order, every argument also has a `--flag`, and values are converted using the schema.*
+- *Exit codes: 0 ok (skipped counts as ok), 1 other errors, 2 usage, 3 unauthorized/forbidden, 4 not_found, 5 instance_not_running, 6 precondition_failed, 7 timeout, 8 module_unavailable, 9 loop_detected, 10 invalid_args (also when hostctl itself rejects a value).*
+- *`hostctl events --recent` replays the server's buffered events, and `--count N` exits after N: scripts can wait for an event without a race.*
+- *Any valid token may read `/v1/version` and `/v1/manifests`, so script tokens without `read` can use module commands.*
+- *Brought forward from 3.11: a minimal `hostd` (`internal/daemon`) that opens the database in `~/.local/state/hostd/`, creates the first admin token, and serves the API; and `hostd --demo`, a pretend lamp module for trying hostctl before the real modules exist. Tried in the devbox: hostctl on the laptop over TCP 7300 works.*
 
 ### 3.7 Module `apps`: catalog
 

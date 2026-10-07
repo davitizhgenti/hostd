@@ -43,6 +43,18 @@ podman run --rm docker.io/library/alpine echo hi          # run a container
 host updates the binaries inside without a rebuild. Port 7300 (the API) is
 published on `127.0.0.1:7300` for `hostctl` on the host.
 
+**Try hostd with the demo module** (a pretend lamp, until the real modules
+exist):
+
+```sh
+make build
+podman exec -u screen hostd-devbox bash -lc 'systemd-run --user --unit=hostd-demo /opt/hostd/bin/hostd --demo'
+podman exec -u screen hostd-devbox cat /run/user/1000/hostd-admin-token > /tmp/hostd-token
+./bin/hostctl login 127.0.0.1:7300 --token-file /tmp/hostd-token
+./bin/hostctl demo lamp set desk 40
+./bin/hostctl log
+```
+
 ## Notes
 
 - The container runs with `--privileged`, which for rootless Podman means

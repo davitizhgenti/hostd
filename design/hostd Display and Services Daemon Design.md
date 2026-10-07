@@ -560,7 +560,7 @@ The API is reachable only from the home network, every request needs a token, an
 
 | Scope | Allows |
 | --- | --- |
-| `read` | All GET endpoints and the event stream |
+| `read` | All GET endpoints and the event stream, except `/v1/version` and `/v1/manifests`, which any valid token may read (they describe the API, and hostctl needs them) |
 | `apps` | Start and stop instances, focus and close their windows |
 | `display` | Display power and mode, window fullscreen and placement; `display.front` to force a window in front |
 | `audio` | Volume, mute, outputs, per-app audio, media |
