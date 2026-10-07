@@ -221,15 +221,15 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.5 Core: HTTP API and WebSocket
 
-- [ ] `net/http` with Go 1.22 patterns. Middleware: request ID, token auth, source-address check, JSON error shape, panic recovery
-- [ ] Listeners: unix socket `$XDG_RUNTIME_DIR/hostd.sock` (mode 0600) and TCP `:7300` (configurable bind address)
-- [ ] Source check on TCP: unwrap IPv4-mapped IPv6 addresses first (`netip.Addr.Unmap`, since a dual-stack socket reports IPv4 clients as `::ffff:a.b.c.d`), then allow loopback, RFC 1918, link-local, ULA `fc00::/7`; reject everything else with 403
-- [ ] Generic routes: `POST /v1/actions`, `GET /v1/actions` (audit), `GET /v1/state/{module}`, `GET /v1/manifests`, `POST/DELETE /v1/tokens`, `GET /v1/events` (WebSocket, `?type=` glob filter)
-- [ ] WebSocket auth: accept the `Authorization` header (CLI) **and** the token as a WebSocket subprotocol (`Sec-WebSocket-Protocol: hostd.token.<token>`), because browsers cannot set headers on WebSocket connections and a future phone page will need it. Prefer the subprotocol over a query parameter so tokens don't end up in access logs.
-- [ ] **Friendly routes generated from manifests** (`route` field in `ActionSpec`): path params merged into args
-- [ ] `202 Accepted` with action ID for actions whose spec marks them slow (builds, deploys)
-- [ ] Event stream: on reconnect, clients may pass `?since=<evt_id>`; the server replays from a small ring buffer (e.g. last 1,000 events)
-- [ ] Optional HTTPS with a self-signed certificate (fingerprint printed for `hostctl` pinning). Can slip to M6.
+- [x] `net/http` with Go 1.22 patterns. Middleware: request ID, token auth, source-address check, JSON error shape, panic recovery
+- [x] Listeners: unix socket `$XDG_RUNTIME_DIR/hostd.sock` (mode 0600) and TCP `:7300` (configurable bind address)
+- [x] Source check on TCP: unwrap IPv4-mapped IPv6 addresses first (`netip.Addr.Unmap`, since a dual-stack socket reports IPv4 clients as `::ffff:a.b.c.d`), then allow loopback, RFC 1918, link-local, ULA `fc00::/7`; reject everything else with 403
+- [x] Generic routes: `POST /v1/actions`, `GET /v1/actions` (audit), `GET /v1/state/{module}`, `GET /v1/manifests`, `POST/DELETE /v1/tokens`, `GET /v1/events` (WebSocket, `?type=` glob filter)
+- [x] WebSocket auth: accept the `Authorization` header (CLI) **and** the token as a WebSocket subprotocol (`Sec-WebSocket-Protocol: hostd.token.<token>`), because browsers cannot set headers on WebSocket connections and a future phone page will need it. Prefer the subprotocol over a query parameter so tokens don't end up in access logs.
+- [x] **Friendly routes generated from manifests** (`route` field in `ActionSpec`): path params merged into args
+- [x] `202 Accepted` with action ID for actions whose spec marks them slow (builds, deploys)
+- [x] Event stream: on reconnect, clients may pass `?since=<evt_id>`; the server replays from a small ring buffer (e.g. last 1,000 events)
+- [ ] *(moved to M6)* Optional HTTPS with a self-signed certificate (fingerprint printed for `hostctl` pinning). Can slip to M6.
 
 **Tests** (`httptest`)
 - Every error code yields the documented status and JSON shape.
@@ -238,6 +238,8 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 - WebSocket auth: header, subprotocol, missing, revoked; the server echoes only the accepted subprotocol name, never the token.
 - Generated routes for a fake module appear without any core change.
 - WebSocket: filter works; `since` replay; a client that disconnects and reconnects misses nothing in the buffer window.
+
+*Done 2026-10-07: `core/api` (87.3% coverage; three planted bugs, in the network check, the scope check and the replay, were each caught by the tests). Also: `GET /v1/version` (with OS and architecture, for `hostctl update push`), `GET /v1/tokens`, `bus.gap` when `since` is older than the replay window, the `unauthorized` code, `sdk.StateReporter` for `GET /v1/state/{module}`, conflicting manifest routes refused at startup, the admin token file deleted on the admin token's first use. Friendly routes take path parameters as strings.*
 
 ### 3.6 CLI: `hostctl`
 

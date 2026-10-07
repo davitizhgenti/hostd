@@ -43,3 +43,10 @@ type Core interface {
 	// until ctx is done, then closes the channel.
 	Subscribe(ctx context.Context, filter string) <-chan Event
 }
+
+// StateReporter is implemented by modules that expose their current state
+// (the catalog, running instances, volume...). The API serves it at
+// GET /v1/state/<module>.
+type StateReporter interface {
+	State(ctx context.Context) (any, error)
+}

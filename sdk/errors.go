@@ -29,6 +29,8 @@ const (
 	// CodeLoopDetected: the action's cause chain is too deep, or the rule
 	// that sent it is paused for firing too often.
 	CodeLoopDetected Code = "loop_detected"
+	// CodeUnauthorized: the request has no token, or an invalid one.
+	CodeUnauthorized Code = "unauthorized"
 	// CodeInternal: anything else; a bug or an unexpected system error.
 	CodeInternal Code = "internal"
 )

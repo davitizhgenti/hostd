@@ -393,6 +393,7 @@ Presence means keyboard, mouse or controller input within the last 5 minutes. Wh
 | `not_found` | Unknown app, instance, output or window |
 | `instance_not_running` | The target instance has exited |
 | `precondition_failed` | `expect_version` did not match |
+| `unauthorized` | No token, or an invalid, expired or revoked one (HTTP 401) |
 | `forbidden` | Token lacks the scope |
 | `timeout` | The module did not finish in time; the outcome is reported later by event |
 | `module_unavailable` | The owning module is not running, e.g. `display` before the session starts |
@@ -520,7 +521,9 @@ One HTTP API (`/v1`) with JSON bodies, plus a WebSocket for events. Reads are pl
 | `POST /v1/tokens` · `DELETE /v1/tokens/{id}` | Token management | `admin` |
 | `GET /v1/events` (WebSocket) | Event stream, filterable by type | `read` |
 
-The event stream accepts the token either in the `Authorization` header or as a WebSocket subprotocol (`hostd.token.<token>`), because browsers cannot set headers on WebSocket connections and a phone page will need it later. The subprotocol is preferred over a query parameter so tokens stay out of access logs.
+The event stream accepts the token either in the `Authorization` header or as a WebSocket subprotocol, because browsers cannot set headers on WebSocket connections and a phone page will need it later: the client offers `hostd.v1` and `hostd.token.<token>`, and the server answers `hostd.v1`, never echoing the token. The subprotocol is preferred over a query parameter so tokens stay out of access logs. `?since=<event id>` replays what a reconnecting client missed from the last 1,000 events; if that is too long ago, the stream starts with a `bus.gap` event.
+
+**HTTP status per error code:** `invalid_args` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, `instance_not_running` and `loop_detected` 409, `precondition_failed` 412, `internal` 500, `module_unavailable` 503, `timeout` 504. Every response carries an `X-Request-ID` (the caller's, if it sent one).
 
 **Errors** use one shape: `{"error": {"code": "instance_not_running", "message": "…", "action": "act_…"}}` with stable codes scripts can branch on. Skipped actions return `200` with `"status": "skipped"` and the reason, not an error.
 

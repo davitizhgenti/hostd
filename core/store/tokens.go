@@ -27,6 +27,8 @@ var (
 	ErrInvalidToken = errors.New("invalid token")
 	ErrNotFound     = errors.New("not found")
 	ErrNameTaken    = errors.New("a token with this name already exists")
+	// ErrBadRequest wraps every refusal caused by CreateToken's arguments.
+	ErrBadRequest = errors.New("bad token request")
 )
 
 // Token is a device's or script's API credential. The secret itself is
@@ -78,13 +80,13 @@ func (s *Store) CreateToken(ctx context.Context, name string, kind sdk.SourceKin
 	name = strings.TrimSpace(name)
 	switch {
 	case name == "":
-		return Token{}, "", fmt.Errorf("token name is required")
+		return Token{}, "", fmt.Errorf("%w: token name is required", ErrBadRequest)
 	case kind != sdk.SourceLocal && kind != sdk.SourceManual && kind != sdk.SourceAutomation:
-		return Token{}, "", fmt.Errorf("token kind must be local, manual or automation, not %q", kind)
+		return Token{}, "", fmt.Errorf("%w: token kind must be local, manual or automation, not %q", ErrBadRequest, kind)
 	case len(scopes) == 0:
-		return Token{}, "", fmt.Errorf("a token needs at least one scope")
+		return Token{}, "", fmt.Errorf("%w: a token needs at least one scope", ErrBadRequest)
 	case ttl < 0:
-		return Token{}, "", fmt.Errorf("negative lifetime")
+		return Token{}, "", fmt.Errorf("%w: negative lifetime", ErrBadRequest)
 	}
 
 	raw := make([]byte, 32)

@@ -649,3 +649,23 @@ func (e *Engine) HeldKeys() []string {
 	sort.Strings(out)
 	return out
 }
+
+// ModuleState returns a module's state for the API: not_found for an
+// unknown module, module_unavailable if it is not running, and an empty
+// object for a module that reports no state.
+func (e *Engine) ModuleState(ctx context.Context, name string) (any, error) {
+	e.reg.mu.RLock()
+	m, ok := e.reg.byName[name]
+	e.reg.mu.RUnlock()
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "no module %q", name)
+	}
+	if !e.reg.started(m) {
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "module %q is not running", name)
+	}
+	sr, ok := m.mod.(sdk.StateReporter)
+	if !ok {
+		return map[string]any{}, nil
+	}
+	return sr.State(ctx)
+}

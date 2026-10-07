@@ -907,3 +907,24 @@ func TestChainMemoryIsBounded(t *testing.T) {
 		t.Fatalf("remembered %d events (order %d), want 3", n, order)
 	}
 }
+
+func TestModuleState(t *testing.T) {
+	h := newHarness(t, Options{})
+	if _, err := h.e.ModuleState(context.Background(), "nope"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown module: %v", err)
+	}
+	st, err := h.e.ModuleState(context.Background(), "res") // res reports no state
+	if m, ok := st.(map[string]any); err != nil || !ok || len(m) != 0 {
+		t.Fatalf("stateless module: %#v %v", st, err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Add(newResModule()); err != nil {
+		t.Fatal(err)
+	}
+	e := New(reg, Options{Clock: clock.NewFake(t0)}) // never started
+	if _, err := e.ModuleState(context.Background(), "res"); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
+		t.Fatalf("stopped module: %v", err)
+	}
+	_ = e.Stop(context.Background())
+}
