@@ -322,7 +322,11 @@ func (m *Module) adopt(ctx context.Context) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		found, err := m.opts.Backends[name].Adopt(ctx)
+		// A backend that does not answer (no user bus, a stuck container
+		// engine) must not hold up hostd's start.
+		actx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		found, err := m.opts.Backends[name].Adopt(actx)
+		cancel()
 		if err != nil {
 			m.log.Warn("finding running instances", "runner", name, "err", err)
 			continue

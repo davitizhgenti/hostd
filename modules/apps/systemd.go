@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	sdbus "github.com/coreos/go-systemd/v22/dbus"
@@ -13,8 +15,26 @@ import (
 // UserSystemd is the systemd user manager over D-Bus. It connects on first
 // use, so hostd starts even if the bus is briefly unavailable.
 type UserSystemd struct {
+	// RuntimeDir is $XDG_RUNTIME_DIR; the user bus is RuntimeDir/bus
+	// unless DBUS_SESSION_BUS_ADDRESS says otherwise.
+	RuntimeDir string
+
 	mu   sync.Mutex
 	conn *sdbus.Conn
+}
+
+// address is the user bus. It is never left to the D-Bus library to find:
+// without an address that library runs dbus-launch, which starts a stray
+// bus with no systemd on it, and hostd would wait on it for a timeout.
+func (s *UserSystemd) address() (string, error) {
+	if a := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); a != "" {
+		return a, nil
+	}
+	path := filepath.Join(s.RuntimeDir, "bus")
+	if fi, err := os.Stat(path); err != nil || fi.Mode()&os.ModeSocket == 0 {
+		return "", fmt.Errorf("%w: no user bus at %s", errNoSystemd, path)
+	}
+	return "unix:path=" + path, nil
 }
 
 func (s *UserSystemd) connect(ctx context.Context) (*sdbus.Conn, error) {
@@ -23,7 +43,11 @@ func (s *UserSystemd) connect(ctx context.Context) (*sdbus.Conn, error) {
 	if s.conn != nil && s.conn.Connected() {
 		return s.conn, nil
 	}
-	conn, err := sdbus.NewUserConnectionContext(ctx)
+	addr, err := s.address()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := sdbus.NewConnection(func() (*dbus.Conn, error) { return dbus.Connect(addr, dbus.WithContext(ctx)) })
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errNoSystemd, err)
 	}

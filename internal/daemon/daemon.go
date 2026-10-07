@@ -59,7 +59,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	home, _ := os.UserHomeDir()
-	systemd := &apps.UserSystemd{}
+	systemd := &apps.UserSystemd{RuntimeDir: *runtimeDir}
 	defer systemd.Close()
 	mods := []sdk.Module{
 		apps.New(apps.Options{
