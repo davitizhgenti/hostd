@@ -1,0 +1,3 @@
+# Same ID as jellyfin.toml, which sorts first and wins.
+id     = "jellyfin"
+runner = { type = "process", command = ["jellyfin"] }

@@ -1,0 +1,7 @@
+# Rename the discovered Firefox and allow several windows.
+id      = "browser"
+extends = "firefox-esr"
+name    = "Browser"
+
+[instance]
+policy = "multiple"

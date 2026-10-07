@@ -1,0 +1,329 @@
+// Package apps is the apps module: the catalog of apps (discovered from
+// what is installed, merged with hand-written files) and, from M1 step 3.8,
+// their running instances.
+package apps
+
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// Surfaces: a window app shows on the screen; a background app is a
+// service with no window.
+const (
+	SurfaceWindow     = "window"
+	SurfaceBackground = "background"
+)
+
+// Runner types.
+const (
+	RunnerExec    = "exec"
+	RunnerFlatpak = "flatpak"
+	RunnerSteam   = "steam"
+	RunnerURL     = "url"
+	RunnerDocker  = "docker"
+	RunnerCompose = "compose"
+	RunnerProcess = "process"
+)
+
+var runnerTypes = map[string]string{ // runner type -> default surface
+	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerSteam: SurfaceWindow, RunnerURL: SurfaceWindow,
+	RunnerDocker: SurfaceBackground, RunnerCompose: SurfaceBackground, RunnerProcess: SurfaceBackground,
+}
+
+// App is one entry of the catalog: a runner plus a surface, and options.
+type App struct {
+	ID      string   `json:"id"`
+	Aliases []string `json:"aliases,omitempty"` // other IDs that find this app, e.g. the discovered one it extends
+	Name    string   `json:"name"`
+	Icon    string   `json:"icon,omitempty"`
+
+	// Source is where the app came from: desktop (a .desktop file), or
+	// file (a hand-written TOML file). Files lists every file involved.
+	Source string   `json:"source"`
+	Files  []string `json:"files"`
+
+	Runner   Runner            `json:"runner"`
+	Surface  string            `json:"surface"`
+	Window   Window            `json:"window"`
+	Instance InstancePolicy    `json:"instance"`
+	Audio    Audio             `json:"audio,omitzero"`
+	Requires []string          `json:"requires,omitempty"`
+	Hidden   bool              `json:"hidden"`
+	Match    Match             `json:"match,omitzero"`
+	Restart  string            `json:"restart,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Health   Health            `json:"health,omitzero"`
+}
+
+// Runner says how to run the app. Which fields apply depends on Type.
+type Runner struct {
+	Type    string   `json:"type" toml:"type"`
+	Command []string `json:"command,omitempty" toml:"command"` // exec, process: the argv
+	URL     string   `json:"url,omitempty" toml:"url"`         // url
+	Image   string   `json:"image,omitempty" toml:"image"`     // docker
+	Build   string   `json:"build,omitempty" toml:"build"`     // docker: build context
+	Ports   []string `json:"ports,omitempty" toml:"ports"`     // docker
+	File    string   `json:"file,omitempty" toml:"file"`       // compose
+	AppID   string   `json:"app_id,omitempty" toml:"app_id"`   // flatpak ID or Steam app ID
+}
+
+// Window options for window apps.
+type Window struct {
+	Fullscreen bool   `json:"fullscreen"`
+	Wrap       string `json:"wrap,omitempty"` // "gamescope"
+}
+
+// InstancePolicy decides what starting a running app does.
+type InstancePolicy struct {
+	Policy    string `json:"policy"`     // single | multiple
+	IfRunning string `json:"if_running"` // focus | new | restart
+}
+
+// Audio options.
+type Audio struct {
+	Volume *int `json:"volume,omitempty"` // per-app volume applied on start
+}
+
+// Match rules find an app's windows when cgroup matching cannot.
+type Match struct {
+	Class string `json:"class,omitempty" toml:"class"`
+	AppID string `json:"app_id,omitempty" toml:"app_id"`
+	Title string `json:"title,omitempty" toml:"title"`
+}
+
+// Health check for background apps.
+type Health struct {
+	HTTP string `json:"http,omitempty" toml:"http"`
+}
+
+// Problem is a file the catalog could not use, and why.
+type Problem struct {
+	File  string `json:"file"`
+	Error string `json:"error"`
+}
+
+func (p Problem) String() string { return p.File + ": " + p.Error }
+
+var reID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+// ValidID reports whether id can name an app. IDs are lowercase so that
+// "Firefox" and "firefox" are never two apps; '#' is kept for instances.
+func ValidID(id string) bool { return len(id) <= 64 && reID.MatchString(id) }
+
+// applyDefaults fills what a source or file left unset.
+func (a *App) applyDefaults() {
+	if a.Surface == "" {
+		a.Surface = runnerTypes[a.Runner.Type]
+		if a.Surface == "" {
+			a.Surface = SurfaceWindow
+		}
+	}
+	if a.Instance.Policy == "" {
+		a.Instance.Policy = "single"
+	}
+	if a.Instance.IfRunning == "" {
+		// For a background app, focus means "already running, do nothing".
+		a.Instance.IfRunning = "focus"
+	}
+	if a.Restart == "" {
+		if a.Surface == SurfaceBackground {
+			a.Restart = "on-failure"
+		} else {
+			a.Restart = "never"
+		}
+	}
+	if a.Name == "" {
+		a.Name = a.ID
+	}
+}
+
+// validate checks a finished app on its own.
+func (a *App) validate() error {
+	var errs []string
+	bad := func(f string, args ...any) { errs = append(errs, fmt.Sprintf(f, args...)) }
+	if !ValidID(a.ID) {
+		bad("id %q: use lowercase letters, digits, '.', '-' and '_'", a.ID)
+	}
+	if _, ok := runnerTypes[a.Runner.Type]; !ok {
+		names := make([]string, 0, len(runnerTypes))
+		for n := range runnerTypes {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		bad("runner type %q: use one of %s", a.Runner.Type, strings.Join(names, ", "))
+	}
+	switch a.Runner.Type {
+	case RunnerExec, RunnerProcess:
+		if len(a.Runner.Command) == 0 {
+			bad("runner %s needs a command", a.Runner.Type)
+		}
+	case RunnerURL:
+		if !strings.HasPrefix(a.Runner.URL, "http://") && !strings.HasPrefix(a.Runner.URL, "https://") {
+			bad("runner url needs an http:// or https:// url")
+		}
+	case RunnerDocker:
+		if a.Runner.Image == "" && a.Runner.Build == "" {
+			bad("runner docker needs an image or a build context")
+		}
+	case RunnerCompose:
+		if a.Runner.File == "" {
+			bad("runner compose needs a file")
+		}
+	case RunnerFlatpak, RunnerSteam:
+		if a.Runner.AppID == "" {
+			bad("runner %s needs an app_id", a.Runner.Type)
+		}
+	}
+	if a.Surface != SurfaceWindow && a.Surface != SurfaceBackground {
+		bad("surface %q: use window or background", a.Surface)
+	}
+	if a.Instance.Policy != "single" && a.Instance.Policy != "multiple" {
+		bad("instance.policy %q: use single or multiple", a.Instance.Policy)
+	}
+	switch a.Instance.IfRunning {
+	case "focus", "new", "restart":
+	default:
+		bad("instance.if_running %q: use focus, new or restart", a.Instance.IfRunning)
+	}
+	switch a.Restart {
+	case "always", "on-failure", "never":
+	default:
+		bad("restart %q: use always, on-failure or never", a.Restart)
+	}
+	if a.Window.Wrap != "" && a.Window.Wrap != "gamescope" {
+		bad("window.wrap %q: only gamescope is supported", a.Window.Wrap)
+	}
+	if v := a.Audio.Volume; v != nil && (*v < 0 || *v > 150) {
+		bad("audio.volume %d: use 0-150", *v)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// Catalog is a built, immutable set of apps.
+type Catalog struct {
+	apps     map[string]*App
+	alias    map[string]string // alias -> id
+	Problems []Problem
+}
+
+// Get finds an app by ID or alias.
+func (c *Catalog) Get(id string) (*App, bool) {
+	if a, ok := c.apps[id]; ok {
+		return a, true
+	}
+	if real, ok := c.alias[id]; ok {
+		return c.apps[real], true
+	}
+	return nil, false
+}
+
+// List returns the apps sorted by ID, without hidden ones unless all.
+func (c *Catalog) List(all bool) []*App {
+	out := make([]*App, 0, len(c.apps))
+	for _, a := range c.apps {
+		if all || !a.Hidden {
+			out = append(out, a)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// Len is the number of apps, hidden ones included.
+func (c *Catalog) Len() int { return len(c.apps) }
+
+// Build merges discovered apps with app files. Discovered apps come first
+// (a later one with the same ID replaces an earlier one, so user
+// directories should come last); files then extend them, rename them, or
+// add new apps. A file that cannot be used is reported in Problems and
+// skipped: one bad file never breaks the rest of the catalog.
+func Build(discovered []App, files []AppFile, problems []Problem) *Catalog {
+	c := &Catalog{apps: map[string]*App{}, alias: map[string]string{}, Problems: problems}
+	for i := range discovered {
+		a := discovered[i]
+		a.applyDefaults()
+		c.apps[a.ID] = &a
+		for _, al := range a.Aliases {
+			c.alias[al] = a.ID
+		}
+	}
+
+	// Files in name order, so which of two clashing files wins is stable.
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	fromFile := map[string]string{} // id -> file that defined it
+	for _, f := range files {
+		app, err := c.applyFile(f, fromFile)
+		if err != nil {
+			c.Problems = append(c.Problems, Problem{File: f.Path, Error: err.Error()})
+			continue
+		}
+		fromFile[app.ID] = f.Path
+	}
+
+	// Requirements must name apps that exist.
+	for _, a := range c.List(true) {
+		for _, r := range a.Requires {
+			if _, ok := c.Get(r); !ok {
+				c.Problems = append(c.Problems, Problem{File: a.Files[len(a.Files)-1],
+					Error: fmt.Sprintf("app %q requires %q, which is not in the catalog", a.ID, r)})
+			}
+		}
+	}
+	sort.Slice(c.Problems, func(i, j int) bool { return c.Problems[i].File < c.Problems[j].File })
+	return c
+}
+
+func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error) {
+	id := f.ID
+	var app App
+	if f.Extends != "" {
+		base, ok := c.Get(f.Extends)
+		if !ok {
+			return nil, fmt.Errorf("extends %q, which is not in the catalog", f.Extends)
+		}
+		app = *base
+		app.Files = append(append([]string(nil), base.Files...), f.Path)
+		app.Aliases = append([]string(nil), base.Aliases...)
+		if id == "" {
+			id = base.ID
+		}
+		if id != base.ID {
+			app.Aliases = append(app.Aliases, base.ID)
+		}
+	} else {
+		if id == "" {
+			return nil, fmt.Errorf("id is required (or extends, to change a discovered app)")
+		}
+		if prev, ok := c.apps[id]; ok && prev.Source != "file" {
+			return nil, fmt.Errorf("id %q is already a discovered app; use extends = %q to change it", id, id)
+		}
+		app = App{Source: "file", Files: []string{f.Path}}
+	}
+	if prev, ok := fromFile[id]; ok {
+		return nil, fmt.Errorf("id %q is already defined by %s", id, prev)
+	}
+	if real, ok := c.alias[id]; ok && real != id {
+		return nil, fmt.Errorf("id %q is already an alias of %q", id, real)
+	}
+	app.ID = id
+	f.applyTo(&app)
+	app.applyDefaults()
+	if err := app.validate(); err != nil {
+		return nil, err
+	}
+	if f.Extends != "" && id != f.Extends {
+		base, _ := c.Get(f.Extends)
+		delete(c.apps, base.ID) // renamed: the old ID lives on as an alias
+		for _, al := range app.Aliases {
+			c.alias[al] = id
+		}
+	}
+	c.apps[id] = &app
+	return &app, nil
+}

@@ -669,3 +669,21 @@ func (e *Engine) ModuleState(ctx context.Context, name string) (any, error) {
 	}
 	return sr.State(ctx)
 }
+
+// ModuleRead answers one of a module's declared reads.
+func (e *Engine) ModuleRead(ctx context.Context, moduleName, read string, params map[string]string) (any, error) {
+	e.reg.mu.RLock()
+	m, ok := e.reg.byName[moduleName]
+	e.reg.mu.RUnlock()
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "no module %q", moduleName)
+	}
+	if !e.reg.started(m) {
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "module %q is not running", moduleName)
+	}
+	r, ok := m.mod.(sdk.Reader)
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "module %q has no reads", moduleName)
+	}
+	return r.Read(ctx, read, params)
+}

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Firefox (mine)
+Exec=/usr/lib/firefox-esr/firefox-esr --kiosk %u
+Icon=firefox-esr
+Type=Application
+Categories=Network;WebBrowser;

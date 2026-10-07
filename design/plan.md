@@ -263,13 +263,13 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.7 Module `apps`: catalog
 
-- [ ] `Source` interface: `Name()`, `Scan(ctx) ([]App, error)`, `WatchPaths() []string`
-- [ ] `desktop` source: `/usr/share/applications`, `~/.local/share/applications`; parse `Name`, `Exec` (strip field codes `%u %F …`), `TryExec`, `NoDisplay`, `Hidden`, `OnlyShowIn/NotShowIn`, `Icon`; ID = file name without `.desktop`
-- [ ] `toml` source: `~/.config/hostd/apps/*.toml`; fields from the design (`id`, `extends`, `name`, `runner`, `surface`, `window`, `instance`, `audio`, `requires`, `hidden`, `match`, `restart`, `env`, `health`, `source`)
-- [ ] Merge: discovered → `extends` overrides → standalone file apps → default ignore list → `hidden`
-- [ ] Defaults: `window` apps `single`/`focus`; `background` apps `single`/`focus` (= no-op if running)
-- [ ] Rescan on start, on fsnotify (debounced 500 ms), and on `apps.rescan`; emit `apps.catalog.changed`
-- [ ] Invalid files are reported (`config.rejected` event + log) and skipped; they never break the rest of the catalog
+- [x] `Source` interface: `Name()`, `Scan(ctx) ([]App, error)`, `WatchPaths() []string`
+- [x] `desktop` source: `/usr/share/applications`, `~/.local/share/applications`; parse `Name`, `Exec` (strip field codes `%u %F …`), `TryExec`, `NoDisplay`, `Hidden`, `OnlyShowIn/NotShowIn`, `Icon`; ID = file name without `.desktop`
+- [x] `toml` source: `~/.config/hostd/apps/*.toml`; fields from the design (`id`, `extends`, `name`, `runner`, `surface`, `window`, `instance`, `audio`, `requires`, `hidden`, `match`, `restart`, `env`, `health`, `source`)
+- [x] Merge: discovered → `extends` overrides → standalone file apps → default ignore list → `hidden`
+- [x] Defaults: `window` apps `single`/`focus`; `background` apps `single`/`focus` (= no-op if running)
+- [x] Rescan on start, on fsnotify (debounced 500 ms), and on `apps.rescan`; emit `app.catalog.changed`
+- [x] Invalid files are reported (`app.file.rejected` event, once per problem, + log) and skipped; they never break the rest of the catalog
 
 **Tests**
 - Fixtures in `test/testdata/applications/`: Firefox, Steam, a settings panel (ignored), a terminal (ignored), a file with field codes, a malformed file, a localized-name file.
@@ -277,6 +277,14 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 - `extends` to a missing ID → clear error; alias `id` collisions → clear error.
 - Fuzz targets: desktop-file parser, TOML app loader.
 - Watcher test: write a new file into a temp dir → catalog event within the debounce window (fake clock).
+
+*Done 2026-10-07: `modules/apps` (89.2% coverage; three fuzz targets ran clean), wired into `hostd`; `hostctl apps [--all] [id]`. Decided while building:*
+- *Modules can declare read routes (`Reads` in the manifest, `sdk.Reader`), so `GET /v1/apps` and `/v1/apps/{id}` come from the apps module like action routes do.*
+- *IDs are lowercase. Reverse-DNS desktop files get their last part (`org.kde.kcalc` → `kcalc`) with the full name as an alias; files in subdirectories get `subdir-name`. A file that renames an app (`id` + `extends`) keeps the old ID as an alias.*
+- *A file without `id` or `extends` takes its file name as the ID (`apps/jellyfin.toml` → `jellyfin`). Defining a discovered app's ID without `extends` is an error that suggests `extends`. Of two files with the same ID, the first by name wins and the other is reported.*
+- *Hidden by default: `NoDisplay`, `Terminal=true`, `OnlyShowIn`/`NotShowIn` for sway, and the categories Settings, System, TerminalEmulator, ConsoleOnly, PackageManager, Monitor. Hidden apps can still be started by ID.*
+- *Exec arguments containing a field code (`--file=%f`) are dropped whole.*
+- *Defaults: window apps `fullscreen = true`, `restart = "never"`; background apps `restart = "on-failure"`; both `single`/`focus`.*
 
 ### 3.8 Module `apps`: instances and runners
 

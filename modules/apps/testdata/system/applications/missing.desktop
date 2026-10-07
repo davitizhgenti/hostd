@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Not installed
+Exec=missing-tool
+TryExec=missing-tool

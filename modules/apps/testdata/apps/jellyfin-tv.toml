@@ -1,0 +1,7 @@
+id       = "jellyfin-tv"
+name     = "Jellyfin"
+runner   = { type = "url", url = "http://localhost:8096" }
+requires = ["jellyfin"]
+
+[audio]
+volume = 70

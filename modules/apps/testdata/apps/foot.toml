@@ -1,0 +1,6 @@
+# Show the terminal, which is hidden by default.
+extends = "foot"
+hidden  = false
+
+[window]
+fullscreen = false

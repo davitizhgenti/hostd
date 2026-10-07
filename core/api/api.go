@@ -97,6 +97,13 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 			}
 		}
 	}
+	for _, m := range e.Registry().Manifests() {
+		for _, rd := range m.Reads {
+			if err := srv.handle("GET "+rd.Path, sdk.ScopeRead, srv.read(m.Name, rd)); err != nil {
+				return nil, fmt.Errorf("module %q, read %q: %w", m.Name, rd.Name, err)
+			}
+		}
+	}
 	srv.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, sdk.CodeNotFound, "no route "+r.Method+" "+r.URL.Path)
 	})
@@ -332,6 +339,28 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, tok store.Token,
 }
 
 // --- reads ----------------------------------------------------------------
+
+// read serves a module's declared read route.
+func (s *Server) read(module string, rd sdk.ReadSpec) func(http.ResponseWriter, *http.Request, store.Token) error {
+	params := pathParams(rd.Path)
+	return func(w http.ResponseWriter, r *http.Request, _ store.Token) error {
+		args := map[string]string{}
+		for k, v := range r.URL.Query() {
+			if len(v) > 0 {
+				args[k] = v[0]
+			}
+		}
+		for _, p := range params {
+			args[p] = r.PathValue(p)
+		}
+		v, err := s.engine.ModuleRead(r.Context(), module, rd.Name, args)
+		if err != nil {
+			return err
+		}
+		writeJSON(w, http.StatusOK, v)
+		return nil
+	}
+}
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
 	writeJSON(w, http.StatusOK, map[string]any{

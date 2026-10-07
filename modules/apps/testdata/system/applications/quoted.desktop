@@ -1,0 +1,4 @@
+[Desktop Entry]
+Type=Application
+Name=My\sTool
+Exec="/opt/My App/run" --title "Big \\"Screen\\"" --rate=100%% %f

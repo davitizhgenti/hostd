@@ -130,6 +130,11 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	return v, c.Do(ctx, http.MethodGet, "/v1/version", nil, &v)
 }
 
+// Get reads any GET route into out.
+func (c *Client) Get(ctx context.Context, path string, out any) error {
+	return c.Do(ctx, http.MethodGet, path, nil, out)
+}
+
 func (c *Client) Manifests(ctx context.Context) ([]sdk.Manifest, error) {
 	var m []sdk.Manifest
 	return m, c.Do(ctx, http.MethodGet, "/v1/manifests", nil, &m)

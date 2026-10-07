@@ -50,3 +50,10 @@ type Core interface {
 type StateReporter interface {
 	State(ctx context.Context) (any, error)
 }
+
+// Reader is implemented by modules that declare Reads in their manifest.
+// params holds the path parameters and the query string (path wins).
+// Return an *Error with not_found for a missing item.
+type Reader interface {
+	Read(ctx context.Context, name string, params map[string]string) (any, error)
+}

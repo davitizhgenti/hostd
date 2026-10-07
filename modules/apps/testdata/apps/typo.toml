@@ -1,0 +1,3 @@
+extends = "steam"
+[window]
+fulscreen = false

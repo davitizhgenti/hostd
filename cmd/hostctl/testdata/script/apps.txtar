@@ -1,0 +1,53 @@
+# The catalog comes from .desktop files plus app files in ~/.config/hostd/apps.
+env XDG_DATA_DIRS=$WORK/share
+env XDG_DATA_HOME=$WORK/nothing
+mkdir $XDG_CONFIG_HOME/hostd/apps
+cp browser.toml $XDG_CONFIG_HOME/hostd/apps/browser.toml
+
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl apps
+stdout '^browser +Browser +exec +window +desktop$'
+! stdout '^foot'
+exec hostctl apps --all
+stdout '^foot +Foot +exec +window +desktop \(hidden\)$'
+
+# The old ID still finds a renamed app.
+exec hostctl apps firefox-esr
+stdout '"id": "browser"'
+exits 4 hostctl apps nope
+
+# A new file shows up after a rescan; a broken one is reported.
+cp jellyfin.toml $XDG_CONFIG_HOME/hostd/apps/jellyfin.toml
+cp oops.toml $XDG_CONFIG_HOME/hostd/apps/oops.toml
+exec hostctl app rescan
+stdout 'applied \{"apps":3,"problems":1\}'
+exec hostctl apps
+stdout '^jellyfin +jellyfin +docker +background +file$'
+stderr '1 app file\(s\) could not be used'
+stderr 'oops.toml: runner type "warp"'
+
+kill -INT hostd
+wait hostd
+
+-- share/applications/firefox-esr.desktop --
+[Desktop Entry]
+Type=Application
+Name=Firefox ESR
+Exec=/usr/lib/firefox-esr/firefox-esr %u
+-- share/applications/foot.desktop --
+[Desktop Entry]
+Type=Application
+Name=Foot
+Exec=foot
+Categories=System;TerminalEmulator;
+-- browser.toml --
+extends = "firefox-esr"
+id      = "browser"
+name    = "Browser"
+-- jellyfin.toml --
+runner = { type = "docker", image = "docker.io/jellyfin/jellyfin" }
+-- oops.toml --
+runner = { type = "warp" }

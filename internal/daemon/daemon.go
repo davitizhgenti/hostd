@@ -20,6 +20,7 @@ import (
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/version"
+	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/demo"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -56,7 +57,9 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var mods []sdk.Module
+	mods := []sdk.Module{
+		apps.New(apps.Options{DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log}),
+	}
 	if *withDemo {
 		mods = append(mods, demo.New())
 	}

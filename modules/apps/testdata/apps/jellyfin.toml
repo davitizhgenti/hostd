@@ -1,0 +1,8 @@
+runner  = { type = "docker", image = "docker.io/jellyfin/jellyfin:latest", ports = ["8096:8096"] }
+restart = "always"
+
+[env]
+TZ = "Europe/Tbilisi"
+
+[health]
+http = "http://localhost:8096/health"

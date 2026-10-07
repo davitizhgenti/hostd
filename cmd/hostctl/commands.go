@@ -25,7 +25,7 @@ import (
 // looked up in the server's manifests.
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "help": true, "completion": true,
+	"action": true, "apps": true, "help": true, "completion": true,
 }
 
 func (a *app) rootCommand() *cobra.Command {
@@ -43,7 +43,7 @@ see them all.`,
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
-		a.eventsCommand(), a.actionCommand())
+		a.eventsCommand(), a.actionCommand(), a.appsCommand())
 	return root
 }
 
@@ -489,4 +489,84 @@ func (a *app) printJSON(v any) error {
 	enc := json.NewEncoder(a.stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+// --- apps -------------------------------------------------------------------
+
+type appInfo struct {
+	ID      string   `json:"id"`
+	Aliases []string `json:"aliases"`
+	Name    string   `json:"name"`
+	Source  string   `json:"source"`
+	Runner  struct {
+		Type string `json:"type"`
+	} `json:"runner"`
+	Surface string `json:"surface"`
+	Hidden  bool   `json:"hidden"`
+}
+
+func (a *app) appsCommand() *cobra.Command {
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "apps [id]",
+		Short: "List the app catalog, or show one app",
+		Example: `  hostctl apps
+  hostctl apps --all      # include hidden apps (settings, terminals...)
+  hostctl apps firefox`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				var one json.RawMessage
+				if err := c.Get(cmd.Context(), "/v1/apps/"+url.PathEscape(args[0]), &one); err != nil {
+					return err
+				}
+				var pretty bytes.Buffer
+				_ = json.Indent(&pretty, one, "", "  ")
+				_, err := fmt.Fprintln(a.stdout, pretty.String())
+				return err
+			}
+			path := "/v1/apps"
+			if all {
+				path += "?all=true"
+			}
+			var list struct {
+				Apps     []appInfo `json:"apps"`
+				Problems []struct {
+					File  string `json:"file"`
+					Error string `json:"error"`
+				} `json:"problems"`
+			}
+			if err := c.Get(cmd.Context(), path, &list); err != nil {
+				return err
+			}
+			if a.jsonOut {
+				return a.printJSON(list)
+			}
+			tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "ID\tNAME\tRUNNER\tSURFACE\tFROM")
+			for _, ap := range list.Apps {
+				from := ap.Source
+				if ap.Hidden {
+					from += " (hidden)"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", ap.ID, ap.Name, ap.Runner.Type, ap.Surface, from)
+			}
+			if err := tw.Flush(); err != nil {
+				return err
+			}
+			if n := len(list.Problems); n > 0 {
+				fmt.Fprintf(a.stderr, "\n%d app file(s) could not be used:\n", n)
+				for _, p := range list.Problems {
+					fmt.Fprintf(a.stderr, "  %s: %s\n", p.File, p.Error)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "include hidden apps")
+	return cmd
 }

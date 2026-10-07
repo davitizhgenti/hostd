@@ -1,0 +1,2 @@
+runner   = { type = "exec", command = ["ghost-client"] }
+requires = ["ghost"]

@@ -39,6 +39,7 @@ func validManifest() Manifest {
 
 func TestManifestValid(t *testing.T) {
 	m := validManifest()
+	m.Reads = []ReadSpec{{Name: "outputs", Path: "/v1/audio/outputs"}, {Name: "output", Path: "/v1/audio/outputs/{name}"}}
 	if err := m.Validate(); err != nil {
 		t.Fatalf("valid manifest rejected: %v", err)
 	}
@@ -79,6 +80,13 @@ func TestManifestInvalid(t *testing.T) {
 		{"path outside /v1", func(m *Manifest) { m.Actions[0].Route.Path = "/audio/volume" }, "must start with /v1/"},
 		{"route param not in schema", func(m *Manifest) { m.Actions[1].Route.Path = "/v1/audio/apps/{app}/volume" }, "{app}"},
 		{"duplicate route", func(m *Manifest) { m.Actions[2].Route.Path = "/v1/audio/volume" }, "already used"},
+		{"read with bad name", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "Apps", Path: "/v1/x"}} }, `read "Apps"`},
+		{"read outside /v1", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/x"}} }, "must start with /v1/"},
+		{"read twice", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x"}, {Name: "x", Path: "/v1/y"}} }, "declared twice"},
+		{"read route taken", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/same"}, {Name: "y", Path: "/v1/same"}}
+		}, "already used"},
+		{"read bad param", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x/{ID}"}} }, "path parameter {ID}"},
 		{"event outside namespace", func(m *Manifest) { m.Events[0].Type = "display.idle" }, "outside the namespaces"},
 		{"duplicate event", func(m *Manifest) { m.Events[1] = m.Events[0] }, "declared twice"},
 	} {

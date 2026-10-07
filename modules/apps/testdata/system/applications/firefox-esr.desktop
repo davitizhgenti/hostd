@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Firefox ESR
+Name[de]=Firefox ESR (Deutsch)
+Comment=Browse the World Wide Web
+Exec=/usr/lib/firefox-esr/firefox-esr %u
+Icon=firefox-esr
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+
+[Desktop Action new-private-window]
+Name=New Private Window
+Exec=/usr/lib/firefox-esr/firefox-esr --private-window %u

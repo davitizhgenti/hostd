@@ -1,0 +1,343 @@
+{
+  "apps": [
+    {
+      "id": "browser",
+      "aliases": [
+        "firefox-esr"
+      ],
+      "name": "Browser",
+      "icon": "firefox-esr",
+      "source": "desktop",
+      "files": [
+        "testdata/user/applications/firefox-esr.desktop",
+        "testdata/apps/browser.toml"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "/usr/lib/firefox-esr/firefox-esr",
+          "--kiosk"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "multiple",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "foot",
+      "name": "Foot",
+      "icon": "foot",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/foot.desktop",
+        "testdata/apps/foot.toml"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "foot"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": false
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "htop",
+      "name": "Htop",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/htop.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "htop"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": true,
+      "restart": "never"
+    },
+    {
+      "id": "jellyfin",
+      "name": "jellyfin",
+      "source": "file",
+      "files": [
+        "testdata/apps/jellyfin.toml"
+      ],
+      "runner": {
+        "type": "docker",
+        "image": "docker.io/jellyfin/jellyfin:latest",
+        "ports": [
+          "8096:8096"
+        ]
+      },
+      "surface": "background",
+      "window": {
+        "fullscreen": false
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "always",
+      "env": {
+        "TZ": "Europe/Tbilisi"
+      },
+      "health": {
+        "http": "http://localhost:8096/health"
+      }
+    },
+    {
+      "id": "jellyfin-tv",
+      "name": "Jellyfin",
+      "source": "file",
+      "files": [
+        "testdata/apps/jellyfin-tv.toml"
+      ],
+      "runner": {
+        "type": "url",
+        "url": "http://localhost:8096"
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": false
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "audio": {
+        "volume": 70
+      },
+      "requires": [
+        "jellyfin"
+      ],
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "kcalc",
+      "aliases": [
+        "org.kde.kcalc"
+      ],
+      "name": "KCalc",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/org.kde.kcalc.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "kcalc"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "kde-dolphin",
+      "name": "Dolphin",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/kde/dolphin.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "dolphin"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": true,
+      "restart": "never"
+    },
+    {
+      "id": "needs-ghost",
+      "name": "needs-ghost",
+      "source": "file",
+      "files": [
+        "testdata/apps/needs-ghost.toml"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "ghost-client"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": false
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "requires": [
+        "ghost"
+      ],
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "quoted",
+      "name": "My Tool",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/quoted.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "/opt/My App/run",
+          "--title",
+          "Big \"Screen\"",
+          "--rate=100%"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "never"
+    },
+    {
+      "id": "settings",
+      "aliases": [
+        "org.gnome.settings"
+      ],
+      "name": "Settings",
+      "icon": "org.gnome.Settings",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/org.gnome.Settings.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "gnome-control-center"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": true,
+      "restart": "never"
+    },
+    {
+      "id": "steam",
+      "name": "Steam",
+      "icon": "steam",
+      "source": "desktop",
+      "files": [
+        "testdata/system/applications/steam.desktop"
+      ],
+      "runner": {
+        "type": "exec",
+        "command": [
+          "/usr/games/steam"
+        ]
+      },
+      "surface": "window",
+      "window": {
+        "fullscreen": true
+      },
+      "instance": {
+        "policy": "single",
+        "if_running": "focus"
+      },
+      "hidden": false,
+      "restart": "never"
+    }
+  ],
+  "problems": [
+    {
+      "file": "testdata/apps/Bad Name.toml",
+      "error": "id \"Bad Name\": use lowercase letters, digits, '.', '-' and '_'"
+    },
+    {
+      "file": "testdata/apps/bad-runner.toml",
+      "error": "runner type \"teleport\": use one of compose, docker, exec, flatpak, process, steam, url"
+    },
+    {
+      "file": "testdata/apps/broken.toml",
+      "error": "toml: line 1 (last key \"id\"): strings cannot contain newlines"
+    },
+    {
+      "file": "testdata/apps/discovered-id.toml",
+      "error": "id \"steam\" is already a discovered app; use extends = \"steam\" to change it"
+    },
+    {
+      "file": "testdata/apps/later-clash.toml",
+      "error": "id \"jellyfin\" is already defined by testdata/apps/jellyfin.toml"
+    },
+    {
+      "file": "testdata/apps/needs-ghost.toml",
+      "error": "app \"needs-ghost\" requires \"ghost\", which is not in the catalog"
+    },
+    {
+      "file": "testdata/apps/orphan.toml",
+      "error": "extends \"dota3\", which is not in the catalog"
+    },
+    {
+      "file": "testdata/apps/typo.toml",
+      "error": "unknown key(s): window.fulscreen"
+    },
+    {
+      "file": "testdata/system/applications/broken.desktop",
+      "error": "no [Desktop Entry] group"
+    },
+    {
+      "file": "testdata/system/applications/noexec.desktop",
+      "error": "the Exec key has no command"
+    }
+  ]
+}

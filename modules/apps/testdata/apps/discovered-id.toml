@@ -1,0 +1,3 @@
+# Defines an app with a discovered app's ID without extends.
+id     = "steam"
+runner = { type = "exec", command = ["steam"] }

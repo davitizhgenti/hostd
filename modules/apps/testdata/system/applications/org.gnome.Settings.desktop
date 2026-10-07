@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Settings
+Exec=gnome-control-center
+Icon=org.gnome.Settings
+Type=Application
+Categories=GNOME;GTK;Settings;
+OnlyShowIn=GNOME;Unity;

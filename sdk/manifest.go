@@ -35,6 +35,18 @@ type Manifest struct {
 
 	Actions []ActionSpec `json:"actions,omitempty"`
 	Events  []EventSpec  `json:"events,omitempty"`
+
+	// Reads are GET routes serving parts of the module's state, such as
+	// the app catalog. The module implements Reader to answer them.
+	Reads []ReadSpec `json:"reads,omitempty"`
+}
+
+// ReadSpec declares a read-only route. Path parameters and query
+// parameters reach Reader.Read; reading needs the read scope.
+type ReadSpec struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path"` // e.g. /v1/apps/{id}
 }
 
 // ScopeSpec is a token scope a module defines.
@@ -237,6 +249,30 @@ func (m *Manifest) Validate() error {
 				} else if schema != nil && !schema.HasProperty(p[1]) {
 					bad("%s: route parameter {%s} is not an argument in the schema", where, p[1])
 				}
+			}
+		}
+	}
+
+	readNames := map[string]bool{}
+	for _, rd := range m.Reads {
+		where := fmt.Sprintf("read %q", rd.Name)
+		switch {
+		case !isIdent(rd.Name):
+			bad("%s: use lowercase letters, digits and _", where)
+		case readNames[rd.Name]:
+			bad("%s declared twice", where)
+		case !strings.HasPrefix(rd.Path, "/v1/"):
+			bad("%s: path %q must start with /v1/", where, rd.Path)
+		}
+		readNames[rd.Name] = true
+		id := "GET " + rd.Path
+		if prev, dup := routes[id]; dup {
+			bad("%s: route %s is already used by %q", where, id, prev)
+		}
+		routes[id] = rd.Name
+		for _, p := range reParam.FindAllStringSubmatch(rd.Path, -1) {
+			if !isIdent(p[1]) {
+				bad("%s: path parameter {%s}: use lowercase letters, digits and _", where, p[1])
 			}
 		}
 	}

@@ -1,5 +1,5 @@
 exec hostd -listen= -demo &hostd&
-waitfile $XDG_RUNTIME_DIR/hostd-admin-token
+waitfile $XDG_RUNTIME_DIR/hostd.sock
 exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
 
 exec hostctl demo lamp set desk 30
