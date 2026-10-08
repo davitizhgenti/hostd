@@ -52,6 +52,13 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request, _ store.Token
 	}
 	since := r.URL.Query().Get("since")
 
+	// Subscribe before accepting: a client that connects and at once does
+	// something must see the events it causes. Subscribing after the
+	// handshake left a gap in which they were lost.
+	subCtx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	live := s.engine.Subscribe(subCtx, filter)
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{wsProtocol},
 		// Every connection needs a token, which a foreign web page cannot
@@ -62,10 +69,7 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request, _ store.Token
 		return nil // Accept already wrote the HTTP error
 	}
 	defer func() { _ = conn.CloseNow() }()
-	ctx := conn.CloseRead(r.Context()) // we only send; this notices the client leaving
-
-	// Subscribe before reading the replay window, so nothing falls between.
-	live := s.engine.Subscribe(ctx, filter)
+	ctx := conn.CloseRead(subCtx) // we only send; this notices the client leaving
 	last := ""
 	if since != "" {
 		missed, found := s.ring.since(since)

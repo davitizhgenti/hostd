@@ -595,8 +595,10 @@ func TestWaitsForSwayAndReattaches(t *testing.T) {
 	if st.(map[string]any)["attached"] != false {
 		t.Fatalf("display = %v", st)
 	}
-	r.allowConnect()
+	// Wait until the module has failed once and waits to retry; only then
+	// does Sway "appear" (otherwise its first try may simply succeed).
 	r.clock.BlockUntil(1)
+	r.allowConnect()
 	r.clock.Advance(2 * time.Second)
 	waitFor(t, "attach", r.attached)
 
