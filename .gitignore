@@ -4,3 +4,4 @@ coverage.out
 core.out
 *.test
 /test/e2e/.vm/
+__pycache__/
