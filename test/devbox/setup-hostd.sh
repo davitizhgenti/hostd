@@ -41,6 +41,18 @@ name = "Terminal"
 runner = { type = "exec", command = ["foot"] }
 [instance]
 policy = "multiple"
+
+# Extra ways to start it: the switcher's menu (right click), or
+# hostctl start terminal --action large.
+[[actions]]
+id = "large"
+name = "Large text"
+command = ["foot", "--font=monospace:size=20"]
+
+[[actions]]
+id = "top"
+name = "Process list"
+command = ["foot", "--title", "Processes", "top"]
 APP
 cat >"$cfg/hostd/apps/monitor.toml" <<'APP'
 name = "System monitor"

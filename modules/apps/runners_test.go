@@ -2,6 +2,7 @@ package apps
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -374,5 +375,118 @@ func TestHandoffAdopt(t *testing.T) {
 	h.procs.exit(501)
 	if e := h.end(t); e.Instance != "portal2" {
 		t.Fatalf("ended %+v", e)
+	}
+}
+
+// --- app actions ---------------------------------------------------------------------
+
+func TestDesktopActions(t *testing.T) {
+	e, err := ParseDesktopEntry([]byte(`[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=chromium %U
+Actions=new-window;new-private-window;missing;
+
+[Desktop Action new-window]
+Name=New Window
+Name[de]=Neues Fenster
+Exec=chromium
+
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=chromium --incognito
+
+[Desktop Action unlisted]
+Name=Not listed, so not offered
+Exec=chromium --secret
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DesktopAction{{"new-window", "New Window", "chromium"}, {"new-private-window", "New Incognito Window", "chromium --incognito"}}
+	if !reflect.DeepEqual(e.Actions, want) || e.Exec != "chromium %U" {
+		t.Fatalf("entry %+v", e)
+	}
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "chromium.desktop"), []byte(`[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=chromium %U
+Actions=new-private-window;
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=chromium --incognito %U
+`), 0o644)
+	found, _ := (&DesktopSource{Dirs: []string{dir}}).Scan()
+	// An app file adds one and renames another.
+	files := []AppFile{{Path: "/x/chromium.toml", Extends: "chromium", Actions: []AppAction{
+		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
+		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
+	}}}
+	cat := Build(found, files, nil)
+	app, _ := cat.Get("chromium")
+	wantActions := []AppAction{
+		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
+		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
+	}
+	if len(cat.Problems) != 0 || !reflect.DeepEqual(app.Actions, wantActions) {
+		t.Fatalf("actions %+v, problems %v", app.Actions, cat.Problems)
+	}
+
+	for body, want := range map[string]string{
+		`[[actions]]` + "\nid = \"x\"\nname = \"X\"":                                                                         "needs a name and a command",
+		`[[actions]]` + "\nid = \"Bad ID\"\nname = \"X\"\ncommand = [\"x\"]":                                                 "action id",
+		"[[actions]]\nid = \"a\"\nname = \"A\"\ncommand = [\"x\"]\n[[actions]]\nid = \"a\"\nname = \"B\"\ncommand = [\"y\"]": "defined twice",
+	} {
+		f, err := ParseAppFile("/x/a.toml", []byte("runner = { type = \"exec\", command = [\"a\"] }\n"+body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := Build(nil, []AppFile{f}, nil)
+		if len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
+			t.Errorf("%q: problems %v, want %q", body, c.Problems, want)
+		}
+	}
+}
+
+func TestStartAction(t *testing.T) {
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	writeApps(t, r.m.opts.AppsDir, `
+-- chrome.toml --
+runner = { type = "exec", command = ["chromium"] }
+[[actions]]
+id = "incognito"
+name = "New incognito window"
+command = ["chromium", "--incognito"]
+`)
+	r.m.rescan()
+	r.start(t, "chrome")
+	r.next(t)
+	r.next(t)
+	// The app runs (single, if_running focus): its action is still a new
+	// instance, with the action's command.
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"chrome","action":"incognito"}`),
+		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(res.Data), `"instance":"chrome#2"`) {
+		t.Fatalf("result %s", res.Data)
+	}
+	sd.mu.Lock()
+	last := sd.started[len(sd.started)-1]
+	sd.mu.Unlock()
+	if !reflect.DeepEqual(last.Argv, []string{"chromium", "--incognito"}) {
+		t.Fatalf("argv %q", last.Argv)
+	}
+	if ev := r.next(t); !strings.Contains(string(ev.Data), `"action":"incognito"`) {
+		t.Fatalf("event %s", ev.Data)
+	}
+	_, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"chrome","action":"nope"}`),
+		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+	if sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "it has: incognito") {
+		t.Fatalf("unknown action: %v", err)
 	}
 }

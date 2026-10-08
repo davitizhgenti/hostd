@@ -126,6 +126,8 @@ The app catalog is built automatically from what is installed, then merged with 
 
 **IDs.** Each app gets a stable, readable ID: the desktop file name (`firefox`) or the Flatpak ID's last part (`retroarch`). Files can set an alias (`id = "dota2"`).
 
+**App actions.** An app can have extra ways to start it, such as a private browser window. They come from the desktop entry's `[Desktop Action]` groups, so most browsers and editors bring their own. App files add or replace them with `[[actions]]` (`id`, `name`, `command`). `app.start` with `action = "<id>"` runs one as a new instance, recorded in the instance (`action`). The switcher shows them in an entry's menu: right click, the Menu key, or the controller's X button. The menu also has focus and close for a running app, and start for one that is not running.
+
 **No app is built in.** Steam, a browser or an emulator is an app like any other; hostd has no code for any one of them. Launchers fit through two generic features: **handoff** (`runner.handoff = "KEY=value"`) for commands that hand the app to another program and exit, so the instance runs while processes with that variable exist; and **match rules** for windows that are not in the instance's unit. Discovering a game library (Steam's, say) can be an optional external module.
 
 **Definition file**

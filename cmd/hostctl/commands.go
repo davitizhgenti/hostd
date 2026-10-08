@@ -589,19 +589,25 @@ func (a *app) appsCommand() *cobra.Command {
 
 func (a *app) startCommand() *cobra.Command {
 	var front bool
+	var action string
 	cmd := &cobra.Command{
 		Use:   "start <app>",
 		Short: "Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)",
 		Long: `Start an app. While someone is using the screen, an app started from
 elsewhere opens in the background and a notice says it is ready; --front
-brings it to the front anyway (needs the display.front scope).`,
+brings it to the front anyway (needs the display.front scope). --action
+starts one of the app's actions (see hostctl apps <app>) as a new instance.`,
 		Example: `  hostctl start foot
-  hostctl start jellyfin --front`,
+  hostctl start jellyfin --front
+  hostctl start chromium --action new-private-window`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := map[string]any{"id": args[0]}
 			if front {
 				req["front"] = true
+			}
+			if action != "" {
+				req["action"] = action
 			}
 			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "app.start", Args: mustArgs(req)})
 			if err != nil || a.jsonOut {
@@ -625,6 +631,7 @@ brings it to the front anyway (needs the display.front scope).`,
 		},
 	}
 	cmd.Flags().BoolVar(&front, "front", false, "open in front even while someone is using the screen")
+	cmd.Flags().StringVar(&action, "action", "", "start one of the app's actions, as a new instance")
 	return cmd
 }
 

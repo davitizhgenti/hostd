@@ -13,7 +13,7 @@ import (
 )
 
 // DesktopEntry is the part of a .desktop file the catalog uses: keys of the
-// [Desktop Entry] group, unlocalized.
+// [Desktop Entry] group, unlocalized, and its actions.
 type DesktopEntry struct {
 	Type       string
 	Name       string
@@ -27,14 +27,25 @@ type DesktopEntry struct {
 	OnlyShowIn []string
 	NotShowIn  []string
 	Flatpak    string // X-Flatpak: the Flatpak app ID of an exported entry
+	// Actions are the entry's [Desktop Action <id>] groups listed in its
+	// Actions key ("new-private-window"...), in that order.
+	Actions []DesktopAction
 }
 
-// ParseDesktopEntry reads a .desktop file. It reads only the [Desktop
-// Entry] group, ignores localized keys (Name[de]) and comments, and
-// unescapes values as the spec says.
+// DesktopAction is an extra way to start an app, such as a private window.
+type DesktopAction struct {
+	ID, Name, Exec string
+}
+
+// ParseDesktopEntry reads a .desktop file: the [Desktop Entry] group and
+// its [Desktop Action] groups. It ignores localized keys (Name[de]) and
+// comments, and unescapes values as the spec says.
 func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 	var e DesktopEntry
 	inEntry, sawEntry := false, false
+	var listed []string
+	actions := map[string]*DesktopAction{}
+	var action *DesktopAction // the [Desktop Action] group being read
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -45,9 +56,12 @@ func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 		if strings.HasPrefix(line, "[") {
 			inEntry = line == "[Desktop Entry]"
 			sawEntry = sawEntry || inEntry
-			continue
-		}
-		if !inEntry {
+			action = nil
+			if id, ok := strings.CutPrefix(line, "[Desktop Action "); ok && strings.HasSuffix(id, "]") {
+				id = strings.TrimSuffix(id, "]")
+				action = &DesktopAction{ID: id}
+				actions[id] = action
+			}
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
@@ -58,6 +72,18 @@ func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 		value = strings.TrimSpace(value)
 		if strings.Contains(key, "[") {
 			continue // localized
+		}
+		if action != nil {
+			switch key {
+			case "Name":
+				action.Name = unescapeValue(value)
+			case "Exec":
+				action.Exec = unescapeValue(value)
+			}
+			continue
+		}
+		if !inEntry {
+			continue
 		}
 		switch key {
 		case "Type":
@@ -84,6 +110,8 @@ func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 			e.NotShowIn = splitList(value)
 		case "X-Flatpak":
 			e.Flatpak = value
+		case "Actions":
+			listed = splitList(value)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -91,6 +119,11 @@ func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 	}
 	if !sawEntry {
 		return e, errors.New("no [Desktop Entry] group")
+	}
+	for _, id := range listed { // only listed groups count, in the listed order
+		if a := actions[id]; a != nil && a.Name != "" && a.Exec != "" {
+			e.Actions = append(e.Actions, *a)
+		}
 	}
 	return e, nil
 }
@@ -327,6 +360,13 @@ func (s *DesktopSource) Scan() ([]App, []Problem) {
 			}
 			if e.Flatpak != "" {
 				app.Runner = Runner{Type: RunnerFlatpak, AppID: e.Flatpak}
+			}
+			for _, da := range e.Actions {
+				argv, err := ExecArgs(da.Exec)
+				if err != nil || !ValidID(sanitizeID(da.ID)) {
+					continue // a broken extra does not cost the app itself
+				}
+				app.Actions = append(app.Actions, AppAction{ID: sanitizeID(da.ID), Name: da.Name, Command: argv})
 			}
 
 			byFileID[fileID] = app

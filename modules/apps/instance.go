@@ -35,6 +35,8 @@ type Instance struct {
 	// Front: the start asked to be shown even while someone is using the
 	// screen (app.start front=true).
 	Front bool `json:"front,omitempty"`
+	// Action is the app action it was started with ("" for the app itself).
+	Action string `json:"action,omitempty"`
 	// Match rules for its windows, for the display module.
 	Match *Match `json:"match,omitempty"`
 

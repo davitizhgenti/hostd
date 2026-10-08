@@ -55,6 +55,27 @@ type App struct {
 	Restart  string            `json:"restart,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
 	Health   Health            `json:"health,omitzero"`
+	// Actions are extra ways to start the app ("New private window"):
+	// from its desktop entry, and from app files.
+	Actions []AppAction `json:"actions,omitempty"`
+}
+
+// AppAction is an extra way to start an app: app.start with action=<id>
+// runs Command as a new instance.
+type AppAction struct {
+	ID      string   `json:"id" toml:"id"`
+	Name    string   `json:"name" toml:"name"`
+	Command []string `json:"command" toml:"command"`
+}
+
+// Action finds one of the app's actions.
+func (a *App) Action(id string) (AppAction, bool) {
+	for _, x := range a.Actions {
+		if x.ID == id {
+			return x, true
+		}
+	}
+	return AppAction{}, false
 }
 
 // Runner says how to run the app. Which fields apply depends on Type.
@@ -236,6 +257,21 @@ func (a *App) validate() error {
 	if a.Window.Wrap != "" && a.Window.Wrap != "gamescope" {
 		bad("window.wrap %q: only gamescope is supported", a.Window.Wrap)
 	}
+	seen := map[string]bool{}
+	for _, x := range a.Actions {
+		switch {
+		case !ValidID(x.ID):
+			bad("action id %q: use lowercase letters, digits, '.', '-' and '_'", x.ID)
+		case seen[x.ID]:
+			bad("action %q is defined twice", x.ID)
+		case x.Name == "" || len(x.Command) == 0:
+			bad("action %q needs a name and a command", x.ID)
+		}
+		seen[x.ID] = true
+	}
+	if len(a.Actions) > 0 && a.Surface != SurfaceWindow {
+		bad("actions are for window apps")
+	}
 	if v := a.Audio.Volume; v != nil && (*v < 0 || *v > 150) {
 		bad("audio.volume %d: use 0-150", *v)
 	}
@@ -352,6 +388,13 @@ func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error)
 		return nil, fmt.Errorf("id %q is already an alias of %q", id, real)
 	}
 	app.ID = id
+	ids := map[string]bool{}
+	for _, x := range f.Actions {
+		if ids[x.ID] {
+			return nil, fmt.Errorf("action %q is defined twice", x.ID)
+		}
+		ids[x.ID] = true
+	}
 	f.applyTo(&app)
 	app.applyDefaults()
 	if err := app.validate(); err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -24,7 +25,8 @@ const keepEnded = 50
 var (
 	startSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"app ID or alias"},
-		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"}},"required":["id"]}`)
+		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"},
+		"action":{"type":"string","description":"one of the app's actions (e.g. new-private-window): always a new instance"}},"required":["id"]}`)
 	instanceSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["id"]}`)
 )
@@ -72,7 +74,7 @@ func (m *Module) live(app string) []*Instance {
 }
 
 func (m *Module) validateStart(a sdk.Action) error {
-	var args struct{ ID string }
+	var args struct{ ID, Action string }
 	if err := a.DecodeArgs(&args); err != nil {
 		return err
 	}
@@ -80,10 +82,28 @@ func (m *Module) validateStart(a sdk.Action) error {
 	if !ok {
 		return sdk.Errorf(sdk.CodeNotFound, "no app %q (see hostctl apps --all)", args.ID)
 	}
+	if args.Action != "" {
+		if _, ok := app.Action(args.Action); !ok {
+			return sdk.Errorf(sdk.CodeNotFound, "app %q has no action %q%s", app.ID, args.Action, actionList(app))
+		}
+		return nil // actions run as commands, by the exec runner
+	}
 	if m.backend(app.Runner.Type) == nil {
 		return sdk.Errorf(sdk.CodeModuleUnavailable, "app %q uses the %s runner, which hostd cannot run yet", app.ID, app.Runner.Type)
 	}
 	return nil
+}
+
+// actionList names an app's actions for an error message.
+func actionList(app *App) string {
+	if len(app.Actions) == 0 {
+		return " (it has none)"
+	}
+	ids := make([]string, len(app.Actions))
+	for i, x := range app.Actions {
+		ids[i] = x.ID
+	}
+	return "; it has: " + strings.Join(ids, ", ")
 }
 
 func (m *Module) validateStop(a sdk.Action) error {
@@ -118,8 +138,8 @@ type startResult struct {
 
 func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	var args struct {
-		ID    string
-		Front bool
+		ID, Action string
+		Front      bool
 	}
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
@@ -127,6 +147,18 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	app, ok := m.catalog().Get(args.ID)
 	if !ok {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app %q", args.ID)
+	}
+	if args.Action != "" {
+		// One of the app's actions: its own command, always a new
+		// instance (a private window next to the normal one).
+		act, ok := app.Action(args.Action)
+		if !ok {
+			return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "app %q has no action %q%s", app.ID, args.Action, actionList(app))
+		}
+		variant := *app
+		variant.Runner = Runner{Type: RunnerExec, Command: act.Command, Handoff: app.Runner.Handoff}
+		variant.Instance.Policy = "multiple"
+		app = &variant
 	}
 	backend := m.backend(app.Runner.Type)
 
@@ -163,7 +195,8 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
 		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(),
-		State: StateStarting, Started: m.opts.Clock.Now().UTC()}
+		Action: args.Action,
+		State:  StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
 	m.mu.Unlock()
 	m.emitInstance(EventStarting, a.ID, *inst)
