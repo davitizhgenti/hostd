@@ -314,25 +314,28 @@ func quote(s string) string { return `"` + strings.NewReplacer(`\`, `\\`, `"`, `
 // that Sway reports back as a binding event.
 const bindPrefix = "nop hostd key "
 
-// swayKeys turns an input name ("Super+Shift+Tab", "Super", "F1") into a
-// bindsym key combination and its flags. A lone modifier binds on release,
-// so it does not fire when used in a combination.
-func swayKeys(name string) (flags, combo string) {
+// swayKeys turns an input name ("Super+Shift+Tab", "Super", "F1") into
+// the bindsym flags and key combinations that stand for it.
+//
+// A lone modifier binds on release (so it does not fire when used in a
+// combination), and in two forms per key, left and right: the
+// modifier state Sway sees as the key is released differs between
+// physical keyboards (already released: "Super_L") and virtual ones such
+// as VNC's (still held: "Mod4+Super_L"). A press matches only one form.
+func swayKeys(name string) (flags string, combos []string) {
 	mods := map[string]string{"super": "Mod4", "ctrl": "Control", "control": "Control", "alt": "Mod1", "shift": "Shift"}
 	parts := strings.Split(name, "+")
 	if len(parts) == 1 {
-		// A modifier is held while it is released, so its own modifier
-		// is part of the combination.
 		switch strings.ToLower(name) {
 		case "super":
-			return "--release", "Mod4+Super_L"
+			return "--release", []string{"Super_L", "Mod4+Super_L", "Super_R", "Mod4+Super_R"}
 		case "alt":
-			return "--release", "Mod1+Alt_L"
+			return "--release", []string{"Alt_L", "Mod1+Alt_L"}
 		}
 		if len(name) == 1 {
 			name = strings.ToLower(name)
 		}
-		return "--no-repeat", name
+		return "--no-repeat", []string{name}
 	}
 	for i, p := range parts[:len(parts)-1] {
 		if m, ok := mods[strings.ToLower(p)]; ok {
@@ -343,7 +346,7 @@ func swayKeys(name string) (flags, combo string) {
 	if last := parts[len(parts)-1]; len(last) == 1 {
 		parts[len(parts)-1] = strings.ToLower(last)
 	}
-	return "--no-repeat", strings.Join(parts, "+")
+	return "--no-repeat", []string{strings.Join(parts, "+")}
 }
 
 // Bind removes the bindings hostd installed before and installs keys.
@@ -356,12 +359,16 @@ func (s *Sway) Bind(ctx context.Context, keys []string) error {
 	s.mu.Unlock()
 	var cmds []string
 	for _, k := range old {
-		flags, combo := swayKeys(k)
-		cmds = append(cmds, fmt.Sprintf("unbindsym %s %s", flags, combo))
+		flags, combos := swayKeys(k)
+		for _, c := range combos {
+			cmds = append(cmds, fmt.Sprintf("unbindsym %s %s", flags, c))
+		}
 	}
 	for _, k := range keys {
-		flags, combo := swayKeys(k)
-		cmds = append(cmds, fmt.Sprintf("bindsym %s %s %s%s", flags, combo, bindPrefix, k))
+		flags, combos := swayKeys(k)
+		for _, c := range combos {
+			cmds = append(cmds, fmt.Sprintf("bindsym %s %s %s%s", flags, c, bindPrefix, k))
+		}
 	}
 	if len(cmds) == 0 {
 		return nil

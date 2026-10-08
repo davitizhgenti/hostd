@@ -47,7 +47,8 @@ func TestBindingsConfig(t *testing.T) {
 
 func TestSwayKeys(t *testing.T) {
 	for name, want := range map[string]string{
-		"Super":           "--release Mod4+Super_L",
+		"Super":           "--release Super_L,Mod4+Super_L,Super_R,Mod4+Super_R",
+		"Alt":             "--release Alt_L,Mod1+Alt_L",
 		"Super+Tab":       "--no-repeat Mod4+Tab",
 		"Super+Shift+Tab": "--no-repeat Mod4+Shift+Tab",
 		"Super+Q":         "--no-repeat Mod4+q",
@@ -55,8 +56,8 @@ func TestSwayKeys(t *testing.T) {
 		"F1":              "--no-repeat F1",
 		"Q":               "--no-repeat q",
 	} {
-		flags, combo := swayKeys(name)
-		if got := flags + " " + combo; got != want {
+		flags, combos := swayKeys(name)
+		if got := flags + " " + strings.Join(combos, ","); got != want {
 			t.Errorf("%s: %q, want %q", name, got, want)
 		}
 	}
@@ -79,9 +80,15 @@ func TestSwayBindAndEvents(t *testing.T) {
 	_ = s.Bind(ctx, []string{"Super", "Super+Tab"})
 	_ = s.Bind(ctx, []string{"F1"})
 	want := []string{
+		`bindsym --release Super_L nop hostd key Super`,
 		`bindsym --release Mod4+Super_L nop hostd key Super`,
+		`bindsym --release Super_R nop hostd key Super`,
+		`bindsym --release Mod4+Super_R nop hostd key Super`,
 		`bindsym --no-repeat Mod4+Tab nop hostd key Super+Tab`,
+		`unbindsym --release Super_L`,
 		`unbindsym --release Mod4+Super_L`,
+		`unbindsym --release Super_R`,
+		`unbindsym --release Mod4+Super_R`,
 		`unbindsym --no-repeat Mod4+Tab`,
 		`bindsym --no-repeat F1 nop hostd key F1`,
 	}
