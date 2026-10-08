@@ -21,6 +21,9 @@ const (
 	EventOpened  = "window.opened"
 	EventFocused = "window.focused"
 	EventClosed  = "window.closed"
+	EventActive  = "display.active" // someone started using the screen
+	EventIdle    = "display.idle"   // no input for IdleAfter
+	EventNotice  = "display.notice" // a notice shown on the screen
 )
 
 // WorkspacePrefix names an instance's workspace: hostd:<instance>.
@@ -32,6 +35,13 @@ type Options struct {
 	// whenever the connection drops (Sway restarted, or not started yet).
 	Connect  func(ctx context.Context) (Backend, error)
 	ProcRoot string // default /proc
+
+	// Input reports keyboard, mouse and controller activity. Without it
+	// nobody is ever "at the screen" and every launch comes to the front.
+	Input     Input
+	IdleAfter time.Duration // no input this long = nobody there (default 5m)
+	// Notifier shows notices such as "Firefox is ready" (optional).
+	Notifier Notifier
 
 	Clock        clock.Clock
 	Logger       *slog.Logger
@@ -62,6 +72,8 @@ type Module struct {
 	stack     []string                 // instances by focus, most recent last
 	prefs     map[string]bool          // instance -> wants fullscreen
 	closeWait map[int64]chan struct{}
+	launches  map[string]*launch // by instance
+	presence  *presence
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -89,13 +101,29 @@ func New(opts Options) *Module {
 	if opts.CloseTimeout == 0 {
 		opts.CloseTimeout = 5 * time.Second
 	}
-	return &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{},
-		prefs: map[string]bool{}, closeWait: map[int64]chan struct{}{}}
+	if opts.IdleAfter == 0 {
+		opts.IdleAfter = 5 * time.Minute
+	}
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{},
+		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{}}
+	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
+	return m
+}
+
+// launch is how a started instance's windows are placed.
+type launch struct {
+	name  string
+	front bool // its windows come to the front
+	// noticed: a background window was announced with a notice already.
+	noticed bool
 }
 
 var (
 	instanceArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["instance"]}`)
+	focusArg = json.RawMessage(`{"type":"object","properties":{
+		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
+		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance"]}`)
 	fullscreenArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"instance ID"},
 		"enabled":{"type":"boolean","description":"true (default) or false"}},"required":["instance"]}`)
@@ -107,13 +135,13 @@ func (m *Module) Manifest() sdk.Manifest {
 		Owns: []string{"display.*", "window.*"},
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
-			{Name: "display.front", Description: "Force a window to the front while someone uses the screen"},
 		},
 		Actions: []sdk.ActionSpec{
 			{Type: "window.focus", Description: "Bring an instance's window to the front",
-				Schema: instanceArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"}},
+				Schema: focusArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
+				ArgScopes: map[string]string{"front": "display.front"},
+				Timeout:   sdk.Duration(10 * time.Second),
+				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"}},
 			{Type: "window.close", Description: "Close an instance's windows politely; stop the app if they stay open",
 				Schema: instanceArg, Keys: []sdk.KeyTemplate{"instance:{instance}"}, Scope: "apps",
 				Timeout: sdk.Duration(time.Minute),
@@ -127,6 +155,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventOpened, Description: "A window opened (instance is empty for windows hostd did not start)"},
 			{Type: EventFocused, Description: "A window got the focus"},
 			{Type: EventClosed, Description: "A window closed"},
+			{Type: EventActive, Description: "Someone started using the screen (keyboard, mouse or controller input)"},
+			{Type: EventIdle, Description: "Nobody has used the screen for a while"},
+			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 		},
 		Reads: []sdk.ReadSpec{
 			{Name: "windows", Description: "All windows, including ones hostd did not start", Path: "/v1/windows"},
@@ -143,6 +174,16 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.stop = cancel
+	if m.opts.Input != nil {
+		m.done.Add(2)
+		go func() { defer m.done.Done(); m.presence.run(ctx) }()
+		go func() {
+			defer m.done.Done()
+			if err := m.opts.Input.Watch(ctx, m.presence.touch); err != nil {
+				m.log.Warn("cannot read input devices; every launch comes to the front", "err", err)
+			}
+		}()
+	}
 	m.done.Add(2)
 	go func() { defer m.done.Done(); m.attachLoop(ctx) }()
 	go func() { defer m.done.Done(); m.followInstances(ctx, core.Subscribe(ctx, "instance.*")) }()
@@ -227,13 +268,18 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 	for ev := range events {
 		var in struct {
 			ID         string `json:"id"`
+			Name       string `json:"name"`
 			Fullscreen *bool  `json:"fullscreen"`
+			Front      bool   `json:"front"`
 		}
 		if json.Unmarshal(ev.Data, &in) != nil || in.ID == "" {
 			continue
 		}
 		switch ev.Type {
 		case "instance.starting", "instance.started":
+			if ev.Type == "instance.starting" || !m.launchKnown(in.ID) {
+				m.learnLaunch(ctx, in.ID, in.Name, ev.Source, in.Front)
+			}
 			if in.Fullscreen == nil {
 				continue
 			}
@@ -259,6 +305,7 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 		case "instance.exited", "instance.failed":
 			m.mu.Lock()
 			delete(m.prefs, in.ID)
+			delete(m.launches, in.ID)
 			m.mu.Unlock()
 		}
 	}
@@ -288,18 +335,21 @@ func (m *Module) onEvent(ev WindowEvent) {
 		tw := &trackedWindow{Window: w, Instance: inst}
 		m.windows[w.ID] = tw
 		full, known := m.prefs[inst]
+		front, announce := m.placement(inst)
 		b := m.backend
 		m.mu.Unlock()
 		if inst != "" && b != nil {
-			// Its own workspace, in front, fullscreen unless the app
-			// says otherwise. (Background launches while someone uses the
-			// screen come with presence detection, M2.)
+			// Its own workspace, fullscreen unless the app says otherwise.
+			// In front, unless someone else is using the screen and did
+			// not ask for it: then it waits on its workspace, announced.
 			ws := WorkspacePrefix + inst
 			if err := b.Move(ctx, w.ID, ws); err != nil {
 				m.log.Warn("placing window", "instance", inst, "err", err)
 			}
-			_ = b.Show(ctx, ws)
-			_ = b.Focus(ctx, w.ID)
+			if front {
+				_ = b.Show(ctx, ws)
+				_ = b.Focus(ctx, w.ID)
+			}
 			if full || !known {
 				_ = b.Fullscreen(ctx, w.ID, true)
 			}
@@ -312,6 +362,9 @@ func (m *Module) onEvent(ev WindowEvent) {
 			tw.Workspace = ws
 		}
 		m.emit(EventOpened, tw)
+		if announce != "" {
+			m.notice(inst, announce+" is ready")
+		}
 	case "close":
 		m.mu.Lock()
 		tw, ok := m.windows[w.ID]
@@ -345,6 +398,13 @@ func (m *Module) onEvent(ev WindowEvent) {
 		tw, ok := m.windows[w.ID]
 		if ok && tw.Instance != "" {
 			m.pushFocus(tw.Instance)
+			// Apps that showed a window and were then left behind do not
+			// jump back to the front with their next window.
+			for inst, l := range m.launches {
+				if inst != tw.Instance && m.hasWindow(inst) {
+					l.front = false
+				}
+			}
 		}
 		var snap trackedWindow
 		if ok {
@@ -454,6 +514,17 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	}
 	switch a.Type {
 	case "window.focus":
+		var fa struct {
+			Front bool `json:"front"`
+		}
+		_ = a.DecodeArgs(&fa)
+		if a.Source.Kind != sdk.SourceLocal && !fa.Front && !wins[0].Focused && m.presence.present() {
+			// Someone at the screen is in the middle of something; a phone
+			// or script does not take it from them. Tell them instead.
+			m.notice(args.Instance, m.nameOf(args.Instance)+" wants the screen")
+			return sdk.Result{Status: sdk.StatusSkipped, Reason: "in_use",
+				Data: mustJSON(map[string]any{"instance": args.Instance, "focused": false})}, nil
+		}
 		w := wins[0]
 		if err := b.Show(ctx, w.Workspace); err != nil {
 			return sdk.Result{}, err
@@ -525,6 +596,119 @@ func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, 
 	return sdk.Result{Data: mustJSON(map[string]any{"instance": instance, "closed": closed, "stopped": true})}, nil
 }
 
+// --- presence and launches -------------------------------------------------
+
+func (m *Module) presenceChanged(present bool) {
+	typ := EventIdle
+	if present {
+		typ = EventActive
+	}
+	m.mu.Lock()
+	core := m.core
+	m.mu.Unlock()
+	if core != nil {
+		core.Emit(sdk.Event{Type: typ, Data: mustJSON(map[string]bool{"present": present}),
+			Source: &sdk.Source{Kind: sdk.SourceExternal, Name: "input"}})
+	}
+}
+
+func (m *Module) launchKnown(instance string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.launches[instance]
+	return ok
+}
+
+// learnLaunch records where a starting instance's windows go. Someone at
+// the screen keeps it unless they started the app themselves or the
+// sender asked for the front (which needs scope display.front). A window
+// that opened before this was known went to the background; it comes
+// forward now if it should have.
+func (m *Module) learnLaunch(ctx context.Context, instance, name string, src *sdk.Source, front bool) {
+	local := src != nil && src.Kind == sdk.SourceLocal
+	l := &launch{name: name, front: local || front || !m.presence.present()}
+	m.mu.Lock()
+	old, placed := m.launches[instance]
+	if placed {
+		l.noticed = old.noticed
+	}
+	m.launches[instance] = l
+	var bring *trackedWindow
+	if l.front && placed && !old.front {
+		for _, t := range m.windows {
+			if t.Instance == instance && !t.Focused {
+				c := *t
+				bring = &c
+				break
+			}
+		}
+	}
+	b := m.backend
+	m.mu.Unlock()
+	if bring != nil && b != nil {
+		_ = b.Show(ctx, WorkspacePrefix+instance)
+		_ = b.Focus(ctx, bring.ID)
+	}
+}
+
+// placement decides whether a new window of instance comes to the front,
+// and returns the app's name if it goes to the background unannounced so
+// far. Caller holds m.mu.
+func (m *Module) placement(instance string) (front bool, announce string) {
+	if instance == "" {
+		return false, ""
+	}
+	l, ok := m.launches[instance]
+	if !ok {
+		// Its start is not known yet (the window beat the event) or it
+		// was adopted: front only if nobody is using the screen.
+		if !m.presence.present() {
+			return true, ""
+		}
+		l = &launch{name: instance}
+		m.launches[instance] = l
+	}
+	if l.front || !m.presence.present() {
+		return true, ""
+	}
+	if l.noticed {
+		return false, ""
+	}
+	l.noticed = true
+	name := l.name
+	if name == "" {
+		name = instance
+	}
+	return false, name
+}
+
+func (m *Module) nameOf(instance string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if l, ok := m.launches[instance]; ok && l.name != "" {
+		return l.name
+	}
+	return instance
+}
+
+// notice tells the person at the screen something, as an event and, when
+// a notification daemon runs, on the screen.
+func (m *Module) notice(instance, text string) {
+	m.mu.Lock()
+	core := m.core
+	m.mu.Unlock()
+	if core != nil {
+		core.Emit(sdk.Event{Type: EventNotice, Data: mustJSON(map[string]string{"instance": instance, "text": text})})
+	}
+	if m.opts.Notifier != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := m.opts.Notifier.Notify(ctx, text, ""); err != nil {
+			m.log.Debug("showing notice", "text", text, "err", err)
+		}
+	}
+}
+
 // --- reads -----------------------------------------------------------------
 
 func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (any, error) {
@@ -544,7 +728,11 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	case "windows":
 		return wins, nil
 	case "display":
-		st := map[string]any{"attached": b != nil, "focused_instance": focused, "outputs": []Output{}}
+		st := map[string]any{"attached": b != nil, "focused_instance": focused, "outputs": []Output{},
+			"present": m.presence.present()}
+		if last := m.presence.lastInput(); !last.IsZero() {
+			st["last_input"] = last.UTC()
+		}
 		if b != nil {
 			if outs, err := b.Outputs(ctx); err == nil {
 				st["outputs"] = outs

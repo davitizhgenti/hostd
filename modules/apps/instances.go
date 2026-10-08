@@ -23,7 +23,8 @@ const keepEnded = 50
 
 var (
 	startSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"app ID or alias"}},"required":["id"]}`)
+		"id":{"type":"string","description":"app ID or alias"},
+		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"}},"required":["id"]}`)
 	instanceSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["id"]}`)
 )
@@ -32,8 +33,9 @@ func instanceActions() []sdk.ActionSpec {
 	return []sdk.ActionSpec{
 		{Type: "app.start", Description: "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
 			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: "apps",
-			Timeout: sdk.Duration(5 * time.Minute), // pulling a container image can take a while
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"}},
+			ArgScopes: map[string]string{"front": "display.front"},
+			Timeout:   sdk.Duration(5 * time.Minute), // pulling a container image can take a while
+			Route:     &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"}},
 		{Type: "instance.stop", Description: "Stop a running instance",
 			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: "apps",
 			Timeout: sdk.Duration(time.Minute),
@@ -115,7 +117,10 @@ type startResult struct {
 }
 
 func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
+	var args struct {
+		ID    string
+		Front bool
+	}
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
 	}
@@ -135,7 +140,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 			// before it exists) there is nothing to focus.
 			id := running[0].ID
 			if running[0].Surface == SurfaceWindow && m.core.Handles("window.focus") {
-				if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: mustJSON(map[string]string{"instance": id})}); err != nil {
+				if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: mustJSON(map[string]any{"instance": id, "front": args.Front})}); err != nil {
 					return sdk.Result{}, err
 				}
 			}
@@ -157,8 +162,8 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return ok && !in.State.Ended()
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
-		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen,
-		State:      StateStarting, Started: m.opts.Clock.Now().UTC()}
+		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front,
+		State: StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
 	m.mu.Unlock()
 	m.emitInstance(EventStarting, a.ID, *inst)

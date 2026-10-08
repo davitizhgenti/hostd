@@ -91,8 +91,12 @@ func New(opts Options) *Module {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "apps", Version: "0.1.0",
-		Owns:   []string{"app.*", "instance.*"},
-		Scopes: []sdk.ScopeSpec{{Name: "apps", Description: "Start and stop apps, focus and close their windows"}},
+		Owns: []string{"app.*", "instance.*"},
+		Scopes: []sdk.ScopeSpec{
+			{Name: "apps", Description: "Start and stop apps, focus and close their windows"},
+			// Used by app.start and the display module's window.focus.
+			{Name: "display.front", Description: "Bring an app to the front even while someone is using the screen"},
+		},
 		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: "apps",
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},

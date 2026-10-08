@@ -360,6 +360,8 @@ type displayRig struct {
 	b            *fakeBackend
 	apps         *testutil.Module
 	clock        *clock.Fake
+	input        *fakeInput
+	notes        *fakeNotifier
 	events       <-chan sdk.Event
 	stopped      chan string
 }
@@ -376,10 +378,10 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		400: `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-notes.service`,
 	})
 	r := &displayRig{b: newFakeBackend(), clock: clock.NewFake(time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)),
-		stopped: make(chan string, 4)}
+		stopped: make(chan string, 4), input: newFakeInput(), notes: &fakeNotifier{}}
 	var mu sync.Mutex
 	canConnect := connectable
-	r.m = New(Options{ProcRoot: proc, Clock: r.clock, Connect: func(context.Context) (Backend, error) {
+	r.m = New(Options{ProcRoot: proc, Clock: r.clock, Input: r.input, Notifier: r.notes, Connect: func(context.Context) (Backend, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if !canConnect {
@@ -389,7 +391,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 	}})
 	r.apps = testutil.NewModule("apps", nil, nil, []string{"instance.starting", "instance.started", "instance.exited"})
 	r.apps.M.Owns = []string{"app.*", "instance.*"}
-	r.apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}}
+	r.apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}, {Name: "display.front"}}
 	r.apps.M.Actions = []sdk.ActionSpec{{Type: "instance.stop", Scope: "apps",
 		Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
 		Keys:   []sdk.KeyTemplate{"instance:{id}"}}}

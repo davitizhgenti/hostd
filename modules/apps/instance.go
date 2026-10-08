@@ -32,6 +32,9 @@ type Instance struct {
 	State   State  `json:"state"`
 	// Fullscreen is the app's window preference, for the display module.
 	Fullscreen bool `json:"fullscreen"`
+	// Front: the start asked to be shown even while someone is using the
+	// screen (app.start front=true).
+	Front bool `json:"front,omitempty"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

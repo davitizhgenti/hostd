@@ -588,14 +588,22 @@ func (a *app) appsCommand() *cobra.Command {
 // --- start, stop, ps ----------------------------------------------------------
 
 func (a *app) startCommand() *cobra.Command {
-	return &cobra.Command{
+	var front bool
+	cmd := &cobra.Command{
 		Use:   "start <app>",
 		Short: "Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)",
+		Long: `Start an app. While someone is using the screen, an app started from
+elsewhere opens in the background and a notice says it is ready; --front
+brings it to the front anyway (needs the display.front scope).`,
 		Example: `  hostctl start foot
-  hostctl start jellyfin`,
+  hostctl start jellyfin --front`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "app.start", Args: mustArgs(map[string]string{"id": args[0]})})
+			req := map[string]any{"id": args[0]}
+			if front {
+				req["front"] = true
+			}
+			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "app.start", Args: mustArgs(req)})
 			if err != nil || a.jsonOut {
 				return err
 			}
@@ -616,6 +624,8 @@ func (a *app) startCommand() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&front, "front", false, "open in front even while someone is using the screen")
+	return cmd
 }
 
 func (a *app) stopCommand() *cobra.Command {
@@ -716,24 +726,37 @@ func mustArgs(v any) json.RawMessage {
 // --- focus, windows -----------------------------------------------------------
 
 func (a *app) focusCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "focus <instance>",
-		Short:   "Bring an instance's window to the front",
-		Example: "  hostctl focus firefox\n  hostctl focus firefox#2",
+	var front bool
+	cmd := &cobra.Command{
+		Use:   "focus <instance>",
+		Short: "Bring an instance's window to the front",
+		Long: `Bring an instance's window to the front. While someone is using the
+screen it stays put and they get a notice instead; --front switches anyway
+(needs the display.front scope).`,
+		Example: "  hostctl focus firefox\n  hostctl focus firefox#2 --front",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "window.focus", Args: mustArgs(map[string]string{"instance": args[0]})})
+			req := map[string]any{"instance": args[0]}
+			if front {
+				req["front"] = true
+			}
+			res, err := a.submitQuiet(cmd, client.ActionRequest{Type: "window.focus", Args: mustArgs(req)})
 			if err != nil || a.jsonOut {
 				return err
 			}
-			if res.Status == sdk.StatusSkipped {
+			switch {
+			case res.Status == sdk.StatusSkipped && res.Reason == "in_use":
+				fmt.Fprintf(a.stdout, "not switched: someone is using the screen (they got a notice; --front switches anyway)\n")
+			case res.Status == sdk.StatusSkipped:
 				fmt.Fprintf(a.stdout, "skipped: held by %s\n", res.HeldBy)
-				return nil
+			default:
+				fmt.Fprintf(a.stdout, "focused %s\n", args[0])
 			}
-			fmt.Fprintf(a.stdout, "focused %s\n", args[0])
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&front, "front", false, "switch even while someone is using the screen")
+	return cmd
 }
 
 func (a *app) windowsCommand() *cobra.Command {

@@ -331,8 +331,19 @@ if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
 fi
 
 # Session config.
-install_file "$FILES/sway/config" "$SCREEN_HOME/.config/sway/config" 644 "$SCREEN_USER" || info "sway config up to date"
-install_file "$FILES/mako/config" "$SCREEN_HOME/.config/mako/config" 644 "$SCREEN_USER" || info "mako config up to date"
+# A running session picks up changes at once (exec lines do not run again).
+if install_file "$FILES/sway/config" "$SCREEN_HOME/.config/sway/config" 644 "$SCREEN_USER"; then
+	for sock in /run/user/"$SCREEN_UID"/sway-ipc.*.sock; do
+		[ -S "$sock" ] && as_screen env SWAYSOCK="$sock" swaymsg reload >/dev/null 2>&1 && info "reloaded the running Sway" || true
+	done
+else
+	info "sway config up to date"
+fi
+if install_file "$FILES/mako/config" "$SCREEN_HOME/.config/mako/config" 644 "$SCREEN_USER"; then
+	as_screen makoctl reload >/dev/null 2>&1 && info "reloaded mako" || true
+else
+	info "mako config up to date"
+fi
 install_file "$FILES/systemd/wayvnc.service" "$SCREEN_HOME/.config/systemd/user/wayvnc.service" 644 "$SCREEN_USER" ||
 	info "VNC service up to date"
 

@@ -27,11 +27,16 @@ import (
 //	hold_window = "3m"
 //	[hold_windows]
 //	"audio." = "1m"
+//
+//	# After this long without keyboard, mouse or controller input nobody
+//	# is at the screen, and remote launches come to the front again.
+//	idle_after = "5m"
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`
 	HoldWindow  duration            `toml:"hold_window"`
 	HoldWindows map[string]duration `toml:"hold_windows"`
+	IdleAfter   duration            `toml:"idle_after"`
 }
 
 // builtinModules are the modules this hostd can load, in start order

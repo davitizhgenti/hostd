@@ -16,3 +16,8 @@ exec mako
 set $mod Mod4
 bindsym $mod+Return exec foot
 bindsym $mod+Shift+q kill
+
+# Switch between apps (each has its own workspace) until the on-screen
+# switcher exists.
+bindsym $mod+Tab workspace next_on_output
+bindsym $mod+Shift+Tab workspace prev_on_output
