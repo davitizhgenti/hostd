@@ -75,7 +75,7 @@ func (r *ExecRunner) runCommand(ctx context.Context, argv, env []string) error {
 			cmd.Env, cmd.Dir = append(os.Environ(), env...), dir
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				return fmt.Errorf("%v: %s", err, bytes.TrimSpace(out))
+				return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
 			}
 			return nil
 		}
