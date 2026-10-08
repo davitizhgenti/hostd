@@ -261,7 +261,7 @@ func (e *Engine) submit(ctx context.Context, a sdk.Action, auth Auth, parent *ch
 	if c.depth > e.opts.MaxChainDepth {
 		err := sdk.Errorf(sdk.CodeLoopDetected, "cause chain is deeper than %d steps", e.opts.MaxChainDepth)
 		e.publish(sdk.Event{Type: EventLoopDetected, Action: a.ID, Source: &a.Source,
-			Data: mustJSON(map[string]any{"cause": a.Cause, "depth": c.depth})}, c.depth)
+			Data: sdk.MustJSON(map[string]any{"cause": a.Cause, "depth": c.depth})}, c.depth)
 		return sdk.Result{}, e.fail(a, start, err)
 	}
 
@@ -324,7 +324,7 @@ func (e *Engine) run(ctx context.Context, m *module, spec sdk.ActionSpec, a sdk.
 		hcancel()
 		release()
 		e.record(a, start, res, nil, "")
-		e.publish(sdk.Event{Type: EventActionSkipped, Action: a.ID, Source: &a.Source, Data: mustJSON(res)}, c.depth)
+		e.publish(sdk.Event{Type: EventActionSkipped, Action: a.ID, Source: &a.Source, Data: sdk.MustJSON(res)}, c.depth)
 		return res, nil
 	}
 	if a.ExpectVersion != nil {
@@ -410,7 +410,7 @@ func (e *Engine) finish(a sdk.Action, c *chain, keys []string, o outcome, releas
 		err.Action = a.ID
 		e.record(a, start, sdk.Result{}, &err, "")
 		e.publishPending(pending, c.depth)
-		e.publish(sdk.Event{Type: EventActionFailed, Action: a.ID, Source: &a.Source, Data: mustJSON(err)}, c.depth)
+		e.publish(sdk.Event{Type: EventActionFailed, Action: a.ID, Source: &a.Source, Data: sdk.MustJSON(err)}, c.depth)
 		return sdk.Result{}, &err
 	}
 
@@ -442,7 +442,7 @@ func (e *Engine) finish(a sdk.Action, c *chain, keys []string, o outcome, releas
 	}
 	e.record(a, start, res, nil, resource)
 	e.publishPending(pending, c.depth)
-	e.publish(sdk.Event{Type: EventActionDone, Action: a.ID, Source: &a.Source, Data: mustJSON(res)}, c.depth)
+	e.publish(sdk.Event{Type: EventActionDone, Action: a.ID, Source: &a.Source, Data: sdk.MustJSON(res)}, c.depth)
 	return res, nil
 }
 
@@ -576,7 +576,7 @@ func (e *Engine) fail(a sdk.Action, start time.Time, err error) error {
 	se := *sdk.AsError(err)
 	se.Action = a.ID
 	e.record(a, start, sdk.Result{}, &se, "")
-	e.publish(sdk.Event{Type: EventActionFailed, Action: a.ID, Source: &a.Source, Data: mustJSON(se)}, 0)
+	e.publish(sdk.Event{Type: EventActionFailed, Action: a.ID, Source: &a.Source, Data: sdk.MustJSON(se)}, 0)
 	return &se
 }
 
@@ -591,14 +591,6 @@ func (e *Engine) record(a sdk.Action, start time.Time, res sdk.Result, err *sdk.
 		entry.Status, entry.Code, entry.Reason = StatusFailed, err.Code, err.Message
 	}
 	e.opts.Audit.Record(entry)
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
 
 // moduleCore is the sdk.Core a module gets.

@@ -107,6 +107,11 @@ func (r *Registry) Resolve() error {
 			}
 		}
 	}
+	if len(errs) > 0 {
+		// A missing module also leaves its scopes undeclared: report the
+		// cause, not every action it makes unreachable.
+		return errors.Join(errs...)
+	}
 	// Every scope an action needs must be declared by some module (or be
 	// one of the core's), so no action is unreachable by any token.
 	declared := map[string]bool{sdk.ScopeRead: true, sdk.ScopeAdmin: true}

@@ -554,7 +554,7 @@ var admin = core.Auth{Scopes: []string{sdk.ScopeAdmin}}
 
 func (r *rig) do(t *testing.T, typ, id string) (map[string]any, error) {
 	t.Helper()
-	res, err := r.e.Submit(context.Background(), sdk.Action{Type: typ, Args: mustJSON(map[string]string{"id": id}),
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: typ, Args: sdk.MustJSON(map[string]string{"id": id}),
 		Source: sdk.Source{Kind: sdk.SourceManual, Name: "test"}}, admin)
 	if err != nil {
 		return nil, err
@@ -797,7 +797,7 @@ func TestStartRaceWithImmediateExit(t *testing.T) {
 	m.cat = Build(nil, []AppFile{{Path: "x.toml", ID: "blink", Runner: &Runner{Type: RunnerExec, Command: []string{"true"}}}}, nil)
 	core := &fakeCore{}
 	m.core = core
-	res, err := m.handleStart(context.Background(), sdk.Action{ID: "act_1", Args: mustJSON(map[string]string{"id": "blink"})})
+	res, err := m.handleStart(context.Background(), sdk.Action{ID: "act_1", Args: sdk.MustJSON(map[string]string{"id": "blink"})})
 	if err != nil || !strings.Contains(string(res.Data), `"state":"exited"`) {
 		t.Fatalf("%s %v", res.Data, err)
 	}
@@ -821,18 +821,18 @@ func TestFailedStopCanBeRetried(t *testing.T) {
 	m.cat = Build(nil, []AppFile{{Path: "x.toml", ID: "job", Runner: &Runner{Type: RunnerExec, Command: []string{"job"}}}}, nil)
 	m.core = &fakeCore{}
 	ctx := context.Background()
-	if _, err := m.handleStart(ctx, sdk.Action{ID: "a1", Args: mustJSON(map[string]string{"id": "job"})}); err != nil {
+	if _, err := m.handleStart(ctx, sdk.Action{ID: "a1", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
 		t.Fatal(err)
 	}
 	b.fail = true
-	if _, err := m.handleStop(ctx, sdk.Action{ID: "a2", Args: mustJSON(map[string]string{"id": "job"})}); err == nil {
+	if _, err := m.handleStop(ctx, sdk.Action{ID: "a2", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err == nil {
 		t.Fatal("stop error not reported")
 	}
 	if in, _ := m.readInstance("job"); in.State != StateRunning {
 		t.Fatalf("after a failed stop: %s, want running", in.State)
 	}
 	b.fail = false
-	if _, err := m.handleStop(ctx, sdk.Action{ID: "a3", Args: mustJSON(map[string]string{"id": "job"})}); err != nil {
+	if _, err := m.handleStop(ctx, sdk.Action{ID: "a3", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 }

@@ -37,6 +37,8 @@ type Instance struct {
 	Front bool `json:"front,omitempty"`
 	// Action is the app action it was started with ("" for the app itself).
 	Action string `json:"action,omitempty"`
+	// closing: asked to close (instance.closing); its end is an exit.
+	closing bool
 	// Match rules for its windows, for the display module.
 	Match *Match `json:"match,omitempty"`
 

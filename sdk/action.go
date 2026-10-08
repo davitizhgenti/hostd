@@ -131,6 +131,16 @@ type Result struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
+// MustJSON marshals v, which must be marshalable (a map or struct built
+// by the caller): a failure is a programming error, so it panics.
+func MustJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("sdk.MustJSON: %v", err))
+	}
+	return b
+}
+
 // EventLagged tells a subscriber that it fell behind and missed events.
 const EventLagged = "bus.lagged"
 

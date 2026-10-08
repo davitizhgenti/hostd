@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/davitizhgenti/hostd/contract"
 )
 
 // Surfaces: a window app shows on the screen; a background app is a
@@ -112,18 +114,10 @@ type Audio struct {
 	Volume *int `json:"volume,omitempty"` // per-app volume applied on start
 }
 
-// Match rules find an app's windows when cgroup matching cannot: apps
-// whose windows are not in the instance's unit, such as Steam games
-// (Steam's processes) and Flatpak apps (their own scope). A window
-// matches if any rule that is set does. Class, app_id and title are glob
-// patterns ("steam_app_*"); env is a KEY=value the window's process has.
-// An app with a handoff and no rules matches by its handoff variable.
-type Match struct {
-	Class string `json:"class,omitempty" toml:"class"`
-	AppID string `json:"app_id,omitempty" toml:"app_id"`
-	Title string `json:"title,omitempty" toml:"title"`
-	Env   string `json:"env,omitempty" toml:"env"`
-}
+// Match rules find an app's windows when cgroup matching cannot (see
+// contract.Match). An app with a handoff and no rules matches by its
+// handoff variable.
+type Match = contract.Match
 
 // matchRules returns the app's match rules for its instances, or nil.
 func (a *App) matchRules() *Match {
@@ -133,9 +127,6 @@ func (a *App) matchRules() *Match {
 	m := a.Match
 	return &m
 }
-
-// IsZero reports whether no rule is set.
-func (m Match) IsZero() bool { return m == Match{} }
 
 // Health check for background apps.
 type Health struct {

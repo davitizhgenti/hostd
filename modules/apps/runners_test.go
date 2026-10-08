@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -520,5 +521,50 @@ func TestReconcileAfterLostStream(t *testing.T) {
 	sd.exit(unitName("tabs"), 3, 1)
 	if ev := r.next(t); ev.Type != EventFailed {
 		t.Fatalf("after reconnect: %s %s", ev.Type, ev.Data)
+	}
+}
+
+// --- the contract other modules rely on --------------------------------------------
+
+func TestInstanceContract(t *testing.T) {
+	// Every field of contract.Instance must come out of the apps module's
+	// own Instance, with the same value: renaming a JSON field on either
+	// side breaks this test, not the display module at run time.
+	in := Instance{ID: "chrome#2", App: "chrome", Name: "Chromium", Runner: RunnerExec, Surface: SurfaceWindow,
+		State: StateRunning, Fullscreen: true, Front: true, Action: "incognito",
+		Match: &Match{Class: "c", AppID: "a", Title: "t", Env: "K=v"}}
+	var got contract.Instance
+	if err := json.Unmarshal(sdk.MustJSON(in), &got); err != nil {
+		t.Fatal(err)
+	}
+	full := true
+	want := contract.Instance{ID: "chrome#2", App: "chrome", Name: "Chromium", Surface: "window", State: "running",
+		Fullscreen: &full, Front: true, Action: "incognito", Match: &contract.Match{Class: "c", AppID: "a", Title: "t", Env: "K=v"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("contract view\n%+v\nwant\n%+v", got, want)
+	}
+	if unitName("chrome#2") != contract.UnitName("chrome#2") {
+		t.Fatal("unit names differ from the contract")
+	}
+}
+
+func TestClosingCountsAsExit(t *testing.T) {
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	r.start(t, "term")
+	r.next(t)
+	r.next(t)
+	if _, err := r.do(t, contract.ActionInstanceClosing, "term"); err != nil {
+		t.Fatal(err)
+	}
+	sd.exit(unitName("term"), 1, 1) // a terminal's shell ends with 1 when its window closes
+	ev := r.next(t)
+	var in Instance
+	_ = json.Unmarshal(ev.Data, &in)
+	if ev.Type != EventExited || in.State != StateExited || in.ExitCode == nil || *in.ExitCode != 1 {
+		t.Fatalf("event %s %s", ev.Type, ev.Data)
+	}
+	if _, err := r.do(t, contract.ActionInstanceClosing, "ghost"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown instance: %v", err)
 	}
 }

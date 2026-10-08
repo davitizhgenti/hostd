@@ -9,16 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
 // Instance events.
 const (
-	EventStarting = "instance.starting"
-	EventStarted  = "instance.started"
-	EventExited   = "instance.exited"
-	EventFailed   = "instance.failed"
+	EventStarting = contract.EventInstanceStarting
+	EventStarted  = contract.EventInstanceStarted
+	EventExited   = contract.EventInstanceExited
+	EventFailed   = contract.EventInstanceFailed
 )
 
 // keepEnded is how many ended instances stay visible (hostctl ps --all).
@@ -35,15 +36,18 @@ var (
 
 func instanceActions() []sdk.ActionSpec {
 	return []sdk.ActionSpec{
-		{Type: "app.start", Description: "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
-			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: "apps",
-			ArgScopes: map[string]string{"front": "display.front"},
+		{Type: contract.ActionAppStart, Description: "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
+			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: contract.ScopeApps,
+			ArgScopes: map[string]string{"front": contract.ScopeFront},
 			Timeout:   sdk.Duration(5 * time.Minute), // pulling a container image can take a while
 			Route:     &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"}},
-		{Type: "instance.stop", Description: "Stop a running instance",
-			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: "apps",
+		{Type: contract.ActionInstanceStop, Description: "Stop a running instance",
+			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
 			Timeout: sdk.Duration(time.Minute),
 			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/stop"}},
+		{Type: contract.ActionInstanceClosing, Description: "Note that an instance was asked to close: its end counts as a normal exit",
+			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
+			Timeout: sdk.Duration(10 * time.Second)},
 	}
 }
 
@@ -58,7 +62,7 @@ func instanceEvents() []sdk.EventSpec {
 
 func instanceReads() []sdk.ReadSpec {
 	return []sdk.ReadSpec{
-		{Name: "instances", Description: "Running instances (?all=true adds recently ended ones)", Path: "/v1/instances"},
+		{Name: contract.ReadInstances, Description: "Running instances (?all=true adds recently ended ones)", Path: "/v1/instances"},
 		{Name: "instance", Description: "One instance", Path: "/v1/instances/{id}"},
 	}
 }
@@ -174,14 +178,14 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 			// before it exists) there is nothing to focus.
 			id := running[0].ID
 			if running[0].Surface == SurfaceWindow && m.core.Handles("window.focus") {
-				if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: mustJSON(map[string]any{"instance": id, "front": args.Front})}); err != nil {
+				if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: sdk.MustJSON(map[string]any{"instance": id, "front": args.Front})}); err != nil {
 					return sdk.Result{}, err
 				}
 			}
-			return sdk.Result{Data: mustJSON(startResult{Instance: id, App: app.ID, State: running[0].State, AlreadyRunning: true})}, nil
+			return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: running[0].State, AlreadyRunning: true})}, nil
 		case "restart":
 			for _, in := range running {
-				if _, err := m.core.Do(ctx, sdk.Action{Type: "instance.stop", Args: mustJSON(map[string]string{"id": in.ID})}); err != nil &&
+				if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil &&
 					sdk.CodeOf(err) != sdk.CodeInstanceNotRunning {
 					return sdk.Result{}, err
 				}
@@ -221,7 +225,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		if err != nil {
 			return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "%s: %v", app.ID, err)
 		}
-		return sdk.Result{Data: mustJSON(startResult{Instance: id, App: app.ID, State: state})}, nil
+		return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: state})}, nil
 	}
 	if err != nil {
 		cur.State = StateFailed
@@ -249,7 +253,22 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if emitStarted {
 		m.emitInstance(EventStarted, a.ID, snapshot)
 	}
-	return sdk.Result{Data: mustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+}
+
+// handleClosing marks an instance as asked to close: its end will count as
+// a normal exit.
+func (m *Module) handleClosing(a sdk.Action) (sdk.Result, error) {
+	var args struct{ ID string }
+	if err := a.DecodeArgs(&args); err != nil {
+		return sdk.Result{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if in, ok := m.instances[args.ID]; ok {
+		in.closing = true
+	}
+	return sdk.Result{Data: sdk.MustJSON(map[string]string{"instance": args.ID})}, nil
 }
 
 func (m *Module) handleStop(ctx context.Context, a sdk.Action) (sdk.Result, error) {
@@ -281,7 +300,7 @@ func (m *Module) handleStop(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	in = m.instances[args.ID]
 	if in == nil || in.State.Ended() { // the watcher saw it end first
 		m.mu.Unlock()
-		return sdk.Result{Data: mustJSON(map[string]string{"instance": args.ID, "state": string(StateExited)})}, nil
+		return sdk.Result{Data: sdk.MustJSON(map[string]string{"instance": args.ID, "state": string(StateExited)})}, nil
 	}
 	in.State, _ = next(in.State, changeEnded, 0)
 	now := m.opts.Clock.Now().UTC()
@@ -290,7 +309,7 @@ func (m *Module) handleStop(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	snapshot = *in
 	m.mu.Unlock()
 	m.emitInstance(EventExited, a.ID, snapshot)
-	return sdk.Result{Data: mustJSON(map[string]string{"instance": args.ID, "state": string(snapshot.State)})}, nil
+	return sdk.Result{Data: sdk.MustJSON(map[string]string{"instance": args.ID, "state": string(snapshot.State)})}, nil
 }
 
 // unstop puts an instance whose stop failed back to running.
@@ -315,8 +334,14 @@ func (m *Module) onEnded(e Ended) {
 		m.mu.Unlock()
 		return
 	}
-	in.State, _ = next(in.State, changeEnded, e.ExitCode)
 	code := e.ExitCode
+	status := code
+	if in.closing {
+		// Asked to close (instance.closing): whatever status an app ends
+		// with then (a terminal's shell reports 1), it ended as asked.
+		status = 0
+	}
+	in.State, _ = next(in.State, changeEnded, status)
 	in.ExitCode = &code
 	now := m.opts.Clock.Now().UTC()
 	in.Ended = &now
@@ -348,7 +373,7 @@ func (m *Module) retire(id string) {
 // caused it, or, for changes nobody asked for, marked as observed from the
 // runner, which bumps the instance's version.
 func (m *Module) emitInstance(typ, action string, in Instance) {
-	ev := sdk.Event{Type: typ, Action: action, Resource: "instance:" + in.ID, Data: mustJSON(in)}
+	ev := sdk.Event{Type: typ, Action: action, Resource: "instance:" + in.ID, Data: sdk.MustJSON(in)}
 	if action == "" {
 		ev.Source = &sdk.Source{Kind: sdk.SourceExternal, Name: in.Runner}
 	}

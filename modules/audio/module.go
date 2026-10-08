@@ -7,7 +7,6 @@ package audio
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -185,7 +184,7 @@ func (m *Module) check() {
 	core := m.core
 	m.mu.Unlock()
 	if changed && core != nil {
-		core.Emit(sdk.Event{Type: EventVolumeChanged, Resource: resource, Data: mustJSON(cur),
+		core.Emit(sdk.Event{Type: EventVolumeChanged, Resource: resource, Data: sdk.MustJSON(cur),
 			Source: &sdk.Source{Kind: sdk.SourceExternal, Name: "pipewire"}})
 	}
 }
@@ -274,8 +273,8 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	core.Emit(sdk.Event{Type: EventVolumeChanged, Action: a.ID, Resource: resource, Data: mustJSON(want)})
-	return sdk.Result{Data: mustJSON(want)}, nil
+	core.Emit(sdk.Event{Type: EventVolumeChanged, Action: a.ID, Resource: resource, Data: sdk.MustJSON(want)})
+	return sdk.Result{Data: sdk.MustJSON(want)}, nil
 }
 
 // expect records the state hostd is setting, so the monitor's echo of the
@@ -302,11 +301,3 @@ func (m *Module) Read(_ context.Context, name string, _ map[string]string) (any,
 }
 
 func (m *Module) State(ctx context.Context) (any, error) { return m.Read(ctx, "audio", nil) }
-
-func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(fmt.Sprintf("audio: %v", err))
-	}
-	return b
-}

@@ -111,6 +111,14 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 	return k, b, nil
 }
 
+// onInput is called for every input from every device.
+func (m *Module) onInput(ev InputEvent) {
+	m.presence.touch()
+	for _, b := range ev.Buttons {
+		m.press("controller", b)
+	}
+}
+
 // press runs the action bound to an input. A press while the previous
 // press of the same input is still being handled is dropped (a held or
 // bouncing button).
@@ -139,7 +147,7 @@ func (m *Module) press(device, name string) {
 		defer func() { m.mu.Lock(); delete(m.pressing, device+":"+name); m.mu.Unlock() }()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, err := core.Do(ctx, sdk.Action{Type: action, Args: mustJSON(map[string]any{}),
+		_, err := core.Do(ctx, sdk.Action{Type: action, Args: sdk.MustJSON(map[string]any{}),
 			Source: sdk.Source{Kind: sdk.SourceLocal, Name: device}})
 		if err != nil && sdk.CodeOf(err) != sdk.CodeNotFound {
 			m.log.Warn("input", "device", device, "input", name, "action", action, "err", err)

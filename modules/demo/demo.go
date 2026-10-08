@@ -77,7 +77,7 @@ func (m *Module) Handle(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		}
 		m.lamps[args.Lamp] = args.Brightness
 		m.core.Emit(sdk.Event{Type: "demo.lamp.changed", Action: a.ID, Resource: "demo.lamp:" + args.Lamp,
-			Data: mustJSON(map[string]any{"lamp": args.Lamp, "brightness": args.Brightness})})
+			Data: sdk.MustJSON(map[string]any{"lamp": args.Lamp, "brightness": args.Brightness})})
 	case "demo.lamp.off":
 		names := make([]string, 0, len(m.lamps))
 		for n := range m.lamps {
@@ -87,7 +87,7 @@ func (m *Module) Handle(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		for _, n := range names {
 			m.lamps[n] = 0
 			m.core.Emit(sdk.Event{Type: "demo.lamp.changed", Action: a.ID,
-				Data: mustJSON(map[string]any{"lamp": n, "brightness": 0})})
+				Data: sdk.MustJSON(map[string]any{"lamp": n, "brightness": 0})})
 		}
 	}
 	return sdk.Result{}, nil
@@ -102,9 +102,4 @@ func (m *Module) State(context.Context) (any, error) {
 		out[k] = v
 	}
 	return map[string]any{"lamps": out}, nil
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return b
 }

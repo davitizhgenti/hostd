@@ -2,9 +2,7 @@ package apps
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -90,15 +89,15 @@ func New(opts Options) *Module {
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
-		Name: "apps", Version: "0.1.0",
+		Name: contract.AppsModule, Version: "0.1.0",
 		Owns: []string{"app.*", "instance.*"},
 		Scopes: []sdk.ScopeSpec{
-			{Name: "apps", Description: "Start and stop apps, focus and close their windows"},
+			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
 			// Used by app.start and the display module's window.focus.
-			{Name: "display.front", Description: "Bring an app to the front even while someone is using the screen"},
+			{Name: contract.ScopeFront, Description: "Bring an app to the front even while someone is using the screen"},
 		},
 		Actions: append([]sdk.ActionSpec{
-			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: "apps",
+			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
 		}, instanceActions()...),
 		Events: append([]sdk.EventSpec{
@@ -223,12 +222,12 @@ func (m *Module) rescan() {
 	for _, p := range fresh {
 		m.log.Warn("app file not used", "file", p.File, "err", p.Error)
 		if core != nil {
-			core.Emit(sdk.Event{Type: EventFileRejected, Data: mustJSON(p)})
+			core.Emit(sdk.Event{Type: EventFileRejected, Data: sdk.MustJSON(p)})
 		}
 	}
 	added, removed, changed := diff(old, cat)
 	if core != nil && len(added)+len(removed)+len(changed) > 0 {
-		core.Emit(sdk.Event{Type: EventCatalogChanged, Data: mustJSON(map[string]any{
+		core.Emit(sdk.Event{Type: EventCatalogChanged, Data: sdk.MustJSON(map[string]any{
 			"apps": cat.Len(), "added": added, "removed": removed, "changed": changed,
 		})})
 	}
@@ -258,9 +257,9 @@ func diff(old, cur *Catalog) (added, removed, changed []string) {
 
 func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 	switch a.Type {
-	case "app.start":
+	case contract.ActionAppStart:
 		return m.validateStart(a)
-	case "instance.stop":
+	case contract.ActionInstanceStop, contract.ActionInstanceClosing:
 		return m.validateStop(a)
 	}
 	return nil
@@ -268,15 +267,17 @@ func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	switch a.Type {
-	case "app.start":
+	case contract.ActionAppStart:
 		return m.handleStart(ctx, a)
-	case "instance.stop":
+	case contract.ActionInstanceStop:
 		return m.handleStop(ctx, a)
+	case contract.ActionInstanceClosing:
+		return m.handleClosing(a)
 	}
 	if a.Type == "app.rescan" {
 		m.rescan()
 		cat := m.catalog()
-		return sdk.Result{Data: mustJSON(map[string]int{"apps": cat.Len(), "problems": len(cat.Problems)})}, nil
+		return sdk.Result{Data: sdk.MustJSON(map[string]int{"apps": cat.Len(), "problems": len(cat.Problems)})}, nil
 	}
 	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "apps module has no action %q", a.Type)
 }
@@ -311,7 +312,7 @@ func (m *Module) Read(_ context.Context, name string, params map[string]string) 
 			return a, nil
 		}
 		return nil, sdk.Errorf(sdk.CodeNotFound, "no app %q", params["id"])
-	case "instances":
+	case contract.ReadInstances:
 		return m.readInstances(params), nil
 	case "instance":
 		return m.readInstance(params["id"])
@@ -323,12 +324,4 @@ func (m *Module) Read(_ context.Context, name string, params map[string]string) 
 func (m *Module) State(ctx context.Context) (any, error) {
 	apps, _ := m.Read(ctx, "apps", map[string]string{"all": "true"})
 	return map[string]any{"catalog": apps, "instances": m.readInstances(map[string]string{"all": "true"})}, nil
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(fmt.Sprintf("apps: %v", err))
-	}
-	return b
 }

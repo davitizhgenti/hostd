@@ -29,7 +29,13 @@ type Module interface {
 	Stop(ctx context.Context) error
 }
 
-// Core is what the core gives every module.
+// CoreVersion numbers the Core interface below. It is frozen: external
+// modules (M6) will reach the same calls over a wire protocol, so adding,
+// removing or changing a method is a new version, recorded in
+// design/architecture-report.md (finding L6) and the module protocol docs.
+const CoreVersion = 1
+
+// Core is what the core gives every module (version CoreVersion).
 type Core interface {
 	// Emit publishes a state change. The core fills in ID and Time, links
 	// the event to the action being handled (if any), and, when Resource is

@@ -260,3 +260,17 @@ func TestRegistryScopeFromAnotherModule(t *testing.T) {
 		t.Fatalf("a module may use another module's scope: %v", err)
 	}
 }
+
+func TestMissingRequirementIsTheOnlyError(t *testing.T) {
+	// display needs apps, which also declares the scope display's actions
+	// use: report the missing module, not every action it leaves without
+	// a scope.
+	display := testutil.NewModule("display", []string{"apps"}, []string{"display.focus"}, nil)
+	display.M.Actions[0].Scope = "apps"
+	r := NewRegistry()
+	mustAdd(t, r, display)
+	err := r.Resolve()
+	if err == nil || err.Error() != `module "display" requires "apps", which is not enabled` {
+		t.Fatalf("err = %v", err)
+	}
+}

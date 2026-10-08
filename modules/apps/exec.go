@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -162,11 +163,8 @@ func (r *ExecRunner) command(app *App) ([]string, error) {
 	return argv, nil
 }
 
-// unitName is hostd-<instance>.service. '#' is not allowed in unit names,
-// so it is escaped the systemd way: firefox#2 -> hostd-firefox\x232.service.
-func unitName(instance string) string {
-	return "hostd-" + strings.ReplaceAll(instance, "#", `\x23`) + ".service"
-}
+// unitName is the unit an instance runs in (contract.UnitName).
+func unitName(instance string) string { return contract.UnitName(instance) }
 
 var reDescription = regexp.MustCompile(`^hostd instance (\S+) of app (\S+)(?: handoff (\S+))?$`)
 

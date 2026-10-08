@@ -35,7 +35,9 @@ The core understands exactly three things, and nothing about windows, sound or c
 | Action | A request to change something, owned by one module | `audio.volume.set {"percent": 40}` |
 | Event | A notice that something changed, emitted by a module | `audio.volume.changed` |
 
-The core's whole job: load modules, check and route each action to the module that owns it, and deliver events to everyone listening. Clients (the CLI, a phone, scripts, the on-screen menu) are not modules; they only send actions and read events.
+The core's whole job: load modules, check and route each action to the module that owns it, and deliver events to everyone listening.
+
+**Contracts between modules.** A module never imports another. When one uses another's actions, events or reads (the display module places, focuses and closes the apps module's instances), it declares that in its manifest (`Requires`), and both sides take the names and data shapes from the `contract` package rather than repeating strings. Contract tests check that the owner's data still decodes into the contract type field for field. External modules (M6) will get the same contract as JSON, and the module SDK's `Core` interface is frozen at `sdk.CoreVersion`. Clients (the CLI, a phone, scripts, the on-screen menu) are not modules; they only send actions and read events.
 
 **Built-in modules**
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -88,9 +89,9 @@ func TestMatchRules(t *testing.T) {
 	steamCG := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-portal2.service`
 	other := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-tv.kodi.Kodi-123.scope`
 	r.setLive(
-		liveInstance{ID: "portal2", State: "running", Match: &matchRules{Class: "steam_app_620", Env: "SteamAppId=620"}},
-		liveInstance{ID: "kodi", State: "running", Match: &matchRules{AppID: "tv.kodi.Kodi", Env: "FLATPAK_ID=tv.kodi.Kodi"}},
-		liveInstance{ID: "old", State: "exited", Match: &matchRules{Class: "*"}},
+		contract.Instance{ID: "portal2", State: "running", Match: &contract.Match{Class: "steam_app_620", Env: "SteamAppId=620"}},
+		contract.Instance{ID: "kodi", State: "running", Match: &contract.Match{AppID: "tv.kodi.Kodi", Env: "FLATPAK_ID=tv.kodi.Kodi"}},
+		contract.Instance{ID: "old", State: "exited", Match: &contract.Match{Class: "*"}},
 	)
 	// Steam itself runs in portal2's unit (the first launch started it):
 	// its own window is not the game's.
@@ -254,7 +255,7 @@ func TestResyncAfterLag(t *testing.T) {
 	go func() { r.m.waitEnded(context.Background(), "notes", time.Hour); close(done) }()
 	waitFor(t, "waiting", func() bool { r.m.mu.Lock(); defer r.m.mu.Unlock(); return r.m.ending["notes"] != nil })
 	windowed := false
-	r.setLive(liveInstance{ID: "tv", State: "running", Fullscreen: &windowed})
+	r.setLive(contract.Instance{ID: "tv", State: "running", Fullscreen: &windowed})
 
 	events := make(chan sdk.Event, 1)
 	events <- sdk.Event{Type: sdk.EventLagged}

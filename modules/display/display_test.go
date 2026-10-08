@@ -20,6 +20,7 @@ import (
 
 	"go.uber.org/goleak"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/testutil"
@@ -429,7 +430,7 @@ type displayRig struct {
 	autoEnd      atomic.Bool
 
 	liveMu sync.Mutex
-	live   []liveInstance // what the fake apps module reports as running
+	live   []contract.Instance // what the fake apps module reports as running
 }
 
 // ended reports an instance's end, as the apps module does.
@@ -437,7 +438,7 @@ func (r *displayRig) ended(instance string) {
 	r.apps.Core().Emit(sdk.Event{Type: "instance.exited", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, instance))})
 }
 
-func (r *displayRig) setLive(in ...liveInstance) {
+func (r *displayRig) setLive(in ...contract.Instance) {
 	r.liveMu.Lock()
 	r.live = in
 	r.liveMu.Unlock()
@@ -481,7 +482,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 	r.apps.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
 		r.liveMu.Lock()
 		defer r.liveMu.Unlock()
-		return append([]liveInstance{}, r.live...), nil
+		return append([]contract.Instance{}, r.live...), nil
 	}
 	r.apps.HandleFunc = func(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		var args struct{ ID string }

@@ -11,14 +11,213 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/sdk"
 )
+
+type instanceArgs struct {
+	Instance string `json:"instance"`
+	Enabled  *bool  `json:"enabled"`
+}
+
+// windowsOf returns the instance's windows, freshly read from the
+// compositor (they may have moved), the focused or most recent first.
+func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Window, error) {
+	m.mu.Lock()
+	b := m.backend
+	m.mu.Unlock()
+	if b == nil {
+		return nil, nil, sdk.Errorf(sdk.CodeModuleUnavailable, "no display session: Sway is not running")
+	}
+	all, err := b.Windows(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolve := m.resolver(ctx)
+	var out []Window
+	for _, w := range all {
+		if resolve(w) == instance {
+			out = append(out, w)
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil, sdk.Errorf(sdk.CodeNotFound, "instance %q has no window", instance)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Focused && !out[j].Focused })
+	return b, out, nil
+}
+
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
+	switch a.Type {
+	case "display.power", "display.mode", "display.output.enable":
+		_, _, err := m.outputArgs(ctx, a)
+		return err
+	case "window.place":
+		_, _, _, err := m.placeArgs(ctx, a)
+		return err
+	case "window.back", "window.next", "window.prev", "display.menu":
+		return m.attached()
+	case "window.close":
+		var args instanceArgs
+		if err := a.DecodeArgs(&args); err != nil {
+			return err
+		}
+		if args.Instance == "" {
+			_, _, err := m.frontWindow(ctx)
+			return err
+		}
+	}
+	var args instanceArgs
+	if err := a.DecodeArgs(&args); err != nil {
+		return err
+	}
+	_, _, err := m.windowsOf(ctx, args.Instance)
+	return err
+}
+
+func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	switch a.Type {
+	case "display.power", "display.mode", "display.output.enable":
+		return m.handleOutput(ctx, a)
+	case "window.place":
+		return m.handlePlace(ctx, a)
+	case "window.back":
+		return m.handleBack(ctx, a)
+	case "window.next", "window.prev":
+		return m.handleCycle(ctx, a)
+	case "display.menu":
+		return m.handleMenu(ctx, a)
+	case "window.close":
+		var args instanceArgs
+		if err := a.DecodeArgs(&args); err != nil {
+			return sdk.Result{}, err
+		}
+		if args.Instance == "" {
+			return m.closeFront(ctx)
+		}
+	}
+	var args instanceArgs
+	if err := a.DecodeArgs(&args); err != nil {
+		return sdk.Result{}, err
+	}
+	b, wins, err := m.windowsOf(ctx, args.Instance)
+	if err != nil {
+		return sdk.Result{}, err
+	}
+	switch a.Type {
+	case "window.focus":
+		if !wins[0].Focused && m.inUse(a) {
+			// Someone at the screen is in the middle of something; a phone
+			// or script does not take it from them. Tell them instead.
+			m.notice(args.Instance, m.nameOf(args.Instance)+" wants the screen")
+			return sdk.Result{Status: sdk.StatusSkipped, Reason: "in_use",
+				Data: sdk.MustJSON(map[string]any{"instance": args.Instance, "focused": false})}, nil
+		}
+		w := wins[0]
+		if err := b.Show(ctx, w.Workspace); err != nil {
+			return sdk.Result{}, err
+		}
+		if err := b.Focus(ctx, w.ID); err != nil {
+			return sdk.Result{}, err
+		}
+		return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": args.Instance, "window": w.ID})}, nil
+
+	case "window.fullscreen":
+		on := args.Enabled == nil || *args.Enabled
+		for _, w := range wins {
+			if err := b.Fullscreen(ctx, w.ID, on); err != nil {
+				return sdk.Result{}, err
+			}
+		}
+		return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": args.Instance, "fullscreen": on})}, nil
+
+	case "window.close":
+		return m.closeInstance(ctx, b, args.Instance, wins)
+	}
+	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "display module has no action %q", a.Type)
+}
+
+// closeInstance asks every window to close, as its close button would. If
+// any is still open after CloseTimeout, the app is stopped.
+func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, wins []Window) (sdk.Result, error) {
+	// Tell the apps module first: whatever status the app ends with now,
+	// it ended because it was asked to (a terminal's shell reports 1).
+	m.mu.Lock()
+	core := m.core
+	m.mu.Unlock()
+	if core != nil && core.Handles(contract.ActionInstanceClosing) {
+		if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionInstanceClosing,
+			Args: sdk.MustJSON(map[string]string{"id": instance})}); err != nil {
+			m.log.Debug("marking an instance as closing", "instance", instance, "err", err)
+		}
+	}
+	m.mu.Lock()
+	var waits []chan struct{}
+	for _, w := range wins {
+		ch := make(chan struct{})
+		m.closeWait[w.ID] = ch
+		waits = append(waits, ch)
+	}
+	m.mu.Unlock()
+	for _, w := range wins {
+		if err := b.CloseWindow(ctx, w.ID); err != nil {
+			m.log.Warn("closing window", "instance", instance, "err", err)
+		}
+	}
+	timer := m.opts.Clock.NewTimer(m.opts.CloseTimeout)
+	defer timer.Stop()
+	closed := 0
+	for _, ch := range waits {
+		select {
+		case <-ch:
+			closed++
+		case <-timer.C():
+		case <-ctx.Done():
+		}
+	}
+	m.mu.Lock()
+	for _, w := range wins {
+		delete(m.closeWait, w.ID)
+	}
+	m.mu.Unlock()
+	if closed == len(wins) {
+		// Report done once the app has ended too, so whoever asked (the
+		// menu) lists it no more.
+		m.waitEnded(ctx, instance, m.opts.EndWait)
+		return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": instance, "closed": closed})}, nil
+	}
+	// Still open (a "save changes?" dialog, a hung app): stop it.
+	if core == nil || !core.Handles(contract.ActionInstanceStop) {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeTimeout, "%d of %d windows of %s did not close", len(wins)-closed, len(wins), instance)
+	}
+	if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": instance})}); err != nil &&
+		sdk.CodeOf(err) != sdk.CodeInstanceNotRunning {
+		return sdk.Result{}, err
+	}
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": instance, "closed": closed, "stopped": true})}, nil
+}
+
+// inUse reports whether someone at the screen should keep it: the action
+// does not come from them and does not insist (front=true).
+func (m *Module) inUse(a sdk.Action) bool {
+	var args struct {
+		Front bool `json:"front"`
+	}
+	_ = a.DecodeArgs(&args)
+	return a.Source.Kind != sdk.SourceLocal && !args.Front && m.presence.present()
+}
+
+// skippedInUse answers an action refused for inUse, telling the person.
+func (m *Module) skippedInUse(instance, text string, data any) (sdk.Result, error) {
+	m.notice(instance, text)
+	return sdk.Result{Status: sdk.StatusSkipped, Reason: "in_use", Data: sdk.MustJSON(data)}, nil
+}
 
 // resolver returns a function that finds windows' instances. It reads the
 // running instances (for their match rules) at most once, and only when
 // some window needs them.
 func (m *Module) resolver(ctx context.Context) func(Window) string {
-	var live []liveInstance
+	var live []contract.Instance
 	loaded := false
 	return func(w Window) string {
 		if !loaded {
@@ -30,26 +229,24 @@ func (m *Module) resolver(ctx context.Context) func(Window) string {
 }
 
 // liveInstances asks the apps module for the running instances.
-func (m *Module) liveInstances(ctx context.Context) []liveInstance {
+func (m *Module) liveInstances(ctx context.Context) []contract.Instance {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
 	if core == nil {
 		return nil
 	}
-	raw, err := core.Read(ctx, "apps", "instances", nil)
+	raw, err := core.Read(ctx, contract.AppsModule, contract.ReadInstances, nil)
 	if err != nil {
 		return nil
 	}
-	var all []liveInstance
+	var all []contract.Instance
 	if json.Unmarshal(raw, &all) != nil {
 		return nil
 	}
 	out := all[:0]
 	for _, in := range all {
-		switch in.State {
-		case "exited", "failed":
-		default:
+		if !in.Ended() {
 			out = append(out, in)
 		}
 	}
@@ -100,7 +297,7 @@ func (m *Module) handlePlace(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if err := b.Place(ctx, w.ID, beside.ID); err != nil {
 		return sdk.Result{}, err
 	}
-	return sdk.Result{Data: mustJSON(map[string]any{"instance": args.Instance, "beside": args.Beside,
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": args.Instance, "beside": args.Beside,
 		"workspace": beside.Workspace})}, nil
 }
 
@@ -249,9 +446,9 @@ func (m *Module) handleOutput(ctx context.Context, a sdk.Action) (sdk.Result, er
 	core := m.core
 	m.mu.Unlock()
 	if core != nil {
-		core.Emit(sdk.Event{Type: EventOutputs, Action: a.ID, Data: mustJSON(map[string]any{"outputs": outs})})
+		core.Emit(sdk.Event{Type: EventOutputs, Action: a.ID, Data: sdk.MustJSON(map[string]any{"outputs": outs})})
 	}
-	return sdk.Result{Data: mustJSON(map[string]any{"output": output, "applied": setting, "outputs": outs})}, nil
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"output": output, "applied": setting, "outputs": outs})}, nil
 }
 
 // --- moving between apps -----------------------------------------------------------
@@ -279,7 +476,7 @@ func (m *Module) show(ctx context.Context, w *trackedWindow) (sdk.Result, error)
 	if err := b.Focus(ctx, w.ID); err != nil {
 		return sdk.Result{}, err
 	}
-	return sdk.Result{Data: mustJSON(map[string]any{"instance": w.Instance, "window": w.ID})}, nil
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": w.Instance, "window": w.ID})}, nil
 }
 
 // nothing answers an action that had nowhere to go: not an error, the
@@ -367,10 +564,10 @@ func (m *Module) handleMenu(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	if inFront {
 		return m.handleBack(ctx, a)
 	}
-	if core == nil || !core.Handles("app.start") {
+	if core == nil || !core.Handles(contract.ActionAppStart) {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "the apps module is not running")
 	}
-	return core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Menu})})
+	return core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(contract.AppStart{ID: m.opts.Menu})})
 }
 
 // frontWindow returns the focused window and its instance ("" for a window
@@ -411,5 +608,5 @@ func (m *Module) closeFront(ctx context.Context) (sdk.Result, error) {
 	if err := b.CloseWindow(ctx, w.ID); err != nil {
 		return sdk.Result{}, err
 	}
-	return sdk.Result{Data: mustJSON(map[string]any{"window": w.ID, "closed": 1})}, nil
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"window": w.ID, "closed": 1})}, nil
 }
