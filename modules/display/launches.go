@@ -40,6 +40,9 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 			if ev.Type == contract.EventInstanceStarting || !m.launchKnown(in.ID) {
 				m.learnLaunch(ctx, in.ID, in.Name, ev.Source, in.Front)
 			}
+			if ev.Type == contract.EventInstanceStarted {
+				m.claimWindows(ctx, in.ID)
+			}
 			if in.Fullscreen == nil {
 				continue
 			}
@@ -72,6 +75,30 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 				delete(m.ending, in.ID)
 			}
 			m.mu.Unlock()
+		}
+	}
+}
+
+// claimWindows gives a started instance the open windows that turn out
+// to be its own: a handoff app whose program ran before the instance
+// (Steam, still running, started again from the menu). They are placed
+// as if they had just opened.
+func (m *Module) claimWindows(ctx context.Context, instance string) {
+	m.mu.Lock()
+	var free []Window
+	for _, t := range m.windows {
+		if t.Instance == "" {
+			free = append(free, t.Window)
+		}
+	}
+	m.mu.Unlock()
+	if len(free) == 0 {
+		return
+	}
+	resolve := m.resolver(ctx)
+	for _, w := range free {
+		if resolve(w) == instance {
+			m.windowOpened(ctx, w)
 		}
 	}
 }

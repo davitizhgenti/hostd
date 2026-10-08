@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	sdbus "github.com/coreos/go-systemd/v22/dbus"
@@ -177,29 +179,89 @@ func (s *UserSystemd) List(ctx context.Context, pattern string) ([]UnitInfo, err
 }
 
 // Watch uses D-Bus signals, not polling: systemd tells us about every
-// sub-state change of every unit.
+// sub-state change of every unit, with the new state in the signal. It
+// never calls systemd back per signal (go-systemd's subscriber does, for
+// every unit: reading a unit that was just removed loads it again, which
+// is a new signal, a loop that kept systemd busy while Flatpak and Steam
+// ran). Only hostd's units, hostd-*, are reported.
 func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string)) error {
-	conn, err := s.connect(ctx)
+	addr, err := s.address()
 	if err != nil {
 		return err
 	}
-	if err := conn.Subscribe(); err != nil {
+	conn, err := dbus.Connect(addr, dbus.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("%w: %w", errNoSystemd, err)
+	}
+	defer conn.Close()
+	if err := conn.AddMatchSignalContext(ctx, dbus.WithMatchInterface("org.freedesktop.DBus.Properties"),
+		dbus.WithMatchMember("PropertiesChanged"), dbus.WithMatchPathNamespace(unitPathPrefix),
+		dbus.WithMatchArg(0, "org.freedesktop.systemd1.Unit")); err != nil {
 		return err
 	}
-	updates := make(chan *sdbus.SubStateUpdate, 256)
-	errs := make(chan error, 16)
-	conn.SetSubStateSubscriber(updates, errs)
+	signals := make(chan *dbus.Signal, 256)
+	conn.Signal(signals)
+	// Without a subscriber, systemd sends no unit signals.
+	if err := conn.Object("org.freedesktop.systemd1", "/org/freedesktop/systemd1").
+		CallWithContext(ctx, "org.freedesktop.systemd1.Manager.Subscribe", 0).Err; err != nil {
+		return err
+	}
+	// systemd repeats a state in several signals: report changes only.
+	last := map[string]string{}
 	for {
 		select {
 		case <-ctx.Done():
-			conn.SetSubStateSubscriber(nil, nil)
 			return nil
-		case u := <-updates:
-			fn(u.UnitName, u.SubState)
-		case <-errs:
-			// a property read for one unit failed; keep watching
+		case sig, ok := <-signals:
+			if !ok {
+				return errors.New("the user bus connection closed")
+			}
+			name, sub, ok := subStateChange(sig)
+			if !ok || last[name] == sub {
+				continue
+			}
+			if sub == "dead" {
+				delete(last, name) // gone, or about to be
+			} else {
+				last[name] = sub
+			}
+			fn(name, sub)
 		}
 	}
+}
+
+const unitPathPrefix = "/org/freedesktop/systemd1/unit"
+
+// subStateChange reads a hostd unit's new sub-state from a
+// PropertiesChanged signal of the systemd1.Unit interface.
+func subStateChange(sig *dbus.Signal) (name, sub string, ok bool) {
+	esc, found := strings.CutPrefix(string(sig.Path), unitPathPrefix+"/")
+	if !found || !strings.HasPrefix(esc, "hostd_2d") || len(sig.Body) < 2 {
+		return "", "", false
+	}
+	changed, _ := sig.Body[1].(map[string]dbus.Variant)
+	v, found := changed["SubState"]
+	if !found {
+		return "", "", false
+	}
+	sub, ok = v.Value().(string)
+	return unescapeBusPath(esc), sub, ok
+}
+
+// unescapeBusPath undoes systemd's object path escaping: "_2d" is '-'.
+func unescapeBusPath(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '_' && i+2 < len(s) {
+			if n, err := strconv.ParseUint(s[i+1:i+3], 16, 8); err == nil {
+				b.WriteByte(byte(n))
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func isNoSuchUnit(err error) bool {

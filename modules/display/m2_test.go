@@ -294,3 +294,25 @@ func TestFailedCommandsAreCounted(t *testing.T) {
 		return st.(map[string]any)["failed_commands"] == 1
 	})
 }
+
+func TestStartedInstanceClaimsOpenWindows(t *testing.T) {
+	// Steam ran on (its instance had ended); started again, its new
+	// instance hands off to it and takes its open window.
+	r := newDisplayRig(t, true)
+	r.procEnv(t, 904, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.valvesoftware.Steam-1.scope`,
+		"FLATPAK_ID=com.valvesoftware.Steam")
+	r.b.openWindow(Window{ID: 20, PID: 904, Class: "steam"})
+	if _, tw := r.event(t); tw.Instance != "" {
+		t.Fatalf("claimed by %q before its instance existed", tw.Instance)
+	}
+	r.b.commands()
+	r.setLive(contract.Instance{ID: "steam", State: "running", Match: &contract.Match{Env: "FLATPAK_ID=com.valvesoftware.Steam"}})
+	r.apps.Core().Emit(sdk.Event{Type: "instance.started", Source: &sdk.Source{Kind: sdk.SourceLocal},
+		Data: json.RawMessage(`{"id":"steam","name":"Steam","fullscreen":true}`)})
+	if _, tw := r.event(t); tw.Instance != "steam" {
+		t.Fatalf("window instance %q", tw.Instance)
+	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 20 hostd:steam", "show hostd:steam", "focus 20", "fullscreen 20 true"}) {
+		t.Fatalf("commands %q", got)
+	}
+}
