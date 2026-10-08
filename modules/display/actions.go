@@ -43,7 +43,22 @@ func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Win
 	if len(out) == 0 {
 		return nil, nil, sdk.Errorf(sdk.CodeNotFound, "instance %q has no window", instance)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Focused && !out[j].Focused })
+	// An instance can have several windows (Steam and the game started
+	// from it): the one in use comes first.
+	m.mu.Lock()
+	used := make(map[int64]uint64, len(out))
+	for _, w := range out {
+		if t, ok := m.windows[w.ID]; ok {
+			used[w.ID] = t.used
+		}
+	}
+	m.mu.Unlock()
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Focused != out[j].Focused {
+			return out[i].Focused
+		}
+		return used[out[i].ID] > used[out[j].ID]
+	})
 	return b, out, nil
 }
 

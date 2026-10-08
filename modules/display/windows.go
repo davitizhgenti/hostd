@@ -13,6 +13,7 @@ import (
 type trackedWindow struct {
 	Window
 	Instance string `json:"instance,omitempty"`
+	used     uint64 // focusSeq when it was last focused
 }
 
 // onEvent handles one window event from the compositor.
@@ -144,6 +145,9 @@ func (m *Module) windowFocused(w Window) {
 	}
 	m.focusSeq++
 	tw, ok := m.windows[w.ID]
+	if ok {
+		tw.used = m.focusSeq
+	}
 	if ok && tw.Instance != "" {
 		m.pushFocus(tw.Instance)
 		// Apps that showed a window and were then left behind do not

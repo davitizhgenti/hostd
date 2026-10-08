@@ -789,3 +789,26 @@ func TestManifestIsValid(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestFocusGoesToTheWindowLastUsed(t *testing.T) {
+	// Steam and a game started from it are one instance: going back to
+	// it brings the game, which was in use, not Steam's window.
+	r := newDisplayRig(t, true)
+	r.b.open(1, 200)
+	r.event(t)
+	r.b.open(2, 201)
+	r.event(t)
+	r.b.focus(2)
+	r.event(t)
+	r.b.open(3, 100) // tv
+	r.event(t)
+	r.b.focus(3)
+	r.event(t)
+	r.b.commands()
+	if _, err := r.act(t, "window.focus", "browser"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"show hostd:browser", "focus 2"}) {
+		t.Fatalf("commands %q", got)
+	}
+}
