@@ -87,9 +87,17 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 		return err
 	}
 	_, _, err := m.windowsOf(ctx, args.Instance)
-	if sdk.CodeOf(err) == sdk.CodeNotFound && (a.Type == "window.focus" || a.Type == "window.close") &&
-		m.starting(ctx, args.Instance) {
-		return nil
+	if sdk.CodeOf(err) == sdk.CodeNotFound {
+		if host := m.hostOf(ctx, args.Instance); host != "" {
+			if a.Type == "window.close" {
+				return nil
+			}
+			_, _, err = m.windowsOf(ctx, host)
+			return err
+		}
+		if (a.Type == "window.focus" || a.Type == "window.close") && m.starting(ctx, args.Instance) {
+			return nil
+		}
 	}
 	return err
 }
@@ -120,12 +128,21 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return sdk.Result{}, err
 	}
 	b, wins, err := m.windowsOf(ctx, args.Instance)
-	if sdk.CodeOf(err) == sdk.CodeNotFound && m.starting(ctx, args.Instance) {
-		switch a.Type {
-		case "window.focus":
-			return m.focusWhenOpen(a, args.Instance)
-		case "window.close":
-			return m.closeInstance(ctx, nil, args.Instance, nil)
+	if sdk.CodeOf(err) == sdk.CodeNotFound {
+		if host := m.hostOf(ctx, args.Instance); host != "" {
+			// Shown in another app's window (a game in Steam's session):
+			// that window is focused, and closing stops only this one.
+			if a.Type == "window.close" {
+				return m.closeInstance(ctx, nil, args.Instance, nil)
+			}
+			b, wins, err = m.windowsOf(ctx, host)
+		} else if m.starting(ctx, args.Instance) {
+			switch a.Type {
+			case "window.focus":
+				return m.focusWhenOpen(a, args.Instance)
+			case "window.close":
+				return m.closeInstance(ctx, nil, args.Instance, nil)
+			}
 		}
 	}
 	if err != nil {
@@ -162,6 +179,27 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.closeInstance(ctx, b, args.Instance, wins)
 	}
 	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "display module has no action %q", a.Type)
+}
+
+// hostOf returns the running instance whose window shows instance, for
+// one whose app is shown by another (contract.Instance.ShownBy), or "".
+func (m *Module) hostOf(ctx context.Context, instance string) string {
+	live := m.liveInstances(ctx)
+	shownBy := ""
+	for _, in := range live {
+		if in.ID == instance {
+			shownBy = in.ShownBy
+		}
+	}
+	if shownBy == "" {
+		return ""
+	}
+	for _, in := range live {
+		if in.App == shownBy && in.ShownBy == "" {
+			return in.ID
+		}
+	}
+	return ""
 }
 
 // starting reports whether an instance runs without a window yet: an app

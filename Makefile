@@ -58,7 +58,7 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh
+	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/addons/steam/hostd-steam-session
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py

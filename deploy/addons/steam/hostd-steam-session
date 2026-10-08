@@ -1,0 +1,46 @@
+#!/bin/bash
+# Steam's session for hostd's steam add-on: Steam in gamescope, as on
+# SteamOS, so Steam's overlay and its Guide button work over games.
+#
+#   hostd-steam-session          run the session (the Steam app's command)
+#   hostd-steam-session URL...   pass URL to Steam (a game's command,
+#                                steam://rungameid/ID); the session is
+#                                started through hostd first if needed
+#
+# The screen's size and refresh rate come from Sway. HOSTD_GAMESCOPE_ARGS
+# adds gamescope options.
+set -eu
+
+STEAM_ID=com.valvesoftware.Steam
+# Debian installs gamescope (and its gamescopereaper) in /usr/games.
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/games
+
+steam_runs() { flatpak ps --columns=application 2>/dev/null | grep -qx "$STEAM_ID"; }
+
+if [ $# -gt 0 ]; then
+	# The session is an app of its own (steam), started like any other.
+	steam_runs || hostctl start steam --front >/dev/null
+	exec flatpak run "$STEAM_ID" "$@"
+fi
+
+# The focused output's mode: "WIDTH HEIGHT HZ".
+mode=$(swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
+import json, sys
+outs = [o for o in json.load(sys.stdin) if o.get("active")]
+outs.sort(key=lambda o: not o.get("focused"))
+if outs:
+    m = outs[0]["current_mode"]
+    print(m["width"], m["height"], round(m["refresh"] / 1000))
+' 2>/dev/null || true)
+
+# -e: Steam drives gamescope (its overlay, game focus). Composing every
+# frame in gamescope, rather than passing the game's frames straight to
+# Sway, avoids flicker on drivers without explicit sync (NVIDIA < 555).
+args=(-e -f --force-composition)
+if [ -n "$mode" ]; then
+	read -r w h hz <<<"$mode"
+	args+=(-W "$w" -H "$h" -w "$w" -h "$h" -r "$hz")
+fi
+# shellcheck disable=SC2206 # options, split on purpose
+args+=(${HOSTD_GAMESCOPE_ARGS:-})
+exec gamescope "${args[@]}" -- flatpak run "$STEAM_ID" -gamepadui

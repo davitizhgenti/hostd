@@ -3,8 +3,9 @@
 
 Reads Steam's library (libraryfolders.vdf, appmanifest_*.acf) and writes
 ~/.config/hostd/apps/steam-<appid>.toml for each installed game: a handoff
-to Steam (steam://rungameid/<id>), followed by the SteamAppId variable
-Steam gives the game's processes. Files it made carry a marker line; it
+to Steam's session (hostd-steam-session steam://rungameid/<id>), followed
+by the SteamAppId variable Steam gives the game's processes. The game is
+drawn inside the session's gamescope window (window.shown_by = "steam"). Files it made carry a marker line; it
 removes those whose game is gone, and never touches other files. Run it
 again any time; --remove deletes everything it made.
 """
@@ -15,6 +16,7 @@ import sys
 
 MARKER = "# Made by hostd-steam-games from Steam's library; changes are overwritten."
 STEAM_ID = "com.valvesoftware.Steam"
+SESSION = "/usr/local/bin/hostd-steam-session"
 
 # Installed like games, but not games.
 TOOLS = {"228980", "1070560", "1391110", "1628350", "1493710", "2180100", "961940"}
@@ -99,7 +101,7 @@ def toml_string(s):
 
 
 def app_file(appid, name):
-    command = f'["flatpak", "run", "{STEAM_ID}", "steam://rungameid/{appid}"]'
+    command = f'["{SESSION}", "steam://rungameid/{appid}"]'
     return f"""{MARKER}
 name = {toml_string(name)}
 runner = {{ type = "exec", command = {command}, handoff = "SteamAppId={appid}" }}
@@ -110,6 +112,7 @@ env = "SteamAppId={appid}"
 
 [window]
 fullscreen = true
+shown_by = "steam"
 """
 
 

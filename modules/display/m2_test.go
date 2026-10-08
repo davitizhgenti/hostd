@@ -350,3 +350,51 @@ func TestStartedInstanceClaimsOpenWindows(t *testing.T) {
 		t.Fatalf("commands %q", got)
 	}
 }
+
+func TestShownByAnotherApp(t *testing.T) {
+	// A game inside Steam's gamescope session has no window of its own:
+	// starting it brings Steam's window, focusing it too, and closing it
+	// stops the game only.
+	r := newDisplayRig(t, true)
+	r.input.press(t)
+	waitFor(t, "present", r.m.presence.present)
+	r.procEnv(t, 910, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-steam.service`)
+	steam := contract.Instance{ID: "steam", App: "steam", State: "running", Match: &contract.Match{AppID: "gamescope"}}
+	r.setLive(steam)
+	r.b.openWindow(Window{ID: 30, PID: 910, AppID: "gamescope"})
+	r.event(t)
+	r.b.open(1, 100) // tv, in front
+	r.event(t)
+	r.b.focus(1)
+	r.event(t)
+	r.b.commands()
+
+	game := contract.Instance{ID: "steam-620", App: "steam-620", State: "running", ShownBy: "steam"}
+	r.setLive(steam, game)
+	r.start(t, "steam-620", "Portal 2", sdk.SourceLocal, false)
+	r.apps.Core().Emit(sdk.Event{Type: "instance.started", Source: &sdk.Source{Kind: sdk.SourceLocal},
+		Data: json.RawMessage(`{"id":"steam-620","app":"steam-620","shown_by":"steam"}`)})
+	waitFor(t, "Steam's window in front", func() bool {
+		r.b.mu.Lock()
+		defer r.b.mu.Unlock()
+		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:steam", "focus 30"})
+	})
+	r.b.commands()
+	r.b.focus(1)
+	r.event(t)
+	if res, err := r.submit(t, "window.focus", `{"instance":"steam-620"}`, sdk.SourceLocal); err != nil || res.Status != sdk.StatusApplied {
+		t.Fatalf("focus: %+v %v", res, err)
+	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"show hostd:steam", "focus 30"}) {
+		t.Fatalf("focus commands %q", got)
+	}
+	if _, err := r.submit(t, "window.close", `{"instance":"steam-620"}`, sdk.SourceLocal); err != nil {
+		t.Fatal(err)
+	}
+	if id := <-r.stopped; id != "steam-620" {
+		t.Fatalf("stopped %s", id)
+	}
+	if got := r.b.commands(); len(got) != 0 {
+		t.Fatalf("closing the game touched Steam's window: %q", got)
+	}
+}

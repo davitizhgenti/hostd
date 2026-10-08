@@ -101,6 +101,9 @@ type Runner struct {
 type Window struct {
 	Fullscreen bool   `json:"fullscreen"`
 	Wrap       string `json:"wrap,omitempty"` // "gamescope"
+	// ShownBy is the app whose window shows this one, when it has none of
+	// its own: a game drawn inside Steam's gamescope session.
+	ShownBy string `json:"shown_by,omitempty"`
 }
 
 // InstancePolicy decides what starting a running app does.
@@ -250,6 +253,9 @@ func (a *App) validate() error {
 	case "always", "on-failure", "never":
 	default:
 		bad("restart %q: use always, on-failure or never", a.Restart)
+	}
+	if s := a.Window.ShownBy; s != "" && (!ValidID(s) || s == a.ID) {
+		bad("window.shown_by %q: another app's id", s)
 	}
 	if a.Window.Wrap != "" && a.Window.Wrap != "gamescope" {
 		bad("window.wrap %q: only gamescope is supported", a.Window.Wrap)

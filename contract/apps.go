@@ -57,6 +57,10 @@ type Instance struct {
 	Action string `json:"action,omitempty"`
 	// Match is how to find its windows when they are not in its unit.
 	Match *Match `json:"match,omitempty"`
+	// ShownBy is the app whose window shows it, when it has none of its
+	// own (a game inside Steam's gamescope session): focusing it brings
+	// that app's window.
+	ShownBy string `json:"shown_by,omitempty"`
 }
 
 // Ended reports whether the instance has ended.

@@ -1,13 +1,16 @@
 # Managed by hostd's steam add-on; changes here are overwritten.
-# Steam starts in Big Picture, made for a TV and a controller. Its desktop
-# window is an action (right click in the menu).
+# Steam starts in Big Picture inside gamescope, as on SteamOS: Steam's
+# overlay and its Guide button work over games, which run inside it. Its
+# desktop window is an action (right click in the menu).
 extends = "steam"
 name = "Steam"
 # Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
-# processes, so closing Steam in hostd ends Steam.
-runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
+# processes, so closing Steam in hostd ends Steam (and gamescope with it).
+runner = { type = "exec", command = ["/usr/local/bin/hostd-steam-session"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
 
+# Its window is gamescope's.
 [match]
+app_id = "gamescope"
 env = "FLATPAK_ID=com.valvesoftware.Steam"
 
 [window]

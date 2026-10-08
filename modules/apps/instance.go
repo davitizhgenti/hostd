@@ -41,6 +41,8 @@ type Instance struct {
 	closing bool
 	// Match rules for its windows, for the display module.
 	Match *Match `json:"match,omitempty"`
+	// ShownBy: the app whose window shows it (see Window.ShownBy).
+	ShownBy string `json:"shown_by,omitempty"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

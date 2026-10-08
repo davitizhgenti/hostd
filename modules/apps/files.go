@@ -45,6 +45,7 @@ type AppFile struct {
 type fileWindow struct {
 	Fullscreen *bool   `toml:"fullscreen"`
 	Wrap       *string `toml:"wrap"`
+	ShownBy    *string `toml:"shown_by"`
 }
 
 type fileInstance struct {
@@ -77,6 +78,9 @@ func (f AppFile) applyTo(a *App) {
 		}
 		if w.Wrap != nil {
 			a.Window.Wrap = *w.Wrap
+		}
+		if w.ShownBy != nil {
+			a.Window.ShownBy = *w.ShownBy
 		}
 	}
 	if in := f.Instance; in != nil {

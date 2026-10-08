@@ -42,6 +42,9 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 			}
 			if ev.Type == contract.EventInstanceStarted {
 				m.claimWindows(ctx, in.ID)
+				if in.ShownBy != "" {
+					m.bringHost(ctx, in.ID)
+				}
 			}
 			if in.Fullscreen == nil {
 				continue
@@ -101,6 +104,25 @@ func (m *Module) claimWindows(ctx context.Context, instance string) {
 			m.windowOpened(ctx, w)
 		}
 	}
+}
+
+// bringHost brings forward the window that shows a started instance (a
+// game in Steam's session) when its launch belongs in front.
+func (m *Module) bringHost(ctx context.Context, instance string) {
+	m.mu.Lock()
+	l, ok := m.launches[instance]
+	front := ok && l.front
+	m.mu.Unlock()
+	host := m.hostOf(ctx, instance)
+	if !front || host == "" {
+		return
+	}
+	b, wins, err := m.windowsOf(ctx, host)
+	if err != nil || wins[0].Focused {
+		return
+	}
+	m.screen("show", b.Show(ctx, wins[0].Workspace))
+	m.screen("focus", b.Focus(ctx, wins[0].ID))
 }
 
 // resyncInstances rebuilds what the module learns from instance events,
