@@ -8,7 +8,7 @@ CORE_COVER_MIN := 85
 
 .PHONY: all build dist test test-integration test-e2e fuzz lint cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop \
-	check-server test-install
+	check-server test-install m1-gate m1-gate-server
 
 all: lint test build
 
@@ -145,3 +145,10 @@ test-install: dist
 	$(PODMAN) exec -u screen -w /home/screen $(INSTALL_TEST) bash /opt/hostd-test/update.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null
 	@echo "install test passed"
+
+# The M1 gate (deploy/m1-gate.sh): on the devbox, and on the real machine.
+m1-gate:
+	$(DEVBOX_EXEC) env PATH=/opt/hostd/bin:/usr/local/bin:/usr/bin:/bin bash /opt/hostd-deploy/m1-gate.sh
+
+m1-gate-server:
+	ssh $(SERVER) 'bash -s' < deploy/m1-gate.sh
