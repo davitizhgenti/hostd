@@ -1,6 +1,9 @@
 package sdk
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Module is implemented by every module, built-in or external.
 type Module interface {
@@ -47,6 +50,10 @@ type Core interface {
 	// so a module can skip optional work (focusing a window on a machine
 	// without a display) instead of sending an action that must fail.
 	Handles(actionType string) bool
+
+	// Read answers another module's declared read (see Manifest.Reads) as
+	// JSON, so modules share data without importing each other's types.
+	Read(ctx context.Context, module, read string, params map[string]string) (json.RawMessage, error)
 }
 
 // StateReporter is implemented by modules that expose their current state

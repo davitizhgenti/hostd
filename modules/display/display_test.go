@@ -283,7 +283,11 @@ func (f *fakeBackend) Windows(context.Context) ([]Window, error) {
 	return out, nil
 }
 func (f *fakeBackend) Outputs(context.Context) ([]Output, error) {
-	return []Output{{Name: "HDMI-A-1", Width: 1280, Height: 800, Active: true}}, nil
+	return []Output{
+		{Name: "HDMI-A-1", Width: 1280, Height: 800, Active: true, Power: true, Modes: []Mode{
+			{1920, 1080, 60}, {1920, 1080, 50}, {1280, 800, 59.81}}},
+		{Name: "DP-1", Width: 1920, Height: 1080, Active: true, Power: true},
+	}, nil
 }
 func (f *fakeBackend) Show(_ context.Context, ws string) error { f.log("show %s", ws); return nil }
 func (f *fakeBackend) Move(_ context.Context, id int64, ws string) error {
@@ -311,6 +315,14 @@ func (f *fakeBackend) CloseWindow(_ context.Context, id int64) error {
 	}
 	return nil
 }
+func (f *fakeBackend) Place(_ context.Context, id, beside int64) error {
+	f.log("place %d beside %d", id, beside)
+	return nil
+}
+func (f *fakeBackend) SetOutput(_ context.Context, output, setting string) error {
+	f.log("output %s %s", output, setting)
+	return nil
+}
 func (f *fakeBackend) Disconnect() error { return nil }
 func (f *fakeBackend) Watch(ctx context.Context, fn func(WindowEvent)) error {
 	for {
@@ -333,6 +345,18 @@ func (f *fakeBackend) open(id int64, pid int) {
 	ev := WindowEvent{Change: "new", Window: *w}
 	f.mu.Unlock()
 	f.events <- ev
+}
+
+// openWindow adds a window with the given properties and announces it.
+func (f *fakeBackend) openWindow(w Window) {
+	f.mu.Lock()
+	if w.Workspace == "" {
+		w.Workspace = "1"
+	}
+	c := w
+	f.wins[w.ID] = &c
+	f.mu.Unlock()
+	f.events <- WindowEvent{Change: "new", Window: w}
 }
 
 func (f *fakeBackend) focus(id int64) {
@@ -364,6 +388,17 @@ type displayRig struct {
 	notes        *fakeNotifier
 	events       <-chan sdk.Event
 	stopped      chan string
+	started      chan sdk.Action
+	proc         string // the fake /proc
+
+	liveMu sync.Mutex
+	live   []liveInstance // what the fake apps module reports as running
+}
+
+func (r *displayRig) setLive(in ...liveInstance) {
+	r.liveMu.Lock()
+	r.live = in
+	r.liveMu.Unlock()
 }
 
 // newDisplayRig runs the display module with a fake compositor, and a
@@ -378,7 +413,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		400: `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-notes.service`,
 	})
 	r := &displayRig{b: newFakeBackend(), clock: clock.NewFake(time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)),
-		stopped: make(chan string, 4), input: newFakeInput(), notes: &fakeNotifier{}}
+		stopped: make(chan string, 4), started: make(chan sdk.Action, 4), input: newFakeInput(), notes: &fakeNotifier{}, proc: proc}
 	var mu sync.Mutex
 	canConnect := connectable
 	r.m = New(Options{ProcRoot: proc, Clock: r.clock, Input: r.input, Notifier: r.notes, Connect: func(context.Context) (Backend, error) {
@@ -392,12 +427,27 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 	r.apps = testutil.NewModule("apps", nil, nil, []string{"instance.starting", "instance.started", "instance.exited"})
 	r.apps.M.Owns = []string{"app.*", "instance.*"}
 	r.apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}, {Name: "display.front"}}
-	r.apps.M.Actions = []sdk.ActionSpec{{Type: "instance.stop", Scope: "apps",
-		Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
-		Keys:   []sdk.KeyTemplate{"instance:{id}"}}}
+	r.apps.M.Actions = []sdk.ActionSpec{
+		{Type: "instance.stop", Scope: "apps",
+			Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
+			Keys:   []sdk.KeyTemplate{"instance:{id}"}},
+		{Type: "app.start", Scope: "apps",
+			Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
+			Keys:   []sdk.KeyTemplate{"app:{id}"}},
+	}
+	r.apps.M.Reads = []sdk.ReadSpec{{Name: "instances", Path: "/v1/instances"}}
+	r.apps.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
+		r.liveMu.Lock()
+		defer r.liveMu.Unlock()
+		return append([]liveInstance{}, r.live...), nil
+	}
 	r.apps.HandleFunc = func(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		var args struct{ ID string }
 		_ = a.DecodeArgs(&args)
+		if a.Type == "app.start" {
+			r.started <- a
+			return sdk.Result{}, nil
+		}
 		r.stopped <- args.ID
 		return sdk.Result{}, nil
 	}

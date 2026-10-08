@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
@@ -24,6 +26,7 @@ const (
 	EventActive  = "display.active" // someone started using the screen
 	EventIdle    = "display.idle"   // no input for IdleAfter
 	EventNotice  = "display.notice" // a notice shown on the screen
+	EventOutputs = "display.output.changed"
 )
 
 // WorkspacePrefix names an instance's workspace: hostd:<instance>.
@@ -42,6 +45,8 @@ type Options struct {
 	IdleAfter time.Duration // no input this long = nobody there (default 5m)
 	// Notifier shows notices such as "Firefox is ready" (optional).
 	Notifier Notifier
+	// Switcher is the app the Guide button opens (default hostd-overlay).
+	Switcher string
 
 	Clock        clock.Clock
 	Logger       *slog.Logger
@@ -73,6 +78,7 @@ type Module struct {
 	prefs     map[string]bool          // instance -> wants fullscreen
 	closeWait map[int64]chan struct{}
 	launches  map[string]*launch // by instance
+	switching atomic.Bool        // the Guide button's switcher start is under way
 	presence  *presence
 
 	stop context.CancelFunc
@@ -104,6 +110,9 @@ func New(opts Options) *Module {
 	if opts.IdleAfter == 0 {
 		opts.IdleAfter = 5 * time.Minute
 	}
+	if opts.Switcher == "" {
+		opts.Switcher = "hostd-overlay"
+	}
 	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{},
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{}}
 	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
@@ -124,6 +133,22 @@ var (
 	focusArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
 		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance"]}`)
+	placeArg = json.RawMessage(`{"type":"object","properties":{
+		"instance":{"type":"string","description":"the instance to place"},
+		"beside":{"type":"string","description":"the instance to place it next to"},
+		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance","beside"]}`)
+	powerArg = json.RawMessage(`{"type":"object","properties":{
+		"on":{"type":"boolean","description":"true: screen on; false: off (power saving)"},
+		"output":{"type":"string","description":"a screen name (see GET /v1/display); default all"},
+		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["on"]}`)
+	modeArg = json.RawMessage(`{"type":"object","properties":{
+		"output":{"type":"string","description":"a screen name (see GET /v1/display)"},
+		"mode":{"type":"string","description":"WIDTHxHEIGHT or WIDTHxHEIGHT@HZ, e.g. 1920x1080@60"},
+		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["output","mode"]}`)
+	enableArg = json.RawMessage(`{"type":"object","properties":{
+		"output":{"type":"string","description":"a screen name (see GET /v1/display)"},
+		"enabled":{"type":"boolean","description":"true (default) or false"},
+		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["output"]}`)
 	fullscreenArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"instance ID"},
 		"enabled":{"type":"boolean","description":"true (default) or false"}},"required":["instance"]}`)
@@ -150,6 +175,22 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: fullscreenArg, Keys: []sdk.KeyTemplate{"instance:{instance}"}, Scope: "display",
 				Timeout: sdk.Duration(10 * time.Second),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/fullscreen"}},
+			{Type: "window.place", Description: "Put an instance's window beside another's, side by side",
+				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
+				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/place"}},
+			{Type: "display.power", Description: "Turn screens on or off (power saving)",
+				Schema: powerArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
+				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/display/power"}},
+			{Type: "display.mode", Description: "Set a screen's resolution and refresh rate",
+				Schema: modeArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
+				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/display/outputs/{output}/mode"}},
+			{Type: "display.output.enable", Description: "Use or stop using a screen",
+				Schema: enableArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
+				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/display/outputs/{output}/enable"}},
 		},
 		Events: []sdk.EventSpec{
 			{Type: EventOpened, Description: "A window opened (instance is empty for windows hostd did not start)"},
@@ -158,6 +199,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventActive, Description: "Someone started using the screen (keyboard, mouse or controller input)"},
 			{Type: EventIdle, Description: "Nobody has used the screen for a while"},
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
+			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 		},
 		Reads: []sdk.ReadSpec{
 			{Name: "windows", Description: "All windows, including ones hostd did not start", Path: "/v1/windows"},
@@ -179,7 +221,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 		go func() { defer m.done.Done(); m.presence.run(ctx) }()
 		go func() {
 			defer m.done.Done()
-			if err := m.opts.Input.Watch(ctx, m.presence.touch); err != nil {
+			if err := m.opts.Input.Watch(ctx, m.onInput); err != nil {
 				m.log.Warn("cannot read input devices; every launch comes to the front", "err", err)
 			}
 		}()
@@ -238,12 +280,17 @@ func (m *Module) attach(ctx context.Context, b Backend) {
 	if err != nil {
 		m.log.Warn("reading windows", "err", err)
 	}
+	resolve := m.resolver(ctx)
+	insts := make([]string, len(wins))
+	for i, w := range wins {
+		insts[i] = resolve(w)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.backend = b
 	m.windows = map[int64]*trackedWindow{}
-	for _, w := range wins {
-		tw := &trackedWindow{Window: w, Instance: instanceOf(m.opts.ProcRoot, w.PID)}
+	for i, w := range wins {
+		tw := &trackedWindow{Window: w, Instance: insts[i]}
 		m.windows[w.ID] = tw
 		if w.Focused && tw.Instance != "" {
 			m.pushFocus(tw.Instance)
@@ -330,7 +377,7 @@ func (m *Module) onEvent(ev WindowEvent) {
 	w := ev.Window
 	switch ev.Change {
 	case "new":
-		inst := instanceOf(m.opts.ProcRoot, w.PID)
+		inst := m.resolver(ctx)(w)
 		m.mu.Lock()
 		tw := &trackedWindow{Window: w, Instance: inst}
 		m.windows[w.ID] = tw
@@ -481,9 +528,10 @@ func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Win
 	if err != nil {
 		return nil, nil, err
 	}
+	resolve := m.resolver(ctx)
 	var out []Window
 	for _, w := range all {
-		if instanceOf(m.opts.ProcRoot, w.PID) == instance {
+		if resolve(w) == instance {
 			out = append(out, w)
 		}
 	}
@@ -495,6 +543,14 @@ func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Win
 }
 
 func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
+	switch a.Type {
+	case "display.power", "display.mode", "display.output.enable":
+		_, _, err := m.outputArgs(ctx, a)
+		return err
+	case "window.place":
+		_, _, _, err := m.placeArgs(ctx, a)
+		return err
+	}
 	var args instanceArgs
 	if err := a.DecodeArgs(&args); err != nil {
 		return err
@@ -504,6 +560,12 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	switch a.Type {
+	case "display.power", "display.mode", "display.output.enable":
+		return m.handleOutput(ctx, a)
+	case "window.place":
+		return m.handlePlace(ctx, a)
+	}
 	var args instanceArgs
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
@@ -514,11 +576,7 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	}
 	switch a.Type {
 	case "window.focus":
-		var fa struct {
-			Front bool `json:"front"`
-		}
-		_ = a.DecodeArgs(&fa)
-		if a.Source.Kind != sdk.SourceLocal && !fa.Front && !wins[0].Focused && m.presence.present() {
+		if !wins[0].Focused && m.inUse(a) {
 			// Someone at the screen is in the middle of something; a phone
 			// or script does not take it from them. Tell them instead.
 			m.notice(args.Instance, m.nameOf(args.Instance)+" wants the screen")
@@ -596,7 +654,67 @@ func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, 
 	return sdk.Result{Data: mustJSON(map[string]any{"instance": instance, "closed": closed, "stopped": true})}, nil
 }
 
+// inUse reports whether someone at the screen should keep it: the action
+// does not come from them and does not insist (front=true).
+func (m *Module) inUse(a sdk.Action) bool {
+	var args struct {
+		Front bool `json:"front"`
+	}
+	_ = a.DecodeArgs(&args)
+	return a.Source.Kind != sdk.SourceLocal && !args.Front && m.presence.present()
+}
+
+// skippedInUse answers an action refused for inUse, telling the person.
+func (m *Module) skippedInUse(instance, text string, data any) (sdk.Result, error) {
+	m.notice(instance, text)
+	return sdk.Result{Status: sdk.StatusSkipped, Reason: "in_use", Data: mustJSON(data)}, nil
+}
+
 // --- presence and launches -------------------------------------------------
+
+// onInput is called for every input from every device.
+func (m *Module) onInput(ev InputEvent) {
+	m.presence.touch()
+	if ev.Guide && m.switching.CompareAndSwap(false, true) {
+		m.done.Add(1)
+		go func() {
+			defer m.done.Done()
+			defer m.switching.Store(false)
+			m.openSwitcher()
+		}()
+	}
+}
+
+// openSwitcher starts the switcher app, or brings it forward if it runs,
+// on behalf of the person holding the controller.
+func (m *Module) openSwitcher() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	core, b := m.core, m.backend
+	// Pressed while the switcher is in front: back to where they were.
+	var back *trackedWindow
+	if n := len(m.stack); n > 0 && appOfInstance(m.stack[n-1]) == m.opts.Switcher {
+		top := m.stack[n-1]
+		m.stack = m.stack[:n-1]
+		back = m.previous()
+		m.stack = append(m.stack, top)
+	}
+	m.mu.Unlock()
+	if back != nil && b != nil {
+		_ = b.Show(ctx, back.Workspace)
+		_ = b.Focus(ctx, back.ID)
+		return
+	}
+	if core == nil || !core.Handles("app.start") {
+		return
+	}
+	_, err := core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Switcher}),
+		Source: sdk.Source{Kind: sdk.SourceLocal, Name: "guide button"}})
+	if err != nil {
+		m.log.Warn("opening the switcher", "app", m.opts.Switcher, "err", err)
+	}
+}
 
 func (m *Module) presenceChanged(present bool) {
 	typ := EventIdle
@@ -749,6 +867,12 @@ func (m *Module) State(ctx context.Context) (any, error) {
 	out := st.(map[string]any)
 	out["windows"] = wins
 	return out, nil
+}
+
+// appOfInstance is the app part of an instance ID ("foot#2" -> "foot").
+func appOfInstance(id string) string {
+	app, _, _ := strings.Cut(id, "#")
+	return app
 }
 
 func mustJSON(v any) json.RawMessage {

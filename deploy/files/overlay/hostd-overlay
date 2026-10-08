@@ -1,0 +1,316 @@
+#!/usr/bin/python3
+"""hostd's on-screen switcher.
+
+A fullscreen list of the running apps and the catalog. hostd runs it as the
+hidden app "hostd-overlay"; Super (Sway) and a controller's Guide button
+(hostd) bring it forward. Choosing an entry sends window.focus or app.start
+with the "local" token, so it counts as someone at the screen.
+
+Keyboard: arrows, Enter, Escape. Controller: D-pad, A to choose, B to go back.
+Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
+"""
+
+import http.client
+import json
+import os
+import socket
+import struct
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+APP_ID = "hostd-overlay"  # its own entry in hostd's catalog, never listed
+
+CSS = """
+window { background: #11161f; color: #e6e9ef; }
+.title { font-size: 28px; font-weight: bold; margin: 28px 40px 8px 40px; }
+.section { font-size: 18px; color: #8a93a6; margin: 18px 40px 6px 40px; }
+flowbox { margin: 0 32px; }
+flowboxchild { padding: 0; }
+button.tile { min-width: 220px; min-height: 120px; border-radius: 14px;
+  background: #1d2430; color: #e6e9ef; border: 3px solid transparent; }
+button.tile:focus, button.tile:hover { border-color: #5aa0ff; background: #243046; }
+button.tile label { font-size: 18px; }
+.empty { color: #8a93a6; margin: 8px 40px; }
+.error { color: #ff8a80; margin: 12px 40px; }
+.hint { color: #8a93a6; margin: 18px 40px; }
+"""
+
+
+# --- hostd API ----------------------------------------------------------------
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, path, timeout=10):
+        super().__init__("hostd", timeout=timeout)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
+
+
+class API:
+    def __init__(self):
+        runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        self.socket = os.environ.get("HOSTD_SOCKET", os.path.join(runtime, "hostd.sock"))
+        self.token = os.environ.get("HOSTD_TOKEN") or self._token_file()
+
+    @staticmethod
+    def _token_file():
+        config = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+        try:
+            with open(os.path.join(config, "hostd", "local.token")) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    def call(self, method, path, body=None):
+        conn = UnixHTTPConnection(self.socket)
+        try:
+            headers = {"Authorization": "Bearer " + self.token}
+            data = None
+            if body is not None:
+                data = json.dumps(body).encode()
+                headers["Content-Type"] = "application/json"
+            conn.request(method, path, body=data, headers=headers)
+            resp = conn.getresponse()
+            payload = json.loads(resp.read() or b"null")
+            if resp.status >= 400:
+                err = (payload or {}).get("error", {})
+                raise RuntimeError(err.get("message") or f"HTTP {resp.status}")
+            return payload
+        finally:
+            conn.close()
+
+
+# --- controller input -----------------------------------------------------------
+
+EV_KEY, EV_ABS = 0x01, 0x03
+ABS_HAT0X, ABS_HAT0Y = 0x10, 0x11
+BTN_SOUTH, BTN_EAST = 0x130, 0x131  # A, B
+BTN_DPAD = {0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
+EVENT = struct.Struct("llHHi")  # struct input_event on 64-bit Linux
+
+
+class Controllers:
+    """Reads gamepads from /dev/input and reports navigation."""
+
+    def __init__(self, on_nav):
+        self.on_nav = on_nav
+        self.open = {}  # path -> (fd, watch id)
+        self.rescan()
+        GLib.timeout_add_seconds(3, self.rescan)
+
+    def rescan(self):
+        try:
+            names = os.listdir("/dev/input")
+        except OSError:
+            return True
+        for name in names:
+            path = os.path.join("/dev/input", name)
+            if not name.startswith("event") or path in self.open:
+                continue
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                continue
+            watch = GLib.io_add_watch(fd, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.read, path)
+            self.open[path] = (fd, watch)
+        return True
+
+    def read(self, fd, cond, path):
+        try:
+            data = os.read(fd, EVENT.size * 64)
+        except BlockingIOError:
+            return True
+        except OSError:
+            data = b""
+        if not data:  # unplugged
+            os.close(fd)
+            self.open.pop(path, None)
+            return False
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, typ, code, value = EVENT.unpack_from(data, i)
+            if typ == EV_KEY and value == 1:
+                if code == BTN_SOUTH:
+                    self.on_nav("choose")
+                elif code == BTN_EAST:
+                    self.on_nav("back")
+                elif code in BTN_DPAD:
+                    self.on_nav(BTN_DPAD[code])
+            elif typ == EV_ABS and code in (ABS_HAT0X, ABS_HAT0Y) and value != 0:
+                if code == ABS_HAT0X:
+                    self.on_nav("left" if value < 0 else "right")
+                else:
+                    self.on_nav("up" if value < 0 else "down")
+        return True
+
+
+# --- the window -----------------------------------------------------------------
+
+
+class Switcher(Gtk.ApplicationWindow):
+    def __init__(self, app, api):
+        super().__init__(application=app, title="hostd")
+        self.api = api
+        self.set_decorated(False)
+
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        title = Gtk.Label(label="hostd", xalign=0)
+        title.add_css_class("title")
+        self.box.append(title)
+        self.running = self._section("Running")
+        self.apps = self._section("Apps")
+        self.message = Gtk.Label(xalign=0)
+        self.message.add_css_class("error")
+        self.box.append(self.message)
+        hint = Gtk.Label(label="Enter / A: open    Escape / B: back", xalign=0)
+        hint.add_css_class("hint")
+        self.box.append(hint)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_child(self.box)
+        self.set_child(scroll)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        self.connect("notify::is-active", lambda *_: self.is_active() and self.refresh())
+        self.controllers = Controllers(self.on_nav)
+        self.fullscreen()
+        self.refresh()
+
+    def _section(self, name):
+        label = Gtk.Label(label=name, xalign=0)
+        label.add_css_class("section")
+        self.box.append(label)
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                           max_children_per_line=6, row_spacing=16, column_spacing=16)
+        self.box.append(flow)
+        return flow
+
+    @staticmethod
+    def _clear(flow):
+        child = flow.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            flow.remove(child)
+            child = nxt
+
+    def _tile(self, flow, text, icon, on_click):
+        button = Gtk.Button()
+        button.add_css_class("tile")
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+        if icon:
+            image = Gtk.Image.new_from_icon_name(icon)
+            image.set_pixel_size(48)
+            inner.append(image)
+        label = Gtk.Label(label=text, wrap=True, justify=Gtk.Justification.CENTER)
+        inner.append(label)
+        button.set_child(inner)
+        button.connect("clicked", lambda *_: on_click())
+        flow.append(button)
+        return button
+
+    def refresh(self):
+        self.message.set_text("")
+        try:
+            instances = self.api.call("GET", "/v1/instances") or []
+            apps = (self.api.call("GET", "/v1/apps") or {}).get("apps", [])
+        except Exception as e:  # noqa: BLE001 - shown to the person
+            self.message.set_text(f"Cannot reach hostd: {e}")
+            return
+        icons = {a["id"]: a.get("icon", "") for a in apps}
+        self._clear(self.running)
+        self._clear(self.apps)
+        first = None
+        shown = [i for i in instances
+                 if i.get("app") != APP_ID and i.get("surface") == "window"
+                 and i.get("state") in ("starting", "running")]
+        for inst in shown:
+            name = inst.get("name") or inst["id"]
+            if "#" in inst["id"]:
+                name += " " + inst["id"].split("#", 1)[1]
+            b = self._tile(self.running, name, icons.get(inst.get("app"), ""),
+                           lambda i=inst["id"]: self.act("POST", f"/v1/windows/{i}/focus"))
+            first = first or b
+        if not shown:
+            self._empty(self.running, "Nothing is running.")
+        for app in apps:
+            if app["id"] == APP_ID or app.get("surface") != "window":
+                continue
+            b = self._tile(self.apps, app.get("name") or app["id"], app.get("icon", ""),
+                           lambda a=app["id"]: self.act("POST", f"/v1/apps/{a}/start"))
+            first = first or b
+        if first is not None:
+            first.grab_focus()
+
+    @staticmethod
+    def _empty(flow, text):
+        label = Gtk.Label(label=text, xalign=0)
+        label.add_css_class("empty")
+        flow.append(label)
+
+    def act(self, method, path):
+        try:
+            res = self.api.call(method, path)
+        except Exception as e:  # noqa: BLE001
+            self.message.set_text(str(e))
+            return
+        if res and res.get("status") == "skipped":
+            self.message.set_text("Not possible right now: " + (res.get("reason") or "skipped"))
+
+    def back(self):
+        subprocess.run(["swaymsg", "workspace", "back_and_forth"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def on_key(self, _ctl, keyval, _code, _state):
+        if keyval == 0xff1b:  # Escape
+            self.back()
+            return True
+        return False
+
+    def on_nav(self, what):
+        if not self.is_active():
+            return
+        if what == "back":
+            self.back()
+        elif what == "choose":
+            focus = self.get_focus()
+            if isinstance(focus, Gtk.Button):
+                focus.emit("clicked")
+        else:
+            direction = {"up": Gtk.DirectionType.UP, "down": Gtk.DirectionType.DOWN,
+                         "left": Gtk.DirectionType.LEFT, "right": Gtk.DirectionType.RIGHT}[what]
+            self.child_focus(direction)
+
+
+def main():
+    api = API()
+    if not api.token:
+        print("hostd-overlay: no token: set HOSTD_TOKEN or create ~/.config/hostd/local.token", file=sys.stderr)
+    app = Gtk.Application(application_id="org.hostd.Switcher")
+
+    def activate(application):
+        provider = Gtk.CssProvider()
+        if hasattr(provider, "load_from_string"):  # GTK 4.12+
+            provider.load_from_string(CSS)
+        else:
+            provider.load_from_data(CSS, -1)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        win = application.get_active_window() or Switcher(application, api)
+        win.present()
+
+    app.connect("activate", activate)
+    return app.run(None)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -21,7 +21,6 @@ const (
 const (
 	RunnerExec    = "exec"
 	RunnerFlatpak = "flatpak"
-	RunnerSteam   = "steam"
 	RunnerURL     = "url"
 	RunnerDocker  = "docker"
 	RunnerCompose = "compose"
@@ -29,7 +28,7 @@ const (
 )
 
 var runnerTypes = map[string]string{ // runner type -> default surface
-	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerSteam: SurfaceWindow, RunnerURL: SurfaceWindow,
+	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerURL: SurfaceWindow,
 	RunnerDocker: SurfaceBackground, RunnerCompose: SurfaceBackground, RunnerProcess: SurfaceBackground,
 }
 
@@ -67,7 +66,12 @@ type Runner struct {
 	Build   string   `json:"build,omitempty" toml:"build"`     // docker: build context
 	Ports   []string `json:"ports,omitempty" toml:"ports"`     // docker
 	File    string   `json:"file,omitempty" toml:"file"`       // compose
-	AppID   string   `json:"app_id,omitempty" toml:"app_id"`   // flatpak ID or Steam app ID
+	AppID   string   `json:"app_id,omitempty" toml:"app_id"`   // flatpak ID
+
+	// Handoff is for commands that pass the app to another program and
+	// exit, such as "steam steam://rungameid/620": the instance runs while
+	// processes with this KEY=value in their environment exist.
+	Handoff string `json:"handoff,omitempty" toml:"handoff"`
 }
 
 // Window options for window apps.
@@ -87,12 +91,30 @@ type Audio struct {
 	Volume *int `json:"volume,omitempty"` // per-app volume applied on start
 }
 
-// Match rules find an app's windows when cgroup matching cannot.
+// Match rules find an app's windows when cgroup matching cannot: apps
+// whose windows are not in the instance's unit, such as Steam games
+// (Steam's processes) and Flatpak apps (their own scope). A window
+// matches if any rule that is set does. Class, app_id and title are glob
+// patterns ("steam_app_*"); env is a KEY=value the window's process has.
+// An app with a handoff and no rules matches by its handoff variable.
 type Match struct {
 	Class string `json:"class,omitempty" toml:"class"`
 	AppID string `json:"app_id,omitempty" toml:"app_id"`
 	Title string `json:"title,omitempty" toml:"title"`
+	Env   string `json:"env,omitempty" toml:"env"`
 }
+
+// matchRules returns the app's match rules for its instances, or nil.
+func (a *App) matchRules() *Match {
+	if a.Match.IsZero() {
+		return nil
+	}
+	m := a.Match
+	return &m
+}
+
+// IsZero reports whether no rule is set.
+func (m Match) IsZero() bool { return m == Match{} }
 
 // Health check for background apps.
 type Health struct {
@@ -138,6 +160,16 @@ func (a *App) applyDefaults() {
 	if a.Name == "" {
 		a.Name = a.ID
 	}
+	if a.Match.IsZero() {
+		switch a.Runner.Type {
+		case RunnerFlatpak:
+			a.Match = Match{AppID: a.Runner.AppID, Env: "FLATPAK_ID=" + a.Runner.AppID}
+		default:
+			if a.Runner.Handoff != "" {
+				a.Match = Match{Env: a.Runner.Handoff}
+			}
+		}
+	}
 }
 
 // validate checks a finished app on its own.
@@ -172,9 +204,17 @@ func (a *App) validate() error {
 		if a.Runner.File == "" {
 			bad("runner compose needs a file")
 		}
-	case RunnerFlatpak, RunnerSteam:
+	case RunnerFlatpak:
 		if a.Runner.AppID == "" {
 			bad("runner %s needs an app_id", a.Runner.Type)
+		}
+	}
+	if h := a.Runner.Handoff; h != "" {
+		if k, _, ok := strings.Cut(h, "="); !ok || k == "" || strings.ContainsAny(h, " \t\n") {
+			bad("runner.handoff %q: use KEY=value, a variable the app's real processes have", h)
+		}
+		if a.Runner.Type != RunnerExec && a.Runner.Type != RunnerFlatpak && a.Runner.Type != RunnerURL {
+			bad("runner.handoff applies to exec, flatpak and url apps")
 		}
 	}
 	if a.Surface != SurfaceWindow && a.Surface != SurfaceBackground {

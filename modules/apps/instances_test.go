@@ -73,9 +73,13 @@ func TestUnitNameAndDescription(t *testing.T) {
 	if got := unitName("firefox#2"); got != `hostd-firefox\x232.service` {
 		t.Fatalf("unitName = %q", got)
 	}
-	m := reDescription.FindStringSubmatch(description(Instance{ID: "firefox#2", App: "firefox"}))
-	if m == nil || m[1] != "firefox#2" || m[2] != "firefox" {
+	m := reDescription.FindStringSubmatch(description(Instance{ID: "firefox#2", App: "firefox"}, ""))
+	if m == nil || m[1] != "firefox#2" || m[2] != "firefox" || m[3] != "" {
 		t.Fatalf("description does not parse back: %v", m)
+	}
+	m = reDescription.FindStringSubmatch(description(Instance{ID: "portal2", App: "portal2"}, "SteamAppId=620"))
+	if m == nil || m[1] != "portal2" || m[3] != "SteamAppId=620" {
+		t.Fatalf("handoff description does not parse back: %v", m)
 	}
 }
 
@@ -506,6 +510,8 @@ runner = { type = "exec", command = ["missing"] }
 runner = { type = "docker", image = "jellyfin:latest" }
 -- kodi.toml --
 runner = { type = "flatpak", app_id = "tv.kodi.Kodi" }
+-- stack.toml --
+runner = { type = "compose", file = "compose.yml" }
 `
 
 func writeApps(t *testing.T, dir, txt string) {
@@ -708,7 +714,7 @@ func TestStartRefusalsAndFailures(t *testing.T) {
 	r := newRig(t, newFakeSystemd(), newFakeDocker(), fakeSession(t))
 	for app, code := range map[string]sdk.Code{
 		"ghost": sdk.CodeNotFound,
-		"kodi":  sdk.CodeModuleUnavailable, // flatpak runner not there yet
+		"stack": sdk.CodeModuleUnavailable, // compose runner not there yet (M4)
 	} {
 		if _, err := r.do(t, "app.start", app); sdk.CodeOf(err) != code {
 			t.Errorf("%s: %v, want %s", app, err, code)

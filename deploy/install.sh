@@ -179,9 +179,10 @@ if [ "$CMD" = uninstall ]; then
 			info "removed the managed Sway, mako and VNC configs, the Podman socket, and lingering"
 		fi
 	fi
-	rm -f /usr/local/bin/hostctl /usr/local/sbin/hostd-setup
-	rm -rf "$SETUP_DIR"
-	info "removed hostctl and hostd-setup"
+	rm -f /usr/local/bin/hostctl /usr/local/sbin/hostd-setup /usr/local/bin/hostd-switch
+	rm -rf "$SETUP_DIR" /usr/local/lib/hostd
+	rm -f "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml"
+	info "removed hostctl, the switcher and hostd-setup"
 	log "Done"
 	info "Not removed: system packages, the NVIDIA driver, and the $SCREEN_USER user."
 	info "To remove the user and everything in its home as well: sudo userdel -r $SCREEN_USER"
@@ -239,6 +240,7 @@ PACKAGES=(
 	pipewire pipewire-pulse wireplumber rtkit dbus-user-session
 	podman uidmap fuse-overlayfs passt catatonit nftables
 	jq curl ca-certificates
+	python3-gi gir1.2-gtk-4.0
 )
 if [ "$GPU" = nvidia ]; then
 	PACKAGES+=(linux-headers-amd64 nvidia-driver firmware-misc-nonfree)
@@ -446,6 +448,13 @@ install_file "$FILES/rollback.sh" "$lib/rollback.sh" 755 "$SCREEN_USER" || info 
 install_file "$FILES/systemd/hostd-rollback.service" "$SCREEN_HOME/.config/systemd/user/hostd-rollback.service" 644 "$SCREEN_USER" ||
 	info "rollback service up to date"
 install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up to date"
+# The on-screen switcher: a hidden app in the catalog, opened with Super
+# (hostd-switch) or a controller's Guide button (hostd itself).
+install_file "$FILES/overlay/hostd-overlay" /usr/local/lib/hostd/hostd-overlay 755 root || info "switcher up to date"
+install_file "$FILES/overlay/hostd-switch" /usr/local/bin/hostd-switch 755 root || info "hostd-switch up to date"
+install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
+install_file "$FILES/overlay/hostd-overlay.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml" 644 "$SCREEN_USER" ||
+	info "switcher app file up to date"
 if install_file "$FILES/systemd/hostd.service" "$SCREEN_HOME/.config/systemd/user/hostd.service" 644 "$SCREEN_USER"; then
 	hostd_changed=1
 else
@@ -484,6 +493,21 @@ token_file=/run/user/$SCREEN_UID/hostd-admin-token
 if [ -f "$token_file" ] && [ ! -f "$SCREEN_HOME/.config/hostctl/config.toml" ]; then
 	as_screen hostctl login "unix:///run/user/$SCREEN_UID/hostd.sock" --token-file "$token_file" >/dev/null
 	changed "logged the $SCREEN_USER user's hostctl in"
+fi
+# The switcher's token: kind "local", so what is chosen on the screen
+# counts as someone at the screen (it comes to the front, it outranks
+# phones and scripts).
+local_token=$SCREEN_HOME/.config/hostd/local.token
+if [ ! -s "$local_token" ] && [ -f "$SCREEN_HOME/.config/hostctl/config.toml" ]; then
+	secret=$(as_screen hostctl --json token create switcher --kind local --scopes read,apps | jq -r .secret)
+	case $secret in
+	hostd_*)
+		install -D -m 600 -o "$SCREEN_USER" -g "$SCREEN_USER" /dev/null "$local_token"
+		printf '%s\n' "$secret" >"$local_token"
+		changed "created the switcher's token"
+		;;
+	*) info "warning: could not create the switcher's token; the switcher will not work" ;;
+	esac
 fi
 
 # ---------------------------------------------------------------------------

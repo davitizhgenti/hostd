@@ -31,12 +31,19 @@ import (
 //	# After this long without keyboard, mouse or controller input nobody
 //	# is at the screen, and remote launches come to the front again.
 //	idle_after = "5m"
+//
+//	# The browser for web apps ({url} and {profile} are replaced), and
+//	# the gamescope command for apps with window.wrap = "gamescope".
+//	browser = ["chromium", "--kiosk", "--user-data-dir={profile}", "{url}"]
+//	gamescope = ["gamescope", "-W", "1920", "-H", "1080", "-f"]
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`
 	HoldWindow  duration            `toml:"hold_window"`
 	HoldWindows map[string]duration `toml:"hold_windows"`
 	IdleAfter   duration            `toml:"idle_after"`
+	Browser     []string            `toml:"browser"`
+	Gamescope   []string            `toml:"gamescope"`
 }
 
 // builtinModules are the modules this hostd can load, in start order

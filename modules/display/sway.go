@@ -37,7 +37,18 @@ type Output struct {
 	Refresh float64 `json:"refresh"` // Hz
 	Active  bool    `json:"active"`
 	Focused bool    `json:"focused"`
+	Power   bool    `json:"power"`           // false: the screen is off (power saving)
+	Modes   []Mode  `json:"modes,omitempty"` // what the screen supports
 }
+
+// Mode is a resolution and refresh rate.
+type Mode struct {
+	Width   int     `json:"width"`
+	Height  int     `json:"height"`
+	Refresh float64 `json:"refresh"` // Hz
+}
+
+func (m Mode) String() string { return fmt.Sprintf("%dx%d@%.3fHz", m.Width, m.Height, m.Refresh) }
 
 // WindowEvent is a change to a window: new, close, focus, title,
 // fullscreen_mode, move...
@@ -59,6 +70,11 @@ type Backend interface {
 	Fullscreen(ctx context.Context, window int64, on bool) error
 	// CloseWindow asks a window to close, as its close button would.
 	CloseWindow(ctx context.Context, window int64) error
+	// Place puts a window next to another, both windowed, side by side.
+	Place(ctx context.Context, window, beside int64) error
+	// SetOutput changes a screen: output is a name or "*", setting one of
+	// "power on|off", "enable", "disable", "mode WxH@RHz".
+	SetOutput(ctx context.Context, output, setting string) error
 	// Watch calls fn with window events until ctx ends or the compositor
 	// goes away (then it returns an error).
 	Watch(ctx context.Context, fn func(WindowEvent)) error
@@ -246,11 +262,18 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 		Model       string `json:"model"`
 		Active      bool   `json:"active"`
 		Focused     bool   `json:"focused"`
+		Power       *bool  `json:"power"` // Sway 1.9+
+		DPMS        *bool  `json:"dpms"`  // older Sway
 		CurrentMode struct {
 			Width   int `json:"width"`
 			Height  int `json:"height"`
 			Refresh int `json:"refresh"` // mHz
 		} `json:"current_mode"`
+		Modes []struct {
+			Width   int `json:"width"`
+			Height  int `json:"height"`
+			Refresh int `json:"refresh"`
+		} `json:"modes"`
 	}
 	if err := json.Unmarshal(reply, &raw); err != nil {
 		return nil, err
@@ -258,7 +281,17 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 	out := make([]Output, len(raw))
 	for i, o := range raw {
 		out[i] = Output{Name: o.Name, Make: o.Make, Model: o.Model, Active: o.Active, Focused: o.Focused,
-			Width: o.CurrentMode.Width, Height: o.CurrentMode.Height, Refresh: float64(o.CurrentMode.Refresh) / 1000}
+			Width: o.CurrentMode.Width, Height: o.CurrentMode.Height, Refresh: float64(o.CurrentMode.Refresh) / 1000,
+			Power: o.Active}
+		switch {
+		case o.Power != nil:
+			out[i].Power = *o.Power
+		case o.DPMS != nil:
+			out[i].Power = *o.DPMS
+		}
+		for _, md := range o.Modes {
+			out[i].Modes = append(out[i].Modes, Mode{Width: md.Width, Height: md.Height, Refresh: float64(md.Refresh) / 1000})
+		}
 	}
 	return out, nil
 }
@@ -266,6 +299,23 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 // Workspace names are quoted in commands; instance IDs never contain
 // quotes, but be safe anyway.
 func quote(s string) string { return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"` }
+
+// Place uses a mark on the target: "move container to mark" makes the
+// window a sibling of it, and splith lays the two out side by side.
+func (s *Sway) Place(ctx context.Context, window, beside int64) error {
+	return s.run(ctx, fmt.Sprintf("[con_id=%d] fullscreen disable; [con_id=%d] fullscreen disable; "+
+		"[con_id=%d] mark --add hostd_place; [con_id=%d] splith; [con_id=%d] move container to mark hostd_place; "+
+		"[con_id=%d] unmark hostd_place; [con_id=%d] focus",
+		beside, window, beside, beside, window, beside, window))
+}
+
+func (s *Sway) SetOutput(ctx context.Context, output, setting string) error {
+	name := "*"
+	if output != "*" {
+		name = quote(output)
+	}
+	return s.run(ctx, "output "+name+" "+setting)
+}
 
 func (s *Sway) Show(ctx context.Context, workspace string) error {
 	return s.run(ctx, "workspace "+quote(workspace))

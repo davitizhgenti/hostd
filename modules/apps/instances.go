@@ -80,7 +80,7 @@ func (m *Module) validateStart(a sdk.Action) error {
 	if !ok {
 		return sdk.Errorf(sdk.CodeNotFound, "no app %q (see hostctl apps --all)", args.ID)
 	}
-	if _, ok := m.opts.Backends[app.Runner.Type]; !ok {
+	if m.backend(app.Runner.Type) == nil {
 		return sdk.Errorf(sdk.CodeModuleUnavailable, "app %q uses the %s runner, which hostd cannot run yet", app.ID, app.Runner.Type)
 	}
 	return nil
@@ -128,7 +128,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if !ok {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app %q", args.ID)
 	}
-	backend := m.opts.Backends[app.Runner.Type]
+	backend := m.backend(app.Runner.Type)
 
 	m.mu.Lock()
 	running := m.live(app.ID)
@@ -162,7 +162,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return ok && !in.State.Ended()
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
-		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front,
+		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(),
 		State: StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
 	m.mu.Unlock()
@@ -230,7 +230,7 @@ func (m *Module) handleStop(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	}
 	in.State, _ = next(in.State, changeStop, 0)
 	snapshot := *in
-	backend := m.opts.Backends[in.Runner]
+	backend := m.backend(in.Runner)
 	m.mu.Unlock()
 
 	if backend == nil {
@@ -320,6 +320,19 @@ func (m *Module) emitInstance(typ, action string, in Instance) {
 	m.core.Emit(ev)
 }
 
+// backend returns the backend for a runner type. Flatpak apps and web
+// pages are commands too: without a backend of their own, the exec
+// backend runs them.
+func (m *Module) backend(runner string) Backend {
+	if b, ok := m.opts.Backends[runner]; ok {
+		return b
+	}
+	if runner == RunnerFlatpak || runner == RunnerURL {
+		return m.opts.Backends[RunnerExec]
+	}
+	return nil
+}
+
 // adopt picks up instances that were already running when hostd started.
 func (m *Module) adopt(ctx context.Context) {
 	names := make([]string, 0, len(m.opts.Backends))
@@ -342,6 +355,7 @@ func (m *Module) adopt(ctx context.Context) {
 			if app, ok := m.catalog().Get(in.App); ok {
 				in.Name, in.Surface = app.Name, app.Surface
 				in.Fullscreen = app.Surface == SurfaceWindow && app.Window.Fullscreen
+				in.Match = app.matchRules()
 			}
 			in.Started = m.opts.Clock.Now().UTC()
 			m.mu.Lock()

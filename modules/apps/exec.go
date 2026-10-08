@@ -5,11 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/clock"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -57,10 +62,104 @@ type Systemd interface {
 // app survives a hostd restart and its exit status is never lost: units
 // have RemainAfterExit=yes, which keeps them loaded after the app ends
 // until the runner has read the status and cleaned them up.
+//
+// It also runs Flatpak apps (flatpak run <id>) and web pages (a kiosk
+// browser window with its own profile, so it is a process of its own and
+// not a tab of a browser that already runs).
 type ExecRunner struct {
 	Systemd    Systemd
 	RuntimeDir string // $XDG_RUNTIME_DIR, to find the Sway session
 	HomeDir    string // working directory of apps
+	StateDir   string // browser profiles go in <StateDir>/browser/<app>
+
+	// Browser runs url apps; {url} and {profile} are replaced. Default:
+	// Chromium if installed, else Firefox.
+	Browser []string
+	// Gamescope is the wrap for window.wrap = "gamescope"; the app's
+	// command follows it after "--". Default: gamescope -f.
+	Gamescope []string
+	LookPath  func(string) (string, error)
+
+	// For handoff apps (handoff.go).
+	ProcRoot   string        // default /proc
+	Clock      clock.Clock   // default real time
+	PollEvery  time.Duration // how often to look for the app's processes (default 2s)
+	StartGrace time.Duration // how long they may take to appear (default 3m)
+	StopWait   time.Duration // between SIGTERM and SIGKILL (default 10s)
+	Kill       func(pid int, sig syscall.Signal) error
+	// RunCommand runs a handoff command outside a unit, when the unit is
+	// still busy hosting the program it handed off to before (Steam
+	// started by the first launch). Tests replace it.
+	RunCommand func(ctx context.Context, argv, env []string, dir string) error
+
+	mu       sync.Mutex
+	handoffs map[string]*handoff // by instance ID
+}
+
+func (r *ExecRunner) clock() clock.Clock {
+	if r.Clock == nil {
+		return clock.Real()
+	}
+	return r.Clock
+}
+
+// browsers, in order of preference. Chromium's --user-data-dir and
+// Firefox's --new-instance --profile each make a separate browser process.
+var browsers = [][]string{
+	{"chromium", "--kiosk", "--no-first-run", "--user-data-dir={profile}", "{url}"},
+	{"chromium-browser", "--kiosk", "--no-first-run", "--user-data-dir={profile}", "{url}"},
+	{"firefox-esr", "--kiosk", "--new-instance", "--profile", "{profile}", "{url}"},
+	{"firefox", "--kiosk", "--new-instance", "--profile", "{profile}", "{url}"},
+}
+
+// command returns the argv that runs the app.
+func (r *ExecRunner) command(app *App) ([]string, error) {
+	lookPath := r.LookPath
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	var argv []string
+	switch app.Runner.Type {
+	case RunnerFlatpak:
+		argv = []string{"flatpak", "run", app.Runner.AppID}
+	case RunnerURL:
+		tmpl := r.Browser
+		if len(tmpl) == 0 {
+			for _, b := range browsers {
+				if _, err := lookPath(b[0]); err == nil {
+					tmpl = b
+					break
+				}
+			}
+		}
+		if len(tmpl) == 0 {
+			return nil, sdk.Errorf(sdk.CodeModuleUnavailable,
+				"no browser for web apps: install chromium or firefox-esr, or set browser in hostd.toml")
+		}
+		profile := filepath.Join(r.StateDir, "browser", app.ID)
+		if err := os.MkdirAll(profile, 0o700); err != nil {
+			return nil, err
+		}
+		for _, a := range tmpl {
+			argv = append(argv, strings.NewReplacer("{url}", app.Runner.URL, "{profile}", profile).Replace(a))
+		}
+	default:
+		argv = append([]string(nil), app.Runner.Command...)
+	}
+	if len(argv) == 0 {
+		return nil, sdk.Errorf(sdk.CodeInvalidArgs, "app %q has no command", app.ID)
+	}
+	if app.Window.Wrap == "gamescope" {
+		wrap := r.Gamescope
+		if len(wrap) == 0 {
+			wrap = []string{"gamescope", "-f"}
+		}
+		if _, err := lookPath(wrap[0]); err != nil {
+			return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "app %q runs in gamescope, which is not installed", app.ID)
+		}
+		argv = append(append(append([]string(nil), wrap...), "--"), argv...)
+	}
+	return argv, nil
 }
 
 // unitName is hostd-<instance>.service. '#' is not allowed in unit names,
@@ -69,10 +168,16 @@ func unitName(instance string) string {
 	return "hostd-" + strings.ReplaceAll(instance, "#", `\x23`) + ".service"
 }
 
-var reDescription = regexp.MustCompile(`^hostd instance (\S+) of app (\S+)$`)
+var reDescription = regexp.MustCompile(`^hostd instance (\S+) of app (\S+)(?: handoff (\S+))?$`)
 
-func description(inst Instance) string {
-	return fmt.Sprintf("hostd instance %s of app %s", inst.ID, inst.App)
+// description names the instance, app and handoff variable in the unit, so
+// a restarted hostd can tell what a unit is.
+func description(inst Instance, handoff string) string {
+	d := fmt.Sprintf("hostd instance %s of app %s", inst.ID, inst.App)
+	if handoff != "" {
+		d += " handoff " + handoff
+	}
+	return d
 }
 
 // SessionEnv finds the graphical session in the runtime directory and
@@ -109,13 +214,16 @@ func SessionEnv(runtimeDir string) (env []string, ok bool) {
 
 // Start runs the app's command in its own unit.
 func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instance, error) {
-	if len(app.Runner.Command) == 0 {
-		return inst, sdk.Errorf(sdk.CodeInvalidArgs, "app %q has no command", app.ID)
+	argv, err := r.command(app)
+	if err != nil {
+		return inst, err
 	}
-	env := []string{}
+	env := []string{"HOSTD_INSTANCE=" + inst.ID}
 	if inst.Surface == SurfaceWindow {
 		var ok bool
-		env, ok = SessionEnv(r.RuntimeDir)
+		var session []string
+		session, ok = SessionEnv(r.RuntimeDir)
+		env = append(env, session...)
 		if !ok {
 			return inst, sdk.Errorf(sdk.CodeModuleUnavailable, "no graphical session: Sway is not running")
 		}
@@ -130,21 +238,34 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	}
 
 	name := unitName(inst.ID)
+	kv := app.Runner.Handoff
 	// A unit left over from an earlier run with this ID (ended while
 	// hostd was not watching) would block the name.
 	if info, ok, err := r.Systemd.Unit(ctx, name); err == nil && ok {
 		if info.ActiveState == "active" && info.SubState == "running" {
-			return inst, sdk.Errorf(sdk.CodeInternal, "unit %s is already running", name)
+			if kv == "" {
+				return inst, sdk.Errorf(sdk.CodeInternal, "unit %s is already running", name)
+			}
+			// The last launch's command became the program it hands off
+			// to (it started Steam, which stays): hand off to it again.
+			if err := r.runCommand(ctx, argv, env); err != nil {
+				return inst, fmt.Errorf("handing off with %s: %w", strings.Join(argv, " "), err)
+			}
+			r.trackHandoff(inst.ID, kv, true)
+			return inst, nil
 		}
 		_ = r.Systemd.Stop(ctx, name)
 		_ = r.Systemd.ResetFailed(ctx, name)
 	}
-	err := r.Systemd.StartTransient(ctx, name, UnitSpec{
-		Description: description(inst), Argv: app.Runner.Command, Env: env, Dir: r.HomeDir,
+	err = r.Systemd.StartTransient(ctx, name, UnitSpec{
+		Description: description(inst, kv), Argv: argv, Env: env, Dir: r.HomeDir,
 	})
 	if err != nil {
 		_ = r.Systemd.ResetFailed(ctx, name)
-		return inst, fmt.Errorf("starting %s: %w", strings.Join(app.Runner.Command, " "), err)
+		return inst, fmt.Errorf("starting %s: %w", strings.Join(argv, " "), err)
+	}
+	if kv != "" {
+		r.trackHandoff(inst.ID, kv, false)
 	}
 	inst.Unit = name
 	if info, ok, err := r.Systemd.Unit(ctx, name); err == nil && ok {
@@ -153,9 +274,25 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	return inst, nil
 }
 
-// Stop stops the unit; systemd ends the app's whole process tree.
+// Stop stops the unit; systemd ends the app's whole process tree. A
+// handed-off app's processes are ended by their variable; a unit that
+// hosts the program it handed off to (Steam) is left running.
 func (r *ExecRunner) Stop(ctx context.Context, inst Instance) error {
 	name := unitName(inst.ID)
+	info, loaded, _ := r.Systemd.Unit(ctx, name)
+	kv := r.handoffOf(inst.ID, info)
+	if kv != "" {
+		r.mu.Lock()
+		r.handoffDefaults()
+		delete(r.handoffs, inst.ID)
+		r.mu.Unlock()
+		if err := r.stopHandoff(ctx, kv); err != nil {
+			return err
+		}
+		if loaded && info.SubState == "running" {
+			return nil
+		}
+	}
 	if err := r.Systemd.Stop(ctx, name); err != nil {
 		return err
 	}
@@ -177,7 +314,26 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 			continue // not ours (e.g. started by hand with systemd-run)
 		}
 		inst := Instance{ID: m[1], App: m[2], Runner: RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning}
-		if ended, code, _ := endedState(u); ended {
+		ended, code, _ := endedState(u)
+		if kv := m[3]; kv != "" {
+			alive := len(pidsWithEnv(r.procRoot(), kv)) > 0
+			switch {
+			case alive:
+				r.trackHandoff(inst.ID, kv, ended)
+				r.mu.Lock()
+				r.handoffs[inst.ID].seen = true
+				r.mu.Unlock()
+				inst.PID = 0
+				out = append(out, inst)
+				continue
+			case !ended:
+				// The command still runs but the app does not: it hosts
+				// what it handed off to (Steam, after the game ended). Not
+				// an instance; the unit stays.
+				continue
+			}
+		}
+		if ended {
 			inst.State = StateExited
 			if code != 0 {
 				inst.State = StateFailed
@@ -195,6 +351,15 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 // stop (hostd's, or a unit being replaced by a new start under the same
 // name), so reacting to it would clean up, and cancel, the new start.
 func (r *ExecRunner) Watch(ctx context.Context, fn func(Ended)) error {
+	r.mu.Lock()
+	r.handoffDefaults()
+	r.mu.Unlock()
+	pctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); r.pollHandoffs(pctx, fn) }()
+	defer wg.Wait()
 	return r.Systemd.Watch(ctx, func(name, sub string) {
 		if !strings.HasPrefix(name, "hostd-") || (sub != "exited" && sub != "failed") {
 			return
@@ -210,6 +375,9 @@ func (r *ExecRunner) Watch(ctx context.Context, fn func(Ended)) error {
 		ended, code, reason := endedState(info)
 		if !ended {
 			return
+		}
+		if m[3] != "" && code == 0 && r.handedOff(m[1]) {
+			return // the app goes on in other processes; pollHandoffs follows it
 		}
 		r.cleanup(ctx, info)
 		fn(Ended{Instance: m[1], ExitCode: code, Reason: reason})

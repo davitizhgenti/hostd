@@ -11,7 +11,7 @@ hostd is a small core plus modules. The core only routes actions to modules and 
 | Window behavior | Fullscreen by default; multiple windows possible |
 | Local use | Keyboard and mouse, game controller, and remote control may all happen |
 | Command sources | Laptop (CLI), phone or other HTTP client, scripts and automations on the server |
-| App list | Auto-discovered from installed apps, Steam and Flatpak; files override or add |
+| App list | Auto-discovered from installed apps (desktop entries, Flatpak); files override or add |
 | App already running | Configurable per app: focus, new copy, or restart |
 | Remote launch while someone uses the screen | Starts in the background; comes forward when someone switches to it |
 | Background services | Kind not decided yet, so runners are pluggable; Docker first |
@@ -54,8 +54,8 @@ No namespace is split between modules: starting and stopping an instance belongs
 | Extension point | Plugs into | Examples |
 | --- | --- | --- |
 | New module | Core | Lights, notifications, Home Assistant bridge, backups |
-| Runner | `apps` | `exec`, `flatpak`, `steam`, `url`, `docker`, `compose`, `process` |
-| Catalog source | `apps` | Desktop files, Flatpak, Steam library, TOML files |
+| Runner | `apps` | `exec`, `flatpak`, `url`, `docker`, `compose`, `process` |
+| Catalog source | `apps` | Desktop files, Flatpak, TOML files |
 | Backend | `display`, `audio` | Sway (v0), gamescope or KDE later; WirePlumber |
 
 Inside the `apps` module an app is a runner plus a surface (`window` or `background`), and an instance is one running copy. A game and a website differ only in those two fields.
@@ -122,18 +122,23 @@ The app catalog is built automatically from what is installed, then merged with 
 | --- | --- | --- |
 | Desktop entries | `/usr/share/applications`, `~/.local/share/applications` | `exec` app, `window` surface |
 | Flatpak | `/var/lib/flatpak/exports/share/applications`, user exports | `flatpak` app |
-| Steam library | `libraryfolders.vdf` and `appmanifest_*.acf` in each Steam library | `steam` app per installed game |
 | Definition files | `~/.config/hostd/apps/*.toml` | Anything, including `docker`, `compose`, `url` apps |
 
-**IDs.** Each app gets a stable, readable ID: the desktop file name (`firefox`), the Flatpak ID's last part (`retroarch`), or `steam-<appid>` with the game's name as display name. Files can set an alias (`id = "dota2"`).
+**IDs.** Each app gets a stable, readable ID: the desktop file name (`firefox`) or the Flatpak ID's last part (`retroarch`). Files can set an alias (`id = "dota2"`).
+
+**No app is built in.** Steam, a browser or an emulator is an app like any other; hostd has no code for any one of them. Launchers fit through two generic features: **handoff** (`runner.handoff = "KEY=value"`) for commands that hand the app to another program and exit, so the instance runs while processes with that variable exist; and **match rules** for windows that are not in the instance's unit. Discovering a game library (Steam's, say) can be an optional external module.
 
 **Definition file**
 
 ```toml
 # ~/.config/hostd/apps/dota2.toml
-id       = "dota2"
-extends  = "steam-570"      # override a discovered app
 name     = "Dota 2"
+# Steam starts the game and this command exits: follow the game by the
+# variable Steam gives its processes.
+runner   = { type = "exec", command = ["steam", "steam://rungameid/570"], handoff = "SteamAppId=570" }
+
+[match]
+class = "steam_app_570"      # Proton games' window class (handoff alone also matches by SteamAppId)
 
 [window]
 fullscreen = true
@@ -170,10 +175,10 @@ The screen runs Sway, and each window instance gets its own workspace, fullscree
 - After boot the screen is empty (a plain background). Nothing is restored.
 - Splitting a workspace to show two windows side by side is allowed (`window.place <id> beside <id>`), but never the default.
 
-**Matching windows to instances.** Apps often spawn helper processes, and Steam games are started by the Steam client, so a window's process ID alone is not enough. hostd matches in order:
+**Matching windows to instances.** Apps often spawn helper processes, and some are started by another program (Steam starts games; Flatpak runs apps in a scope of its own), so a window's process ID alone is not enough. hostd matches in order:
 
 1. **cgroup:** every instance runs as its own transient systemd user service, `hostd-<instance>.service`; the window's PID is looked up in `/proc/<pid>/cgroup` to find the unit.
-2. **Match rules:** the app's `match` block, e.g. `class = "steam_app_570"` (Steam games' window class) or a Wayland `app_id`.
+2. **Match rules:** the app's `match` block: globs on `class`, `app_id` and `title`, or `env = "KEY=value"` in the window's process (Flatpak apps default to `FLATPAK_ID=<id>`, handoff apps to their handoff variable). Any rule that is set and matches is enough.
 3. **Unowned:** windows that match nothing (a dialog opened by hand) still appear in `/windows`, with no instance.
 
 **Focus and the person at the screen**
@@ -215,7 +220,7 @@ The initial version uses `wpctl` and `playerctl` as subprocesses, behind a Go in
 
 Background services are ordinary apps with `surface = "background"`. They share the instance model, actions and events with window apps, so `hostctl stop blog` works the same as `hostctl stop dota2`. Because the kind of service is not decided yet, runners are pluggable behind one Go interface (`Start`, `Stop`, `Status`, `Logs`, `Events`, `Adopt`).
 
-**Window apps run as transient services, not scopes.** The `exec`, `flatpak`, `steam` and `url` runners start each instance as a transient systemd user service, `hostd-<instance>.service` (`Type=exec`, what `systemd-run --user` does). A scope can only adopt a process that already exists, so hostd would have to fork the app itself; the app would then be hostd's child, and after a hostd restart nothing could collect its exit status. With a service, systemd starts and owns the process and records its exit status, so hostd can re-adopt instances after a restart. Because the systemd user manager may not have the graphical session's environment, hostd sets `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE`, `DBUS_SESSION_BUS_ADDRESS` and `SWAYSOCK` explicitly in each unit, plus the app's `[env]`.
+**Window apps run as transient services, not scopes.** The `exec`, `flatpak` and `url` runners start each instance as a transient systemd user service, `hostd-<instance>.service` (`Type=exec`, what `systemd-run --user` does). A scope can only adopt a process that already exists, so hostd would have to fork the app itself; the app would then be hostd's child, and after a hostd restart nothing could collect its exit status. With a service, systemd starts and owns the process and records its exit status, so hostd can re-adopt instances after a restart. Because the systemd user manager may not have the graphical session's environment, hostd sets `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE`, `DBUS_SESSION_BUS_ADDRESS` and `SWAYSOCK` explicitly in each unit, plus the app's `[env]`.
 
 | Runner | Runs | Backend |
 | --- | --- | --- |
@@ -461,7 +466,7 @@ Applying a scene twice does nothing the second time. Each step's result is retur
 [[rule]]
 name = "gaming audio"
 on   = "instance.started"
-if   = { app = "steam-*" }
+if   = { app = "dota2" }
 do   = { scene = "gaming" }
 
 [[rule]]
@@ -676,8 +681,8 @@ hostd/
   sdk/                    module contract (Go) and JSON-RPC protocol spec
   modules/
     apps/                 catalog and instances
-      runners/            exec, flatpak, steam, url, docker, compose, process
-      sources/            desktop, flatpak, steam, toml
+      runners/            exec (also flatpak, url, handoff), docker, compose, process
+      sources/            desktop (incl. Flatpak exports), toml
     display/              module + backends/sway
     audio/                module + backends/wireplumber, mpris
     deploy/
@@ -706,10 +711,10 @@ M1 completed 2026-10-08: the gate passes on the real machine.
 
 ### M2 · Display depth
 
-- [ ] Presence detection and background launches with on-screen notice
-- [ ] Overlay switcher on keyboard and controller
-- [ ] Flatpak and Steam discovery; match rules; gamescope wrap
-- [ ] `window.place`, display power and mode
+- [x] Presence detection and background launches with on-screen notice
+- [x] Overlay switcher on keyboard and controller
+- [x] Flatpak discovery; handoff for launchers such as Steam (no built-in Steam support); match rules; gamescope wrap; web apps
+- [x] `window.place`, display power and mode
 - [ ] Gate: a remote launch during a game opens in the background, and the controller's Guide button switches to it
 
 ### M3 · Audio depth
@@ -740,7 +745,7 @@ M1 completed 2026-10-08: the gate passes on the real machine.
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Sway on the proprietary NVIDIA driver (GTX 1050 Ti, driver 550) is unsupported upstream (`--unsupported-gpu`) | Glitches in fullscreen games or after driver updates | Driver from Debian stable only; test top titles early in M2; `gamescope` wrap; Ryzen iGPU as fallback |
-| Games misbehave under a tiling compositor (focus, resolution, fullscreen) | Games start but look or feel wrong | Per-app `wrap = "gamescope"`; test the top Steam titles early in M2 |
+| Games misbehave under a tiling compositor (focus, resolution, fullscreen) | Games start but look or feel wrong | Per-app `wrap = "gamescope"`; test the top games early (as app files with a handoff) |
 | Window matching fails for apps launched through other launchers | Instances show no window; focus and close fail | cgroup first, match rules second, unowned windows still listed; matching reported in `hostctl ps` |
 | PipeWire node IDs and device names change | Wrong output selected | Stable names from device properties; tests with Bluetooth reconnects |
 | Services and the display share the `screen` user | A compromised service could affect the screen session | Rootless containers by default; a separate service user is a later option |

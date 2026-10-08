@@ -89,7 +89,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			mods = append(mods, apps.New(apps.Options{
 				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log,
 				Backends: map[string]apps.Backend{
-					apps.RunnerExec:   &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home},
+					apps.RunnerExec: &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home,
+						StateDir: *stateDir, Browser: cfg.Browser, Gamescope: cfg.Gamescope},
 					apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
 				},
 			}))

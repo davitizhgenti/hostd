@@ -17,7 +17,10 @@ set $mod Mod4
 bindsym $mod+Return exec foot
 bindsym $mod+Shift+q kill
 
-# Switch between apps (each has its own workspace) until the on-screen
-# switcher exists.
+# Step through the apps (each has its own workspace).
 bindsym $mod+Tab workspace next_on_output
 bindsym $mod+Shift+Tab workspace prev_on_output
+
+# Super alone opens hostd's switcher (or goes back from it); a controller's
+# Guide button does the same through hostd.
+bindsym --release Super_L exec hostd-switch

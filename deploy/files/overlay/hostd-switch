@@ -1,0 +1,9 @@
+#!/bin/sh
+# Managed by hostd deploy/install.sh. Bound to Super in Sway: opens hostd's
+# switcher, or goes back to the previous app if it is already in front.
+# Uses the "local" token, so hostd knows someone at the screen asked.
+if swaymsg -q '[app_id="org.hostd.Switcher" con_id=__focused__] nop' 2>/dev/null; then
+	exec swaymsg -q workspace back_and_forth
+fi
+token=${XDG_CONFIG_HOME:-$HOME/.config}/hostd/local.token
+HOSTD_TOKEN=$(cat "$token" 2>/dev/null) exec hostctl start hostd-overlay

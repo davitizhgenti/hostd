@@ -23,12 +23,12 @@ import (
 // fakeInput lets a test press keys: press() calls the module's callback.
 type fakeInput struct {
 	mu sync.Mutex
-	fn func()
+	fn func(InputEvent)
 }
 
 func newFakeInput() *fakeInput { return &fakeInput{} }
 
-func (f *fakeInput) Watch(ctx context.Context, fn func()) error {
+func (f *fakeInput) Watch(ctx context.Context, fn func(InputEvent)) error {
 	f.mu.Lock()
 	f.fn = fn
 	f.mu.Unlock()
@@ -36,13 +36,15 @@ func (f *fakeInput) Watch(ctx context.Context, fn func()) error {
 	return nil
 }
 
-func (f *fakeInput) press(t *testing.T) {
+func (f *fakeInput) press(t *testing.T) { f.send(t, InputEvent{}) }
+
+func (f *fakeInput) send(t *testing.T, ev InputEvent) {
 	t.Helper()
 	waitFor(t, "input watcher", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.fn != nil })
 	f.mu.Lock()
 	fn := f.fn
 	f.mu.Unlock()
-	fn()
+	fn(ev)
 }
 
 type fakeNotifier struct {
@@ -87,13 +89,13 @@ func TestReadEvents(t *testing.T) {
 
 	for _, chunk := range []int{1, 7, eventSize, 1000} { // however the reads split it
 		calls := 0
-		readEvents(&chunked{data: stream.Bytes(), n: chunk}, func() { calls++ })
+		readEvents(&chunked{data: stream.Bytes(), n: chunk}, func(InputEvent) { calls++ })
 		if calls == 0 {
 			t.Fatalf("chunk %d: no activity seen", chunk)
 		}
 	}
 	calls := 0
-	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), func() { calls++ })
+	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), func(InputEvent) { calls++ })
 	if calls != 0 {
 		t.Fatalf("LED and sync events counted as a person: %d", calls)
 	}
@@ -131,7 +133,7 @@ func TestEvdevHotplug(t *testing.T) {
 	touched := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- (&Evdev{Dir: dir}).Watch(ctx, func() { touched <- struct{}{} }) }()
+	go func() { done <- (&Evdev{Dir: dir}).Watch(ctx, func(InputEvent) { touched <- struct{}{} }) }()
 
 	write := func(path string) {
 		t.Helper()

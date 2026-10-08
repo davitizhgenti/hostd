@@ -618,6 +618,14 @@ func (mc moduleCore) Handles(actionType string) bool {
 	return ok && mc.e.reg.started(m)
 }
 
+func (mc moduleCore) Read(ctx context.Context, module, read string, params map[string]string) (json.RawMessage, error) {
+	v, err := mc.e.ModuleRead(ctx, module, read, params)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
 // Do sends an action for a module. Called with a handler's context, the
 // action joins that chain: same origin and authorization, Parent set, and
 // it may reuse the keys its ancestors hold. Otherwise it is the module's

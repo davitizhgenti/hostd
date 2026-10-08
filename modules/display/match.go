@@ -3,6 +3,7 @@ package display
 import (
 	"bufio"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -51,4 +52,78 @@ func instanceFromUnit(unit string) (string, bool) {
 		return "", false
 	}
 	return strings.ReplaceAll(id, `\x23`, "#"), true
+}
+
+// matchRules are an app's rules for windows outside its instance's unit
+// (see apps.Match): globs on class, app_id and title, and a KEY=value the
+// window's process has in its environment. Any rule that is set and
+// matches is enough.
+type matchRules struct {
+	Class string `json:"class"`
+	AppID string `json:"app_id"`
+	Title string `json:"title"`
+	Env   string `json:"env"`
+}
+
+type liveInstance struct {
+	ID    string      `json:"id"`
+	State string      `json:"state"`
+	Match *matchRules `json:"match"`
+}
+
+func globMatch(pattern, s string) bool {
+	if pattern == "" || s == "" {
+		return false
+	}
+	ok, err := path.Match(pattern, s)
+	return err == nil && ok
+}
+
+func (r *matchRules) matches(procRoot string, w Window) bool {
+	if r == nil {
+		return false
+	}
+	return globMatch(r.Class, w.Class) || globMatch(r.AppID, w.AppID) || globMatch(r.Title, w.Title) ||
+		(r.Env != "" && hasEnv(procRoot, w.PID, r.Env))
+}
+
+// hasEnv reports whether a process has kv in its environment.
+func hasEnv(procRoot string, pid int, kv string) bool {
+	if pid <= 0 {
+		return false
+	}
+	env, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
+	if err != nil {
+		return false
+	}
+	for _, v := range strings.Split(string(env), "\x00") {
+		if v == kv {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveWindow finds a window's instance: by cgroup first, then by the
+// running instances' match rules. A cgroup hit whose instance follows its
+// app by an environment variable (a handoff, such as a Steam game) must
+// match its rules too: the unit may host the launcher (Steam itself),
+// whose own windows are not the game's.
+func resolveWindow(procRoot string, w Window, live []liveInstance) string {
+	byID := map[string]liveInstance{}
+	for _, in := range live {
+		byID[in.ID] = in
+	}
+	if id := instanceOf(procRoot, w.PID); id != "" {
+		in, ok := byID[id]
+		if !ok || in.Match == nil || in.Match.Env == "" || in.Match.matches(procRoot, w) {
+			return id
+		}
+	}
+	for _, in := range live {
+		if in.Match.matches(procRoot, w) {
+			return in.ID
+		}
+	}
+	return ""
 }

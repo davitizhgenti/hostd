@@ -305,7 +305,7 @@
     },
     {
       "file": "testdata/apps/bad-runner.toml",
-      "error": "runner type \"teleport\": use one of compose, docker, exec, flatpak, process, steam, url"
+      "error": "runner type \"teleport\": use one of compose, docker, exec, flatpak, process, url"
     },
     {
       "file": "testdata/apps/broken.toml",

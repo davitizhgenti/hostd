@@ -14,12 +14,23 @@ import (
 )
 
 // Input reports that someone touched an input device. The display module
-// uses it to tell whether a person is at the screen.
+// uses it to tell whether a person is at the screen, and to open the
+// switcher with a controller's Guide button.
 type Input interface {
 	// Watch calls fn on input activity until ctx ends. Devices plugged in
 	// later (a controller switched on) are picked up.
-	Watch(ctx context.Context, fn func()) error
+	Watch(ctx context.Context, fn func(InputEvent)) error
 }
+
+// InputEvent is a batch of input from one device.
+type InputEvent struct {
+	// Guide: the controller's Guide / PS / Home button was pressed.
+	Guide bool
+}
+
+// btnMode is BTN_MODE, the Guide button of Xbox, PlayStation and most
+// other controllers under Linux.
+const btnMode = 0x13c
 
 // Linux input event types that mean a person did something. EV_SYN and
 // EV_MSC accompany them; EV_LED and friends are the system talking.
@@ -55,7 +66,7 @@ type Evdev struct {
 	Dir string // default /dev/input
 }
 
-func (e *Evdev) Watch(ctx context.Context, fn func()) error {
+func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 	dir := e.Dir
 	if dir == "" {
 		dir = "/dev/input"
@@ -123,7 +134,7 @@ func (e *Evdev) Watch(ctx context.Context, fn func()) error {
 }
 
 // readEvents reads input events until the device goes away.
-func readEvents(r io.Reader, fn func()) {
+func readEvents(r io.Reader, fn func(InputEvent)) {
 	buf := make([]byte, eventSize*64)
 	var pending []byte
 	for {
@@ -131,12 +142,18 @@ func readEvents(r io.Reader, fn func()) {
 		if n > 0 {
 			pending = append(pending, buf[:n]...)
 			active := false
+			var ev InputEvent
 			for len(pending) >= eventSize {
-				active = active || isActivity(pending[:eventSize])
+				e := pending[:eventSize]
+				active = active || isActivity(e)
+				if binary.LittleEndian.Uint16(e[16:18]) == evKey && binary.LittleEndian.Uint16(e[18:20]) == btnMode &&
+					int32(binary.LittleEndian.Uint32(e[20:24])) == 1 { // pressed (not released or repeated)
+					ev.Guide = true
+				}
 				pending = pending[eventSize:]
 			}
 			if active {
-				fn() // one call per read, however many events it held
+				fn(ev) // one call per read, however many events it held
 			}
 		}
 		if err != nil {

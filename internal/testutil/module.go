@@ -19,6 +19,8 @@ type Module struct {
 	ValidateFunc func(ctx context.Context, a sdk.Action) error
 	HandleFunc   func(ctx context.Context, a sdk.Action) (sdk.Result, error)
 	StopFunc     func(ctx context.Context) error
+	// ReadFunc answers reads (declare them in M.Reads).
+	ReadFunc func(ctx context.Context, name string, params map[string]string) (any, error)
 
 	Log *Log
 
@@ -73,6 +75,13 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.HandleFunc(ctx, a)
 	}
 	return sdk.Result{Status: sdk.StatusApplied}, nil
+}
+
+func (m *Module) Read(ctx context.Context, name string, params map[string]string) (any, error) {
+	if m.ReadFunc != nil {
+		return m.ReadFunc(ctx, name, params)
+	}
+	return nil, sdk.Errorf(sdk.CodeNotFound, "no read %q", name)
 }
 
 func (m *Module) Stop(ctx context.Context) error {

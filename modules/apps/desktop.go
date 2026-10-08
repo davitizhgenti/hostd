@@ -26,6 +26,7 @@ type DesktopEntry struct {
 	Categories []string
 	OnlyShowIn []string
 	NotShowIn  []string
+	Flatpak    string // X-Flatpak: the Flatpak app ID of an exported entry
 }
 
 // ParseDesktopEntry reads a .desktop file. It reads only the [Desktop
@@ -81,6 +82,8 @@ func ParseDesktopEntry(data []byte) (DesktopEntry, error) {
 			e.OnlyShowIn = splitList(value)
 		case "NotShowIn":
 			e.NotShowIn = splitList(value)
+		case "X-Flatpak":
+			e.Flatpak = value
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -229,21 +232,28 @@ type DesktopSource struct {
 // DefaultDesktopDirs returns <dir>/applications for XDG_DATA_DIRS (lowest
 // priority first) and XDG_DATA_HOME last.
 func DefaultDesktopDirs() []string {
+	home := os.Getenv("XDG_DATA_HOME")
+	if home == "" {
+		if h, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(h, ".local", "share")
+		}
+	}
 	dataDirs := os.Getenv("XDG_DATA_DIRS")
 	if dataDirs == "" {
+		// The default, plus Flatpak's exports: a session's XDG_DATA_DIRS
+		// has them (Flatpak's profile script adds them), but a service's
+		// environment has no XDG_DATA_DIRS at all. User installs rank
+		// above system ones, both above /usr/share.
 		dataDirs = "/usr/local/share:/usr/share"
+		if home != "" {
+			dataDirs = filepath.Join(home, "flatpak", "exports", "share") + ":/var/lib/flatpak/exports/share:" + dataDirs
+		}
 	}
 	parts := strings.Split(dataDirs, ":")
 	var dirs []string
 	for i := len(parts) - 1; i >= 0; i-- { // the spec lists most important first
 		if parts[i] != "" {
 			dirs = append(dirs, filepath.Join(parts[i], "applications"))
-		}
-	}
-	home := os.Getenv("XDG_DATA_HOME")
-	if home == "" {
-		if h, err := os.UserHomeDir(); err == nil {
-			home = filepath.Join(h, ".local", "share")
 		}
 	}
 	if home != "" {
@@ -315,6 +325,10 @@ func (s *DesktopSource) Scan() ([]App, []Problem) {
 				Window: Window{Fullscreen: true},
 				Hidden: e.NoDisplay || e.Terminal || !shownIn(e, desktop) || hiddenByCategory(e.Categories),
 			}
+			if e.Flatpak != "" {
+				app.Runner = Runner{Type: RunnerFlatpak, AppID: e.Flatpak}
+			}
+
 			byFileID[fileID] = app
 		}
 	}

@@ -235,7 +235,9 @@ func TestValidation(t *testing.T) {
 		`runner = { type = "url", url = "localhost:8096" }`:                                  "http://",
 		`runner = { type = "docker" }`:                                                       "image or a build",
 		`runner = { type = "compose" }`:                                                      "needs a file",
-		`runner = { type = "steam" }`:                                                        "needs an app_id",
+		`runner = { type = "flatpak" }`:                                                      "needs an app_id",
+		`runner = { type = "exec", command = ["steam"], handoff = "SteamAppId" }`:            "use KEY=value",
+		`runner = { type = "docker", image = "x", handoff = "A=1" }`:                         "applies to exec",
 		"runner = { type = \"exec\", command = [\"x\"] }\nsurface = \"tv\"":                  `surface "tv"`,
 		"runner = { type = \"exec\", command = [\"x\"] }\nrestart = \"maybe\"":               `restart "maybe"`,
 		"runner = { type = \"exec\", command = [\"x\"] }\n[instance]\npolicy = \"many\"":     "instance.policy",
@@ -267,6 +269,9 @@ func (f *fakeCore) Do(context.Context, sdk.Action) (sdk.Result, error) {
 }
 func (f *fakeCore) Subscribe(context.Context, string) <-chan sdk.Event { return nil }
 func (f *fakeCore) Handles(string) bool                                { return false }
+func (f *fakeCore) Read(context.Context, string, string, map[string]string) (json.RawMessage, error) {
+	return nil, sdk.Errorf(sdk.CodeNotFound, "no reads in this fake")
+}
 func (f *fakeCore) take() []sdk.Event {
 	f.mu.Lock()
 	defer f.mu.Unlock()
