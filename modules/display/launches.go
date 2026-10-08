@@ -150,6 +150,7 @@ func (m *Module) learnLaunch(ctx context.Context, instance, name string, src *sd
 	old, placed := m.launches[instance]
 	if placed {
 		l.noticed = old.noticed
+		l.front = l.front || old.front // asked for in front while starting
 	}
 	m.launches[instance] = l
 	var bring *trackedWindow

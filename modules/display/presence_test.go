@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -349,3 +351,40 @@ func TestRemoteFocusWhileSomeoneIsThere(t *testing.T) {
 }
 
 func mkfifo(path string) error { return syscall.Mkfifo(path, 0o600) }
+
+func TestFocusAndCloseWhileStarting(t *testing.T) {
+	// Started by a phone while someone is there; it has no window yet
+	// (Steam updates itself first). The person picks it in the menu: its
+	// window comes to the front once it opens.
+	r := newDisplayRig(t, true)
+	r.input.press(t)
+	waitFor(t, "present", r.m.presence.present)
+	r.start(t, "tv", "TV", sdk.SourceManual, false)
+	r.setLive(contract.Instance{ID: "tv", State: "running"})
+	act := func(typ, instance string) (sdk.Result, error) {
+		return r.e.Submit(context.Background(), sdk.Action{Type: typ, Args: json.RawMessage(fmt.Sprintf(`{"instance":%q}`, instance)),
+			Source: sdk.Source{Kind: sdk.SourceLocal}}, core.Auth{Scopes: []string{"apps"}})
+	}
+	res, err := act("window.focus", "tv")
+	if err != nil || res.Status != sdk.StatusApplied || !strings.Contains(string(res.Data), `"waiting":true`) {
+		t.Fatalf("focus while starting: %+v %v", res, err)
+	}
+	r.b.open(1, 100)
+	r.event(t)
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 1 hostd:tv", "show hostd:tv", "focus 1", "fullscreen 1 true"}) {
+		t.Fatalf("commands %q", got)
+	}
+
+	// Closing one without a window stops it.
+	r.setLive(contract.Instance{ID: "notes", State: "running"})
+	if _, err := act("window.close", "notes"); err != nil {
+		t.Fatal(err)
+	}
+	if id := <-r.stopped; id != "notes" {
+		t.Fatalf("stopped %s", id)
+	}
+	// Not running at all: still not found.
+	if _, err := act("window.focus", "ghost"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("focus without instance: %v", err)
+	}
+}

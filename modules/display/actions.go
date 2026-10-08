@@ -72,6 +72,10 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 		return err
 	}
 	_, _, err := m.windowsOf(ctx, args.Instance)
+	if sdk.CodeOf(err) == sdk.CodeNotFound && (a.Type == "window.focus" || a.Type == "window.close") &&
+		m.starting(ctx, args.Instance) {
+		return nil
+	}
 	return err
 }
 
@@ -101,6 +105,14 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return sdk.Result{}, err
 	}
 	b, wins, err := m.windowsOf(ctx, args.Instance)
+	if sdk.CodeOf(err) == sdk.CodeNotFound && m.starting(ctx, args.Instance) {
+		switch a.Type {
+		case "window.focus":
+			return m.focusWhenOpen(a, args.Instance)
+		case "window.close":
+			return m.closeInstance(ctx, nil, args.Instance, nil)
+		}
+	}
 	if err != nil {
 		return sdk.Result{}, err
 	}
@@ -137,8 +149,31 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "display module has no action %q", a.Type)
 }
 
+// starting reports whether an instance runs without a window yet: an app
+// still starting, which can take minutes (Steam updates itself first).
+func (m *Module) starting(ctx context.Context, instance string) bool {
+	return slices.ContainsFunc(m.liveInstances(ctx), func(in contract.Instance) bool { return in.ID == instance })
+}
+
+// focusWhenOpen brings a starting instance's window to the front once it
+// opens, as if it had been started from the screen.
+func (m *Module) focusWhenOpen(a sdk.Action, instance string) (sdk.Result, error) {
+	if m.inUse(a) {
+		return m.skippedInUse(instance, m.nameOf(instance)+" wants the screen", map[string]any{"instance": instance, "focused": false})
+	}
+	m.mu.Lock()
+	if l, ok := m.launches[instance]; ok {
+		l.front = true
+	} else {
+		m.launches[instance] = &launch{name: instance, front: true}
+	}
+	m.mu.Unlock()
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": instance, "waiting": true})}, nil
+}
+
 // closeInstance asks every window to close, as its close button would. If
-// any is still open after CloseTimeout, the app is stopped.
+// any is still open after CloseTimeout, the app is stopped; one without a
+// window yet is stopped at once.
 func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, wins []Window) (sdk.Result, error) {
 	// Tell the apps module first: whatever status the app ends with now,
 	// it ended because it was asked to (a terminal's shell reports 1).
@@ -180,7 +215,7 @@ func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, 
 		delete(m.closeWait, w.ID)
 	}
 	m.mu.Unlock()
-	if closed == len(wins) {
+	if len(wins) > 0 && closed == len(wins) {
 		// Report done once the app has ended too, so whoever asked (the
 		// menu) lists it no more.
 		m.waitEnded(ctx, instance, m.opts.EndWait)
