@@ -17,7 +17,6 @@ exec wayvnc 0.0.0.0 5900
 exec mako
 
 set $mod Mod4
-bindsym $mod+Return exec foot
 bindsym $mod+Shift+q kill
 
 # hostd's switcher and app stepping, as on the real machine (deploy/files/

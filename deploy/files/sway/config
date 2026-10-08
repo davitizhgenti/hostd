@@ -14,7 +14,6 @@ exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_C
 exec mako
 
 set $mod Mod4
-bindsym $mod+Return exec foot
 bindsym $mod+Shift+q kill
 
 # Step through the apps (each has its own workspace).
