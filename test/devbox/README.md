@@ -46,7 +46,8 @@ published on `127.0.0.1:7300` for `hostctl` on the host.
 **Run hostd as on the real machine:** `make devbox-hostd` runs it as a user
 service from `bin/`, logs `hostctl` in, sets up the switcher (straight from
 `deploy/files/overlay`, with its local token) and adds three apps to try. In
-VNC, turn on the viewer's keyboard grab, then press Super for the switcher.
+VNC, press F1 (or Super, with the viewer's keyboard grab on) for the switcher;
+Super+Tab and Super+Q work as on the real machine.
 Run it again after `make build` to restart hostd on the new binary. The
 devbox cannot read input devices, so nobody is ever "at the screen" there:
 every launch comes to the front.

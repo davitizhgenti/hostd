@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 
@@ -250,4 +252,164 @@ func (m *Module) handleOutput(ctx context.Context, a sdk.Action) (sdk.Result, er
 		core.Emit(sdk.Event{Type: EventOutputs, Action: a.ID, Data: mustJSON(map[string]any{"outputs": outs})})
 	}
 	return sdk.Result{Data: mustJSON(map[string]any{"output": output, "applied": setting, "outputs": outs})}, nil
+}
+
+// --- moving between apps -----------------------------------------------------------
+
+func (m *Module) attached() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.backend == nil {
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "no display session: Sway is not running")
+	}
+	return nil
+}
+
+// show brings a window and its workspace to the front.
+func (m *Module) show(ctx context.Context, w *trackedWindow) (sdk.Result, error) {
+	m.mu.Lock()
+	b := m.backend
+	m.mu.Unlock()
+	if b == nil {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "no display session: Sway is not running")
+	}
+	if err := b.Show(ctx, w.Workspace); err != nil {
+		return sdk.Result{}, err
+	}
+	if err := b.Focus(ctx, w.ID); err != nil {
+		return sdk.Result{}, err
+	}
+	return sdk.Result{Data: mustJSON(map[string]any{"instance": w.Instance, "window": w.ID})}, nil
+}
+
+// nothing answers an action that had nowhere to go: not an error, the
+// screen just stays as it is.
+func nothing(reason string) (sdk.Result, error) {
+	return sdk.Result{Status: sdk.StatusSkipped, Reason: reason}, nil
+}
+
+func (m *Module) handleBack(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	m.mu.Lock()
+	back := m.backTarget()
+	m.mu.Unlock()
+	if back == nil {
+		// No history (hostd just started, or that app closed): any other
+		// app beats staying where nothing can be done.
+		back = m.cycleTarget(1)
+	}
+	if back == nil {
+		return nothing("no_other_app")
+	}
+	if m.inUse(a) {
+		return m.skippedInUse(back.Instance, m.nameOf(back.Instance)+" wants the screen", map[string]any{"instance": back.Instance})
+	}
+	return m.show(ctx, back)
+}
+
+// handleCycle steps through the running apps with windows.
+func (m *Module) handleCycle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	step := 1
+	if a.Type == "window.prev" {
+		step = -1
+	}
+	target := m.cycleTarget(step)
+	if target == nil {
+		return nothing("no_other_app")
+	}
+	if m.inUse(a) {
+		return m.skippedInUse(target.Instance, m.nameOf(target.Instance)+" wants the screen", map[string]any{"instance": target.Instance})
+	}
+	return m.show(ctx, target)
+}
+
+// cycleTarget returns a window of the app step places from the one in
+// front, among the running apps with windows in instance ID order (the
+// switcher is not one of them); nil if there is no other.
+func (m *Module) cycleTarget(step int) *trackedWindow {
+	m.mu.Lock()
+	first := map[string]*trackedWindow{}
+	for _, t := range m.windows {
+		if t.Instance == "" || appOfInstance(t.Instance) == m.opts.Switcher {
+			continue
+		}
+		if cur, ok := first[t.Instance]; !ok || t.ID < cur.ID {
+			c := *t
+			first[t.Instance] = &c
+		}
+	}
+	current := ""
+	if n := len(m.stack); n > 0 {
+		current = m.stack[n-1]
+	}
+	m.mu.Unlock()
+	ids := slices.Sorted(maps.Keys(first))
+	if len(ids) == 0 || (len(ids) == 1 && ids[0] == current) {
+		return nil
+	}
+	i := slices.Index(ids, current)
+	switch {
+	case i < 0 && step > 0:
+		i = 0
+	case i < 0:
+		i = len(ids) - 1
+	default:
+		i = (i + step + len(ids)) % len(ids)
+	}
+	return first[ids[i]]
+}
+
+// handleSwitcher opens the switcher, or goes back if it is in front.
+func (m *Module) handleSwitcher(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	m.mu.Lock()
+	inFront := len(m.stack) > 0 && appOfInstance(m.stack[len(m.stack)-1]) == m.opts.Switcher
+	core := m.core
+	m.mu.Unlock()
+	if inFront {
+		return m.handleBack(ctx, a)
+	}
+	if core == nil || !core.Handles("app.start") {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "the apps module is not running")
+	}
+	return core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Switcher})})
+}
+
+// frontWindow returns the focused window and its instance ("" for a window
+// hostd did not start).
+func (m *Module) frontWindow(ctx context.Context) (Backend, Window, error) {
+	m.mu.Lock()
+	b := m.backend
+	m.mu.Unlock()
+	if b == nil {
+		return nil, Window{}, sdk.Errorf(sdk.CodeModuleUnavailable, "no display session: Sway is not running")
+	}
+	all, err := b.Windows(ctx)
+	if err != nil {
+		return nil, Window{}, err
+	}
+	for _, w := range all {
+		if w.Focused {
+			return b, w, nil
+		}
+	}
+	return nil, Window{}, sdk.Errorf(sdk.CodeNotFound, "no window is in front")
+}
+
+// closeFront closes the window in front: its whole instance, or just the
+// window if hostd did not start it.
+func (m *Module) closeFront(ctx context.Context) (sdk.Result, error) {
+	b, w, err := m.frontWindow(ctx)
+	if err != nil {
+		return sdk.Result{}, err
+	}
+	if inst := m.resolver(ctx)(w); inst != "" {
+		_, wins, err := m.windowsOf(ctx, inst)
+		if err != nil {
+			return sdk.Result{}, err
+		}
+		return m.closeInstance(ctx, b, inst, wins)
+	}
+	if err := b.CloseWindow(ctx, w.ID); err != nil {
+		return sdk.Result{}, err
+	}
+	return sdk.Result{Data: mustJSON(map[string]any{"window": w.ID, "closed": 1})}, nil
 }

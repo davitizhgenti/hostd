@@ -66,6 +66,7 @@ type fakeSway struct {
 	mu       sync.Mutex
 	commands []string
 	events   [][]byte // window events sent after a subscribe
+	extra    []rawEvent
 	wg       sync.WaitGroup
 }
 
@@ -91,6 +92,11 @@ func newFakeSway(t *testing.T) *fakeSway {
 	go f.serve()
 	t.Cleanup(func() { ln.Close(); f.wg.Wait() })
 	return f
+}
+
+type rawEvent struct {
+	typ     uint32
+	payload string
 }
 
 func (f *fakeSway) serve() {
@@ -131,6 +137,9 @@ func (f *fakeSway) handle(c net.Conn) {
 			_ = writeMessage(c, typ, []byte(`{"success":true}`))
 			for _, ev := range f.events {
 				_ = writeMessage(c, eventWindow, ev)
+			}
+			for _, ev := range f.extra {
+				_ = writeMessage(c, ev.typ, []byte(ev.payload))
 			}
 			_ = writeMessage(c, eventShutdown, []byte(`{"change":"exit"}`))
 			return
@@ -181,7 +190,7 @@ func TestSwayBackend(t *testing.T) {
 	}
 
 	var got []string
-	err = s.Watch(ctx, func(ev WindowEvent) { got = append(got, fmt.Sprintf("%s %d", ev.Change, ev.Window.ID)) })
+	err = s.Watch(ctx, func(ev Event) { got = append(got, fmt.Sprintf("%s %d", ev.Change, ev.Window.ID)) })
 	if err == nil || !strings.Contains(err.Error(), "shutting down") {
 		t.Fatalf("Watch ended with %v", err)
 	}
@@ -249,13 +258,14 @@ type fakeBackend struct {
 	mu     sync.Mutex
 	wins   map[int64]*Window
 	cmds   []string
-	events chan WindowEvent
+	events chan Event
 	ignore map[int64]bool // windows that do not close when asked
+	bound  [][]string     // every Bind call
 	gone   chan struct{}  // closed to end Watch (compositor quit)
 }
 
 func newFakeBackend() *fakeBackend {
-	return &fakeBackend{wins: map[int64]*Window{}, events: make(chan WindowEvent, 64), ignore: map[int64]bool{},
+	return &fakeBackend{wins: map[int64]*Window{}, events: make(chan Event, 64), ignore: map[int64]bool{},
 		gone: make(chan struct{})}
 }
 
@@ -315,6 +325,22 @@ func (f *fakeBackend) CloseWindow(_ context.Context, id int64) error {
 	}
 	return nil
 }
+func (f *fakeBackend) Bind(_ context.Context, keys []string) error {
+	f.mu.Lock()
+	f.bound = append(f.bound, append([]string(nil), keys...))
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeBackend) bindCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.bound)
+}
+
+// key reports a fired binding, as Sway does.
+func (f *fakeBackend) key(name string) { f.events <- Event{Change: "binding", Binding: name} }
+
 func (f *fakeBackend) Place(_ context.Context, id, beside int64) error {
 	f.log("place %d beside %d", id, beside)
 	return nil
@@ -324,7 +350,7 @@ func (f *fakeBackend) SetOutput(_ context.Context, output, setting string) error
 	return nil
 }
 func (f *fakeBackend) Disconnect() error { return nil }
-func (f *fakeBackend) Watch(ctx context.Context, fn func(WindowEvent)) error {
+func (f *fakeBackend) Watch(ctx context.Context, fn func(Event)) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -342,7 +368,7 @@ func (f *fakeBackend) open(id int64, pid int) {
 	f.mu.Lock()
 	w := &Window{ID: id, PID: pid, AppID: "app", Workspace: "1"}
 	f.wins[id] = w
-	ev := WindowEvent{Change: "new", Window: *w}
+	ev := Event{Change: "new", Window: *w}
 	f.mu.Unlock()
 	f.events <- ev
 }
@@ -356,7 +382,7 @@ func (f *fakeBackend) openWindow(w Window) {
 	c := w
 	f.wins[w.ID] = &c
 	f.mu.Unlock()
-	f.events <- WindowEvent{Change: "new", Window: w}
+	f.events <- Event{Change: "new", Window: w}
 }
 
 func (f *fakeBackend) focus(id int64) {
@@ -364,7 +390,7 @@ func (f *fakeBackend) focus(id int64) {
 	for _, w := range f.wins {
 		w.Focused = w.ID == id
 	}
-	ev := WindowEvent{Change: "focus", Window: *f.wins[id]}
+	ev := Event{Change: "focus", Window: *f.wins[id]}
 	f.mu.Unlock()
 	f.events <- ev
 }
@@ -374,7 +400,7 @@ func (f *fakeBackend) closeWin(id int64) {
 	w := *f.wins[id]
 	delete(f.wins, id)
 	f.mu.Unlock()
-	f.events <- WindowEvent{Change: "close", Window: w}
+	f.events <- Event{Change: "close", Window: w}
 }
 
 type displayRig struct {

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/davitizhgenti/hostd/modules/display"
 )
 
 // Config is ~/.config/hostd/hostd.toml. Every field is optional.
@@ -36,6 +38,15 @@ import (
 //	# the gamescope command for apps with window.wrap = "gamescope".
 //	browser = ["chromium", "--kiosk", "--user-data-dir={profile}", "{url}"]
 //	gamescope = ["gamescope", "-W", "1920", "-H", "1080", "-f"]
+//
+//	# Keys and controller buttons, mapped to display actions. These add
+//	# to or change the defaults (Super: switcher, Super+Tab / Super+Shift+Tab:
+//	# next / previous app, Super+Q: close the app, Guide: switcher); ""
+//	# removes one.
+//	[input.keys]
+//	"F1" = "display.switcher"
+//	[input.buttons]
+//	guide = "display.switcher"
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`
@@ -44,6 +55,14 @@ type Config struct {
 	IdleAfter   duration            `toml:"idle_after"`
 	Browser     []string            `toml:"browser"`
 	Gamescope   []string            `toml:"gamescope"`
+	Input       struct {
+		Keys    map[string]string `toml:"keys"`
+		Buttons map[string]string `toml:"buttons"`
+	} `toml:"input"`
+
+	// The key and button bindings in effect: the defaults with Input
+	// applied (filled in by LoadConfig).
+	keys, buttons map[string]string
 }
 
 // builtinModules are the modules this hostd can load, in start order
@@ -115,6 +134,10 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: no module %q; available: %s", path, m, strings.Join(builtinModules, ", "))
 		}
 		seen[m] = true
+	}
+	c.keys, c.buttons, err = display.Bindings(c.Input.Keys, c.Input.Buttons)
+	if err != nil {
+		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return c, nil
 }

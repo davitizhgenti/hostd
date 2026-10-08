@@ -19,7 +19,7 @@ import (
 
 func TestGuideButtonOpensSwitcher(t *testing.T) {
 	r := newDisplayRig(t, true)
-	r.input.send(t, InputEvent{Guide: true})
+	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
 	select {
 	case a := <-r.started:
 		if string(a.Args) != `{"id":"hostd-overlay"}` || a.Source.Kind != sdk.SourceLocal {
@@ -46,7 +46,7 @@ func TestGuideButtonTogglesBack(t *testing.T) {
 	r.b.focus(5)
 	r.event(t)
 	r.b.commands()
-	r.input.send(t, InputEvent{Guide: true})
+	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
 	waitFor(t, "back to tv", func() bool {
 		r.b.mu.Lock()
 		defer r.b.mu.Unlock()
@@ -67,7 +67,7 @@ func TestReadEventsGuide(t *testing.T) {
 	readEvents(&chunked{data: stream, n: 1000}, func(e InputEvent) { got = append(got, e) })
 	stream = append(inputEvent(evKey, btnMode, 0), inputEvent(0, 0, 0)...) // release
 	readEvents(&chunked{data: stream, n: 1000}, func(e InputEvent) { got = append(got, e) })
-	if len(got) != 2 || !got[0].Guide || got[1].Guide {
+	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 {
 		t.Fatalf("events %+v", got)
 	}
 }

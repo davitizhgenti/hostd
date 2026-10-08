@@ -22,6 +22,7 @@ const (
 	eventWorkspace  = eventFlag // | 0
 	eventOutput     = eventFlag | 1
 	eventWindow     = eventFlag | 3
+	eventBinding    = eventFlag | 5
 	eventShutdown   = eventFlag | 6
 	maxPayload      = 64 << 20
 	ipcHeaderLength = 14

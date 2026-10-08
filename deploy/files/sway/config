@@ -13,13 +13,6 @@ exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_C
 # On-screen notices.
 exec mako
 
-set $mod Mod4
-bindsym $mod+Shift+q kill
-
-# Step through the apps (each has its own workspace).
-bindsym $mod+Tab workspace next_on_output
-bindsym $mod+Shift+Tab workspace prev_on_output
-
-# Super alone opens hostd's switcher (or goes back from it); a controller's
-# Guide button does the same through hostd.
-bindsym --release Super_L exec hostd-switch
+# Keys are hostd's: it installs its bindings at runtime and runs an action
+# for each (Super: switcher, Super+Tab / Super+Shift+Tab: next / previous
+# app, Super+Q: close the app). See [input] in hostd.toml.

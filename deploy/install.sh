@@ -448,10 +448,10 @@ install_file "$FILES/rollback.sh" "$lib/rollback.sh" 755 "$SCREEN_USER" || info 
 install_file "$FILES/systemd/hostd-rollback.service" "$SCREEN_HOME/.config/systemd/user/hostd-rollback.service" 644 "$SCREEN_USER" ||
 	info "rollback service up to date"
 install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up to date"
-# The on-screen switcher: a hidden app in the catalog, opened with Super
-# (hostd-switch) or a controller's Guide button (hostd itself).
+# The on-screen switcher: a hidden app in the catalog, opened by hostd's
+# display.switcher action (Super, or a controller's Guide button).
 install_file "$FILES/overlay/hostd-overlay" /usr/local/lib/hostd/hostd-overlay 755 root || info "switcher up to date"
-install_file "$FILES/overlay/hostd-switch" /usr/local/bin/hostd-switch 755 root || info "hostd-switch up to date"
+rm -f /usr/local/bin/hostd-switch # replaced by hostd's own key bindings
 install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
 install_file "$FILES/overlay/hostd-overlay.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml" 644 "$SCREEN_USER" ||
 	info "switcher app file up to date"

@@ -50,11 +50,17 @@ type Mode struct {
 
 func (m Mode) String() string { return fmt.Sprintf("%dx%d@%.3fHz", m.Width, m.Height, m.Refresh) }
 
-// WindowEvent is a change to a window: new, close, focus, title,
-// fullscreen_mode, move...
-type WindowEvent struct {
-	Change string
-	Window Window
+// Event is something that happened in the session:
+//   - a window change (Change is new, close, focus, title, fullscreen_mode,
+//     move...; Window is set),
+//   - "binding": one of hostd's key bindings fired (Binding is its input
+//     name, e.g. "Super+Tab"),
+//   - "reload": the compositor reloaded its config, which drops runtime
+//     bindings.
+type Event struct {
+	Change  string
+	Window  Window
+	Binding string
 }
 
 // Backend is the compositor. The display module's logic only talks to this
@@ -70,6 +76,9 @@ type Backend interface {
 	Fullscreen(ctx context.Context, window int64, on bool) error
 	// CloseWindow asks a window to close, as its close button would.
 	CloseWindow(ctx context.Context, window int64) error
+	// Bind replaces hostd's key bindings. A fired binding is reported by
+	// Watch as an Event with Change "binding".
+	Bind(ctx context.Context, keys []string) error
 	// Place puts a window next to another, both windowed, side by side.
 	Place(ctx context.Context, window, beside int64) error
 	// SetOutput changes a screen: output is a name or "*", setting one of
@@ -77,16 +86,17 @@ type Backend interface {
 	SetOutput(ctx context.Context, output, setting string) error
 	// Watch calls fn with window events until ctx ends or the compositor
 	// goes away (then it returns an error).
-	Watch(ctx context.Context, fn func(WindowEvent)) error
+	Watch(ctx context.Context, fn func(Event)) error
 	// Disconnect drops the connection to the compositor.
 	Disconnect() error
 }
 
 // Sway talks to Sway over its IPC socket.
 type Sway struct {
-	path string
-	mu   sync.Mutex
-	conn net.Conn
+	path  string
+	mu    sync.Mutex
+	conn  net.Conn
+	bound []string // the keys hostd bound last
 }
 
 // FindSway returns the IPC socket of the running Sway: $SWAYSOCK if it
@@ -300,6 +310,77 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 // quotes, but be safe anyway.
 func quote(s string) string { return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"` }
 
+// bindPrefix starts the command of every binding hostd installs: a nop
+// that Sway reports back as a binding event.
+const bindPrefix = "nop hostd key "
+
+// swayKeys turns an input name ("Super+Shift+Tab", "Super", "F1") into a
+// bindsym key combination and its flags. A lone modifier binds on release,
+// so it does not fire when used in a combination.
+func swayKeys(name string) (flags, combo string) {
+	mods := map[string]string{"super": "Mod4", "ctrl": "Control", "control": "Control", "alt": "Mod1", "shift": "Shift"}
+	parts := strings.Split(name, "+")
+	if len(parts) == 1 {
+		// A modifier is held while it is released, so its own modifier
+		// is part of the combination.
+		switch strings.ToLower(name) {
+		case "super":
+			return "--release", "Mod4+Super_L"
+		case "alt":
+			return "--release", "Mod1+Alt_L"
+		}
+		if len(name) == 1 {
+			name = strings.ToLower(name)
+		}
+		return "--no-repeat", name
+	}
+	for i, p := range parts[:len(parts)-1] {
+		if m, ok := mods[strings.ToLower(p)]; ok {
+			parts[i] = m
+		}
+	}
+	// Keysyms are case-sensitive: "Q" is shift+q. A letter means the key.
+	if last := parts[len(parts)-1]; len(last) == 1 {
+		parts[len(parts)-1] = strings.ToLower(last)
+	}
+	return "--no-repeat", strings.Join(parts, "+")
+}
+
+// Bind removes the bindings hostd installed before and installs keys.
+// Runtime bindings do not survive a config reload; the module installs
+// them again on the "reload" event.
+func (s *Sway) Bind(ctx context.Context, keys []string) error {
+	s.mu.Lock()
+	old := s.bound
+	s.bound = append([]string(nil), keys...)
+	s.mu.Unlock()
+	var cmds []string
+	for _, k := range old {
+		flags, combo := swayKeys(k)
+		cmds = append(cmds, fmt.Sprintf("unbindsym %s %s", flags, combo))
+	}
+	for _, k := range keys {
+		flags, combo := swayKeys(k)
+		cmds = append(cmds, fmt.Sprintf("bindsym %s %s %s%s", flags, combo, bindPrefix, k))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return s.runEach(ctx, cmds)
+}
+
+// runEach runs commands one by one; an unbindsym of a binding a reload
+// already dropped fails harmlessly, so only bindsym errors count.
+func (s *Sway) runEach(ctx context.Context, cmds []string) error {
+	var first error
+	for _, c := range cmds {
+		if err := s.run(ctx, c); err != nil && first == nil && strings.HasPrefix(c, "bindsym") {
+			first = fmt.Errorf("%s: %w", c, err)
+		}
+	}
+	return first
+}
+
 // Place uses a mark on the target: "move container to mark" makes the
 // window a sibling of it, and splith lays the two out side by side.
 func (s *Sway) Place(ctx context.Context, window, beside int64) error {
@@ -343,7 +424,7 @@ func (s *Sway) CloseWindow(ctx context.Context, window int64) error {
 
 // Watch subscribes on a second connection, since the first one carries
 // requests and replies.
-func (s *Sway) Watch(ctx context.Context, fn func(WindowEvent)) error {
+func (s *Sway) Watch(ctx context.Context, fn func(Event)) error {
 	c, err := (&net.Dialer{}).DialContext(ctx, "unix", s.path)
 	if err != nil {
 		return err
@@ -353,7 +434,7 @@ func (s *Sway) Watch(ctx context.Context, fn func(WindowEvent)) error {
 	// so a Sway restart leaks nothing.
 	stop := context.AfterFunc(ctx, func() { c.Close() })
 	defer stop()
-	if err := writeMessage(c, ipcSubscribe, []byte(`["window","shutdown"]`)); err != nil {
+	if err := writeMessage(c, ipcSubscribe, []byte(`["window","binding","workspace","shutdown"]`)); err != nil {
 		return err
 	}
 	typ, reply, err := readMessage(c)
@@ -383,7 +464,25 @@ func (s *Sway) Watch(ctx context.Context, fn func(WindowEvent)) error {
 				Container node   `json:"container"`
 			}
 			if json.Unmarshal(payload, &ev) == nil {
-				fn(WindowEvent{Change: ev.Change, Window: ev.Container.window()})
+				fn(Event{Change: ev.Change, Window: ev.Container.window()})
+			}
+		case eventBinding:
+			var ev struct {
+				Binding struct {
+					Command string `json:"command"`
+				} `json:"binding"`
+			}
+			if json.Unmarshal(payload, &ev) == nil {
+				if name, ok := strings.CutPrefix(ev.Binding.Command, bindPrefix); ok {
+					fn(Event{Change: "binding", Binding: name})
+				}
+			}
+		case eventWorkspace:
+			var ev struct {
+				Change string `json:"change"`
+			}
+			if json.Unmarshal(payload, &ev) == nil && ev.Change == "reload" {
+				fn(Event{Change: "reload"})
 			}
 		}
 	}

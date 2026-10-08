@@ -181,6 +181,25 @@ The screen runs Sway, and each window instance gets its own workspace, fullscree
 2. **Match rules:** the app's `match` block: globs on `class`, `app_id` and `title`, or `env = "KEY=value"` in the window's process (Flatpak apps default to `FLATPAK_ID=<id>`, handoff apps to their handoff variable). Any rule that is set and matches is enough.
 3. **Unowned:** windows that match nothing (a dialog opened by hand) still appear in `/windows`, with no instance.
 
+**Input and shortcuts**
+
+Every key or button that changes the screen is a named input, mapped by one table to a display action. The action goes through the core like any other, with source `local`, so it is audited, outranks phones and scripts, and gets the same protection.
+
+- **Keys** reach hostd through Sway: hostd installs its bindings at runtime over IPC (`bindsym … nop hostd key <name>`), and Sway reports each press back as a binding event. No scripts, no tokens; it works with any keyboard, VNC included. hostd installs them again after a config reload.
+- **Controller buttons** come from hostd's evdev reader. Only buttons with no in-game use are bindable (today the Guide button), because games own the rest.
+- **Apps handle their own input.** The switcher moves through its list itself, but going back or closing an app are actions it sends to the API.
+
+The model: Super is the system key. Super on its own opens the switcher, Super+key acts on the app in front, and Guide is the controller's Super.
+
+| Input | Action |
+| --- | --- |
+| Super | `display.switcher` (open, or back if it is in front) |
+| Super+Tab / Super+Shift+Tab | `window.next` / `window.prev` |
+| Super+Q | `window.close` (the app in front: politely, then stop) |
+| Guide | `display.switcher` |
+
+`[input.keys]` and `[input.buttons]` in `hostd.toml` add or change bindings; `""` removes one. Only display actions that need no arguments can be bound, and a typo stops hostd with a clear message.
+
 **Focus and the person at the screen**
 
 | Situation | What happens |

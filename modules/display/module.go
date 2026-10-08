@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
@@ -45,8 +44,11 @@ type Options struct {
 	IdleAfter time.Duration // no input this long = nobody there (default 5m)
 	// Notifier shows notices such as "Firefox is ready" (optional).
 	Notifier Notifier
-	// Switcher is the app the Guide button opens (default hostd-overlay).
+	// Switcher is the app display.switcher opens (default hostd-overlay).
 	Switcher string
+	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
+	// defaults).
+	Keys, Buttons map[string]string
 
 	Clock        clock.Clock
 	Logger       *slog.Logger
@@ -78,7 +80,9 @@ type Module struct {
 	prefs     map[string]bool          // instance -> wants fullscreen
 	closeWait map[int64]chan struct{}
 	launches  map[string]*launch // by instance
-	switching atomic.Bool        // the Guide button's switcher start is under way
+	keys      map[string]string  // key name -> action
+	buttons   map[string]string  // controller button -> action
+	pressing  map[string]bool    // inputs whose action is being handled
 	presence  *presence
 
 	stop context.CancelFunc
@@ -113,7 +117,14 @@ func New(opts Options) *Module {
 	if opts.Switcher == "" {
 		opts.Switcher = "hostd-overlay"
 	}
-	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{},
+	if opts.Keys == nil {
+		opts.Keys = DefaultKeys
+	}
+	if opts.Buttons == nil {
+		opts.Buttons = DefaultButtons
+	}
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{},
+		keys: opts.Keys, buttons: opts.Buttons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{}}
 	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
 	return m
@@ -128,11 +139,12 @@ type launch struct {
 }
 
 var (
-	instanceArg = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["instance"]}`)
 	focusArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
 		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance"]}`)
+	closeArg = json.RawMessage(`{"type":"object","properties":{
+		"instance":{"type":"string","description":"instance ID; default: the window in front"}}}`)
+	noArgs   = json.RawMessage(`{"type":"object","properties":{}}`)
 	placeArg = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string","description":"the instance to place"},
 		"beside":{"type":"string","description":"the instance to place it next to"},
@@ -167,14 +179,30 @@ func (m *Module) Manifest() sdk.Manifest {
 				ArgScopes: map[string]string{"front": "display.front"},
 				Timeout:   sdk.Duration(10 * time.Second),
 				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"}},
-			{Type: "window.close", Description: "Close an instance's windows politely; stop the app if they stay open",
-				Schema: instanceArg, Keys: []sdk.KeyTemplate{"instance:{instance}"}, Scope: "apps",
+			{Type: "window.close", Description: "Close an instance's windows politely (default: the app in front); stop the app if they stay open",
+				Schema: closeArg, Keys: []sdk.KeyTemplate{"display.close"}, Scope: "apps",
 				Timeout: sdk.Duration(time.Minute),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/close"}},
 			{Type: "window.fullscreen", Description: "Turn fullscreen on or off for an instance's windows",
 				Schema: fullscreenArg, Keys: []sdk.KeyTemplate{"instance:{instance}"}, Scope: "display",
 				Timeout: sdk.Duration(10 * time.Second),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/fullscreen"}},
+			{Type: "window.back", Description: "Go back to the app that was in front before",
+				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
+				Timeout: sdk.Duration(10 * time.Second),
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/back"}},
+			{Type: "window.next", Description: "Bring the next running app to the front",
+				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
+				Timeout: sdk.Duration(10 * time.Second),
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/next"}},
+			{Type: "window.prev", Description: "Bring the previous running app to the front",
+				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
+				Timeout: sdk.Duration(10 * time.Second),
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/prev"}},
+			{Type: "display.switcher", Description: "Open the on-screen switcher, or go back if it is in front",
+				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
+				Timeout: sdk.Duration(time.Minute),
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/display/switcher"}},
 			{Type: "window.place", Description: "Put an instance's window beside another's, side by side",
 				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
 				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
@@ -260,6 +288,7 @@ func (m *Module) attachLoop(ctx context.Context) {
 		} else {
 			warned = false
 			m.attach(ctx, b)
+			m.bind(ctx, b)
 			err := b.Watch(ctx, m.onEvent)
 			m.detach(b)
 			if ctx.Err() != nil {
@@ -371,11 +400,21 @@ func (m *Module) pushFocus(instance string) {
 }
 
 // onEvent handles one window event from the compositor.
-func (m *Module) onEvent(ev WindowEvent) {
+func (m *Module) onEvent(ev Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	w := ev.Window
 	switch ev.Change {
+	case "binding":
+		m.presence.touch() // a key in the session: someone is there (VNC too)
+		m.press("keyboard", ev.Binding)
+	case "reload": // the compositor dropped hostd's bindings
+		m.mu.Lock()
+		b := m.backend
+		m.mu.Unlock()
+		if b != nil {
+			m.bind(ctx, b)
+		}
 	case "new":
 		inst := m.resolver(ctx)(w)
 		m.mu.Lock()
@@ -550,6 +589,17 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 	case "window.place":
 		_, _, _, err := m.placeArgs(ctx, a)
 		return err
+	case "window.back", "window.next", "window.prev", "display.switcher":
+		return m.attached()
+	case "window.close":
+		var args instanceArgs
+		if err := a.DecodeArgs(&args); err != nil {
+			return err
+		}
+		if args.Instance == "" {
+			_, _, err := m.frontWindow(ctx)
+			return err
+		}
 	}
 	var args instanceArgs
 	if err := a.DecodeArgs(&args); err != nil {
@@ -565,6 +615,20 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleOutput(ctx, a)
 	case "window.place":
 		return m.handlePlace(ctx, a)
+	case "window.back":
+		return m.handleBack(ctx, a)
+	case "window.next", "window.prev":
+		return m.handleCycle(ctx, a)
+	case "display.switcher":
+		return m.handleSwitcher(ctx, a)
+	case "window.close":
+		var args instanceArgs
+		if err := a.DecodeArgs(&args); err != nil {
+			return sdk.Result{}, err
+		}
+		if args.Instance == "" {
+			return m.closeFront(ctx)
+		}
 	}
 	var args instanceArgs
 	if err := a.DecodeArgs(&args); err != nil {
@@ -675,45 +739,23 @@ func (m *Module) skippedInUse(instance, text string, data any) (sdk.Result, erro
 // onInput is called for every input from every device.
 func (m *Module) onInput(ev InputEvent) {
 	m.presence.touch()
-	if ev.Guide && m.switching.CompareAndSwap(false, true) {
-		m.done.Add(1)
-		go func() {
-			defer m.done.Done()
-			defer m.switching.Store(false)
-			m.openSwitcher()
-		}()
+	for _, b := range ev.Buttons {
+		m.press("controller", b)
 	}
 }
 
-// openSwitcher starts the switcher app, or brings it forward if it runs,
-// on behalf of the person holding the controller.
-func (m *Module) openSwitcher() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	m.mu.Lock()
-	core, b := m.core, m.backend
-	// Pressed while the switcher is in front: back to where they were.
-	var back *trackedWindow
-	if n := len(m.stack); n > 0 && appOfInstance(m.stack[n-1]) == m.opts.Switcher {
-		top := m.stack[n-1]
-		m.stack = m.stack[:n-1]
-		back = m.previous()
-		m.stack = append(m.stack, top)
+// backTarget returns a window of the instance focused before the current
+// one, or nil. Caller holds m.mu.
+func (m *Module) backTarget() *trackedWindow {
+	n := len(m.stack)
+	if n == 0 {
+		return nil
 	}
-	m.mu.Unlock()
-	if back != nil && b != nil {
-		_ = b.Show(ctx, back.Workspace)
-		_ = b.Focus(ctx, back.ID)
-		return
-	}
-	if core == nil || !core.Handles("app.start") {
-		return
-	}
-	_, err := core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Switcher}),
-		Source: sdk.Source{Kind: sdk.SourceLocal, Name: "guide button"}})
-	if err != nil {
-		m.log.Warn("opening the switcher", "app", m.opts.Switcher, "err", err)
-	}
+	top := m.stack[n-1]
+	m.stack = m.stack[:n-1]
+	back := m.previous()
+	m.stack = append(m.stack, top)
+	return back
 }
 
 func (m *Module) presenceChanged(present bool) {

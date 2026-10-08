@@ -6,7 +6,9 @@ hidden app "hostd-overlay"; Super (Sway) and a controller's Guide button
 (hostd) bring it forward. Choosing an entry sends window.focus or app.start
 with the "local" token, so it counts as someone at the screen.
 
-Keyboard: type to filter, up/down, Enter, Escape. Controller: D-pad, A, B.
+Keyboard: type to filter, up/down, Enter, Delete (close), Escape. Controller:
+D-pad, A, B. Going back and closing are hostd actions, like everything that
+changes the screen.
 Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 """
 
@@ -15,7 +17,6 @@ import json
 import os
 import socket
 import struct
-import subprocess
 import sys
 
 import gi
@@ -206,7 +207,7 @@ class Switcher(Gtk.ApplicationWindow):
 
     # --- content ---
 
-    def _row(self, cells, action=None, header=False):
+    def _row(self, cells, action=None, header=False, instance=None):
         row = Gtk.ListBoxRow(selectable=not header, activatable=not header)
         box = Gtk.Box(spacing=16)
         for text, cls, expand in cells:
@@ -215,6 +216,7 @@ class Switcher(Gtk.ApplicationWindow):
             box.append(label)
         row.set_child(box)
         row.action = action
+        row.instance = instance  # running rows: what Delete closes
         row.header = header
         row.key = " ".join(c[0] for c in cells).lower()
         if header:
@@ -237,7 +239,7 @@ class Switcher(Gtk.ApplicationWindow):
         for inst in running:
             self._row([("*", "mark", False), (inst.get("name") or inst["id"], "name", False),
                        (inst["id"], "id", True), (inst.get("state", ""), "meta", False)],
-                      ("POST", f"/v1/windows/{inst['id']}/focus"))
+                      ("POST", f"/v1/windows/{inst['id']}/focus"), instance=inst["id"])
         self._row([("apps", "id", True)], header=True)
         for app in listed:
             self._row([(" ", "mark", False), (app.get("name") or app["id"], "name", False),
@@ -247,7 +249,7 @@ class Switcher(Gtk.ApplicationWindow):
         self.entry.set_text("")
         self.filter_changed()
         self.entry.grab_focus()
-        self.show_status("up/down move  enter open  esc back  type to filter")
+        self.show_status("up/down move  enter open  del close  esc back  type to filter")
 
     def visible(self, row):
         text = self.entry.get_text().strip().lower()
@@ -291,21 +293,30 @@ class Switcher(Gtk.ApplicationWindow):
         else:
             self.status.remove_css_class("error")
 
-    def open(self, row):
-        if row is None or row.action is None:
-            return
-        method, path = row.action
+    def call(self, method, path):
+        """Sends an action; reports a failure or a skip in the status line."""
         try:
-            res = self.api.call(method, path)
+            res = self.api.call(method, path) or {}
         except Exception as e:  # noqa: BLE001
             self.show_status(f"error: {e}", error=True)
-            return
-        if res and res.get("status") == "skipped":
+            return None
+        if res.get("status") == "skipped":
             self.show_status("skipped: " + (res.get("reason") or ""), error=True)
+        return res
+
+    def open(self, row):
+        if row is not None and row.action is not None:
+            self.call(*row.action)
 
     def back(self):
-        subprocess.run(["swaymsg", "workspace", "back_and_forth"], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.call("POST", "/v1/windows/back")
+
+    def close(self, row):
+        """Closes a running app (its row's instance), then lists again."""
+        if row is None or row.instance is None:
+            return
+        if self.call("POST", f"/v1/windows/{row.instance}/close") is not None:
+            self.refresh()
 
     def on_key(self, _ctl, keyval, _code, _state):
         name = Gdk.keyval_name(keyval)
@@ -322,6 +333,8 @@ class Switcher(Gtk.ApplicationWindow):
             self.move(10 if name == "Page_Down" else -10)
         elif name in ("Return", "KP_Enter"):
             self.open(self.list.get_selected_row())
+        elif name == "Delete":
+            self.close(self.list.get_selected_row())
         else:
             return False
         return True

@@ -53,6 +53,15 @@ runner = { type = "exec", command = ["foot", "--title", "Clock", "watch", "-t", 
 fullscreen = false
 APP
 
+# VNC viewers often keep Super for the host's desktop: F1 opens the switcher
+# too. (Written once; edit it freely.)
+if [ ! -f "$cfg/hostd/hostd.toml" ]; then
+	cat >"$cfg/hostd/hostd.toml" <<'TOML'
+[input.keys]
+"F1" = "display.switcher"
+TOML
+fi
+
 systemctl --user daemon-reload
 systemctl --user restart hostd
 echo "hostd: $(hostd -version 2>&1)"

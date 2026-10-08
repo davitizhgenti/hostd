@@ -44,16 +44,34 @@ hold_window = "90s"
 		t.Fatalf("config = %+v", c)
 	}
 
+	c, err = LoadConfig(writeConfig(t, `
+[input.keys]
+"F1" = "display.switcher"
+"Super+Q" = ""
+[input.buttons]
+guide = "window.back"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.keys["Super+Q"]; ok || c.keys["F1"] != "display.switcher" || c.keys["Super+Tab"] != "window.next" ||
+		c.buttons["guide"] != "window.back" {
+		t.Fatalf("bindings: %v %v", c.keys, c.buttons)
+	}
+
 	for body, want := range map[string]string{
-		`modules = ["apps", "lights"]`:     `no module "lights"`,
-		`modules = ["apps", "apps"]`:       "listed twice",
-		`modules = ["apps", "automation"]`: "later version (M5)",
-		`listn = ":7300"`:                  "unknown key(s): listn",
-		`hold_window = "three minutes"`:    "not a duration",
-		`hold_window = "-1m"`:              "negative",
-		`modules = "apps"`:                 "",
-		"[hold_windows]\n\"audio.\" = 5":   "",
-		`this is not toml`:                 "",
+		"[input.keys]\n\"F2\" = \"window.fly\"":    `input.keys: F2: "window.fly" cannot be bound`,
+		"[input.buttons]\nturbo = \"window.next\"": `input.buttons: button "turbo"`,
+		"[input]\nmice = {}":                       "unknown key(s): input.mice",
+		`modules = ["apps", "lights"]`:             `no module "lights"`,
+		`modules = ["apps", "apps"]`:               "listed twice",
+		`modules = ["apps", "automation"]`:         "later version (M5)",
+		`listn = ":7300"`:                          "unknown key(s): listn",
+		`hold_window = "three minutes"`:            "not a duration",
+		`hold_window = "-1m"`:                      "negative",
+		`modules = "apps"`:                         "",
+		"[hold_windows]\n\"audio.\" = 5":           "",
+		`this is not toml`:                         "",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) {
