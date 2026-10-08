@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -416,9 +417,15 @@ type displayRig struct {
 	stopped      chan string
 	started      chan sdk.Action
 	proc         string // the fake /proc
+	autoEnd      atomic.Bool
 
 	liveMu sync.Mutex
 	live   []liveInstance // what the fake apps module reports as running
+}
+
+// ended reports an instance's end, as the apps module does.
+func (r *displayRig) ended(instance string) {
+	r.apps.Core().Emit(sdk.Event{Type: "instance.exited", Data: json.RawMessage(fmt.Sprintf(`{"id":%q}`, instance))})
 }
 
 func (r *displayRig) setLive(in ...liveInstance) {
@@ -489,6 +496,30 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.events = r.e.Subscribe(ctx, "window.*")
+	// Like a real app, an instance ends once its last window closed
+	// (unless the test holds that back).
+	closed := r.e.Subscribe(ctx, "window.closed")
+	r.autoEnd.Store(true)
+	go func() {
+		for ev := range closed {
+			var tw trackedWindow
+			_ = json.Unmarshal(ev.Data, &tw)
+			if tw.Instance == "" || !r.autoEnd.Load() {
+				continue
+			}
+			r.b.mu.Lock()
+			left := false
+			for _, w := range r.b.wins {
+				if instanceOf(proc, w.PID) == tw.Instance {
+					left = true
+				}
+			}
+			r.b.mu.Unlock()
+			if !left {
+				r.ended(tw.Instance)
+			}
+		}
+	}()
 	t.Cleanup(func() { cancel(); _ = r.e.Stop(context.Background()) })
 	if connectable {
 		waitFor(t, "attach", func() bool { return r.attached() })
@@ -658,6 +689,55 @@ func TestBackToPreviousAppOnClose(t *testing.T) {
 		t.Fatalf("got %s", typ)
 	}
 	waitFor(t, "focus back", func() bool {
+		r.b.mu.Lock()
+		defer r.b.mu.Unlock()
+		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:tv", "focus 1"})
+	})
+}
+
+func TestBackOnlyAfterTheAppEnded(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.autoEnd.Store(false)
+	r.b.open(1, 100) // tv
+	r.event(t)
+	r.b.open(2, 400) // notes
+	r.event(t)
+	r.b.focus(1)
+	r.event(t)
+	r.b.focus(2)
+	r.event(t)
+	r.b.commands()
+	r.b.closeWin(2)
+	r.event(t)
+	// The window is gone but the app still runs: stay.
+	time.Sleep(30 * time.Millisecond)
+	if got := r.b.commands(); len(got) != 0 {
+		t.Fatalf("went back before the app ended: %q", got)
+	}
+	r.ended("notes")
+	waitFor(t, "back after the end", func() bool {
+		r.b.mu.Lock()
+		defer r.b.mu.Unlock()
+		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:tv", "focus 1"})
+	})
+
+	// An app that never ends (it lives on without windows): back after
+	// EndWait anyway.
+	r.b.open(2, 400)
+	r.event(t)
+	r.b.focus(2)
+	r.event(t)
+	r.apps.Core().Emit(sdk.Event{Type: "instance.starting", Data: json.RawMessage(`{"id":"notes"}`)}) // the ID is in use again
+	waitFor(t, "notes running again", func() bool { r.m.mu.Lock(); defer r.m.mu.Unlock(); return !r.m.gone["notes"] })
+	r.b.commands()
+	r.b.closeWin(2)
+	r.event(t)
+	r.clock.BlockUntil(1)
+	if got := r.b.commands(); len(got) != 0 {
+		t.Fatalf("went back at once: %q", got)
+	}
+	r.clock.Advance(2 * time.Second)
+	waitFor(t, "back after EndWait", func() bool {
 		r.b.mu.Lock()
 		defer r.b.mu.Unlock()
 		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:tv", "focus 1"})

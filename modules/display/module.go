@@ -54,6 +54,10 @@ type Options struct {
 	Logger       *slog.Logger
 	RetryEvery   time.Duration // between connection attempts (default 2s)
 	CloseTimeout time.Duration // how long window.close waits before stopping the app (default 5s)
+	// EndWait is how long, after an app's last window closed, to wait for
+	// the app itself to end before going back to the previous app, so it
+	// is gone from every list by then (default 2s).
+	EndWait time.Duration
 }
 
 // SwayConnector connects to the Sway running in runtimeDir.
@@ -79,10 +83,13 @@ type Module struct {
 	stack     []string                 // instances by focus, most recent last
 	prefs     map[string]bool          // instance -> wants fullscreen
 	closeWait map[int64]chan struct{}
-	launches  map[string]*launch // by instance
-	keys      map[string]string  // key name -> action
-	buttons   map[string]string  // controller button -> action
-	pressing  map[string]bool    // inputs whose action is being handled
+	launches  map[string]*launch       // by instance
+	ending    map[string]chan struct{} // instance -> closed when it ends
+	gone      map[string]bool          // instances that ended (until the ID is reused)
+	focusSeq  uint64                   // counts focus changes
+	keys      map[string]string        // key name -> action
+	buttons   map[string]string        // controller button -> action
+	pressing  map[string]bool          // inputs whose action is being handled
 	presence  *presence
 
 	stop context.CancelFunc
@@ -111,6 +118,9 @@ func New(opts Options) *Module {
 	if opts.CloseTimeout == 0 {
 		opts.CloseTimeout = 5 * time.Second
 	}
+	if opts.EndWait == 0 {
+		opts.EndWait = 2 * time.Second
+	}
 	if opts.IdleAfter == 0 {
 		opts.IdleAfter = 5 * time.Minute
 	}
@@ -125,7 +135,8 @@ func New(opts Options) *Module {
 	}
 	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{},
 		keys: opts.Keys, buttons: opts.Buttons,
-		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{}}
+		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
+		ending: map[string]chan struct{}{}, gone: map[string]bool{}}
 	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
 	return m
 }
@@ -353,6 +364,9 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 		}
 		switch ev.Type {
 		case "instance.starting", "instance.started":
+			m.mu.Lock()
+			delete(m.gone, in.ID) // the ID is in use again
+			m.mu.Unlock()
 			if ev.Type == "instance.starting" || !m.launchKnown(in.ID) {
 				m.learnLaunch(ctx, in.ID, in.Name, ev.Source, in.Front)
 			}
@@ -382,6 +396,11 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 			m.mu.Lock()
 			delete(m.prefs, in.ID)
 			delete(m.launches, in.ID)
+			m.gone[in.ID] = true
+			if ch, ok := m.ending[in.ID]; ok {
+				close(ch)
+				delete(m.ending, in.ID)
+			}
 			m.mu.Unlock()
 		}
 	}
@@ -467,20 +486,39 @@ func (m *Module) onEvent(ev Event) {
 			back = m.previous()
 		}
 		b := m.backend
+		seq := m.focusSeq
 		m.mu.Unlock()
 		if !ok {
 			tw = &trackedWindow{Window: w}
 		}
 		m.emit(EventClosed, tw)
 		if back != nil && b != nil {
-			_ = b.Show(ctx, back.Workspace)
-			_ = b.Focus(ctx, back.ID)
+			// The app closes first, then the screen goes back: wait for it
+			// to end, so the previous app (the switcher, say) never lists
+			// it as running. Unless someone moved on in the meantime.
+			closing := tw.Instance
+			m.done.Add(1)
+			go func() {
+				defer m.done.Done()
+				m.waitEnded(context.Background(), closing, m.opts.EndWait)
+				m.mu.Lock()
+				moved := m.focusSeq != seq
+				m.mu.Unlock()
+				if moved {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_ = b.Show(ctx, back.Workspace)
+				_ = b.Focus(ctx, back.ID)
+			}()
 		}
 	case "focus":
 		m.mu.Lock()
 		for _, t := range m.windows {
 			t.Focused = t.ID == w.ID
 		}
+		m.focusSeq++
 		tw, ok := m.windows[w.ID]
 		if ok && tw.Instance != "" {
 			m.pushFocus(tw.Instance)
@@ -705,6 +743,9 @@ func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, 
 	core := m.core
 	m.mu.Unlock()
 	if closed == len(wins) {
+		// Report done once the app has ended too, so whoever asked (the
+		// switcher) lists it no more.
+		m.waitEnded(ctx, instance, m.opts.EndWait)
 		return sdk.Result{Data: mustJSON(map[string]any{"instance": instance, "closed": closed})}, nil
 	}
 	// Still open (a "save changes?" dialog, a hung app): stop it.
@@ -741,6 +782,28 @@ func (m *Module) onInput(ev InputEvent) {
 	m.presence.touch()
 	for _, b := range ev.Buttons {
 		m.press("controller", b)
+	}
+}
+
+// waitEnded waits until an instance has ended, at most d.
+func (m *Module) waitEnded(ctx context.Context, instance string, d time.Duration) {
+	m.mu.Lock()
+	if m.gone[instance] {
+		m.mu.Unlock()
+		return
+	}
+	ch, ok := m.ending[instance]
+	if !ok {
+		ch = make(chan struct{})
+		m.ending[instance] = ch
+	}
+	m.mu.Unlock()
+	timer := m.opts.Clock.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ch:
+	case <-timer.C():
+	case <-ctx.Done():
 	}
 }
 
