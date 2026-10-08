@@ -118,11 +118,50 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 
 // Version is GET /v1/version.
 type Version struct {
-	Version string `json:"version"`
-	Dev     bool   `json:"dev"`
-	OS      string `json:"os"`
-	Arch    string `json:"arch"`
-	Schema  int    `json:"schema"`
+	Version        string   `json:"version"`
+	Dev            bool     `json:"dev"`
+	OS             string   `json:"os"`
+	Arch           string   `json:"arch"`
+	Schema         int      `json:"schema"`
+	Previous       string   `json:"previous,omitempty"`
+	RolledBackFrom string   `json:"rolled_back_from,omitempty"`
+	Installed      []string `json:"installed,omitempty"`
+}
+
+// UpdateResult is the answer of POST /v1/update.
+type UpdateResult struct {
+	Version    string `json:"version"`
+	Previous   string `json:"previous"`
+	Restarting bool   `json:"restarting"`
+}
+
+// Update uploads a hostd binary; the server installs it and restarts.
+func (c *Client) Update(ctx context.Context, binary io.Reader) (UpdateResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/update", binary)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	res, err := c.http.Do(req)
+	if err != nil {
+		return UpdateResult{}, fmt.Errorf("cannot reach hostd: %w", err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode >= 400 {
+		var eb struct {
+			Error *sdk.Error `json:"error"`
+		}
+		if json.Unmarshal(b, &eb) == nil && eb.Error != nil {
+			return UpdateResult{}, &Error{Status: res.StatusCode, Err: eb.Error}
+		}
+		return UpdateResult{}, fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var r UpdateResult
+	return r, json.Unmarshal(b, &r)
 }
 
 func (c *Client) Version(ctx context.Context) (Version, error) {

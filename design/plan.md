@@ -366,9 +366,9 @@ Stages: **validate → authorize → prioritize → queue → execute → publis
 
 ### 3.11 Daemon lifecycle
 
-- [ ] `cmd/hostd`: load `~/.config/hostd/hostd.toml` (module list, external modules, listeners, hold windows, idle threshold), open the store, start modules, start listeners, `sd_notify READY=1`
-- [ ] Graceful shutdown on SIGTERM: stop accepting actions, drain queues (bounded), stop modules in reverse order. Instances keep running.
-- [ ] `systemd/hostd.service` (user unit):
+- [x] `cmd/hostd`: load `~/.config/hostd/hostd.toml` (module list, external modules, listeners, hold windows, idle threshold), open the store, start modules, start listeners, `sd_notify READY=1`
+- [x] Graceful shutdown on SIGTERM: stop accepting actions, drain queues (bounded), stop modules in reverse order. Instances keep running.
+- [x] `systemd/hostd.service` (user unit):
 
 ```ini
 [Unit]
@@ -386,7 +386,7 @@ KillMode=mixed               # instances live in their own units, so stopping ho
 ```
 
   `OnFailure=` only fires when the unit actually enters the `failed` state. With `Restart=on-failure` that happens only once the start limit is used up, so `StartLimitBurst` and `StartLimitIntervalSec` must be set explicitly.
-- [ ] Logs to journald (structured `log/slog` with a journald handler)
+- [x] Logs to journald (structured `log/slog` with a journald handler)
 
 **Tests**
 - Startup with a config that disables `display`/`audio` (headless) works.
@@ -395,12 +395,12 @@ KillMode=mixed               # instances live in their own units, so stopping ho
 
 ### 3.12 Self-update (M1 scope, see D4)
 
-- [ ] `POST /v1/update` (scope `admin`): multipart upload of a binary → `~/.local/lib/hostd/versions/<version>/hostd`
-- [ ] Back up `state.db` + config next to the current version
-- [ ] Switch the `current` symlink, record the previous version in `~/.local/lib/hostd/previous`, then ask systemd to restart the unit **over D-Bus** (`RestartUnit("hostd.service", "replace")`, without waiting for the job). hostd must not run `systemctl --user restart` on itself: that process lives in hostd's cgroup and gets killed halfway through. The API response is sent before the restart request, and the client expects the connection to drop.
-- [ ] Minimal rollback: `hostd-rollback.service` (`Type=oneshot`) runs a shell script, independent of the hostd binary, that points `current` at `previous`, runs `systemctl --user reset-failed hostd`, and starts it again
-- [ ] `hostctl update push [path]` cross-compiles (`GOOS=linux GOARCH=<server arch>` from `/v1/version`) when no path is given; `--ssh` fallback copies with `scp` and runs the installer script
-- [ ] `hostctl version` shows client and server versions; laptop builds marked `-dev`
+- [x] `POST /v1/update` (scope `admin`): multipart upload of a binary → `~/.local/lib/hostd/versions/<version>/hostd`
+- [x] Back up `state.db` + config next to the current version
+- [x] Switch the `current` symlink, record the previous version in `~/.local/lib/hostd/previous`, then ask systemd to restart the unit **over D-Bus** (`RestartUnit("hostd.service", "replace")`, without waiting for the job). hostd must not run `systemctl --user restart` on itself: that process lives in hostd's cgroup and gets killed halfway through. The API response is sent before the restart request, and the client expects the connection to drop.
+- [x] Minimal rollback: `hostd-rollback.service` (`Type=oneshot`) runs a shell script, independent of the hostd binary, that points `current` at `previous`, runs `systemctl --user reset-failed hostd`, and starts it again
+- [x] `hostctl update push [path]` cross-compiles (`GOOS=linux GOARCH=<server arch>` from `/v1/version`) when no path is given; `--ssh` fallback copies with `scp` and runs the installer script
+- [x] `hostctl version` shows client and server versions; laptop builds marked `-dev`
 
 **Tests**
 - Unit: version directory layout, keep last 3 versions, symlink switch is atomic (`rename` of a temp symlink).
@@ -409,6 +409,14 @@ KillMode=mixed               # instances live in their own units, so stopping ho
   - push a binary that exits 1 → start limit hit → previous version running within 60 s
   - push a binary that runs but never sends `READY=1` → `TimeoutStartSec` fails it → rolled back
 - A running instance survives all three (its unit is not in hostd's cgroup).
+
+*Done 2026-10-08 (3.11 and 3.12):*
+- *`~/.config/hostd/hostd.toml`: `modules` (default apps, display, audio; a headless machine lists only `apps`), `listen`, `hold_window`, `hold_windows`. Unknown keys and modules stop hostd with exit code 2 before anything starts; modules of later milestones (deploy, automation) get a clear "comes in a later version". Flags override the file.*
+- *Updates: `POST /v1/update` (admin) takes the binary as the request body. The server checks that it runs here and reports a hostd version, backs up `state.db` (VACUUM INTO) and `hostd.toml` next to the running version, switches `current` atomically, records `previous`, answers, then asks systemd over D-Bus to restart it. Kept versions: current, previous, and the newest others up to 3. Only available when hostd runs from the installer's layout under systemd.*
+- *Rollback: `hostd.service` has `OnFailure=hostd-rollback.service`, which runs `~/.local/lib/hostd/rollback.sh` (a shell script, independent of the broken binary): `current` back to `previous`, a `rolled-back-from` marker that `GET /v1/version` shows, `reset-failed`, start. The installer installs both and records `previous` when it switches.*
+- *`hostctl update push [binary]` builds hostd for the machine's architecture from the source checkout when no binary is given, uploads it, and waits until the new version answers or a rollback is reported (exit non-zero). `--ssh user@host` copies the binary and runs `hostd -install FILE` there, for a hostd too broken to take an upload.*
+- *`make test-install` now also runs the update path for real (systemd, hostd.service, the rollback unit): a good build is installed and runs; a build that passes the version check but cannot start is rolled back automatically, and hostctl reports it.*
+- *Still open: the update channels from GitHub releases (M6), migrations restored from the backup on rollback (M6), and a separate never-ready test (it takes 3 × 30 s).*
 
 ### 3.13 M1 gate
 

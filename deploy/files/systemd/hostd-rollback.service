@@ -1,0 +1,11 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+#
+# Started by systemd when hostd.service fails (OnFailure): switches back to
+# the version that ran before the last update. A shell script, so it works
+# however broken the new hostd is.
+[Unit]
+Description=Roll hostd back to the version before the last update
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/lib/hostd/rollback.sh

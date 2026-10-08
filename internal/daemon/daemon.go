@@ -20,6 +20,7 @@ import (
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
+	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
@@ -34,12 +35,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("hostd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
+		configPath = fs.String("config", DefaultConfigPath(), "config file (missing: all defaults)")
 		stateDir   = fs.String("state", defaultStateDir(), "directory for the state database")
 		runtimeDir = fs.String("runtime", os.Getenv("XDG_RUNTIME_DIR"), "runtime directory for the socket and the first admin token")
 		socket     = fs.String("socket", "", "unix socket path (default <runtime>/hostd.sock)")
-		listen     = fs.String("listen", ":7300", "TCP address for the home network; empty to disable")
+		listen     = fs.String("listen", ":7300", "TCP address for the home network; empty to disable (overrides the config)")
 		showVer    = fs.Bool("version", false, "print the version and exit")
 		withDemo   = fs.Bool("demo", false, "load the demo module (a pretend lamp), for trying hostctl")
+		install    = fs.String("install", "", "install this hostd binary next to the running one and restart into it")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -47,6 +50,22 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	if *showVer {
 		fmt.Fprintln(stderr, "hostd", version.Version)
 		return 0
+	}
+	if *install != "" {
+		return installFromFile(*install, stderr)
+	}
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "hostd:", err)
+		return 2
+	}
+	flagSet := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { flagSet[f.Name] = true })
+	if !flagSet["listen"] && cfg.Listen != nil {
+		*listen = *cfg.Listen
+	}
+	if *withDemo && !contains(cfg.Modules, "demo") {
+		cfg.Modules = append(cfg.Modules, "demo")
 	}
 	if *runtimeDir == "" {
 		fmt.Fprintln(stderr, "hostd: XDG_RUNTIME_DIR is not set; pass -runtime")
@@ -63,28 +82,47 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	home, _ := os.UserHomeDir()
 	systemd := &apps.UserSystemd{RuntimeDir: *runtimeDir}
 	defer systemd.Close()
-	mods := []sdk.Module{
-		apps.New(apps.Options{
-			DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log,
-			Backends: map[string]apps.Backend{
-				apps.RunnerExec:   &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home},
-				apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
-			},
-		}),
-		display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log}),
-		audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log}),
+	var mods []sdk.Module
+	for _, name := range cfg.Modules {
+		switch name {
+		case "apps":
+			mods = append(mods, apps.New(apps.Options{
+				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log,
+				Backends: map[string]apps.Backend{
+					apps.RunnerExec:   &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home},
+					apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
+				},
+			}))
+		case "display":
+			mods = append(mods, display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log}))
+		case "audio":
+			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log}))
+		case "demo":
+			mods = append(mods, demo.New())
+		}
 	}
-	if *withDemo {
-		mods = append(mods, demo.New())
+	coreOpts := core.Options{Logger: log, HoldWindow: time.Duration(cfg.HoldWindow), HoldWindows: cfg.holdWindows()}
+	// Updates work when hostd runs from the installer's layout under
+	// systemd; a development build just has none.
+	var newUpdater func(*store.Store) api.Updater
+	if lib, err := update.FromExecutable(); err == nil && os.Getenv("INVOCATION_ID") != "" {
+		newUpdater = func(st *store.Store) api.Updater {
+			return &updater{lib: lib, store: st, configPath: *configPath, restart: func() error {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return systemd.RestartUnit(ctx, "hostd.service")
+			}}
+		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, mods, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, mods, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen string, mods []sdk.Module, stderr io.Writer) error {
+func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen string, mods []sdk.Module,
+	coreOpts core.Options, newUpdater func(*store.Store) api.Updater, stderr io.Writer) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
@@ -100,14 +138,14 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		return err
 	}
 
-	// Built-in modules are added here as they are written (M1 steps 3.7 on).
 	reg := core.NewRegistry()
 	for _, m := range mods {
 		if err := reg.Add(m); err != nil {
 			return err
 		}
 	}
-	eng := core.New(reg, core.Options{Audit: st, Logger: log})
+	coreOpts.Audit = st
+	eng := core.New(reg, coreOpts)
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}
@@ -133,7 +171,11 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 			log.Warn("telling systemd hostd is ready", "err", err)
 		}
 	}
-	srv, err := api.New(eng, st, api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening})
+	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening}
+	if newUpdater != nil {
+		apiOpts.Updater = newUpdater(st)
+	}
+	srv, err := api.New(eng, st, apiOpts)
 	if err != nil {
 		return err
 	}

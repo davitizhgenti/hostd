@@ -5,8 +5,11 @@
 [Unit]
 Description=hostd, the display and services daemon
 Documentation=https://github.com/davitizhgenti/hostd
+# Three failed starts within two minutes (a crash, or no READY within
+# TimeoutStartSec) put the unit in "failed", which starts the rollback.
 StartLimitIntervalSec=120
 StartLimitBurst=3
+OnFailure=hostd-rollback.service
 
 [Service]
 Type=notify

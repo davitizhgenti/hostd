@@ -42,6 +42,19 @@ type Options struct {
 	// OnListening, if set, runs once every listener is open, before
 	// requests are served: the moment hostd can tell systemd it is ready.
 	OnListening func()
+	// Updater installs uploaded hostd binaries; nil disables updates.
+	Updater Updater
+}
+
+// Updater installs a new hostd and restarts into it.
+type Updater interface {
+	// Install stages and switches to the binary, returning its version
+	// and the version it replaces.
+	Install(ctx context.Context, binary io.Reader) (version, previous string, err error)
+	// Restart asks systemd to restart hostd; it returns at once.
+	Restart() error
+	// Info describes the installation for GET /v1/version.
+	Info() map[string]any
 }
 
 // Server is the HTTP API.
@@ -83,6 +96,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		{"GET /v1/tokens", sdk.ScopeAdmin, srv.listTokens},
 		{"POST /v1/tokens", sdk.ScopeAdmin, srv.createToken},
 		{"DELETE /v1/tokens/{id}", sdk.ScopeAdmin, srv.revokeToken},
+		{"POST /v1/update", sdk.ScopeAdmin, srv.postUpdate},
 	}
 	for _, r := range routes {
 		if err := srv.handle(r.pattern, r.scope, r.h); err != nil {
@@ -369,10 +383,41 @@ func (s *Server) read(module string, rd sdk.ReadSpec) func(http.ResponseWriter, 
 }
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
-	writeJSON(w, http.StatusOK, map[string]any{
+	v := map[string]any{
 		"version": version.Version, "dev": version.IsDev(),
 		"os": runtime.GOOS, "arch": runtime.GOARCH, "schema": store.SchemaVersion,
-	})
+	}
+	if s.opts.Updater != nil {
+		for k, x := range s.opts.Updater.Info() {
+			v[k] = x
+		}
+	}
+	writeJSON(w, http.StatusOK, v)
+	return nil
+}
+
+// postUpdate takes a hostd binary as the request body, installs it next to
+// the running one, answers, and then restarts into it. If the new version
+// does not start, systemd rolls back (hostd-rollback.service).
+func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request, _ store.Token) error {
+	if s.opts.Updater == nil {
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "updates are not available: this hostd was not installed by the installer")
+	}
+	ver, prev, err := s.opts.Updater.Install(r.Context(), r.Body)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"version": ver, "previous": prev, "restarting": true})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	// Restart after the answer is on its way: the restart ends this process.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		if err := s.opts.Updater.Restart(); err != nil {
+			s.log.Error("restarting after the update", "err", err)
+		}
+	}()
 	return nil
 }
 

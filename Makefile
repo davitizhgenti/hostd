@@ -125,11 +125,16 @@ check-server:
 INSTALL_TEST := hostd-install-test
 
 test-install: dist
+	@mkdir -p bin/e2e
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath \
+		-ldflags '-X github.com/davitizhgenti/hostd/internal/version.Version=e2e-next' -o bin/e2e/hostd-next ./cmd/hostd
+	printf '#!/bin/sh\n# Passes the version check, then cannot start.\n[ "$$1" = -version ] && { echo "hostd e2e-bad" >&2; exit 0; }\nexit 1\n' > bin/e2e/hostd-bad
+	chmod +x bin/e2e/hostd-bad
 	$(PODMAN) build -q -t $(INSTALL_TEST) test/install >/dev/null
 	-@$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null 2>&1
 	$(PODMAN) run -d --name $(INSTALL_TEST) --systemd=always --privileged \
 		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro -v $(CURDIR)/test/install:/opt/hostd-test:ro \
-		-v $(CURDIR)/dist:/opt/hostd-dist:ro \
+		-v $(CURDIR)/dist:/opt/hostd-dist:ro -v $(CURDIR)/bin/e2e:/opt/hostd-test-bins:ro \
 		$(INSTALL_TEST) >/dev/null
 	@$(PODMAN) exec $(INSTALL_TEST) systemctl is-system-running --wait >/dev/null || true
 	@mkdir -p bin
@@ -137,5 +142,6 @@ test-install: dist
 	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other --from /opt/hostd-dist | tee bin/install-second-run.log
 	grep -q "No changes needed" bin/install-second-run.log
 	$(PODMAN) exec $(INSTALL_TEST) bash /opt/hostd-test/verify.sh
+	$(PODMAN) exec -u screen -w /home/screen $(INSTALL_TEST) bash /opt/hostd-test/update.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null
 	@echo "install test passed"

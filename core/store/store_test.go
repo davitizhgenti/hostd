@@ -375,3 +375,26 @@ func (auditModule) Start(context.Context, sdk.Core) error                  { ret
 func (auditModule) Validate(context.Context, sdk.Action) error             { return nil }
 func (auditModule) Stop(context.Context) error                             { return nil }
 func (auditModule) Handle(context.Context, sdk.Action) (sdk.Result, error) { return sdk.Result{}, nil }
+
+func TestBackup(t *testing.T) {
+	s, _, _ := open(t, Options{})
+	if _, _, err := s.CreateToken(ctx, "phone", sdk.SourceManual, []string{"read"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "state.db.bak")
+	if err := s.Backup(ctx, dst); err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(ctx, dst, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	toks, _ := b.ListTokens(ctx)
+	if len(toks) != 1 || toks[0].Name != "phone" {
+		t.Fatalf("backup has %+v", toks)
+	}
+	if err := s.Backup(ctx, "/tmp/it's.db"); err == nil {
+		t.Fatal("quote in path accepted")
+	}
+}

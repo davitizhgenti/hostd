@@ -21,6 +21,7 @@ t "greetd starts plain sway (no GPU flags)" 'grep -qx "command = \"sway\"" /etc/
 t "greetd enabled"                     'systemctl is-enabled greetd'
 t "original greetd config backed up"   'test -f /etc/greetd/config.toml.orig'
 t "hostd installed as current version" 'test -x /home/screen/.local/lib/hostd/current/hostd && readlink /home/screen/.local/lib/hostd/current | grep -q "^versions/"'
+t "rollback script and service installed" 'test -x /home/screen/.local/lib/hostd/rollback.sh && grep -q "OnFailure=hostd-rollback.service" /home/screen/.config/systemd/user/hostd.service && test -f /home/screen/.config/systemd/user/hostd-rollback.service'
 t "hostd starts at boot"               'test -L /home/screen/.config/systemd/user/default.target.wants/hostd.service'
 t "hostd is running"                   'runuser -u screen -- env XDG_RUNTIME_DIR=/run/user/$(id -u screen) systemctl --user is-active --quiet hostd'
 t "hostctl installed for everyone"     'test -x /usr/local/bin/hostctl'

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -175,4 +176,15 @@ func fromNano(n sql.NullInt64) *time.Time {
 	}
 	t := time.Unix(0, n.Int64).UTC()
 	return &t
+}
+
+// Backup writes a consistent copy of the database to path, while hostd
+// keeps running (VACUUM INTO).
+func (s *Store) Backup(ctx context.Context, path string) error {
+	if strings.ContainsAny(path, "'") {
+		return fmt.Errorf("store: backup path %q must not contain quotes", path)
+	}
+	_ = os.Remove(path)
+	_, err := s.db.ExecContext(ctx, "VACUUM INTO '"+path+"'")
+	return err
 }

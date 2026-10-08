@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -696,5 +697,63 @@ func TestServeFailsOnBusyAddress(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "hostd.sock")
 	if err := e.srv.Serve(context.Background(), sock, ln.Addr().String()); err == nil {
 		t.Fatal("Serve on a busy port succeeded")
+	}
+}
+
+type fakeUpdater struct {
+	mu        sync.Mutex
+	installed []byte
+	restarted chan struct{}
+	fail      error
+}
+
+func (f *fakeUpdater) Install(_ context.Context, r io.Reader) (string, string, error) {
+	if f.fail != nil {
+		return "", "", f.fail
+	}
+	b, _ := io.ReadAll(r)
+	f.mu.Lock()
+	f.installed = b
+	f.mu.Unlock()
+	return "v2", "versions/v1", nil
+}
+func (f *fakeUpdater) Restart() error       { close(f.restarted); return nil }
+func (f *fakeUpdater) Info() map[string]any { return map[string]any{"previous": "v1"} }
+
+func TestUpdateEndpoint(t *testing.T) {
+	up := &fakeUpdater{restarted: make(chan struct{})}
+	e := setup(t, Options{Updater: up})
+	phone := e.token(t, "phone", sdk.SourceManual, "read", "lamp")
+	if r := e.do(t, "POST", "/v1/update", phone, "binary"); r.status != 403 {
+		t.Fatalf("non-admin update: %d", r.status)
+	}
+	r := e.do(t, "POST", "/v1/update", e.admin, "new hostd binary")
+	if r.status != 200 || !bytes.Contains(r.body, []byte(`"version":"v2"`)) || !bytes.Contains(r.body, []byte(`"restarting":true`)) {
+		t.Fatalf("update: %d %s", r.status, r.body)
+	}
+	select {
+	case <-up.restarted: // after the answer
+	case <-time.After(5 * time.Second):
+		t.Fatal("no restart after the update")
+	}
+	up.mu.Lock()
+	got := string(up.installed)
+	up.mu.Unlock()
+	if got != "new hostd binary" {
+		t.Fatalf("installed %q", got)
+	}
+	var v map[string]any
+	e.do(t, "GET", "/v1/version", e.admin, "").json(t, &v)
+	if v["previous"] != "v1" {
+		t.Fatalf("version lacks update info: %v", v)
+	}
+
+	bad := setup(t, Options{Updater: &fakeUpdater{fail: sdk.Errorf(sdk.CodeInvalidArgs, "not a hostd binary"), restarted: make(chan struct{})}})
+	if r := bad.do(t, "POST", "/v1/update", bad.admin, "junk"); r.status != 400 || r.errCode(t) != sdk.CodeInvalidArgs {
+		t.Fatalf("bad binary: %d %s", r.status, r.body)
+	}
+	none := setup(t, Options{})
+	if r := none.do(t, "POST", "/v1/update", none.admin, "x"); r.status != 503 {
+		t.Fatalf("no updater: %d %s", r.status, r.body)
 	}
 }

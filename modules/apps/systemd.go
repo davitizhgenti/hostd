@@ -233,3 +233,15 @@ func num(v any) int {
 	}
 	return 0
 }
+
+// RestartUnit asks systemd to restart a unit and returns at once, without
+// waiting for the job: used by hostd to restart itself after an update,
+// when waiting would mean waiting for its own death.
+func (s *UserSystemd) RestartUnit(ctx context.Context, name string) error {
+	conn, err := s.connect(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = conn.RestartUnitContext(ctx, name, "replace", nil)
+	return err
+}

@@ -306,12 +306,21 @@ else
 	changed "installed hostd $VERSION"
 	hostd_changed=1
 fi
-if [ "$(readlink "$lib/current" 2>/dev/null)" != "versions/$VERSION" ]; then
+old=$(readlink "$lib/current" 2>/dev/null || true)
+if [ "$old" != "versions/$VERSION" ]; then
+	if [ -n "$old" ]; then # what a rollback returns to
+		echo "$old" >"$lib/previous"
+		chown "$SCREEN_USER:$SCREEN_USER" "$lib/previous"
+	fi
 	ln -sfn "versions/$VERSION" "$lib/current"
 	chown -h "$SCREEN_USER:$SCREEN_USER" "$lib/current"
+	rm -f "$lib/rolled-back-from"
 	changed "hostd $VERSION is now the current version"
 	hostd_changed=1
 fi
+install_file "$FILES/rollback.sh" "$lib/rollback.sh" 755 "$SCREEN_USER" || info "rollback script up to date"
+install_file "$FILES/systemd/hostd-rollback.service" "$SCREEN_HOME/.config/systemd/user/hostd-rollback.service" 644 "$SCREEN_USER" ||
+	info "rollback service up to date"
 install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up to date"
 if install_file "$FILES/systemd/hostd.service" "$SCREEN_HOME/.config/systemd/user/hostd.service" 644 "$SCREEN_USER"; then
 	hostd_changed=1
