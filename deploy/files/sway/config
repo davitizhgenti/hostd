@@ -5,10 +5,13 @@ default_border none
 default_floating_border none
 focus_follows_mouse no
 
-# Make the session's variables visible to systemd user units, so apps that
-# hostd starts as transient services can reach Wayland and Sway. Then start
-# the session's user services (VNC), which need those variables.
-exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart wayvnc.service
+# Make the session's variables visible to systemd user units and D-Bus
+# activation, so apps that hostd starts can reach Wayland, Sway and
+# Xwayland (DISPLAY: X11 apps such as Steam need it). On every reload too,
+# so an update applies it without a new login. Then start the session's
+# user services (VNC), which need those variables.
+exec_always dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
+exec dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart wayvnc.service
 
 # On-screen notices.
 exec mako

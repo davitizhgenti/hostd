@@ -11,7 +11,7 @@ t "subordinate IDs for Podman"         'grep -q "^screen:" /etc/subuid && grep -
 t "lingering on"                       'test -e /var/lib/systemd/linger/screen'
 t "admin SSH key copied to screen"     'grep -q HostdInstallTestKey /home/screen/.ssh/authorized_keys'
 t "screen .ssh owned and private"      '[ "$(stat -c "%U %a" /home/screen/.ssh)" = "screen 700" ] && [ "$(stat -c "%U %a" /home/screen/.ssh/authorized_keys)" = "screen 600" ]'
-t "sway config installed"              'grep -q "dbus-update-activation-environment --systemd WAYLAND_DISPLAY" /home/screen/.config/sway/config'
+t "sway config installed"              'grep -q "^exec_always dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY" /home/screen/.config/sway/config'
 t "mako draws on the overlay layer"    'grep -qx "layer=overlay" /home/screen/.config/mako/config'
 t "config files owned by screen"       '[ "$(stat -c %U /home/screen/.config/sway/config)" = screen ]'
 t "VNC runs as a supervised user service" 'grep -qx "Restart=always" /home/screen/.config/systemd/user/wayvnc.service && grep -q "restart wayvnc.service" /home/screen/.config/sway/config'

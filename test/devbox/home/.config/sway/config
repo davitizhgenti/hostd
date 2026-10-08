@@ -8,8 +8,7 @@ focus_follows_mouse no
 
 # Make the session's variables visible to systemd user units, so units that
 # hostd starts (and `systemctl --user`) can reach Wayland and Sway.
-exec systemctl --user import-environment WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
-exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP
+exec_always dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
 
 # VNC server so you can watch the screen from the host (published on
 # 127.0.0.1:5900 only), and a notification daemon for on-screen notices.
