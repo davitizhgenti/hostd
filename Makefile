@@ -95,7 +95,7 @@ devbox: devbox-build build
 		$(DEVBOX)
 	@echo "devbox started: make devbox-check, make devbox-shell, VNC to 127.0.0.1:5900"
 
-# Runs hostd in the devbox as on the real machine (service, switcher, sample
+# Runs hostd in the devbox as on the real machine (service, menu, sample
 # apps). Again after `make build` to restart it on the new binary.
 devbox-hostd: build
 	$(PODMAN) exec -i -u screen -w /home/screen $(DEVBOX) bash -s < test/devbox/setup-hostd.sh

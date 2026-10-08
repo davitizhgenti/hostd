@@ -22,9 +22,9 @@ import (
 // Controller buttons come from the evdev reader.
 
 // DefaultKeys is the shortcut model: Super is the system key. Super alone
-// opens the switcher; Super+key acts on the app in front.
+// opens the menu; Super+key acts on the app in front.
 var DefaultKeys = map[string]string{
-	"Super":           "display.switcher",
+	"Super":           "display.menu",
 	"Super+Tab":       "window.next",
 	"Super+Shift+Tab": "window.prev",
 	"Super+Q":         "window.close",
@@ -32,7 +32,7 @@ var DefaultKeys = map[string]string{
 
 // DefaultButtons: the Guide button is the controller's Super.
 var DefaultButtons = map[string]string{
-	"guide": "display.switcher",
+	"guide": "display.menu",
 }
 
 // Bindable lists the actions a key or button can run: the display

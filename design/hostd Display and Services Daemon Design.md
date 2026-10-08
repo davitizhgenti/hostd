@@ -35,7 +35,7 @@ The core understands exactly three things, and nothing about windows, sound or c
 | Action | A request to change something, owned by one module | `audio.volume.set {"percent": 40}` |
 | Event | A notice that something changed, emitted by a module | `audio.volume.changed` |
 
-The core's whole job: load modules, check and route each action to the module that owns it, and deliver events to everyone listening. Clients (the CLI, a phone, scripts, the on-screen switcher) are not modules; they only send actions and read events.
+The core's whole job: load modules, check and route each action to the module that owns it, and deliver events to everyone listening. Clients (the CLI, a phone, scripts, the on-screen menu) are not modules; they only send actions and read events.
 
 **Built-in modules**
 
@@ -126,7 +126,7 @@ The app catalog is built automatically from what is installed, then merged with 
 
 **IDs.** Each app gets a stable, readable ID: the desktop file name (`firefox`) or the Flatpak ID's last part (`retroarch`). Files can set an alias (`id = "dota2"`).
 
-**App actions.** An app can have extra ways to start it, such as a private browser window. They come from the desktop entry's `[Desktop Action]` groups, so most browsers and editors bring their own. App files add or replace them with `[[actions]]` (`id`, `name`, `command`). `app.start` with `action = "<id>"` runs one as a new instance, recorded in the instance (`action`). The switcher shows them in an entry's menu: right click, the Menu key, or the controller's X button. The menu also has focus and close for a running app, and start for one that is not running.
+**App actions.** An app can have extra ways to start it, such as a private browser window. They come from the desktop entry's `[Desktop Action]` groups, so most browsers and editors bring their own. App files add or replace them with `[[actions]]` (`id`, `name`, `command`). `app.start` with `action = "<id>"` runs one as a new instance, recorded in the instance (`action`). The menu shows them in a small box at the entry: right click, the Menu key, or the controller's X button. The box also has focus and close for a running app, and start for one that is not running.
 
 **No app is built in.** Steam, a browser or an emulator is an app like any other; hostd has no code for any one of them. Launchers fit through two generic features: **handoff** (`runner.handoff = "KEY=value"`) for commands that hand the app to another program and exit, so the instance runs while processes with that variable exist; and **match rules** for windows that are not in the instance's unit. Discovering a game library (Steam's, say) can be an optional external module.
 
@@ -189,16 +189,16 @@ Every key or button that changes the screen is a named input, mapped by one tabl
 
 - **Keys** reach hostd through Sway: hostd installs its bindings at runtime over IPC (`bindsym … nop hostd key <name>`), and Sway reports each press back as a binding event. No scripts, no tokens; it works with any keyboard, VNC included. hostd installs them again after a config reload.
 - **Controller buttons** come from hostd's evdev reader. Only buttons with no in-game use are bindable (today the Guide button), because games own the rest.
-- **Apps handle their own input.** The switcher moves through its list itself, but going back or closing an app are actions it sends to the API.
+- **Apps handle their own input.** The menu moves through its list itself, but going back or closing an app are actions it sends to the API.
 
-The model: Super is the system key. Super on its own opens the switcher, Super+key acts on the app in front, and Guide is the controller's Super.
+The model: Super is the system key. Super on its own opens the menu, Super+key acts on the app in front, and Guide is the controller's Super.
 
 | Input | Action |
 | --- | --- |
-| Super | `display.switcher` (open, or back if it is in front) |
+| Super | `display.menu` (open, or back if it is in front) |
 | Super+Tab / Super+Shift+Tab | `window.next` / `window.prev` |
 | Super+Q | `window.close` (the app in front: politely, then stop) |
-| Guide | `display.switcher` |
+| Guide | `display.menu` |
 
 `[input.keys]` and `[input.buttons]` in `hostd.toml` add or change bindings; `""` removes one. Only display actions that need no arguments can be bound, and a typo stops hostd with a clear message.
 
@@ -214,9 +214,9 @@ The model: Super is the system key. Super on its own opens the switcher, Super+k
 
 "Active" means keyboard, mouse or controller input. The idle threshold is configurable.
 
-**Switching at the screen.** People at the screen need a way to reach background apps. hostd ships a small overlay switcher (a fullscreen list of running instances plus a launcher of the catalog), opened by Super on a keyboard or the Guide/Home button on a controller. It uses the same API as remote clients. Controller input is read from evdev devices, which needs the `screen` user in the `input` group.
+**The menu.** People at the screen need a way to reach background apps. hostd ships a small on-screen menu (a fullscreen list of running instances plus the catalog), opened by Super on a keyboard or the Guide/Home button on a controller. It uses the same API as remote clients. Controller input is read from evdev devices, which needs the `screen` user in the `input` group.
 
-The overlay is an ordinary fullscreen window app (`hostd-overlay`, hidden from the launcher list) that runs as an instance on its own workspace; opening it is a `window.focus` like any other, sent with source `local`. It needs no special Wayland protocol, and the display module manages it like any app.
+The menu is an ordinary fullscreen window app (`hostd-menu`, hidden from the catalog list) that runs as an instance on its own workspace; opening it is the `display.menu` action, sent with source `local`. It needs no special Wayland protocol, and the display module manages it like any app.
 
 **On-screen notices** ("Jellyfin is ready") are desktop notifications sent over D-Bus (`org.freedesktop.Notifications`) and drawn by the session's notification daemon (`mako`), configured with `layer=overlay` so they appear above fullscreen windows; mako's default layer is hidden under them. hostd itself contains no Wayland protocol code.
 
@@ -388,7 +388,7 @@ Actions on the same key run strictly in arrival order; actions on different keys
 
 | Priority | Source | Includes |
 | --- | --- | --- |
-| 3 | `local` | Keyboard, mouse, controller, the on-screen switcher |
+| 3 | `local` | Keyboard, mouse, controller, the on-screen menu |
 | 2 | `manual` | You or another person via CLI, phone or HTTP client, with a device token |
 | 1 | `automation` | Rules, and scripts running with a script token |
 
@@ -596,7 +596,7 @@ The API is reachable only from the home network, every request needs a token, an
 
 - The first start prints a one-time `admin` token. `hostctl login` on the laptop stores it.
 - Each device or script gets its own named token (`hostctl token create phone --scopes read,apps,audio`). Tokens are stored hashed (SHA-256; secrets start with `hostd_` so leaked ones are easy to spot) and can be revoked individually.
-- Every token has a **kind** that sets the priority of the actions sent with it: `manual` for a person's device (the default), `automation` for scripts, `local` for the on-screen switcher. A token can only create tokens with scopes it has itself.
+- Every token has a **kind** that sets the priority of the actions sent with it: `manual` for a person's device (the default), `automation` for scripts, `local` for the on-screen menu. A token can only create tokens with scopes it has itself.
 - Scripts run by rules get short-lived tokens limited to their declared scopes.
 
 **Process isolation**
@@ -708,7 +708,7 @@ hostd/
     audio/                module + backends/wireplumber, mpris
     deploy/
     automation/
-  clients/overlay/        on-screen switcher (an API client, not a module)
+  deploy/files/menu/      the on-screen menu (an API client, not a module)
   examples/python-module/ an external module written in Python
   docs/
 ```
@@ -733,7 +733,7 @@ M1 completed 2026-10-08: the gate passes on the real machine.
 ### M2 · Display depth
 
 - [x] Presence detection and background launches with on-screen notice
-- [x] Overlay switcher on keyboard and controller
+- [x] On-screen menu on keyboard, mouse and controller
 - [x] Flatpak discovery; handoff for launchers such as Steam (no built-in Steam support); match rules; gamescope wrap; web apps
 - [x] `window.place`, display power and mode
 - [ ] Gate: a remote launch during a game opens in the background, and the controller's Guide button switches to it

@@ -15,8 +15,8 @@ func TestBindingsConfig(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(keys, DefaultKeys) || !reflect.DeepEqual(buttons, DefaultButtons) {
 		t.Fatalf("defaults: %v %v %v", keys, buttons, err)
 	}
-	keys, _, err = Bindings(map[string]string{"F1": "display.switcher", "Super+Q": ""}, nil)
-	if err != nil || keys["F1"] != "display.switcher" || keys["Super+Q"] != "" || keys["Super"] != "display.switcher" {
+	keys, _, err = Bindings(map[string]string{"F1": "display.menu", "Super+Q": ""}, nil)
+	if err != nil || keys["F1"] != "display.menu" || keys["Super+Q"] != "" || keys["Super"] != "display.menu" {
 		t.Fatalf("override: %v %v", keys, err)
 	}
 	if _, ok := keys["Super+Q"]; ok {
@@ -39,7 +39,7 @@ func TestBindingsConfig(t *testing.T) {
 		}
 	}
 	// What can be bound: the display actions without required arguments.
-	want := []string{"display.switcher", "window.back", "window.close", "window.next", "window.prev"}
+	want := []string{"display.menu", "window.back", "window.close", "window.next", "window.prev"}
 	if got := Bindable(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Bindable = %v", got)
 	}

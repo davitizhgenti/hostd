@@ -44,7 +44,7 @@ type SourceKind string
 
 const (
 	// SourceLocal is someone at the screen: keyboard, mouse, controller,
-	// the on-screen switcher.
+	// the on-screen menu.
 	SourceLocal SourceKind = "local"
 	// SourceManual is a person using the CLI, a phone or an HTTP client
 	// with a device token.

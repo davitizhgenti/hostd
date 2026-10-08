@@ -44,8 +44,9 @@ type Options struct {
 	IdleAfter time.Duration // no input this long = nobody there (default 5m)
 	// Notifier shows notices such as "Firefox is ready" (optional).
 	Notifier Notifier
-	// Switcher is the app display.switcher opens (default hostd-overlay).
-	Switcher string
+	// Menu is the app display.menu opens: hostd's on-screen menu
+	// (default hostd-menu).
+	Menu string
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
@@ -124,8 +125,8 @@ func New(opts Options) *Module {
 	if opts.IdleAfter == 0 {
 		opts.IdleAfter = 5 * time.Minute
 	}
-	if opts.Switcher == "" {
-		opts.Switcher = "hostd-overlay"
+	if opts.Menu == "" {
+		opts.Menu = "hostd-menu"
 	}
 	if opts.Keys == nil {
 		opts.Keys = DefaultKeys
@@ -210,10 +211,10 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
 				Timeout: sdk.Duration(10 * time.Second),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/prev"}},
-			{Type: "display.switcher", Description: "Open the on-screen switcher, or go back if it is in front",
+			{Type: "display.menu", Description: "Open hostd's on-screen menu, or go back if it is in front",
 				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "apps",
 				Timeout: sdk.Duration(time.Minute),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/display/switcher"}},
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/display/menu"}},
 			{Type: "window.place", Description: "Put an instance's window beside another's, side by side",
 				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
 				ArgScopes: map[string]string{"front": "display.front"}, Timeout: sdk.Duration(10 * time.Second),
@@ -494,7 +495,7 @@ func (m *Module) onEvent(ev Event) {
 		m.emit(EventClosed, tw)
 		if back != nil && b != nil {
 			// The app closes first, then the screen goes back: wait for it
-			// to end, so the previous app (the switcher, say) never lists
+			// to end, so the previous app (the menu, say) never lists
 			// it as running. Unless someone moved on in the meantime.
 			closing := tw.Instance
 			m.done.Add(1)
@@ -627,7 +628,7 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 	case "window.place":
 		_, _, _, err := m.placeArgs(ctx, a)
 		return err
-	case "window.back", "window.next", "window.prev", "display.switcher":
+	case "window.back", "window.next", "window.prev", "display.menu":
 		return m.attached()
 	case "window.close":
 		var args instanceArgs
@@ -657,8 +658,8 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleBack(ctx, a)
 	case "window.next", "window.prev":
 		return m.handleCycle(ctx, a)
-	case "display.switcher":
-		return m.handleSwitcher(ctx, a)
+	case "display.menu":
+		return m.handleMenu(ctx, a)
 	case "window.close":
 		var args instanceArgs
 		if err := a.DecodeArgs(&args); err != nil {
@@ -744,7 +745,7 @@ func (m *Module) closeInstance(ctx context.Context, b Backend, instance string, 
 	m.mu.Unlock()
 	if closed == len(wins) {
 		// Report done once the app has ended too, so whoever asked (the
-		// switcher) lists it no more.
+		// menu) lists it no more.
 		m.waitEnded(ctx, instance, m.opts.EndWait)
 		return sdk.Result{Data: mustJSON(map[string]any{"instance": instance, "closed": closed})}, nil
 	}

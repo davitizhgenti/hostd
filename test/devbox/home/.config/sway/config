@@ -17,5 +17,5 @@ exec wayvnc 0.0.0.0 5900
 exec mako
 
 # Keys are hostd's: it installs its bindings at runtime and runs an action
-# for each (Super: switcher, Super+Tab / Super+Shift+Tab: next / previous
+# for each (Super: menu, Super+Tab / Super+Shift+Tab: next / previous
 # app, Super+Q: close the app). See [input] in hostd.toml.

@@ -46,7 +46,7 @@ hold_window = "90s"
 
 	c, err = LoadConfig(writeConfig(t, `
 [input.keys]
-"F1" = "display.switcher"
+"F1" = "display.menu"
 "Super+Q" = ""
 [input.buttons]
 guide = "window.back"
@@ -54,7 +54,7 @@ guide = "window.back"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.keys["Super+Q"]; ok || c.keys["F1"] != "display.switcher" || c.keys["Super+Tab"] != "window.next" ||
+	if _, ok := c.keys["Super+Q"]; ok || c.keys["F1"] != "display.menu" || c.keys["Super+Tab"] != "window.next" ||
 		c.buttons["guide"] != "window.back" {
 		t.Fatalf("bindings: %v %v", c.keys, c.buttons)
 	}

@@ -1,5 +1,5 @@
 // Package client talks to the hostd API. hostctl uses it, and so will the
-// on-screen switcher and anything else written in Go.
+// on-screen menu and anything else written in Go.
 package client
 
 import (

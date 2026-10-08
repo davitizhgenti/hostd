@@ -15,7 +15,7 @@ import (
 
 // Input reports that someone touched an input device. The display module
 // uses it to tell whether a person is at the screen, and to open the
-// switcher with a controller's Guide button.
+// menu with a controller's Guide button.
 type Input interface {
 	// Watch calls fn on input activity until ctx ends. Devices plugged in
 	// later (a controller switched on) are picked up.

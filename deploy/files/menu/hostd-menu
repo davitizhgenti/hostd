@@ -1,15 +1,16 @@
 #!/usr/bin/python3
-"""hostd's on-screen switcher.
+"""hostd's menu: the on-screen list of running apps and the catalog.
 
-A fullscreen, filterable list of the running apps and the catalog. hostd runs it as the
-hidden app "hostd-overlay"; Super (Sway) and a controller's Guide button
-(hostd) bring it forward. Choosing an entry sends window.focus or app.start
-with the "local" token, so it counts as someone at the screen.
+hostd runs it as the hidden app "hostd-menu" and brings it forward with
+the display.menu action (Super, a controller's Guide button). Choosing an
+entry sends window.focus or app.start with the "local" token, so it counts
+as someone at the screen. An entry's actions (right click, the Menu key,
+controller X) open in a small box at the entry.
 
 Keyboard: type to filter, up/down, Enter, Delete (close), Menu or Shift+F10
-(the entry's actions), Escape. Mouse: click opens, right click shows the
-actions. Controller: D-pad, A, B, X (actions). Going back, closing and
-starting are hostd actions, like everything that changes the screen.
+(actions), Escape. Mouse: click opens, right click shows the actions.
+Controller: D-pad, A, B, X (actions). Going back, closing and starting are
+hostd actions, like everything that changes the screen.
 Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 """
 
@@ -28,7 +29,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
-APP_ID = "hostd-overlay"  # its own entry in hostd's catalog, never listed
+APP_ID = "hostd-menu"  # its own entry in hostd's catalog, never listed
 
 CSS = """
 * { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; border-radius: 0; box-shadow: none; }
@@ -45,8 +46,8 @@ row.header label { color: #6e7681; }
 .mark { color: #3fb950; min-width: 12px; }
 .name { color: #e6edf3; }
 .id, .meta { color: #6e7681; }
-popover.menu > contents { background: #161b22; border: 1px solid #30363d; padding: 4px 0; min-width: 280px; }
-popover.menu row { padding: 4px 16px; }
+popover.actions > contents { background: #161b22; border: 1px solid #30363d; padding: 4px 0; min-width: 280px; }
+popover.actions row { padding: 4px 16px; }
 .status { padding: 8px 24px; border-top: 1px solid #262c36; color: #6e7681; }
 .status.error { color: #f85149; }
 """
@@ -154,7 +155,7 @@ class Controllers:
                 elif code == BTN_EAST:
                     self.on_nav("back")
                 elif code == BTN_WEST:
-                    self.on_nav("menu")
+                    self.on_nav("actions")
                 elif code in BTN_DPAD:
                     self.on_nav(BTN_DPAD[code])
             elif typ == EV_ABS and code in (ABS_HAT0X, ABS_HAT0Y) and value != 0:
@@ -168,20 +169,20 @@ class Controllers:
 # --- the window -----------------------------------------------------------------
 
 
-class Switcher(Gtk.ApplicationWindow):
+class Menu(Gtk.ApplicationWindow):
     """One filterable list: running instances, then the catalog. An entry's
-    menu (right click, Menu key, controller X) opens at the entry: focus or
+    actions (right click, Menu key, controller X) open at the entry: focus or
     close a running app, start an app, or one of its actions."""
 
-    HINT = "enter open  right-click/menu actions  del close  esc back  type to filter"
-    MENU_HINT = "enter run  esc close menu"
+    HINT = "enter open  right-click actions  del close  esc back  type to filter"
+    ACTIONS_HINT = "enter run  esc close"
 
     def __init__(self, app, api):
         super().__init__(application=app, title="hostd")
         self.api = api
         self.apps = {}  # app ID -> app, from the last refresh
         self.shown = ""  # what the list shows, to notice changes
-        self.menu_for = None  # the row whose menu is open
+        self.actions_for = None  # the row whose actions are open
         self.set_decorated(False)
 
         bar = Gtk.Box(spacing=0)
@@ -196,23 +197,23 @@ class Switcher(Gtk.ApplicationWindow):
             bar.append(w)
 
         self.list = self._list()
-        clicks = Gtk.GestureClick(button=3)  # right click: the entry's menu
+        clicks = Gtk.GestureClick(button=3)  # right click: the entry's actions
         clicks.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)  # before the list takes the press
         clicks.connect("pressed", self.on_right_click)
         self.list.add_controller(clicks)
         self.scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.scroll.set_child(self.list)
 
-        # The entry menu: a small box at the entry, over the list.
-        self.menu = self._list(filtered=False)
+        # An entry's actions: a small box at the entry, over the list.
+        self.actions = self._list(filtered=False)
         self.popover = Gtk.Popover(has_arrow=False, autohide=True, position=Gtk.PositionType.BOTTOM)
-        self.popover.add_css_class("menu")
-        self.popover.set_child(self.menu)
-        self.popover.connect("closed", lambda *_: self.menu_closed())
-        menu_keys = Gtk.EventControllerKey()  # the menu is a surface of its own
-        menu_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        menu_keys.connect("key-pressed", lambda _c, keyval, _code, _state: self.on_menu_key(keyval))
-        self.popover.add_controller(menu_keys)
+        self.popover.add_css_class("actions")
+        self.popover.set_child(self.actions)
+        self.popover.connect("closed", lambda *_: self.actions_closed())
+        actions_keys = Gtk.EventControllerKey()  # the box is a surface of its own
+        actions_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        actions_keys.connect("key-pressed", lambda _c, keyval, _code, _state: self.on_actions_key(keyval))
+        self.popover.add_controller(actions_keys)
 
         self.status = Gtk.Label(xalign=0)
         self.status.add_css_class("status")
@@ -222,7 +223,7 @@ class Switcher(Gtk.ApplicationWindow):
             box.append(w)
         self.set_child(box)
         # Attached to the layout box, which is never emptied (the list is,
-        # on every refresh, and must not take the menu with it).
+        # on every refresh, and must not take the box with it).
         self.box = box
         self.popover.set_parent(box)
 
@@ -230,9 +231,9 @@ class Switcher(Gtk.ApplicationWindow):
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
-        # Coming back to the front: list again. Not while a menu is open: it
+        # Coming back to the front: list again. Not while actions are open: they
         # takes the focus itself, and the window turns active again behind it.
-        self.connect("notify::is-active", lambda *_: self.is_active() and self.menu_for is None and self.refresh())
+        self.connect("notify::is-active", lambda *_: self.is_active() and self.actions_for is None and self.refresh())
         self.controllers = Controllers(self.on_nav)
         self.fullscreen()
         self.refresh()
@@ -268,7 +269,7 @@ class Switcher(Gtk.ApplicationWindow):
         lst.append(row)
 
     def current(self):
-        return self.menu if self.menu_for is not None else self.list
+        return self.actions if self.actions_for is not None else self.list
 
     def fetch(self):
         try:
@@ -280,7 +281,7 @@ class Switcher(Gtk.ApplicationWindow):
         return instances, apps
 
     def poll(self):
-        if self.is_active() and self.menu_for is None:
+        if self.is_active() and self.actions_for is None:
             data = self.fetch()
             if data is not None and json.dumps(data, sort_keys=True) != self.shown:
                 self.refresh(data, keep=True)
@@ -296,7 +297,7 @@ class Switcher(Gtk.ApplicationWindow):
         selected = self.list.get_selected_row()
         selected = (selected.instance, selected.app) if keep and selected is not None else None
         text = self.entry.get_text() if keep else ""
-        self.close_menu()
+        self.close_actions()
         self.apps = {a["id"]: a for a in apps}
         self.list.remove_all()
         running = [i for i in instances
@@ -311,7 +312,7 @@ class Switcher(Gtk.ApplicationWindow):
         self._row(self.list, [("apps", "id", True)], header=True)
         for app in listed:
             n = len(app.get("actions") or [])
-            more = f"{n} action{'s' if n > 1 else ''}  " if n else ""  # in its menu
+            more = f"{n} action{'s' if n > 1 else ''}  " if n else ""  # in its actions box
             self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
                                   (app["id"], "id", True), (more + app.get("runner", {}).get("type", ""), "meta", False)],
                       ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"])
@@ -327,31 +328,31 @@ class Switcher(Gtk.ApplicationWindow):
             self.entry.grab_focus()
             self.show_status(self.HINT)
 
-    # --- the menu ---
+    # --- an entry's actions ---
 
-    def open_menu(self, row, x=None):
-        """Opens the entry's menu just below it (at x, for a click)."""
+    def open_actions(self, row, x=None):
+        """Opens the entry's actions just below it (at x, for a click)."""
         if row is None or row.header:
             return
-        self.menu.remove_all()
+        self.actions.remove_all()
         app = self.apps.get(row.app) or {}
         if row.instance:
-            self._row(self.menu, [(" ", "mark", False), ("focus", "name", True)], row.action)
-            self._row(self.menu, [(" ", "mark", False), ("close", "name", True)],
+            self._row(self.actions, [(" ", "mark", False), ("focus", "name", True)], row.action)
+            self._row(self.actions, [(" ", "mark", False), ("close", "name", True)],
                       ("POST", f"/v1/windows/{row.instance}/close", None))
         else:
-            self._row(self.menu, [(" ", "mark", False), ("start", "name", True)], row.action)
+            self._row(self.actions, [(" ", "mark", False), ("start", "name", True)], row.action)
         for act in app.get("actions") or []:
-            self._row(self.menu, [("+", "mark", False), (act["name"], "name", True), (act["id"], "id", False)],
+            self._row(self.actions, [("+", "mark", False), (act["name"], "name", True), (act["id"], "id", False)],
                       ("POST", f"/v1/apps/{app['id']}/start", {"action": act["id"]}))
-        # No focus inside the menu: its keys are the window's (on_key), so
+        # No focus inside the box: its keys are the window's (on_key), so
         # nothing else moves the selection or runs an entry too.
-        entry = self.menu.get_first_child()
+        entry = self.actions.get_first_child()
         while entry is not None:
             entry.set_focusable(False)
             entry = entry.get_next_sibling()
-        self.menu.set_focusable(False)
-        self.menu_for = row
+        self.actions.set_focusable(False)
+        self.actions_for = row
         ok, bounds = row.compute_bounds(self.box)
         rect = Gdk.Rectangle()
         rect.x = int(x) if x is not None else 48
@@ -359,15 +360,15 @@ class Switcher(Gtk.ApplicationWindow):
         rect.width, rect.height = 1, int(bounds.get_height()) if ok else 1
         self.popover.set_pointing_to(rect)
         self.popover.popup()
-        self.menu.select_row(self.menu.get_row_at_index(0))
-        self.show_status(self.MENU_HINT)
+        self.actions.select_row(self.actions.get_row_at_index(0))
+        self.show_status(self.ACTIONS_HINT)
 
-    def close_menu(self):
-        if self.menu_for is not None:
-            self.popover.popdown()  # menu_closed() follows
+    def close_actions(self):
+        if self.actions_for is not None:
+            self.popover.popdown()  # actions_closed() follows
 
-    def menu_closed(self):
-        row, self.menu_for = self.menu_for, None
+    def actions_closed(self):
+        row, self.actions_for = self.actions_for, None
         if row is not None and row.get_parent() is self.list:
             self.list.select_row(row)
         self.entry.grab_focus()
@@ -377,7 +378,7 @@ class Switcher(Gtk.ApplicationWindow):
         row = self.list.get_row_at_y(int(y))
         if row is not None and not row.header:
             self.list.select_row(row)
-            self.open_menu(row, x)
+            self.open_actions(row, x)
 
     # --- filtering and moving ---
 
@@ -395,7 +396,7 @@ class Switcher(Gtk.ApplicationWindow):
         lst = self.current()
         out, row = [], lst.get_first_child()
         while row is not None:
-            if isinstance(row, Gtk.ListBoxRow) and not row.header and (lst is self.menu or self.visible(row)):
+            if isinstance(row, Gtk.ListBoxRow) and not row.header and (lst is self.actions or self.visible(row)):
                 out.append(row)
             row = row.get_next_sibling()
         return out
@@ -438,19 +439,19 @@ class Switcher(Gtk.ApplicationWindow):
         return res
 
     def open(self, row):
-        """Runs a row's action: in the list, open the app; in a menu, the entry."""
+        """Runs a row's action: in the list, open the app; in the actions box, the entry."""
         if row is None or row.action is None:
             return
-        in_menu = self.menu_for is not None
-        if in_menu:
-            self.close_menu()
+        in_actions = self.actions_for is not None
+        if in_actions:
+            self.close_actions()
         res = self.call(*row.action)
-        if in_menu and res is not None:
+        if in_actions and res is not None:
             self.refresh(keep=True)  # the list may have changed
 
     def back(self):
-        if self.menu_for is not None:
-            self.close_menu()
+        if self.actions_for is not None:
+            self.close_actions()
         elif self.entry.get_text():
             self.entry.set_text("")
         else:
@@ -466,8 +467,8 @@ class Switcher(Gtk.ApplicationWindow):
     def on_key(self, _ctl, keyval, _code, state):
         name = Gdk.keyval_name(keyval)
         shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
-        if self.menu_for is not None:
-            return self.on_menu_key(keyval)
+        if self.actions_for is not None:
+            return self.on_actions_key(keyval)
         if name == "Escape":
             self.back()
         elif name in ("Down", "Tab"):
@@ -479,26 +480,26 @@ class Switcher(Gtk.ApplicationWindow):
         elif name in ("Return", "KP_Enter"):
             self.open(self.current().get_selected_row())
         elif name == "Menu" or (name == "F10" and shift):
-            if self.menu_for is None:
-                self.open_menu(self.list.get_selected_row())
+            if self.actions_for is None:
+                self.open_actions(self.list.get_selected_row())
         elif name == "Delete":
             self.close(self.list.get_selected_row())
         else:
             return False
         return True
 
-    def on_menu_key(self, keyval):
-        """Keys while a menu is open. Its rows take no focus, so these are
+    def on_actions_key(self, keyval):
+        """Keys while actions are open. Their rows take no focus, so these are
         the only ones that move the selection or run an entry."""
         name = Gdk.keyval_name(keyval)
         if name in ("Escape", "Menu"):
-            self.close_menu()
+            self.close_actions()
         elif name in ("Down", "Tab"):
             self.move(1)
         elif name in ("Up", "ISO_Left_Tab"):
             self.move(-1)
         elif name in ("Return", "KP_Enter"):
-            self.open(self.menu.get_selected_row())
+            self.open(self.actions.get_selected_row())
         return True
 
     def on_nav(self, what):
@@ -508,9 +509,9 @@ class Switcher(Gtk.ApplicationWindow):
             self.back()
         elif what == "choose":
             self.open(self.current().get_selected_row())
-        elif what == "menu":
-            if self.menu_for is None:
-                self.open_menu(self.list.get_selected_row())
+        elif what == "actions":
+            if self.actions_for is None:
+                self.open_actions(self.list.get_selected_row())
         elif what in ("up", "left"):
             self.move(-1)
         else:
@@ -520,8 +521,8 @@ class Switcher(Gtk.ApplicationWindow):
 def main():
     api = API()
     if not api.token:
-        print("hostd-overlay: no token: set HOSTD_TOKEN or create ~/.config/hostd/local.token", file=sys.stderr)
-    app = Gtk.Application(application_id="org.hostd.Switcher")
+        print("hostd-menu: no token: set HOSTD_TOKEN or create ~/.config/hostd/local.token", file=sys.stderr)
+    app = Gtk.Application(application_id="org.hostd.Menu")
 
     def activate(application):
         provider = Gtk.CssProvider()
@@ -531,7 +532,7 @@ def main():
             provider.load_from_data(CSS, -1)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-        win = application.get_active_window() or Switcher(application, api)
+        win = application.get_active_window() or Menu(application, api)
         win.present()
 
     app.connect("activate", activate)

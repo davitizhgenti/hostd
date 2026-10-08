@@ -37,7 +37,7 @@ type Token struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Kind is the source kind of actions sent with this token: local (the
-	// on-screen switcher), manual (a person's device) or automation
+	// on-screen menu), manual (a person's device) or automation
 	// (scripts).
 	Kind     sdk.SourceKind `json:"kind"`
 	Scopes   []string       `json:"scopes"`

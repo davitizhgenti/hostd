@@ -44,9 +44,9 @@ host updates the binaries inside without a rebuild. Port 7300 (the API) is
 published on `127.0.0.1:7300` for `hostctl` on the host.
 
 **Run hostd as on the real machine:** `make devbox-hostd` runs it as a user
-service from `bin/`, logs `hostctl` in, sets up the switcher (straight from
-`deploy/files/overlay`, with its local token) and adds three apps to try. In
-VNC, press F1 (or Super, with the viewer's keyboard grab on) for the switcher;
+service from `bin/`, logs `hostctl` in, sets up the menu (straight from
+`deploy/files/menu`, with its local token) and adds three apps to try. In
+VNC, press F1 (or Super, with the viewer's keyboard grab on) for the menu;
 Super+Tab and Super+Q work as on the real machine.
 Run it again after `make build` to restart hostd on the new binary. The
 devbox cannot read input devices, so nobody is ever "at the screen" there:

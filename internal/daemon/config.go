@@ -40,13 +40,13 @@ import (
 //	gamescope = ["gamescope", "-W", "1920", "-H", "1080", "-f"]
 //
 //	# Keys and controller buttons, mapped to display actions. These add
-//	# to or change the defaults (Super: switcher, Super+Tab / Super+Shift+Tab:
-//	# next / previous app, Super+Q: close the app, Guide: switcher); ""
+//	# to or change the defaults (Super: menu, Super+Tab / Super+Shift+Tab:
+//	# next / previous app, Super+Q: close the app, Guide: menu); ""
 //	# removes one.
 //	[input.keys]
-//	"F1" = "display.switcher"
+//	"F1" = "display.menu"
 //	[input.buttons]
-//	guide = "display.switcher"
+//	guide = "display.menu"
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`

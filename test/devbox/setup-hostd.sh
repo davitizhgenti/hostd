@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs hostd in the devbox the way deploy/install.sh does on the real
 # machine: a user service (from bin/, mounted at /opt/hostd/bin), hostctl
-# logged in, the switcher with its local token, and a few apps to try.
+# logged in, the menu with its local token, and a few apps to try.
 # Run as the screen user inside the devbox (make devbox-hostd). Idempotent:
 # run it again after `make build` to restart hostd on the new binary.
 set -euo pipefail
@@ -21,15 +21,17 @@ ExecStart=/opt/hostd/bin/hostd
 Restart=on-failure
 RestartSec=2
 KillMode=mixed
-# The switcher's scripts call hostctl.
+# Apps and scripts hostd starts may call hostctl.
 Environment=PATH=/opt/hostd/bin:/usr/local/bin:/usr/bin:/bin
 UNIT
 
-# The switcher, straight from the repository: edits apply on its next start.
-cat >"$cfg/hostd/apps/hostd-overlay.toml" <<'APP'
-name = "Switcher"
+# The menu, straight from the repository: edits apply on its next start.
+# (hostd-overlay.toml: its old name.)
+rm -f "$cfg/hostd/apps/hostd-overlay.toml"
+cat >"$cfg/hostd/apps/hostd-menu.toml" <<'APP'
+name = "Menu"
 hidden = true
-runner = { type = "exec", command = ["/opt/hostd-deploy/files/overlay/hostd-overlay"] }
+runner = { type = "exec", command = ["/opt/hostd-deploy/files/menu/hostd-menu"] }
 [instance]
 policy = "single"
 if_running = "focus"
@@ -42,7 +44,7 @@ runner = { type = "exec", command = ["foot"] }
 [instance]
 policy = "multiple"
 
-# Extra ways to start it: the switcher's menu (right click), or
+# Extra ways to start it: its actions in the menu (right click), or
 # hostctl start terminal --action large.
 [[actions]]
 id = "large"
@@ -65,12 +67,12 @@ runner = { type = "exec", command = ["foot", "--title", "Clock", "watch", "-t", 
 fullscreen = false
 APP
 
-# VNC viewers often keep Super for the host's desktop: F1 opens the switcher
+# VNC viewers often keep Super for the host's desktop: F1 opens the menu
 # too. (Written once; edit it freely.)
 if [ ! -f "$cfg/hostd/hostd.toml" ]; then
 	cat >"$cfg/hostd/hostd.toml" <<'TOML'
 [input.keys]
-"F1" = "display.switcher"
+"F1" = "display.menu"
 TOML
 fi
 
@@ -84,12 +86,12 @@ if [ ! -f "$cfg/hostctl/config.toml" ]; then
 	hostctl login "unix://$XDG_RUNTIME_DIR/hostd.sock" --token-file "$XDG_RUNTIME_DIR/hostd-admin-token" >/dev/null
 	echo "hostctl: logged in"
 fi
-# The switcher's token, kind local (what is chosen on the screen counts as
+# The menu's token, kind local (what is chosen on the screen counts as
 # someone at the screen).
 if [ ! -s "$cfg/hostd/local.token" ]; then
-	hostctl --json token create switcher --kind local --scopes read,apps | jq -r .secret >"$cfg/hostd/local.token"
+	hostctl --json token create menu --kind local --scopes read,apps | jq -r .secret >"$cfg/hostd/local.token"
 	chmod 600 "$cfg/hostd/local.token"
-	echo "switcher: token created"
+	echo "menu: token created"
 fi
 hostctl app rescan >/dev/null
 hostctl apps

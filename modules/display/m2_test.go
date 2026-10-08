@@ -17,12 +17,12 @@ import (
 
 // --- the Guide button --------------------------------------------------------------
 
-func TestGuideButtonOpensSwitcher(t *testing.T) {
+func TestGuideButtonOpensMenu(t *testing.T) {
 	r := newDisplayRig(t, true)
 	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
 	select {
 	case a := <-r.started:
-		if string(a.Args) != `{"id":"hostd-overlay"}` || a.Source.Kind != sdk.SourceLocal {
+		if string(a.Args) != `{"id":"hostd-menu"}` || a.Source.Kind != sdk.SourceLocal {
 			t.Fatalf("started %s from %+v", a.Args, a.Source)
 		}
 	case <-time.After(5 * time.Second):
@@ -35,13 +35,13 @@ func TestGuideButtonOpensSwitcher(t *testing.T) {
 
 func TestGuideButtonTogglesBack(t *testing.T) {
 	r := newDisplayRig(t, true)
-	proc := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-overlay.service`
+	proc := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`
 	r.procEnv(t, 500, proc)
 	r.b.open(1, 100) // tv, in use
 	r.event(t)
 	r.b.focus(1)
 	r.event(t)
-	r.b.open(5, 500) // the switcher, in front
+	r.b.open(5, 500) // the menu, in front
 	r.event(t)
 	r.b.focus(5)
 	r.event(t)
@@ -54,7 +54,7 @@ func TestGuideButtonTogglesBack(t *testing.T) {
 	})
 	select {
 	case a := <-r.started:
-		t.Fatalf("started the switcher again: %+v", a)
+		t.Fatalf("started the menu again: %+v", a)
 	default:
 	}
 }

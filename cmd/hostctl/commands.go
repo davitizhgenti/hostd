@@ -196,7 +196,7 @@ func (a *app) tokenCommand() *cobra.Command {
 		},
 	}
 	create.Flags().StringSliceVar(&scopes, "scopes", nil, "scopes, comma-separated (required)")
-	create.Flags().StringVar(&kind, "kind", "manual", "manual (a person's device), automation (scripts) or local (the on-screen switcher)")
+	create.Flags().StringVar(&kind, "kind", "manual", "manual (a person's device), automation (scripts) or local (the on-screen menu)")
 	create.Flags().StringVar(&ttl, "ttl", "", "lifetime such as 1h; default never expires")
 	_ = create.MarkFlagRequired("scopes")
 

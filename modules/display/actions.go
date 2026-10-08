@@ -324,12 +324,12 @@ func (m *Module) handleCycle(ctx context.Context, a sdk.Action) (sdk.Result, err
 
 // cycleTarget returns a window of the app step places from the one in
 // front, among the running apps with windows in instance ID order (the
-// switcher is not one of them); nil if there is no other.
+// menu is not one of them); nil if there is no other.
 func (m *Module) cycleTarget(step int) *trackedWindow {
 	m.mu.Lock()
 	first := map[string]*trackedWindow{}
 	for _, t := range m.windows {
-		if t.Instance == "" || appOfInstance(t.Instance) == m.opts.Switcher {
+		if t.Instance == "" || appOfInstance(t.Instance) == m.opts.Menu {
 			continue
 		}
 		if cur, ok := first[t.Instance]; !ok || t.ID < cur.ID {
@@ -358,10 +358,10 @@ func (m *Module) cycleTarget(step int) *trackedWindow {
 	return first[ids[i]]
 }
 
-// handleSwitcher opens the switcher, or goes back if it is in front.
-func (m *Module) handleSwitcher(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+// handleMenu opens the menu, or goes back if it is in front.
+func (m *Module) handleMenu(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	m.mu.Lock()
-	inFront := len(m.stack) > 0 && appOfInstance(m.stack[len(m.stack)-1]) == m.opts.Switcher
+	inFront := len(m.stack) > 0 && appOfInstance(m.stack[len(m.stack)-1]) == m.opts.Menu
 	core := m.core
 	m.mu.Unlock()
 	if inFront {
@@ -370,7 +370,7 @@ func (m *Module) handleSwitcher(ctx context.Context, a sdk.Action) (sdk.Result, 
 	if core == nil || !core.Handles("app.start") {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "the apps module is not running")
 	}
-	return core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Switcher})})
+	return core.Do(ctx, sdk.Action{Type: "app.start", Args: mustJSON(map[string]string{"id": m.opts.Menu})})
 }
 
 // frontWindow returns the focused window and its instance ("" for a window
