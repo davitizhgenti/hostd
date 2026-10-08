@@ -15,6 +15,7 @@ RUN apt-get update \
       pipewire pipewire-pulse pipewire-bin wireplumber pulseaudio-utils rtkit \
       podman crun fuse-overlayfs uidmap passt catatonit nftables \
       ca-certificates curl jq procps iproute2 less git fonts-dejavu-core \
+      python3-gi gir1.2-gtk-4.0 adwaita-icon-theme \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 

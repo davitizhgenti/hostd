@@ -19,3 +19,10 @@ exec mako
 set $mod Mod4
 bindsym $mod+Return exec foot
 bindsym $mod+Shift+q kill
+
+# hostd's switcher and app stepping, as on the real machine (deploy/files/
+# sway/config). The scripts come from the repository, mounted at
+# /opt/hostd-deploy; hostctl from bin/, at /opt/hostd/bin.
+bindsym $mod+Tab workspace next_on_output
+bindsym $mod+Shift+Tab workspace prev_on_output
+bindsym --release Super_L exec env PATH=/opt/hostd/bin:$PATH /opt/hostd-deploy/files/overlay/hostd-switch

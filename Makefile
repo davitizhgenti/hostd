@@ -7,7 +7,7 @@ FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
 .PHONY: all build dist test test-integration test-e2e fuzz lint cover tidy clean \
-	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop \
+	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd \
 	check-server test-install m1-gate m1-gate-server
 
 all: lint test build
@@ -94,6 +94,11 @@ devbox: devbox-build build
 		-v $(DEVBOX)-containers:/home/screen/.local/share/containers \
 		$(DEVBOX)
 	@echo "devbox started: make devbox-check, make devbox-shell, VNC to 127.0.0.1:5900"
+
+# Runs hostd in the devbox as on the real machine (service, switcher, sample
+# apps). Again after `make build` to restart it on the new binary.
+devbox-hostd: build
+	$(PODMAN) exec -i -u screen -w /home/screen $(DEVBOX) bash -s < test/devbox/setup-hostd.sh
 
 devbox-shell:
 	$(PODMAN) exec -it -u screen -w /home/screen $(DEVBOX) bash
