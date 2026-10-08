@@ -170,19 +170,24 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 
 	m.mu.Lock()
 	running := m.live(app.ID)
+	var first Instance
+	if len(running) > 0 {
+		first = *running[0]
+	}
 	m.mu.Unlock()
+	if p, ok := backend.(Passer); ok && args.Action != "" && app.Runner.Handoff != "" && len(running) > 0 {
+		// The app's program runs and takes the action's request itself
+		// (Steam's Big Picture). As an instance of its own, the action
+		// would last as long as that program.
+		if err := p.Pass(ctx, first, app); err != nil {
+			return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "%s: %v", app.ID, err)
+		}
+		return m.focusRunning(ctx, app, first, args.Front)
+	}
 	if app.Instance.Policy == "single" && len(running) > 0 {
 		switch app.Instance.IfRunning {
 		case "focus":
-			// Bring it forward. Without the display module (headless, or
-			// before it exists) there is nothing to focus.
-			id := running[0].ID
-			if running[0].Surface == SurfaceWindow && m.core.Handles("window.focus") {
-				if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: sdk.MustJSON(map[string]any{"instance": id, "front": args.Front})}); err != nil {
-					return sdk.Result{}, err
-				}
-			}
-			return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: running[0].State, AlreadyRunning: true})}, nil
+			return m.focusRunning(ctx, app, first, args.Front)
 		case "restart":
 			for _, in := range running {
 				if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil &&
@@ -254,6 +259,17 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		m.emitInstance(EventStarted, a.ID, snapshot)
 	}
 	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+}
+
+// focusRunning brings a running instance forward. Without the display
+// module (headless, or before it exists) there is nothing to focus.
+func (m *Module) focusRunning(ctx context.Context, app *App, in Instance, front bool) (sdk.Result, error) {
+	if in.Surface == SurfaceWindow && m.core.Handles("window.focus") {
+		if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: sdk.MustJSON(map[string]any{"instance": in.ID, "front": front})}); err != nil {
+			return sdk.Result{}, err
+		}
+	}
+	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: in.ID, App: app.ID, State: in.State, AlreadyRunning: true})}, nil
 }
 
 // handleClosing marks an instance as asked to close: its end will count as

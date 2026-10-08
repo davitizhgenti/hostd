@@ -568,3 +568,68 @@ func TestClosingCountsAsExit(t *testing.T) {
 		t.Fatalf("unknown instance: %v", err)
 	}
 }
+
+func TestHandoffActionGoesToRunningApp(t *testing.T) {
+	// Steam runs; its Big Picture action is passed to it, not a second
+	// instance that would last as long as Steam.
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	ran := make(chan []string, 2)
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(_ context.Context, argv, _ []string, _ string) error {
+		ran <- argv
+		return nil
+	}
+	writeApps(t, r.m.opts.AppsDir, `
+-- steam.toml --
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
+[[actions]]
+id = "bigpicture"
+name = "Big Picture"
+command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"]
+`)
+	r.m.rescan()
+	r.start(t, "steam")
+	r.next(t)
+	r.next(t)
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
+		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(res.Data), `"instance":"steam"`) || !strings.Contains(string(res.Data), `"already_running":true`) {
+		t.Fatalf("result %s", res.Data)
+	}
+	if argv := <-ran; argv[len(argv)-1] != "steam://open/bigpicture" {
+		t.Fatalf("passed %q", argv)
+	}
+	sd.mu.Lock()
+	units := len(sd.started)
+	sd.mu.Unlock()
+	if units != 1 {
+		t.Fatalf("%d units started, want 1", units)
+	}
+}
+
+func TestFlatpakAppsFollowTheirSandbox(t *testing.T) {
+	c := Build(nil, []AppFile{
+		mustParse(t, "/x/kodi.toml", `runner = { type = "flatpak", app_id = "tv.kodi.Kodi" }`),
+		mustParse(t, "/x/many.toml", "runner = { type = \"flatpak\", app_id = \"org.x.Many\" }\n[instance]\npolicy = \"multiple\""),
+	}, nil)
+	if len(c.Problems) != 0 {
+		t.Fatal(c.Problems)
+	}
+	kodi, _ := c.Get("kodi")
+	many, _ := c.Get("many")
+	if kodi.Runner.Handoff != "FLATPAK_ID=tv.kodi.Kodi" || many.Runner.Handoff != "" {
+		t.Fatalf("handoffs %q %q", kodi.Runner.Handoff, many.Runner.Handoff)
+	}
+}
+
+func mustParse(t *testing.T, path, body string) AppFile {
+	t.Helper()
+	f, err := ParseAppFile(path, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}

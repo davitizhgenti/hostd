@@ -124,6 +124,13 @@ type Backend interface {
 	Watch(ctx context.Context, fn func(Ended)) error
 }
 
+// A Passer can run an app's command outside an instance, to hand a
+// request to the app's program, which already runs as inst: an action of
+// a handoff app (Steam's Big Picture while Steam runs).
+type Passer interface {
+	Pass(ctx context.Context, inst Instance, app *App) error
+}
+
 // Ended reports an instance whose process ended.
 type Ended struct {
 	Instance string

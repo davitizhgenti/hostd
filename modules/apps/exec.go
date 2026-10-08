@@ -210,21 +210,19 @@ func SessionEnv(runtimeDir string) (env []string, ok bool) {
 	return env, true
 }
 
-// Start runs the app's command in its own unit.
-func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instance, error) {
-	argv, err := r.command(app)
+// prepare returns the argv and environment that run the app as inst.
+func (r *ExecRunner) prepare(inst Instance, app *App) (argv, env []string, err error) {
+	argv, err = r.command(app)
 	if err != nil {
-		return inst, err
+		return nil, nil, err
 	}
-	env := []string{"HOSTD_INSTANCE=" + inst.ID}
+	env = []string{"HOSTD_INSTANCE=" + inst.ID}
 	if inst.Surface == SurfaceWindow {
-		var ok bool
-		var session []string
-		session, ok = SessionEnv(r.RuntimeDir)
-		env = append(env, session...)
+		session, ok := SessionEnv(r.RuntimeDir)
 		if !ok {
-			return inst, sdk.Errorf(sdk.CodeModuleUnavailable, "no graphical session: Sway is not running")
+			return nil, nil, sdk.Errorf(sdk.CodeModuleUnavailable, "no graphical session: Sway is not running")
 		}
+		env = append(env, session...)
 	}
 	keys := make([]string, 0, len(app.Env))
 	for k := range app.Env {
@@ -233,6 +231,29 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	sort.Strings(keys)
 	for _, k := range keys {
 		env = append(env, k+"="+app.Env[k])
+	}
+	return argv, env, nil
+}
+
+// Pass runs the app's command outside a unit and waits for it: it hands
+// a request to the program that already runs as inst (Steam's Big
+// Picture), and exits.
+func (r *ExecRunner) Pass(ctx context.Context, inst Instance, app *App) error {
+	argv, env, err := r.prepare(inst, app)
+	if err != nil {
+		return err
+	}
+	if err := r.runCommand(ctx, argv, env); err != nil {
+		return fmt.Errorf("handing off with %s: %w", strings.Join(argv, " "), err)
+	}
+	return nil
+}
+
+// Start runs the app's command in its own unit.
+func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instance, error) {
+	argv, env, err := r.prepare(inst, app)
+	if err != nil {
+		return inst, err
 	}
 
 	name := unitName(inst.ID)

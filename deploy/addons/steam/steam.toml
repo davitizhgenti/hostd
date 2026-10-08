@@ -3,7 +3,9 @@
 # window is an action (right click in the menu).
 extends = "steam"
 name = "Steam"
-runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"] }
+# Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
+# processes, so closing Steam in hostd ends Steam.
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
 
 [match]
 env = "FLATPAK_ID=com.valvesoftware.Steam"

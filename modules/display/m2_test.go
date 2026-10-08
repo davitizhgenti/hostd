@@ -89,6 +89,9 @@ func TestMatchRules(t *testing.T) {
 	steamCG := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-portal2.service`
 	other := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-tv.kodi.Kodi-123.scope`
 	r.setLive(
+		// Steam in Flatpak, followed by its sandbox variable, which its
+		// games have too.
+		contract.Instance{ID: "steam", State: "running", Match: &contract.Match{Env: "FLATPAK_ID=com.valvesoftware.Steam"}},
 		contract.Instance{ID: "portal2", State: "running", Match: &contract.Match{Class: "steam_app_620", Env: "SteamAppId=620"}},
 		contract.Instance{ID: "kodi", State: "running", Match: &contract.Match{AppID: "tv.kodi.Kodi", Env: "FLATPAK_ID=tv.kodi.Kodi"}},
 		contract.Instance{ID: "old", State: "exited", Match: &contract.Match{Class: "*"}},
@@ -101,6 +104,9 @@ func TestMatchRules(t *testing.T) {
 	r.procEnv(t, 902, `0::/user.slice/other.scope`)
 	// Kodi in Flatpak's own scope, by its sandbox variable.
 	r.procEnv(t, 903, other, "FLATPAK_ID=tv.kodi.Kodi")
+	steamScope := `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.valvesoftware.Steam-1.scope`
+	r.procEnv(t, 904, steamScope, "FLATPAK_ID=com.valvesoftware.Steam")
+	r.procEnv(t, 905, steamScope, "FLATPAK_ID=com.valvesoftware.Steam", "SteamAppId=620")
 
 	for _, c := range []struct {
 		w    Window
@@ -113,6 +119,8 @@ func TestMatchRules(t *testing.T) {
 		{Window{ID: 14, PID: 902, AppID: "tv.kodi.Kodi"}, "kodi"},
 		{Window{ID: 15, PID: 902, AppID: "foot"}, ""},
 		{Window{ID: 16, PID: 100, AppID: "x"}, "tv"}, // a plain cgroup match is unchanged
+		{Window{ID: 17, PID: 904, Class: "steam"}, "steam"},
+		{Window{ID: 18, PID: 905, Class: "steam_app_620"}, "portal2"}, // matches both: the game's rules win
 	} {
 		r.b.openWindow(c.w)
 		_, tw := r.event(t)

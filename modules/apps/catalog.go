@@ -158,6 +158,12 @@ func (a *App) applyDefaults() {
 	if a.Instance.Policy == "" {
 		a.Instance.Policy = "single"
 	}
+	if a.Runner.Type == RunnerFlatpak && a.Runner.Handoff == "" && a.Instance.Policy == "single" {
+		// Flatpak moves the app out of hostd's unit into a scope of its
+		// own: follow the sandbox's processes instead, which all have
+		// FLATPAK_ID. Stopping the instance then ends the app itself.
+		a.Runner.Handoff = "FLATPAK_ID=" + a.Runner.AppID
+	}
 	if a.Instance.IfRunning == "" {
 		// For a background app, focus means "already running, do nothing".
 		a.Instance.IfRunning = "focus"
