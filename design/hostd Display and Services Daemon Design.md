@@ -693,14 +693,16 @@ The step-by-step build and test plan for these milestones is in [plan.md](plan.m
 
 ### M1 · Thin slice of everything
 
-- [ ] Daemon as a lingering systemd user service; connects to Sway when the session appears
-- [ ] Module registry and contract; the complete action pipeline: per-resource queues with reentrant child keys, priority holds, versions, cause chain and loop limits, audit trail, events
-- [ ] Tokens with scopes; self-update pushed from the laptop with automatic rollback; `hostctl login`
-- [ ] Catalog from desktop files plus TOML files
-- [ ] `exec` and `docker` runners; instance state machine
-- [ ] Workspace-per-instance, fullscreen default, cgroup window matching
-- [ ] Master volume and mute
-- [ ] Gate: from the laptop, start Firefox, set volume and start a container, and see all three in `hostctl events`
+- [x] Daemon as a lingering systemd user service; connects to Sway when the session appears
+- [x] Module registry and contract; the complete action pipeline: per-resource queues with reentrant child keys, priority holds, versions, cause chain and loop limits, audit trail, events
+- [x] Tokens with scopes; self-update pushed from the laptop with automatic rollback; `hostctl login`
+- [x] Catalog from desktop files plus TOML files
+- [x] `exec` and `docker` runners; instance state machine
+- [x] Workspace-per-instance, fullscreen default, cgroup window matching
+- [x] Master volume and mute
+- [x] Gate: from the laptop, start Firefox, set volume and start a container, and see all three in `hostctl events`
+
+M1 completed 2026-10-08: the gate passes on the real machine.
 
 ### M2 · Display depth
 

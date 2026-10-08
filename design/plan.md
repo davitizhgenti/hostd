@@ -422,7 +422,7 @@ KillMode=mixed               # instances live in their own units, so stopping ho
 
 ### 3.13 M1 gate
 
-- [ ] Automated: `test/e2e/m1_gate.txtar` in the integration environment (headless Sway + PipeWire null sink + rootless Podman + systemd user manager):
+- [x] Automated (as `deploy/m1-gate.sh`, see below): `test/e2e/m1_gate.txtar` in the integration environment (headless Sway + PipeWire null sink + rootless Podman + systemd user manager):
 
 ```
 exec hostctl events --type '*' --json &events&
@@ -435,11 +435,13 @@ stdout 'foot.*running'
 stdout 'nginx-demo.*running'
 ```
 
-- [ ] Manual: on the mini PC, from the laptop over TCP with a device token: start Firefox, set volume, start a container, all three visible in `hostctl events` and `hostctl log`.
+- [x] Manual: on the mini PC, from the laptop over TCP with a device token: start Firefox, set volume, start a container, all three visible in `hostctl events` and `hostctl log`.
 
 **M1 done when** both pass, `core/` coverage ≥ 85 %, and CI is green with `-race`.
 
-*2026-10-08: the gate is `deploy/m1-gate.sh`, runnable on any hostd machine as the screen user (`make m1-gate` on the devbox, `make m1-gate-server SERVER=screen@<machine>` on the real one). It starts foot, sets the volume to 40 and starts a temporary nginx container app, then checks with `hostctl events --recent` that `instance.started` (linked to its action), `audio.volume.changed` to 40, the container's `instance.started` and foot's `window.opened` all appear; it cleans up and restores the volume. **Passes on the devbox.** On the real machine: run after updating it to this build.*
+*2026-10-08: the gate is `deploy/m1-gate.sh`, runnable on any hostd machine as the screen user (`make m1-gate` on the devbox, `make m1-gate-server SERVER=screen@<machine>` on the real one). It starts foot, sets the volume to 40 and starts a temporary nginx container app, then checks with `hostctl events --recent` that `instance.started` (linked to its action), `audio.volume.changed` to 40, the container's `instance.started` and foot's `window.opened` all appear; it cleans up and restores the volume. **Passes on the devbox, and on the real machine `core` (2026-10-08, build edge-e20a2cc, about 10 s): foot fullscreen on the projector, volume 40 on HDMI, an nginx container, all in `hostctl events`, then cleaned up.***
+
+**M1 is complete.**
 
 
 
