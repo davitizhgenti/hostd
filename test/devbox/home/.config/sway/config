@@ -26,3 +26,5 @@ bindsym $mod+Shift+q kill
 bindsym $mod+Tab workspace next_on_output
 bindsym $mod+Shift+Tab workspace prev_on_output
 bindsym --release Super_L exec env PATH=/opt/hostd/bin:$PATH /opt/hostd-deploy/files/overlay/hostd-switch
+# VNC viewers often keep Super for the host's own desktop: F1 as well.
+bindsym F1 exec env PATH=/opt/hostd/bin:$PATH /opt/hostd-deploy/files/overlay/hostd-switch
