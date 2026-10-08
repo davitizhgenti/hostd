@@ -26,6 +26,9 @@ const (
 	EventIdle    = "display.idle"   // no input for IdleAfter
 	EventNotice  = "display.notice" // a notice shown on the screen
 	EventOutputs = "display.output.changed"
+
+	EventControllerConnected    = "controller.connected"
+	EventControllerDisconnected = "controller.disconnected"
 )
 
 // WorkspacePrefix names an instance's workspace: hostd:<instance>.
@@ -47,6 +50,11 @@ type Options struct {
 	// Menu is the app display.menu opens: hostd's on-screen menu
 	// (default hostd-menu).
 	Menu string
+	// Profiles describe controllers (nil: the built-in ones), and
+	// SysRoot is where sysfs and /dev are ("/" outside tests): for the
+	// controller list.
+	Profiles *Profiles
+	SysRoot  string
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
@@ -143,6 +151,12 @@ func New(opts Options) *Module {
 		keys: opts.Keys, buttons: opts.Buttons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
+	if m.opts.Profiles == nil {
+		m.opts.Profiles, _ = LoadProfiles("") // the built-in ones always load (a test checks)
+	}
+	if m.opts.SysRoot == "" {
+		m.opts.SysRoot = "/"
+	}
 	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
 	return m
 }
@@ -181,7 +195,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		// The apps module's instances are what the display module places,
 		// focuses and closes (see contract).
 		Requires: []string{contract.AppsModule},
-		Owns:     []string{"display.*", "window.*"},
+		Owns:     []string{"display.*", "window.*", "controller.*"},
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
 		},
@@ -240,10 +254,13 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventIdle, Description: "Nobody has used the screen for a while"},
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
+			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
+			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},
 		},
 		Reads: []sdk.ReadSpec{
 			{Name: "windows", Description: "All windows, including ones hostd did not start", Path: "/v1/windows"},
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
+			{Name: "controllers", Description: "Connected game controllers, with their profile and bindable buttons", Path: "/v1/controllers"},
 		},
 	}
 }
@@ -268,6 +285,8 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	}
 	m.done.Add(2)
 	go func() { defer m.done.Done(); m.attachLoop(ctx) }()
+	m.done.Add(1)
+	go func() { defer m.done.Done(); m.followControllers(ctx) }()
 	// Subscribed before Start returns, so no event after it is missed.
 	instances := core.Subscribe(ctx, contract.EventInstances)
 	go func() { defer m.done.Done(); m.followInstances(ctx, instances) }()
@@ -393,6 +412,8 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	switch name {
 	case "windows":
 		return wins, nil
+	case "controllers":
+		return scanControllers(sysfs{root: m.opts.SysRoot}, m.opts.Profiles), nil
 	case "display":
 		m.mu.Lock()
 		failed := m.failed

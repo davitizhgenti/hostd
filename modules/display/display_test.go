@@ -427,6 +427,7 @@ type displayRig struct {
 	stopped      chan string
 	started      chan sdk.Action
 	proc         string // the fake /proc
+	sys          string // the fake sysfs and /dev
 	autoEnd      atomic.Bool
 
 	liveMu sync.Mutex
@@ -456,10 +457,10 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		400: `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-notes.service`,
 	})
 	r := &displayRig{b: newFakeBackend(), clock: clock.NewFake(time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)),
-		stopped: make(chan string, 4), started: make(chan sdk.Action, 4), input: newFakeInput(), notes: &fakeNotifier{}, proc: proc}
+		stopped: make(chan string, 4), started: make(chan sdk.Action, 4), input: newFakeInput(), notes: &fakeNotifier{}, proc: proc, sys: fakeSys(t)}
 	var mu sync.Mutex
 	canConnect := connectable
-	r.m = New(Options{ProcRoot: proc, Clock: r.clock, Input: r.input, Notifier: r.notes, Connect: func(context.Context) (Backend, error) {
+	r.m = New(Options{ProcRoot: proc, SysRoot: r.sys, Clock: r.clock, Input: r.input, Notifier: r.notes, Connect: func(context.Context) (Backend, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if !canConnect {

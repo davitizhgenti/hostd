@@ -95,8 +95,13 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 				},
 			}))
 		case "display":
+			profiles, err := display.LoadProfiles(filepath.Join(filepath.Dir(*configPath), "controllers"))
+			if err != nil {
+				fmt.Fprintf(stderr, "hostd: %v\n", err)
+				return 2
+			}
 			mods = append(mods, display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log,
-				Input: &display.Evdev{}, IdleAfter: time.Duration(cfg.IdleAfter),
+				Input: &display.Evdev{Profiles: profiles}, Profiles: profiles, IdleAfter: time.Duration(cfg.IdleAfter),
 				Notifier: &display.DesktopNotifier{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons}))
 		case "audio":
 			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log}))

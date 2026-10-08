@@ -58,12 +58,15 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh
+	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py
-	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__
+	python3 -m py_compile deploy/addons/steam/hostd-steam-games
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py \
+		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py
+	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
+	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__
 
 # Coverage report; fails if core/ is below CORE_COVER_MIN percent once it has
 # code with tests.
@@ -162,6 +165,7 @@ test-install: dist
 	$(PODMAN) exec -u admin $(INSTALL_TEST) sudo /opt/hostd-deploy/install.sh --gpu other --from /opt/hostd-dist | tee bin/install-second-run.log
 	grep -q "No changes needed" bin/install-second-run.log
 	$(PODMAN) exec $(INSTALL_TEST) bash /opt/hostd-test/verify.sh
+	$(PODMAN) exec -u admin -w /home/admin $(INSTALL_TEST) bash /opt/hostd-test/addons.sh
 	$(PODMAN) exec -u screen -w /home/screen $(INSTALL_TEST) bash /opt/hostd-test/update.sh
 	$(PODMAN) exec -u admin -w /home/admin $(INSTALL_TEST) bash /opt/hostd-test/lifecycle.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null

@@ -1,0 +1,5 @@
+# Xbox controllers (360, One, Series) over USB: the kernel's xpad driver.
+# Wireless ones need an Xbox wireless adapter or Bluetooth.
+name = "Xbox controller"
+match = { vendor = "045e" }
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }

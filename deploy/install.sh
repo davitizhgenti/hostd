@@ -20,18 +20,27 @@
 #   sudo hostd-setup uninstall   remove hostd (keeps your data and the base
 #                                system; see below)
 #
+# Add-ons (deploy/addons) install optional things on top: apps such as
+# Steam or Dolphin, game-controller support. Installed ones are kept up to
+# date by every install and update.
+#   sudo hostd-setup addons             list them, and which are installed
+#   sudo hostd-setup add NAME...        install (with what they need), as
+#                                       part of an update
+#   sudo hostd-setup remove NAME...     remove
+#
 # Usage, as root on the machine:
 #   sudo ./deploy/install.sh [install] [options]
 #   sudo hostd-setup update [options]
 #   sudo hostd-setup uninstall [--purge] [--all]
+#   sudo hostd-setup addons | add NAME... | remove NAME...
 #
 # Options:
 #   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
 #   --user NAME               screen user name (default: screen)
 #   --from DIR                install hostd and hostctl from DIR instead of
 #                             downloading them (e.g. a local build)
-#   --source DIR              update: run DIR/deploy/install.sh (a checkout)
-#                             instead of downloading the latest one
+#   --source DIR              update, add: run DIR/deploy/install.sh (a
+#                             checkout) instead of downloading the latest one
 #   --purge                   uninstall: also delete hostd's data (tokens,
 #                             audit trail, app files, hostd.toml)
 #   --all                     uninstall: also undo the base setup (autologin
@@ -50,6 +59,8 @@ PURGE=0
 ALL=0
 CMD=install
 SETUP_DIR=/usr/local/share/hostd-setup
+ADDONS_STATE=/etc/hostd/addons # installed add-ons, one name per line
+ADDON_NAMES=()
 SOURCE_URL=${HOSTD_SOURCE_URL:-https://github.com/davitizhgenti/hostd/archive/refs/heads/main.tar.gz}
 RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/download/edge}
 # Resolve the hostd-setup symlink: the files live next to the real script.
@@ -67,7 +78,7 @@ changed() { info "$*"; CHANGED=1; }
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
 case ${1:-} in
-install | update | uninstall) CMD=$1; shift ;;
+install | update | uninstall | addons | add | remove) CMD=$1; shift ;;
 esac
 PASS_ARGS=() # options handed to the latest installer by update
 while [ $# -gt 0 ]; do
@@ -79,7 +90,10 @@ while [ $# -gt 0 ]; do
 	--purge) PURGE=1; shift ;;
 	--all) ALL=1; shift ;;
 	-h | --help) usage; exit 0 ;;
-	*) die "unknown option: $1 (see --help)" ;;
+	-*) die "unknown option: $1 (see --help)" ;;
+	*)
+		case $CMD in add | remove) ADDON_NAMES+=("$1"); shift ;; *) die "unexpected argument: $1 (see --help)" ;; esac
+		;;
 	esac
 done
 if [ "$CMD" != uninstall ] && { [ $PURGE -eq 1 ] || [ $ALL -eq 1 ]; }; then
@@ -101,6 +115,89 @@ install_file() {
 }
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $CMD"
+
+# --- add-ons ----------------------------------------------------------------
+# An add-on is deploy/addons/NAME/addon.sh, which sets ADDON_DESCRIPTION and
+# ADDON_REQUIRES (other add-ons) and defines addon_install and addon_remove.
+# Both run as root with this script's helpers, and must be safe to run
+# again (install runs on every install and update).
+ADDONS_DIR=$HERE/addons
+
+addon_load() {
+	local f=$ADDONS_DIR/$1/addon.sh
+	[ -f "$f" ] || die "no add-on \"$1\"; see: hostd-setup addons"
+	unset -f addon_install addon_remove
+	# shellcheck disable=SC2034 # ADDON_HERE is for the add-on's own files
+	ADDON_DESCRIPTION="" ADDON_REQUIRES="" ADDON_HERE=$ADDONS_DIR/$1
+	# shellcheck disable=SC1090
+	. "$f"
+}
+
+# addon_rescan has hostd read the app catalog again: a Flatpak app lands in
+# a directory hostd may not have been watching (it did not exist yet).
+addon_rescan() {
+	[ -S "/run/user/$SCREEN_UID/hostd.sock" ] && as_screen hostctl app rescan >/dev/null 2>&1 || true
+}
+
+addons_installed() { [ -f "$ADDONS_STATE" ] && grep -v '^#' "$ADDONS_STATE" | sed '/^$/d' || true; }
+
+# addon_order NAME...: sets ORDER to the names with what they require,
+# requirements first. (Not in a $(...) subshell: an unknown name must stop
+# the installer, and die in a subshell would only end the subshell.)
+addon_order() {
+	local seen=" " n
+	ORDER=()
+	visit() {
+		case $seen in *" $1 "*) return ;; esac
+		seen="$seen$1 "
+		addon_load "$1"
+		local req
+		for req in $ADDON_REQUIRES; do visit "$req"; done
+		ORDER+=("$1")
+	}
+	for n in "$@"; do visit "$n"; done
+}
+
+# ensure_packages PKG...: installs the Debian packages that are missing.
+ensure_packages() {
+	local missing=() p
+	for p in "$@"; do
+		dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$' || missing+=("$p")
+	done
+	[ ${#missing[@]} -eq 0 ] && return 0
+	info "installing: ${missing[*]}"
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${missing[@]}" >/dev/null ||
+		{ apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${missing[@]}" >/dev/null; } ||
+		die "could not install ${missing[*]}"
+	changed "installed ${missing[*]}"
+}
+
+if [ "$CMD" = addons ]; then
+	installed=" $(addons_installed | tr '\n' ' ') "
+	for d in "$ADDONS_DIR"/*/; do
+		n=$(basename "$d")
+		addon_load "$n"
+		mark=" "
+		case $installed in *" $n "*) mark="*" ;; esac
+		printf '%s %-12s %s\n' "$mark" "$n" "$ADDON_DESCRIPTION"
+		[ -n "$ADDON_REQUIRES" ] && printf '  %-12s (with: %s)\n' "" "$ADDON_REQUIRES"
+	done
+	echo "(* installed)  sudo hostd-setup add NAME | remove NAME"
+	exit 0
+fi
+
+if [ "$CMD" = add ]; then
+	[ ${#ADDON_NAMES[@]} -gt 0 ] || die "add what? see: hostd-setup addons"
+	mkdir -p "$(dirname "$ADDONS_STATE")"
+	addon_order "${ADDON_NAMES[@]}"
+	for n in "${ORDER[@]}"; do
+		addons_installed | grep -qx "$n" || echo "$n" >>"$ADDONS_STATE"
+	done
+	# The add-ons are applied at the end of an install run. Like update, it
+	# is the latest installer's (or --source's): everything else comes up
+	# to date with it, and one version of the installer does it all.
+	CMD=update
+fi
 
 # as_screen runs a command as the screen user, inside its systemd session.
 as_screen() {
@@ -127,6 +224,29 @@ if [ "$CMD" = update ]; then
 	# Not exec: the trap must remove the download afterwards.
 	bash "$next" install "${PASS_ARGS[@]}"
 	exit $?
+fi
+
+# ---------------------------------------------------------------------------
+# remove: undo add-ons
+if [ "$CMD" = remove ]; then
+	[ ${#ADDON_NAMES[@]} -gt 0 ] || die "remove what? see: hostd-setup addons"
+	SCREEN_HOME=$(getent passwd "$SCREEN_USER" | cut -d: -f6)
+	SCREEN_UID=$(id -u "$SCREEN_USER")
+	CHANGED=0
+	for n in "${ADDON_NAMES[@]}"; do
+		addons_installed | grep -qx "$n" || die "add-on \"$n\" is not installed"
+		for other in $(addons_installed); do
+			[ "$other" = "$n" ] && continue
+			addon_load "$other"
+			case " $ADDON_REQUIRES " in *" $n "*) die "$other needs $n: remove $other first" ;; esac
+		done
+		log "Removing add-on $n"
+		addon_load "$n"
+		addon_remove
+		sed -i "/^$n\$/d" "$ADDONS_STATE"
+	done
+	log "Done"
+	exit 0
 fi
 
 # ---------------------------------------------------------------------------
@@ -558,6 +678,18 @@ fi
 if [ "$(readlink /usr/local/sbin/hostd-setup 2>/dev/null)" != "$SETUP_DIR/install.sh" ]; then
 	ln -sfn "$SETUP_DIR/install.sh" /usr/local/sbin/hostd-setup
 	changed "hostd-setup is on the PATH"
+fi
+
+# ---------------------------------------------------------------------------
+# Add-ons: each installed one again, which also updates it.
+if [ -n "$(addons_installed)" ]; then
+	mapfile -t recorded < <(addons_installed)
+	addon_order "${recorded[@]}"
+	for n in "${ORDER[@]}"; do
+		log "Add-on: $n"
+		addon_load "$n"
+		addon_install
+	done
 fi
 
 # ---------------------------------------------------------------------------

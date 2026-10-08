@@ -89,13 +89,13 @@ func TestReadEvents(t *testing.T) {
 
 	for _, chunk := range []int{1, 7, eventSize, 1000} { // however the reads split it
 		calls := 0
-		readEvents(&chunked{data: stream.Bytes(), n: chunk}, func(InputEvent) { calls++ })
+		readEvents(&chunked{data: stream.Bytes(), n: chunk}, nil, func(InputEvent) { calls++ })
 		if calls == 0 {
 			t.Fatalf("chunk %d: no activity seen", chunk)
 		}
 	}
 	calls := 0
-	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), func(InputEvent) { calls++ })
+	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), nil, func(InputEvent) { calls++ })
 	if calls != 0 {
 		t.Fatalf("LED and sync events counted as a person: %d", calls)
 	}
@@ -133,7 +133,9 @@ func TestEvdevHotplug(t *testing.T) {
 	touched := make(chan struct{}, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- (&Evdev{Dir: dir}).Watch(ctx, func(InputEvent) { touched <- struct{}{} }) }()
+	go func() {
+		done <- (&Evdev{Dir: dir, SysRoot: t.TempDir()}).Watch(ctx, func(InputEvent) { touched <- struct{}{} })
+	}()
 
 	write := func(path string) {
 		t.Helper()

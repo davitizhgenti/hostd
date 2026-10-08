@@ -64,6 +64,18 @@ Uninstall never removes system packages, the NVIDIA driver, or the `screen`
 user. From a laptop with a checkout, `hostctl update push` installs your own
 build instead; if it does not start, the machine rolls back on its own.
 
+**Add-ons** install optional things on top, and every update keeps them
+current:
+
+```sh
+sudo hostd-setup addons              # list them
+sudo hostd-setup add steam dolphin   # Steam in Big Picture with an app per game; Dolphin
+sudo hostd-setup add controllers     # game controller access (the app add-ons bring it too)
+sudo hostd-setup remove dolphin
+```
+
+Connected game controllers: `ssh screen@<machine> hostctl controllers`.
+
 Check the whole machine with `ssh screen@<machine> 'bash -s' < deploy/check.sh`
 (or `make check-server SERVER=screen@<machine>` from a clone).
 

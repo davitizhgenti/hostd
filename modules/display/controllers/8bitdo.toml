@@ -1,0 +1,4 @@
+# 8BitDo controllers in their X-input or D-input modes.
+name = "8BitDo controller"
+match = { vendor = "2dc8" }
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }

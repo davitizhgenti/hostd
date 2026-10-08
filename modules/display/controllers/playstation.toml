@@ -1,0 +1,6 @@
+# DualShock 4 (PS4) and DualSense (PS5) over USB: hid-playstation /
+# hid-sony. The PS button is the Guide button. The touchpad and motion
+# sensors show up as separate devices without gamepad buttons.
+name = "PlayStation controller"
+match = { vendor = "054c" }
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }

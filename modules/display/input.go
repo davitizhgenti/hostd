@@ -32,10 +32,6 @@ type InputEvent struct {
 // other controllers under Linux.
 const btnMode = 0x13c
 
-// Buttons are the controller buttons that can be bound, by evdev code.
-// Only buttons with no in-game use: games own the rest.
-var Buttons = map[uint16]string{btnMode: "guide"}
-
 // Linux input event types that mean a person did something. EV_SYN and
 // EV_MSC accompany them; EV_LED and friends are the system talking.
 const (
@@ -68,12 +64,27 @@ func isActivity(ev []byte) bool {
 // be in the input group, which the installer sets up.
 type Evdev struct {
 	Dir string // default /dev/input
+	// Profiles say which buttons each controller has (see controllers.go);
+	// nil: the built-in ones.
+	Profiles *Profiles
+	SysRoot  string // where sysfs is mounted, "/" outside tests
 }
 
 func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 	dir := e.Dir
 	if dir == "" {
 		dir = "/dev/input"
+	}
+	profiles := e.Profiles
+	if profiles == nil {
+		var err error
+		if profiles, err = LoadProfiles(""); err != nil {
+			return err
+		}
+	}
+	sys := sysfs{root: e.SysRoot}
+	if sys.root == "" {
+		sys.root = "/"
 	}
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -101,6 +112,12 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 		}
 		open[path] = true
 		mu.Unlock()
+		// The device's buttons, by its profile: a known pad's Guide,
+		// nothing for a keyboard.
+		var codes map[uint16]string
+		if p := profiles.forInput(sys.input(path)); p != nil {
+			codes = p.codes
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -108,7 +125,7 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 			stop := context.AfterFunc(ctx, func() { f.Close() })
 			defer stop()
 			defer f.Close()
-			readEvents(f, fn)
+			readEvents(f, codes, fn)
 		}()
 	}
 
@@ -137,8 +154,9 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 	}
 }
 
-// readEvents reads input events until the device goes away.
-func readEvents(r io.Reader, fn func(InputEvent)) {
+// readEvents reads input events until the device goes away. codes names
+// the device's bindable buttons.
+func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
 	buf := make([]byte, eventSize*64)
 	var pending []byte
 	for {
@@ -151,7 +169,7 @@ func readEvents(r io.Reader, fn func(InputEvent)) {
 				e := pending[:eventSize]
 				active = active || isActivity(e)
 				if binary.LittleEndian.Uint16(e[16:18]) == evKey && int32(binary.LittleEndian.Uint32(e[20:24])) == 1 { // pressed, not released or repeated
-					if name, ok := Buttons[binary.LittleEndian.Uint16(e[18:20])]; ok {
+					if name, ok := codes[binary.LittleEndian.Uint16(e[18:20])]; ok {
 						ev.Buttons = append(ev.Buttons, name)
 					}
 				}

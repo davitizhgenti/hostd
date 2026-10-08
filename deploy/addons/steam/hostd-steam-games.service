@@ -1,0 +1,7 @@
+# Managed by hostd's steam add-on.
+[Unit]
+Description=hostd: an app for each installed Steam game
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/hostd/addons/hostd-steam-games

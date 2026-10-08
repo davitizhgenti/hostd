@@ -185,6 +185,14 @@ The screen runs Sway, and each window instance gets its own workspace, fullscree
 2. **Match rules:** the app's `match` block: globs on `class`, `app_id` and `title`, or `env = "KEY=value"` in the window's process (Flatpak apps default to `FLATPAK_ID=<id>`, handoff apps to their handoff variable). Any rule that is set and matches is enough.
 3. **Unowned:** windows that match nothing (a dialog opened by hand) still appear in `/windows`, with no instance.
 
+**Game controllers.** The kernel drives most pads as input devices (xpad for Xbox, hid-playstation, hid-nintendo, hid-wiimote). hostd recognises them by **profiles**: small TOML files that match a USB vendor, products or a name, and say which evdev key each of hostd's buttons is (`guide`, `start`, `select`). Profiles are built in (Xbox, PlayStation, Switch, 8BitDo, Wii Remote, DolphinBar), and `~/.config/hostd/controllers/*.toml` adds to or replaces them. A gamepad no profile knows gets a generic one, with Guide on `BTN_MODE`. A raw device with no input device (a Mayflash DolphinBar in Dolphin mode) is listed as its app's (`raw`, `app`). Supporting a new kind of controller means adding a file, not code. `GET /v1/controllers` (and `hostctl controllers`) lists what is connected; `controller.connected` and `controller.disconnected` announce changes.
+
+**Add-ons.** Optional software comes as installer add-ons (`deploy/addons/<name>/addon.sh`): `sudo hostd-setup add NAME`, `remove NAME`, `addons` to list them. Installed ones are recorded in `/etc/hostd/addons` and applied again by every install and update, which also updates them. They live outside hostd's core:
+- **controllers** installs udev rules giving the screen session raw HID and uinput access for common pads.
+- **flatpak** sets up Flatpak with Flathub, and updates every Flatpak app and runtime, including the NVIDIA GL runtime that must match the driver.
+- **steam** installs the Steam Flatpak, started in Big Picture. Its `hostd-steam-games` writes an app file per installed game (a handoff to Steam, followed by `SteamAppId`), kept current by a user path unit.
+- **dolphin** installs Dolphin, which reads Wii Remotes through a DolphinBar.
+
 **Input and shortcuts**
 
 Every key or button that changes the screen is a named input, mapped by one table to a display action. The action goes through the core like any other, with source `local`, so it is audited, outranks phones and scripts, and gets the same protection.

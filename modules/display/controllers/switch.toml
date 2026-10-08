@@ -1,0 +1,5 @@
+# Nintendo Switch Pro controller and Joy-Cons: hid-nintendo. Home is the
+# Guide button.
+name = "Nintendo Switch controller"
+match = { vendor = "057e", products = ["2009", "2006", "2007", "200e"] }
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }

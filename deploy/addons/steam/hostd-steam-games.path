@@ -1,0 +1,11 @@
+# Managed by hostd's steam add-on: list the games again when Steam
+# installs or removes one (its library folder changes).
+[Unit]
+Description=hostd: follow Steam's library
+
+[Path]
+PathModified=%h/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps
+Unit=hostd-steam-games.service
+
+[Install]
+WantedBy=default.target

@@ -98,7 +98,7 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 	if err != nil {
 		return nil, nil, fmt.Errorf("input.keys: %w", err)
 	}
-	knownButtons := slices.Sorted(maps.Values(Buttons))
+	knownButtons := ButtonNames
 	b, err := merge(DefaultButtons, buttons, func(name string) error {
 		if !slices.Contains(knownButtons, name) {
 			return fmt.Errorf("button %q: use one of %s", name, strings.Join(knownButtons, ", "))

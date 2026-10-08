@@ -66,9 +66,9 @@ func TestReadEventsGuide(t *testing.T) {
 	var stream []byte
 	stream = append(stream, inputEvent(evKey, btnMode, 1)...) // press
 	stream = append(stream, inputEvent(0, 0, 0)...)
-	readEvents(&chunked{data: stream, n: 1000}, func(e InputEvent) { got = append(got, e) })
+	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
 	stream = append(inputEvent(evKey, btnMode, 0), inputEvent(0, 0, 0)...) // release
-	readEvents(&chunked{data: stream, n: 1000}, func(e InputEvent) { got = append(got, e) })
+	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
 	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 {
 		t.Fatalf("events %+v", got)
 	}

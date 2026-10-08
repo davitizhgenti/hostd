@@ -1,0 +1,163 @@
+#!/usr/bin/python3
+"""Makes a hostd app for each installed Steam game (hostd's steam add-on).
+
+Reads Steam's library (libraryfolders.vdf, appmanifest_*.acf) and writes
+~/.config/hostd/apps/steam-<appid>.toml for each installed game: a handoff
+to Steam (steam://rungameid/<id>), followed by the SteamAppId variable
+Steam gives the game's processes. Files it made carry a marker line; it
+removes those whose game is gone, and never touches other files. Run it
+again any time; --remove deletes everything it made.
+"""
+
+import os
+import re
+import sys
+
+MARKER = "# Made by hostd-steam-games from Steam's library; changes are overwritten."
+STEAM_ID = "com.valvesoftware.Steam"
+
+# Installed like games, but not games.
+TOOLS = {"228980", "1070560", "1391110", "1628350", "1493710", "2180100", "961940"}
+TOOL_NAMES = re.compile(r"^(Proton( |$)|Steam Linux Runtime|Steamworks)")
+
+
+def parse_vdf(text):
+    """Valve's KeyValues text: nested {"key": "value" | {...}}, keys lower-cased."""
+    tokens = re.findall(r'"((?:[^"\\]|\\.)*)"|([{}])', re.sub(r"//[^\n]*", "", text))
+    stack, current, key = [], {}, None
+    for quoted, brace in tokens:
+        if brace == "{":
+            child = {}
+            current[key] = child
+            stack.append(current)
+            current, key = child, None
+        elif brace == "}":
+            if not stack:
+                raise ValueError("unbalanced }")
+            current, key = stack.pop(), None
+        elif key is None:
+            key = quoted.lower()
+        else:
+            current[key] = quoted.replace('\\"', '"').replace("\\\\", "\\")
+            key = None
+    if stack:
+        raise ValueError("missing }")
+    return current
+
+
+def steam_roots(home):
+    return [os.path.join(home, ".var/app", STEAM_ID, ".local/share/Steam"),
+            os.path.join(home, ".local/share/Steam")]
+
+
+def libraries(home):
+    """Every library folder (holding steamapps/), without duplicates."""
+    seen, out = set(), []
+
+    def add(path):
+        real = os.path.realpath(path)
+        if real not in seen and os.path.isdir(os.path.join(real, "steamapps")):
+            seen.add(real)
+            out.append(real)
+
+    for root in steam_roots(home):
+        add(root)
+        try:
+            with open(os.path.join(root, "steamapps", "libraryfolders.vdf"), encoding="utf-8") as f:
+                folders = parse_vdf(f.read()).get("libraryfolders", {})
+        except (OSError, ValueError):
+            continue
+        for k, v in folders.items():
+            if k.isdigit():
+                add(v.get("path", "") if isinstance(v, dict) else v)
+    return out
+
+
+def games(home):
+    """{appid: name} of the installed games."""
+    found = {}
+    for lib in libraries(home):
+        apps = os.path.join(lib, "steamapps")
+        for name in sorted(os.listdir(apps)):
+            m = re.fullmatch(r"appmanifest_(\d+)\.acf", name)
+            if not m:
+                continue
+            try:
+                with open(os.path.join(apps, name), encoding="utf-8") as f:
+                    state = parse_vdf(f.read()).get("appstate", {})
+            except (OSError, ValueError):
+                continue
+            appid, title = state.get("appid", m.group(1)), state.get("name", "")
+            installed = int(state.get("stateflags", "0") or 0) & 4
+            if installed and appid not in TOOLS and not TOOL_NAMES.match(title):
+                found.setdefault(appid, title or f"Steam game {appid}")
+    return found
+
+
+def toml_string(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def app_file(appid, name):
+    command = f'["flatpak", "run", "{STEAM_ID}", "steam://rungameid/{appid}"]'
+    return f"""{MARKER}
+name = {toml_string(name)}
+runner = {{ type = "exec", command = {command}, handoff = "SteamAppId={appid}" }}
+
+[match]
+class = "steam_app_{appid}"
+env = "SteamAppId={appid}"
+
+[window]
+fullscreen = true
+"""
+
+
+def ours(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.readline().rstrip("\n") == MARKER
+    except OSError:
+        return False
+
+
+def sync(home, apps_dir, remove_all=False):
+    """Writes the game apps and removes stale ones. Returns (written, removed)."""
+    os.makedirs(apps_dir, exist_ok=True)
+    wanted = {} if remove_all else games(home)
+    written = removed = 0
+    for appid, name in wanted.items():
+        path = os.path.join(apps_dir, f"steam-{appid}.toml")
+        if os.path.exists(path) and not ours(path):
+            continue  # the person's own file for this game wins
+        body = app_file(appid, name)
+        try:
+            with open(path, encoding="utf-8") as f:
+                if f.read() == body:
+                    continue
+        except OSError:
+            pass
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.replace(tmp, path)
+        written += 1
+    for name in os.listdir(apps_dir):
+        m = re.fullmatch(r"steam-(\d+)\.toml", name)
+        path = os.path.join(apps_dir, name)
+        if m and m.group(1) not in wanted and ours(path):
+            os.remove(path)
+            removed += 1
+    return written, removed
+
+
+def main(argv):
+    home = os.path.expanduser("~")
+    config = os.environ.get("XDG_CONFIG_HOME", os.path.join(home, ".config"))
+    written, removed = sync(home, os.path.join(config, "hostd", "apps"), remove_all="--remove" in argv)
+    print(f"hostd-steam-games: {written} written, {removed} removed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

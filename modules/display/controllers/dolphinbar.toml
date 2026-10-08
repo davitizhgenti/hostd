@@ -1,0 +1,8 @@
+# Mayflash DolphinBar in its Dolphin mode (mode 4): Wii Remotes reach
+# Dolphin through raw HID, one channel per remote. There is no input
+# device, so hostd cannot see the buttons: open hostd's menu with another
+# controller or the keyboard. The dolphin add-on gives Dolphin access.
+name = "Wii Remotes (Mayflash DolphinBar)"
+match = { vendor = "057e", products = ["0306"] }
+raw = true
+app = "dolphin-emu"

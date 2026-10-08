@@ -1,0 +1,11 @@
+# Managed by hostd's steam add-on: libraries on other drives are not
+# watched; look every hour as well.
+[Unit]
+Description=hostd: list Steam's games every hour
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target

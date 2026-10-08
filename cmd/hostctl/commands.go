@@ -27,7 +27,7 @@ import (
 // looked up in the server's manifests.
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "windows": true,
+	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "windows": true, "controllers": true,
 	"volume": true, "mute": true, "update": true,
 	"help": true, "completion": true,
 }
@@ -48,7 +48,7 @@ see them all.`,
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
 		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand(),
-		a.focusCommand(), a.windowsCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand())
+		a.focusCommand(), a.windowsCommand(), a.controllersCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand())
 	return root
 }
 
@@ -764,6 +764,55 @@ screen it stays put and they get a notice instead; --front switches anyway
 	}
 	cmd.Flags().BoolVar(&front, "front", false, "switch even while someone is using the screen")
 	return cmd
+}
+
+func (a *app) controllersCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "controllers",
+		Short: "List connected game controllers and the buttons hostd knows on them",
+		Long: `List connected game controllers: their profile (which family hostd takes
+them for) and the buttons that can be bound in hostd.toml ([input.buttons]).
+Profiles are built in, and ~/.config/hostd/controllers/*.toml adds more.
+A raw device (a DolphinBar) is read only by its app.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			var list []struct {
+				Device  string   `json:"device"`
+				Name    string   `json:"name"`
+				Vendor  string   `json:"vendor"`
+				Product string   `json:"product"`
+				Profile string   `json:"profile"`
+				Kind    string   `json:"kind"`
+				Buttons []string `json:"buttons"`
+				Raw     bool     `json:"raw"`
+				App     string   `json:"app"`
+			}
+			if err := c.Get(cmd.Context(), "/v1/controllers", &list); err != nil {
+				return err
+			}
+			if a.jsonOut {
+				return a.printJSON(list)
+			}
+			if len(list) == 0 {
+				fmt.Fprintln(a.stdout, "no controllers connected")
+				return nil
+			}
+			tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "DEVICE\tKIND\tPROFILE\tID\tBUTTONS\tNAME")
+			for _, x := range list {
+				buttons := strings.Join(x.Buttons, ",")
+				if x.Raw {
+					buttons = "(read by " + x.App + ")"
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s:%s\t%s\t%s\n", x.Device, x.Kind, x.Profile, x.Vendor, x.Product, buttons, x.Name)
+			}
+			return tw.Flush()
+		},
+	}
 }
 
 func (a *app) windowsCommand() *cobra.Command {

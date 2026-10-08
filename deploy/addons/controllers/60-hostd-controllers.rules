@@ -1,0 +1,29 @@
+# Managed by hostd's controllers add-on (deploy/addons/controllers).
+# Raw HID and uinput for game controllers, for the session at the screen
+# (uaccess) and the input group (the screen user is in it).
+
+# Virtual pads (Steam Input and others).
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess", GROUP="input", MODE="0660"
+
+# USB: Microsoft (Xbox), Sony, Nintendo (Switch, Wii Remote, DolphinBar
+# 057e:0306), Valve, 8BitDo, PowerA, PDP, Hori, Logitech, Mayflash.
+KERNEL=="hidraw*", ATTRS{idVendor}=="045e", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="057e", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="28de", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="2dc8", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="20d6", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0e6f", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0f0d", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", ATTRS{idVendor}=="0079", TAG+="uaccess", GROUP="input", MODE="0660"
+
+# The same over Bluetooth, where the IDs are in the device path.
+KERNEL=="hidraw*", KERNELS=="*045E:*", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", KERNELS=="*054C:*", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", KERNELS=="*057E:*", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", KERNELS=="*28DE:*", TAG+="uaccess", GROUP="input", MODE="0660"
+KERNEL=="hidraw*", KERNELS=="*2DC8:*", TAG+="uaccess", GROUP="input", MODE="0660"
+
+# GameCube controller adapter for Wii U / Switch (raw USB, for Dolphin).
+SUBSYSTEM=="usb", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="0337", TAG+="uaccess", GROUP="input", MODE="0660"

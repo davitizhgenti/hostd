@@ -654,7 +654,7 @@ Rough, for one developer part-time. Adjust after M1.
 - [ ] _Emulator (RetroArch Flatpak)_
 - [ ] _Browser-based (Jellyfin via `url` runner)_
 
-**Controllers (M2):** _e.g. Xbox, DualSense, 8BitDo_ (Guide button mapping per model)
+**Controllers (M2):** a Mayflash DolphinBar with Wii Remotes (for Dolphin; raw, so not for hostd's Guide), plus any USB pad. Guide mapping per family comes from controller profiles (`modules/display/controllers/*.toml`; user files in `~/.config/hostd/controllers/`). Steam and Dolphin are add-ons: `sudo hostd-setup add steam dolphin`.
 
 **Audio outputs (M3):** HDMI to TV, analog speakers, _Bluetooth headset model_
 

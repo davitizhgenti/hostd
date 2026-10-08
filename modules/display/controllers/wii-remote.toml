@@ -1,0 +1,5 @@
+# A Wii Remote paired over Bluetooth, driven by the kernel (hid-wiimote):
+# Home is the Guide button. (Through a DolphinBar, see dolphinbar.toml.)
+name = "Wii Remote"
+match = { name = "Nintendo Wii Remote*" }
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }

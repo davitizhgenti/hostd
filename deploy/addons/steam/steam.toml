@@ -1,0 +1,17 @@
+# Managed by hostd's steam add-on; changes here are overwritten.
+# Steam starts in Big Picture, made for a TV and a controller. Its desktop
+# window is an action (right click in the menu).
+extends = "steam"
+name = "Steam"
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"] }
+
+[match]
+env = "FLATPAK_ID=com.valvesoftware.Steam"
+
+[window]
+fullscreen = true
+
+[[actions]]
+id = "desktop"
+name = "Steam (desktop window)"
+command = ["flatpak", "run", "com.valvesoftware.Steam"]
