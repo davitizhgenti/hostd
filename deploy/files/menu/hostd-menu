@@ -2,7 +2,7 @@
 """hostd's menu: the on-screen list of running apps and the catalog.
 
 hostd runs it as the hidden app "hostd-menu" and brings it forward with
-the display.menu action (Super, a controller's Guide button). Choosing an
+the display.menu action (Super, holding a controller's Guide button). Choosing an
 entry sends window.focus or app.start with the "local" token, so it counts
 as someone at the screen. An entry's actions (right click, the Menu key,
 controller X) open in a small box at the entry.

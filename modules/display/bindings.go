@@ -30,7 +30,10 @@ var DefaultKeys = map[string]string{
 	"Super+Q":         "window.close",
 }
 
-// DefaultButtons: the Guide button is the controller's Super.
+// DefaultButtons: the Guide button is the controller's Super. Apps see
+// controller buttons too (they read the controller themselves; Steam
+// opens its own menu on Guide), so a button's action runs when it is
+// held (Options.HoldFor): a tap is the app's, a hold is hostd's.
 var DefaultButtons = map[string]string{
 	"guide": "display.menu",
 }
@@ -114,8 +117,61 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 // onInput is called for every input from every device.
 func (m *Module) onInput(ev InputEvent) {
 	m.presence.touch()
+	for _, b := range ev.Released {
+		m.release(b)
+	}
 	for _, b := range ev.Buttons {
-		m.press("controller", b)
+		m.hold(b)
+	}
+}
+
+// hold runs a controller button's action once it has been held for
+// HoldFor; letting go sooner leaves the press to the app.
+func (m *Module) hold(name string) {
+	if _, ok := m.buttons[name]; !ok {
+		return
+	}
+	if m.opts.HoldFor < 0 {
+		m.press("controller", name)
+		return
+	}
+	m.mu.Lock()
+	ctx := m.life
+	if _, held := m.holds[name]; held || ctx == nil {
+		m.mu.Unlock()
+		return
+	}
+	released := make(chan struct{})
+	m.holds[name] = released
+	m.mu.Unlock()
+	m.done.Add(1)
+	go func() {
+		defer m.done.Done()
+		t := m.opts.Clock.NewTimer(m.opts.HoldFor)
+		defer t.Stop()
+		select {
+		case <-t.C():
+		case <-released:
+			return
+		case <-ctx.Done():
+			return
+		}
+		m.mu.Lock()
+		if m.holds[name] == released {
+			delete(m.holds, name)
+		}
+		m.mu.Unlock()
+		m.press("controller", name)
+	}()
+}
+
+// release notes that a controller button was let go.
+func (m *Module) release(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ch, ok := m.holds[name]; ok {
+		close(ch)
+		delete(m.holds, name)
 	}
 }
 

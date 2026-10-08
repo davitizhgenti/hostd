@@ -19,9 +19,23 @@ import (
 
 // --- the Guide button --------------------------------------------------------------
 
+// holdButton presses a controller button and keeps it held until hostd
+// has acted on it.
+func (r *displayRig) holdButton(t *testing.T, name string) {
+	t.Helper()
+	r.input.send(t, InputEvent{Buttons: []string{name}})
+	waitFor(t, name+" held", func() bool {
+		r.clock.Advance(100 * time.Millisecond)
+		r.m.mu.Lock()
+		defer r.m.mu.Unlock()
+		_, held := r.m.holds[name]
+		return !held
+	})
+}
+
 func TestGuideButtonOpensMenu(t *testing.T) {
 	r := newDisplayRig(t, true)
-	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.holdButton(t, "guide")
 	select {
 	case a := <-r.started:
 		if string(a.Args) != `{"id":"hostd-menu"}` || a.Source.Kind != sdk.SourceLocal {
@@ -32,6 +46,25 @@ func TestGuideButtonOpensMenu(t *testing.T) {
 	}
 	if !r.m.presence.present() {
 		waitFor(t, "present", r.m.presence.present)
+	}
+}
+
+func TestGuideTapIsTheApps(t *testing.T) {
+	// A tap opens the app's own menu (Steam's); hostd waits for a hold.
+	r := newDisplayRig(t, true)
+	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.input.send(t, InputEvent{Released: []string{"guide"}})
+	r.clock.Advance(time.Second)
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case a := <-r.started:
+		t.Fatalf("a tap started %s", a.Args)
+	default:
+	}
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	if len(r.m.holds) != 0 {
+		t.Fatalf("holds %v", r.m.holds)
 	}
 }
 
@@ -48,7 +81,7 @@ func TestGuideButtonTogglesBack(t *testing.T) {
 	r.b.focus(5)
 	r.event(t)
 	r.b.commands()
-	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.holdButton(t, "guide")
 	waitFor(t, "back to tv", func() bool {
 		r.b.mu.Lock()
 		defer r.b.mu.Unlock()
@@ -69,7 +102,8 @@ func TestReadEventsGuide(t *testing.T) {
 	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
 	stream = append(inputEvent(evKey, btnMode, 0), inputEvent(0, 0, 0)...) // release
 	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
-	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 {
+	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 ||
+		!reflect.DeepEqual(got[1].Released, []string{"guide"}) {
 		t.Fatalf("events %+v", got)
 	}
 }

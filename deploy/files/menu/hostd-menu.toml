@@ -1,5 +1,5 @@
 # Managed by hostd deploy/install.sh; changes here are overwritten.
-# hostd's on-screen menu, opened with Super or a controller's Guide button.
+# hostd's on-screen menu, opened with Super or by holding a controller's Guide button.
 name = "Menu"
 hidden = true
 runner = { type = "exec", command = ["/usr/local/lib/hostd/hostd-menu"] }

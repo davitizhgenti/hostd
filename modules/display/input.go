@@ -24,8 +24,9 @@ type Input interface {
 
 // InputEvent is a batch of input from one device.
 type InputEvent struct {
-	// Buttons pressed, by name (see Buttons), for the binding table.
-	Buttons []string
+	// Buttons pressed and let go, by name (see Buttons), for the
+	// binding table.
+	Buttons, Released []string
 }
 
 // btnMode is BTN_MODE, the Guide button of Xbox, PlayStation and most
@@ -168,9 +169,14 @@ func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
 			for len(pending) >= eventSize {
 				e := pending[:eventSize]
 				active = active || isActivity(e)
-				if binary.LittleEndian.Uint16(e[16:18]) == evKey && int32(binary.LittleEndian.Uint32(e[20:24])) == 1 { // pressed, not released or repeated
+				if binary.LittleEndian.Uint16(e[16:18]) == evKey {
 					if name, ok := codes[binary.LittleEndian.Uint16(e[18:20])]; ok {
-						ev.Buttons = append(ev.Buttons, name)
+						switch int32(binary.LittleEndian.Uint32(e[20:24])) {
+						case 1: // pressed (2 is a repeat)
+							ev.Buttons = append(ev.Buttons, name)
+						case 0:
+							ev.Released = append(ev.Released, name)
+						}
 					}
 				}
 				pending = pending[eventSize:]

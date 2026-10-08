@@ -42,7 +42,10 @@ import (
 //	# Keys and controller buttons, mapped to display actions. These add
 //	# to or change the defaults (Super: menu, Super+Tab / Super+Shift+Tab:
 //	# next / previous app, Super+Q: close the app, Guide: menu); ""
-//	# removes one.
+//	# removes one. Apps see controller buttons too, so hostd acts on a
+//	# button only when it is held: hold is how long (a tap is the app's).
+//	[input]
+//	hold = "600ms"
 //	[input.keys]
 //	"F1" = "display.menu"
 //	[input.buttons]
@@ -58,6 +61,7 @@ type Config struct {
 	Input       struct {
 		Keys    map[string]string `toml:"keys"`
 		Buttons map[string]string `toml:"buttons"`
+		Hold    duration          `toml:"hold"`
 	} `toml:"input"`
 
 	// The key and button bindings in effect: the defaults with Input

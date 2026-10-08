@@ -58,6 +58,10 @@ type Options struct {
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
+	// HoldFor is how long a controller button is held before its action
+	// runs; a shorter press is left to the app (default 600ms; negative:
+	// on press).
+	HoldFor time.Duration
 
 	Clock        clock.Clock
 	Logger       *slog.Logger
@@ -107,6 +111,8 @@ type Module struct {
 	keys      map[string]string        // key name -> action
 	buttons   map[string]string        // controller button -> action
 	pressing  map[string]bool          // inputs whose action is being handled
+	holds     map[string]chan struct{} // controller buttons held down; closed on release
+	life      context.Context          // ends when the module stops
 	failed    int                      // compositor commands that failed
 	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
 	presence  *presence
@@ -147,7 +153,10 @@ func New(opts Options) *Module {
 	if opts.Buttons == nil {
 		opts.Buttons = DefaultButtons
 	}
-	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{},
+	if opts.HoldFor == 0 {
+		opts.HoldFor = 600 * time.Millisecond
+	}
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{},
 		keys: opts.Keys, buttons: opts.Buttons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
@@ -268,10 +277,11 @@ func (m *Module) Manifest() sdk.Manifest {
 // Start begins following the compositor and the apps' instances. A missing
 // compositor is not an error: the module attaches when Sway appears.
 func (m *Module) Start(_ context.Context, core sdk.Core) error {
+	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	m.core = core
+	m.life = ctx
 	m.mu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
 	m.stop = cancel
 	if m.opts.Input != nil {
 		m.done.Add(2)
