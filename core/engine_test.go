@@ -936,3 +936,39 @@ func TestHandles(t *testing.T) {
 		t.Fatal("Handles wrong")
 	}
 }
+
+func TestModuleSubscriptionSurvivesLag(t *testing.T) {
+	h := newHarness(t, Options{BusBuffer: 2})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := h.res.Core().Subscribe(ctx, "res.*")
+
+	// The module does not read for a while: the bus drops it.
+	for i := range 8 {
+		h.res.Core().Emit(sdk.Event{Type: "res.note", Data: json.RawMessage(fmt.Sprintf(`{"n":%d}`, i))})
+	}
+	lagged := false
+	for !lagged {
+		select {
+		case ev := <-events:
+			lagged = ev.Type == sdk.EventLagged
+		case <-time.After(5 * time.Second):
+			t.Fatal("no bus.lagged notice")
+		}
+	}
+	// The stream goes on: a later event arrives on the same channel.
+	h.res.Core().Emit(sdk.Event{Type: "res.note", Data: json.RawMessage(`{"n":99}`)})
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				t.Fatal("the stream closed after the lag")
+			}
+			if string(ev.Data) == `{"n":99}` {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no event after the lag")
+		}
+	}
+}

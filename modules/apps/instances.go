@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -404,17 +406,29 @@ func (m *Module) adopt(ctx context.Context) {
 }
 
 // watchBackend follows a backend's ended instances, reconnecting if the stream
-// breaks.
+// breaks. Ends that happen while the stream is down are not lost: once
+// watching again, the backend is asked what still runs (reconcile).
 func (m *Module) watchBackend(ctx context.Context, name string, b Backend) {
 	backoff := time.Second
+	reconnect := false
 	for {
+		var check clock.Timer
+		if reconnect {
+			// Give the new stream a moment to be in place, then compare: an
+			// end after this shows up as an event, one before it here.
+			check = m.opts.Clock.AfterFunc(time.Second, func() { m.reconcile(ctx, name, b) })
+		}
 		err := b.Watch(ctx, m.onEnded)
+		if check != nil {
+			check.Stop()
+		}
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
 			m.log.Warn("watching instances", "runner", name, "err", err)
 		}
+		reconnect = true
 		select {
 		case <-ctx.Done():
 			return
@@ -423,6 +437,48 @@ func (m *Module) watchBackend(ctx context.Context, name string, b Backend) {
 		if backoff < 30*time.Second {
 			backoff *= 2
 		}
+	}
+}
+
+// reconcile ends the live instances of a backend that it no longer finds
+// running: they ended while hostd's view of the backend was cut off.
+func (m *Module) reconcile(ctx context.Context, name string, b Backend) {
+	if ctx.Err() != nil {
+		return
+	}
+	actx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	found, err := b.Adopt(actx)
+	if err != nil {
+		m.log.Warn("checking instances after reconnecting", "runner", name, "err", err)
+		return
+	}
+	seen := map[string]Instance{}
+	for _, in := range found {
+		seen[in.ID] = in
+	}
+	var ended []Ended
+	m.mu.Lock()
+	for id, in := range m.instances {
+		if m.backend(in.Runner) != b || (in.State != StateRunning && in.State != StateStopping) {
+			continue // another backend's, or still starting
+		}
+		cur, ok := seen[id]
+		switch {
+		case !ok:
+			ended = append(ended, Ended{Instance: id, ExitCode: 0, Reason: "ended while hostd could not watch it"})
+		case cur.State.Ended():
+			code := 0
+			if cur.ExitCode != nil {
+				code = *cur.ExitCode
+			}
+			ended = append(ended, Ended{Instance: id, ExitCode: code, Reason: fmt.Sprintf("exit status %d (while hostd could not watch it)", code)})
+		}
+	}
+	m.mu.Unlock()
+	for _, e := range ended {
+		m.log.Info("instance ended unseen", "instance", e.Instance, "runner", name)
+		m.onEnded(e)
 	}
 }
 

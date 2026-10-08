@@ -18,7 +18,8 @@ type fakeSystemd struct {
 	nextPID  int
 	watchers map[int]func(name, sub string)
 	nextW    int
-	started  []UnitSpec // every spec StartTransient got
+	started  []UnitSpec    // every spec StartTransient got
+	broken   chan struct{} // closed by breakWatch
 }
 
 type fakeUnit struct {
@@ -104,12 +105,48 @@ func (f *fakeSystemd) Watch(ctx context.Context, fn func(name, sub string)) erro
 	f.nextW++
 	id := f.nextW
 	f.watchers[id] = fn
+	if f.broken == nil {
+		f.broken = make(chan struct{})
+	}
+	broken := f.broken
 	f.mu.Unlock()
-	<-ctx.Done()
+	defer func() {
+		f.mu.Lock()
+		delete(f.watchers, id)
+		f.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-broken:
+		return errors.New("the bus connection closed")
+	}
+}
+
+// breakWatch ends every Watch with an error, as a lost D-Bus connection
+// does.
+func (f *fakeSystemd) breakWatch() {
 	f.mu.Lock()
-	delete(f.watchers, id)
+	if f.broken == nil {
+		f.broken = make(chan struct{})
+	}
+	close(f.broken)
+	f.broken = nil
 	f.mu.Unlock()
-	return nil
+}
+
+// exitQuietly ends a unit's app without telling any watcher (the event is
+// lost, as while the bus connection is down).
+func (f *fakeSystemd) exitQuietly(name string, status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u := f.units[name]
+	u.info.ExitStatus, u.info.ExitCode, u.info.MainPID = status, 1, 0
+	if status != 0 {
+		u.info.ActiveState, u.info.SubState, u.info.Result = "failed", "failed", "exit-code"
+	} else {
+		u.info.SubState = "exited"
+	}
 }
 
 func (f *fakeSystemd) notify(name, sub string) {

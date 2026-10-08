@@ -355,11 +355,12 @@ func (r *ExecRunner) Watch(ctx context.Context, fn func(Ended)) error {
 	r.handoffDefaults()
 	r.mu.Unlock()
 	pctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); r.pollHandoffs(pctx, fn) }()
-	defer wg.Wait()
+	// Stop the poller, then wait for it. (In the other order, a stream that
+	// ends with an error, not with ctx, would wait forever.)
+	defer func() { cancel(); wg.Wait() }()
 	return r.Systemd.Watch(ctx, func(name, sub string) {
 		if !strings.HasPrefix(name, "hostd-") || (sub != "exited" && sub != "failed") {
 			return

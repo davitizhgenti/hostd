@@ -1,0 +1,55 @@
+name: install
+
+# The installer's whole lifecycle (install, run again, update with
+# rollback, uninstall, reinstall) in a fresh Debian 13 container with
+# systemd: make test-install. It runs when the installer or its tests
+# change, every night, and on demand.
+on:
+  push:
+    paths:
+      - "deploy/**"
+      - "test/install/**"
+      - "Makefile"
+      - ".github/workflows/install.yml"
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "test/install/**"
+      - "Makefile"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install test
+        shell: bash
+        run: make test-install 2>&1 | tee install.log; exit ${PIPESTATUS[0]}
+      - name: Show failed checks
+        if: failure()
+        shell: bash
+        run: |
+          msg=$(grep -h -E "FAIL|error" install.log | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          echo "::error title=Install test failed::${msg:-see the job log}"
+
+  # Fuzz targets, a few minutes each, on the same schedule.
+  fuzz:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make fuzz FUZZTIME=3m

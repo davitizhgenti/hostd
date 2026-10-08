@@ -490,3 +490,35 @@ command = ["chromium", "--incognito"]
 		t.Fatalf("unknown action: %v", err)
 	}
 }
+
+func TestReconcileAfterLostStream(t *testing.T) {
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	waitUntil(t, func() bool { return sd.watching() == 1 })
+	r.start(t, "term")
+	r.next(t) // starting
+	r.next(t) // started
+	r.start(t, "tabs")
+	r.next(t)
+	r.next(t)
+
+	// term ends while the bus connection is down: its event is lost.
+	sd.exitQuietly(unitName("term"), 0)
+	sd.breakWatch()
+
+	ev := r.next(t)
+	var in Instance
+	_ = json.Unmarshal(ev.Data, &in)
+	if ev.Type != EventExited || in.ID != "term" || in.State != StateExited {
+		t.Fatalf("event %s %s", ev.Type, ev.Data)
+	}
+	if live := r.live(); len(live) != 1 || live[0] != "tabs" {
+		t.Fatalf("live after reconcile: %v", live)
+	}
+	// Watching again: a later end arrives as an event, as before.
+	waitUntil(t, func() bool { return sd.watching() == 1 })
+	sd.exit(unitName("tabs"), 3, 1)
+	if ev := r.next(t); ev.Type != EventFailed {
+		t.Fatalf("after reconnect: %s %s", ev.Type, ev.Data)
+	}
+}

@@ -91,6 +91,8 @@ type Module struct {
 	keys      map[string]string        // key name -> action
 	buttons   map[string]string        // controller button -> action
 	pressing  map[string]bool          // inputs whose action is being handled
+	failed    int                      // compositor commands that failed
+	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
 	presence  *presence
 
 	stop context.CancelFunc
@@ -137,7 +139,7 @@ func New(opts Options) *Module {
 	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{},
 		keys: opts.Keys, buttons: opts.Buttons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
-		ending: map[string]chan struct{}{}, gone: map[string]bool{}}
+		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
 	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
 	return m
 }
@@ -268,7 +270,9 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	}
 	m.done.Add(2)
 	go func() { defer m.done.Done(); m.attachLoop(ctx) }()
-	go func() { defer m.done.Done(); m.followInstances(ctx, core.Subscribe(ctx, "instance.*")) }()
+	// Subscribed before Start returns, so no event after it is missed.
+	instances := core.Subscribe(ctx, "instance.*")
+	go func() { defer m.done.Done(); m.followInstances(ctx, instances) }()
 	return nil
 }
 
@@ -354,6 +358,10 @@ func (m *Module) detach(b Backend) {
 // apps module's events.
 func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 	for ev := range events {
+		if ev.Type == sdk.EventLagged {
+			m.resyncInstances(ctx) // events were missed: read the state instead
+			continue
+		}
 		var in struct {
 			ID         string `json:"id"`
 			Name       string `json:"name"`
@@ -390,7 +398,7 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 			m.mu.Unlock()
 			for _, id := range fix {
 				if b != nil {
-					_ = b.Fullscreen(ctx, id, false)
+					m.screen("fullscreen", b.Fullscreen(ctx, id, false))
 				}
 			}
 		case "instance.exited", "instance.failed":
@@ -453,11 +461,11 @@ func (m *Module) onEvent(ev Event) {
 				m.log.Warn("placing window", "instance", inst, "err", err)
 			}
 			if front {
-				_ = b.Show(ctx, ws)
-				_ = b.Focus(ctx, w.ID)
+				m.screen("show", b.Show(ctx, ws))
+				m.screen("focus", b.Focus(ctx, w.ID))
 			}
 			if full || !known {
-				_ = b.Fullscreen(ctx, w.ID, true)
+				m.screen("fullscreen", b.Fullscreen(ctx, w.ID, true))
 			}
 			m.mu.Lock()
 			if t, ok := m.windows[w.ID]; ok {
@@ -510,8 +518,8 @@ func (m *Module) onEvent(ev Event) {
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				_ = b.Show(ctx, back.Workspace)
-				_ = b.Focus(ctx, back.ID)
+				m.screen("show", b.Show(ctx, back.Workspace))
+				m.screen("focus", b.Focus(ctx, back.ID))
 			}()
 		}
 	case "focus":
@@ -786,6 +794,62 @@ func (m *Module) onInput(ev InputEvent) {
 	}
 }
 
+// resyncInstances rebuilds what the module learns from instance events,
+// from the running instances, after events were missed: fullscreen
+// preferences, and the end of instances someone is waiting for.
+func (m *Module) resyncInstances(ctx context.Context) {
+	live := m.liveInstances(ctx)
+	running := map[string]bool{}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, in := range live {
+		running[in.ID] = true
+		if in.Fullscreen != nil {
+			m.prefs[in.ID] = *in.Fullscreen
+		}
+	}
+	for id, ch := range m.ending {
+		if !running[id] {
+			m.gone[id] = true
+			close(ch)
+			delete(m.ending, id)
+		}
+	}
+	for id := range m.prefs {
+		if !running[id] {
+			delete(m.prefs, id)
+		}
+	}
+	for id := range m.launches {
+		if !running[id] {
+			delete(m.launches, id)
+		}
+	}
+}
+
+// screen notes a compositor command that failed. Placing and focusing is
+// done on a best-effort basis (the window may have closed meanwhile), but
+// a failure must show: a warning, at most once a minute for each kind,
+// the rest at debug level, and a count in GET /v1/display.
+func (m *Module) screen(op string, err error) {
+	if err == nil {
+		return
+	}
+	now := m.opts.Clock.Now()
+	m.mu.Lock()
+	m.failed++
+	warn := now.Sub(m.warned[op]) >= time.Minute
+	if warn {
+		m.warned[op] = now
+	}
+	m.mu.Unlock()
+	if warn {
+		m.log.Warn("compositor command failed", "op", op, "err", err)
+	} else {
+		m.log.Debug("compositor command failed", "op", op, "err", err)
+	}
+}
+
 // waitEnded waits until an instance has ended, at most d.
 func (m *Module) waitEnded(ctx context.Context, instance string, d time.Duration) {
 	m.mu.Lock()
@@ -870,8 +934,8 @@ func (m *Module) learnLaunch(ctx context.Context, instance, name string, src *sd
 	b := m.backend
 	m.mu.Unlock()
 	if bring != nil && b != nil {
-		_ = b.Show(ctx, WorkspacePrefix+instance)
-		_ = b.Focus(ctx, bring.ID)
+		m.screen("show", b.Show(ctx, WorkspacePrefix+instance))
+		m.screen("focus", b.Focus(ctx, bring.ID))
 	}
 }
 
@@ -952,8 +1016,11 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	case "windows":
 		return wins, nil
 	case "display":
+		m.mu.Lock()
+		failed := m.failed
+		m.mu.Unlock()
 		st := map[string]any{"attached": b != nil, "focused_instance": focused, "outputs": []Output{},
-			"present": m.presence.present()}
+			"present": m.presence.present(), "failed_commands": failed}
 		if last := m.presence.lastInput(); !last.IsZero() {
 			st["last_input"] = last.UTC()
 		}

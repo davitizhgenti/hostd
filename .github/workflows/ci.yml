@@ -35,11 +35,22 @@ jobs:
           msg=$(grep -h -B3 -A25 -E -- '--- FAIL|^panic:|FAIL: testdata' test.log cover.log 2>/dev/null | head -80 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
           echo "::error title=Failing tests::${msg:-no test failure found in the output}"
 
+  # Shell scripts and the Python menu: what make lint does not see.
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get install -y -q shellcheck >/dev/null
+          pipx install ruff
+      - run: make lint-scripts
+
   # After the tests pass on main, publish the binaries as the rolling
   # "edge" pre-release. deploy/install.sh downloads them from there and
   # checks them against SHA256SUMS.
   edge:
-    needs: test
+    needs: [test, scripts]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -63,6 +74,6 @@ jobs:
             --title "edge: latest main" \
             --notes "Built from $GITHUB_SHA after the tests passed. deploy/install.sh installs this build."
 
-# Added as the tests appear (plan.md §2):
-#   integration: make test-integration on pull requests (podman on the runner)
-#   nightly:     make fuzz FUZZTIME=5m and make test-e2e on a schedule
+# Also: .github/workflows/install.yml (the installer in a Debian container)
+# and nightly fuzzing. Still to come (plan.md §2): integration tests on
+# pull requests, and the e2e VM.

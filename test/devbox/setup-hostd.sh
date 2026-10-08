@@ -5,7 +5,8 @@
 # Run as the screen user inside the devbox (make devbox-hostd). Idempotent:
 # run it again after `make build` to restart hostd on the new binary.
 set -euo pipefail
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
+XDG_RUNTIME_DIR=/run/user/$(id -u)
+export XDG_RUNTIME_DIR
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus
 export PATH=/opt/hostd/bin:$PATH
 cfg=$HOME/.config

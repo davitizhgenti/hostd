@@ -9,7 +9,7 @@ import (
 
 // EventLagged is the last event a subscriber receives before the bus drops
 // it for falling too far behind.
-const EventLagged = "bus.lagged"
+const EventLagged = sdk.EventLagged
 
 // Bus delivers events to subscribers. Publishing never blocks: each
 // subscriber has a bounded buffer, and one that falls behind is dropped

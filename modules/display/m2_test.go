@@ -3,6 +3,7 @@ package display
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -244,4 +245,43 @@ func TestSwayPlaceAndOutputCommands(t *testing.T) {
 	if err != nil || len(outs) != 1 || !outs[0].Power {
 		t.Fatalf("outputs %+v %v", outs, err)
 	}
+}
+
+func TestResyncAfterLag(t *testing.T) {
+	r := newDisplayRig(t, true)
+	// Someone waits for notes to end; that event will be among the missed.
+	done := make(chan struct{})
+	go func() { r.m.waitEnded(context.Background(), "notes", time.Hour); close(done) }()
+	waitFor(t, "waiting", func() bool { r.m.mu.Lock(); defer r.m.mu.Unlock(); return r.m.ending["notes"] != nil })
+	windowed := false
+	r.setLive(liveInstance{ID: "tv", State: "running", Fullscreen: &windowed})
+
+	events := make(chan sdk.Event, 1)
+	events <- sdk.Event{Type: sdk.EventLagged}
+	close(events)
+	r.m.followInstances(context.Background(), events)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait for an instance that ended unseen did not end")
+	}
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	if full, ok := r.m.prefs["tv"]; !ok || full {
+		t.Fatalf("preferences not resynced: %v", r.m.prefs)
+	}
+}
+
+func TestFailedCommandsAreCounted(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.b.mu.Lock()
+	r.b.focusErr = errors.New("No matching node.")
+	r.b.mu.Unlock()
+	r.b.open(1, 100) // placing it focuses it: fails
+	r.event(t)
+	waitFor(t, "counted", func() bool {
+		st, _ := r.m.Read(context.Background(), "display", nil)
+		return st.(map[string]any)["failed_commands"] == 1
+	})
 }

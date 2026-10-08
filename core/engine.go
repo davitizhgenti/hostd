@@ -609,8 +609,32 @@ type moduleCore struct {
 
 func (mc moduleCore) Emit(ev sdk.Event) { mc.e.emit(mc.name, ev) }
 
+// Subscribe gives a module a stream that, unlike the bus's own, survives
+// falling behind: the bus drops a slow subscriber, so this subscribes again
+// at once and then passes on the bus.lagged notice, for the module to
+// resync from current state (any change after that arrives as an event).
 func (mc moduleCore) Subscribe(ctx context.Context, filter string) <-chan sdk.Event {
-	return mc.e.bus.Subscribe(ctx, filter)
+	out := make(chan sdk.Event)
+	in := mc.e.bus.Subscribe(ctx, filter)
+	go func() {
+		defer close(out)
+		for {
+			ev, ok := <-in
+			if !ok {
+				return // ctx is done
+			}
+			if ev.Type == EventLagged {
+				in = mc.e.bus.Subscribe(ctx, filter)
+				mc.e.log.Warn("a module fell behind on events and resyncs", "module", mc.name, "filter", filter)
+			}
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out
 }
 
 func (mc moduleCore) Handles(actionType string) bool {

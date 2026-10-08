@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
-.PHONY: all build dist test test-integration test-e2e fuzz lint cover tidy clean \
+.PHONY: all build dist test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd \
 	check-server test-install m1-gate m1-gate-server
 
@@ -54,6 +54,16 @@ fuzz:
 lint:
 	$(TOOL) golangci-lint run ./...
 	$(TOOL) govulncheck ./...
+
+# The code that is not Go: shell scripts (shellcheck) and the on-screen
+# menu (Python: ruff and a compile check). CI runs this before publishing.
+SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
+	test/install/*.sh test/devbox/setup-hostd.sh
+lint-scripts:
+	shellcheck -S warning $(SCRIPTS)
+	python3 -m py_compile deploy/files/menu/hostd-menu
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu
+	@rm -rf deploy/files/menu/__pycache__
 
 # Coverage report; fails if core/ is below CORE_COVER_MIN percent once it has
 # code with tests.

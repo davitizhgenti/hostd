@@ -66,9 +66,10 @@ type matchRules struct {
 }
 
 type liveInstance struct {
-	ID    string      `json:"id"`
-	State string      `json:"state"`
-	Match *matchRules `json:"match"`
+	ID         string      `json:"id"`
+	State      string      `json:"state"`
+	Fullscreen *bool       `json:"fullscreen,omitempty"`
+	Match      *matchRules `json:"match"`
 }
 
 func globMatch(pattern, s string) bool {

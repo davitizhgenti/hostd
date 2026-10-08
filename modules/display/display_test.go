@@ -256,13 +256,14 @@ func TestInstanceOf(t *testing.T) {
 // --- the module ---------------------------------------------------------------
 
 type fakeBackend struct {
-	mu     sync.Mutex
-	wins   map[int64]*Window
-	cmds   []string
-	events chan Event
-	ignore map[int64]bool // windows that do not close when asked
-	bound  [][]string     // every Bind call
-	gone   chan struct{}  // closed to end Watch (compositor quit)
+	mu       sync.Mutex
+	wins     map[int64]*Window
+	cmds     []string
+	events   chan Event
+	ignore   map[int64]bool // windows that do not close when asked
+	bound    [][]string     // every Bind call
+	focusErr error          // Focus fails with this
+	gone     chan struct{}  // closed to end Watch (compositor quit)
 }
 
 func newFakeBackend() *fakeBackend {
@@ -310,7 +311,15 @@ func (f *fakeBackend) Move(_ context.Context, id int64, ws string) error {
 	f.mu.Unlock()
 	return nil
 }
-func (f *fakeBackend) Focus(_ context.Context, id int64) error { f.log("focus %d", id); return nil }
+func (f *fakeBackend) Focus(_ context.Context, id int64) error {
+	f.log("focus %d", id)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.focusErr != nil {
+		return f.focusErr
+	}
+	return nil
+}
 func (f *fakeBackend) Fullscreen(_ context.Context, id int64, on bool) error {
 	f.log("fullscreen %d %v", id, on)
 	return nil

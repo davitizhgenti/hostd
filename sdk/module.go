@@ -43,7 +43,10 @@ type Core interface {
 	Do(ctx context.Context, a Action) (Result, error)
 
 	// Subscribe delivers events whose type matches filter (see MatchType)
-	// until ctx is done, then closes the channel.
+	// until ctx is done, then closes the channel. A subscriber that falls
+	// too far behind loses events: it then gets an event of type
+	// EventLagged, and the stream goes on. On that event, a module that
+	// keeps state built from events reads it again.
 	Subscribe(ctx context.Context, filter string) <-chan Event
 
 	// Handles reports whether some loaded module handles an action type,

@@ -131,6 +131,9 @@ type Result struct {
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
+// EventLagged tells a subscriber that it fell behind and missed events.
+const EventLagged = "bus.lagged"
+
 // Event is a notice that something changed, emitted by a module (or by the
 // core for action.done and action.skipped).
 type Event struct {
