@@ -370,7 +370,12 @@ set-volume) echo "$3" > "$AUDIO_DIR/state" ;;
 set-mute) if [ "$3" = 1 ]; then touch "$AUDIO_DIR/muted"; else rm -f "$AUDIO_DIR/muted"; fi ;;
 inspect) printf '  * node.name = "hdmi-out"\n  * node.description = "TV"\n' ;;
 esac`)
-	script("pw-dump", `printf '[\n  {}\n]\n[\n]\n'`)
+	// The first dump (a node: a cue), wpctl connecting and leaving as a
+	// client (no cue), then a node change (a cue).
+	script("pw-dump", `printf '[\n  {"id": 30, "type": "PipeWire:Interface:Node", "info": {}}\n]\n'
+printf '[{"id": 90, "type": "PipeWire:Interface:Client", "info": {"props": {"application.name": "wpctl"}}}]\n'
+printf '[{"id": 90, "info": null}]\n'
+printf '[{"id": 30, "info": {"change-mask": ["params"]}}]\n'`)
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	w := &WirePlumber{Env: []string{"AUDIO_DIR=" + dir}}
 	ctx := context.Background()
@@ -404,5 +409,29 @@ esac`)
 	t.Setenv("PATH", t.TempDir()) // no wpctl at all
 	if _, err := w.Master(ctx); sdk.CodeOf(err) != sdk.CodeModuleUnavailable || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("without wpctl: %v", err)
+	}
+}
+
+func TestRelevantBatches(t *testing.T) {
+	types := map[int]string{}
+	for i, c := range []struct {
+		batch string
+		want  bool
+	}{
+		{`[{"id":30,"type":"PipeWire:Interface:Node","info":{}},{"id":2,"type":"PipeWire:Interface:Client","info":{}}]`, true},
+		{`[{"id":91,"type":"PipeWire:Interface:Client","info":{}}]`, false}, // wpctl connects
+		{`[{"id":91,"info":null}]`, false},                                   // and leaves
+		{`[{"id":30,"info":{"change-mask":["params"]}}]`, true},              // the sink's volume
+		{`[{"id":40,"type":"PipeWire:Interface:Metadata","info":{}}]`, true}, // the default sink
+		{`[{"id":30,"info":null}]`, true},                                    // a sink went away
+		{`[{"id":30,"info":{}}]`, false},                                     // unknown again
+	} {
+		var batch []pwObject
+		if err := json.Unmarshal([]byte(c.batch), &batch); err != nil {
+			t.Fatal(err)
+		}
+		if got := relevant(batch, types); got != c.want {
+			t.Errorf("batch %d %s: relevant = %v", i, c.batch, got)
+		}
 	}
 }

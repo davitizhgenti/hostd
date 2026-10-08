@@ -1,11 +1,12 @@
 package audio
 
 import (
-	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os/exec"
 	"regexp"
@@ -104,7 +105,11 @@ func (w *WirePlumber) SetMute(ctx context.Context, muted bool) error {
 }
 
 // Watch runs pw-dump --monitor, which prints a JSON array for every batch
-// of changes; each one is a cue to read the state again.
+// of changes. A batch that touches what the master volume depends on
+// (nodes, devices, the default-sink metadata) is a cue to read the state
+// again. Others are ignored: above all clients, since every wpctl that
+// reads the volume connects as one, and cueing on that would read again,
+// forever.
 func (w *WirePlumber) Watch(ctx context.Context, fn func()) error {
 	cmd := exec.CommandContext(ctx, "pw-dump", "--monitor", "--no-colors")
 	cmd.Env = append(cmd.Environ(), w.Env...)
@@ -115,23 +120,69 @@ func (w *WirePlumber) Watch(ctx context.Context, fn func()) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 64*1024), 16<<20)
-	for sc.Scan() {
-		if sc.Text() == "[" { // a new batch begins
-			fn()
-		}
-	}
-	err = cmd.Wait()
+	err = watchDump(out, fn)
+	_ = out.Close()
+	werr := cmd.Wait()
 	select {
 	case <-ctx.Done(): // stopped on purpose
 		return nil
 	default:
 	}
 	if err == nil {
+		err = werr
+	}
+	if err == nil {
 		err = errors.New("pw-dump exited")
 	}
 	return err
+}
+
+// pwObject is one entry of a pw-dump batch; a removed object comes as
+// {"id": N, "info": null} without a type.
+type pwObject struct {
+	ID   int             `json:"id"`
+	Type string          `json:"type"`
+	Info json.RawMessage `json:"info"`
+}
+
+// watchDump reads pw-dump batches and calls fn for each one that matters.
+func watchDump(r io.Reader, fn func()) error {
+	dec := json.NewDecoder(r)
+	types := map[int]string{} // object ID -> type, to judge removals
+	for {
+		var batch []pwObject
+		if err := dec.Decode(&batch); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if relevant(batch, types) {
+			fn()
+		}
+	}
+}
+
+// relevant reports whether a batch can change the master volume, and
+// keeps types up to date.
+func relevant(batch []pwObject, types map[int]string) bool {
+	matters := false
+	for _, o := range batch {
+		typ := o.Type
+		if typ != "" {
+			types[o.ID] = typ
+		} else {
+			typ = types[o.ID]
+		}
+		if len(o.Info) == 0 || string(o.Info) == "null" {
+			delete(types, o.ID)
+		}
+		switch typ {
+		case "PipeWire:Interface:Node", "PipeWire:Interface:Device", "PipeWire:Interface:Metadata":
+			matters = true
+		}
+	}
+	return matters
 }
 
 var reVolume = regexp.MustCompile(`^Volume: ([0-9]+(?:\.[0-9]+)?)( \[MUTED\])?$`)
