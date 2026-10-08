@@ -346,8 +346,12 @@ if install_file "$FILES/mako/config" "$SCREEN_HOME/.config/mako/config" 644 "$SC
 else
 	info "mako config up to date"
 fi
-install_file "$FILES/systemd/wayvnc.service" "$SCREEN_HOME/.config/systemd/user/wayvnc.service" 644 "$SCREEN_USER" ||
+vnc_changed=0
+if install_file "$FILES/systemd/wayvnc.service" "$SCREEN_HOME/.config/systemd/user/wayvnc.service" 644 "$SCREEN_USER"; then
+	vnc_changed=1
+else
 	info "VNC service up to date"
+fi
 
 # Rootless Podman API socket, used by hostd's docker runner.
 wants=$SCREEN_HOME/.config/systemd/user/sockets.target.wants
@@ -452,11 +456,19 @@ install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up
 # display.menu action (Super, or a controller's Guide button). The files
 # of its old name (the "switcher", hostd-overlay) go.
 rm -f /usr/local/lib/hostd/hostd-overlay "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml"
-install_file "$FILES/menu/hostd-menu" /usr/local/lib/hostd/hostd-menu 755 root || info "menu up to date"
+menu_changed=0
+if install_file "$FILES/menu/hostd-menu" /usr/local/lib/hostd/hostd-menu 755 root; then
+	menu_changed=1
+else
+	info "menu up to date"
+fi
 rm -f /usr/local/bin/hostd-switch # replaced by hostd's own key bindings
 install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
-install_file "$FILES/menu/hostd-menu.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-menu.toml" 644 "$SCREEN_USER" ||
+if install_file "$FILES/menu/hostd-menu.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-menu.toml" 644 "$SCREEN_USER"; then
+	menu_changed=1
+else
 	info "menu app file up to date"
+fi
 if install_file "$FILES/systemd/hostd.service" "$SCREEN_HOME/.config/systemd/user/hostd.service" 644 "$SCREEN_USER"; then
 	hostd_changed=1
 else
@@ -477,6 +489,10 @@ for _ in $(seq 1 60); do
 done
 [ -S "/run/user/$SCREEN_UID/bus" ] || die "the $SCREEN_USER user's systemd did not start"
 as_screen systemctl --user daemon-reload
+# A running VNC server picks up a changed unit only when restarted.
+if [ $vnc_changed -eq 1 ] && as_screen systemctl --user is-active --quiet wayvnc.service; then
+	as_screen systemctl --user restart wayvnc.service && changed "restarted the VNC server"
+fi
 if [ $hostd_changed -eq 1 ] || ! as_screen systemctl --user is-active --quiet hostd; then
 	# Type=notify: this returns once hostd is serving, or fails.
 	if ! as_screen systemctl --user restart hostd; then
@@ -510,6 +526,19 @@ if [ ! -s "$local_token" ] && [ -f "$SCREEN_HOME/.config/hostctl/config.toml" ];
 		;;
 	*) info "warning: could not create the menu's token; the menu will not work" ;;
 	esac
+fi
+
+# A running menu keeps its old code: restart it. If it was on the screen,
+# it comes back there (as if opened from the screen); otherwise it waits
+# for the next Super or Guide press.
+if [ $menu_changed -eq 1 ] && [ -s "$local_token" ] &&
+	as_screen hostctl ps 2>/dev/null | awk 'NR > 1 {print $1}' | grep -qx hostd-menu; then
+	in_front=$(as_screen hostctl windows 2>/dev/null | awk '$1 == "hostd-menu" {print $4}')
+	as_screen hostctl stop hostd-menu >/dev/null 2>&1 || true
+	if [ "$in_front" = true ]; then
+		as_screen env HOSTD_TOKEN="$(cat "$local_token")" hostctl start hostd-menu >/dev/null 2>&1 || true
+	fi
+	changed "restarted the menu on its new version"
 fi
 
 # ---------------------------------------------------------------------------

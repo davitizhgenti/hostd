@@ -95,4 +95,12 @@ if [ ! -s "$cfg/hostd/local.token" ]; then
 	echo "menu: token created"
 fi
 hostctl app rescan >/dev/null
+# A running menu keeps its old code: restart it (back on the screen if it
+# was there), as hostd-setup update does on the real machine.
+if hostctl ps | awk 'NR > 1 {print $1}' | grep -qx hostd-menu; then
+	in_front=$(hostctl windows | awk '$1 == "hostd-menu" {print $4}')
+	hostctl stop hostd-menu >/dev/null
+	[ "$in_front" = true ] && HOSTD_TOKEN=$(cat "$cfg/hostd/local.token") hostctl start hostd-menu >/dev/null
+	echo "menu: restarted on the current code"
+fi
 hostctl apps
