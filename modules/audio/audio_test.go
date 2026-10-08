@@ -321,9 +321,12 @@ func TestWaitsForPipeWire(t *testing.T) {
 	r.f.mu.Lock()
 	r.f.up = true
 	r.f.mu.Unlock()
-	r.clock.BlockUntil(1)
-	r.clock.Advance(2 * time.Second)
-	waitFor(t, "audio", r.available)
+	// Advance until the retry has happened. (Not BlockUntil: other timers
+	// share the fake clock, and it waits without a deadline.)
+	waitFor(t, "audio", func() bool {
+		r.clock.Advance(2 * time.Second)
+		return r.available()
+	})
 	if _, _, err := r.set(t, "audio.volume.set", `{"percent":40}`, sdk.SourceManual); err != nil {
 		t.Fatal(err)
 	}
