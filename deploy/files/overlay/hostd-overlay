@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 """hostd's on-screen switcher.
 
-A fullscreen list of the running apps and the catalog. hostd runs it as the
+A fullscreen, filterable list of the running apps and the catalog. hostd runs it as the
 hidden app "hostd-overlay"; Super (Sway) and a controller's Guide button
 (hostd) bring it forward. Choosing an entry sends window.focus or app.start
 with the "local" token, so it counts as someone at the screen.
 
-Keyboard: arrows, Enter, Escape. Controller: D-pad, A to choose, B to go back.
+Keyboard: type to filter, up/down, Enter, Escape. Controller: D-pad, A, B.
 Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 """
 
@@ -20,24 +20,31 @@ import sys
 
 import gi
 
+os.environ.setdefault("GTK_A11Y", "none")  # no accessibility bus on a TV session
+
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 APP_ID = "hostd-overlay"  # its own entry in hostd's catalog, never listed
 
 CSS = """
-window { background: #11161f; color: #e6e9ef; }
-.title { font-size: 28px; font-weight: bold; margin: 28px 40px 8px 40px; }
-.section { font-size: 18px; color: #8a93a6; margin: 18px 40px 6px 40px; }
-flowbox { margin: 0 32px; }
-flowboxchild { padding: 0; }
-button.tile { min-width: 220px; min-height: 120px; border-radius: 14px;
-  background: #1d2430; color: #e6e9ef; border: 3px solid transparent; }
-button.tile:focus, button.tile:hover { border-color: #5aa0ff; background: #243046; }
-button.tile label { font-size: 18px; }
-.empty { color: #8a93a6; margin: 8px 40px; }
-.error { color: #ff8a80; margin: 12px 40px; }
-.hint { color: #8a93a6; margin: 18px 40px; }
+* { font-family: "DejaVu Sans Mono", monospace; font-size: 15px; border-radius: 0; box-shadow: none; }
+window { background: #0e1116; color: #c9d1d9; }
+.bar { padding: 14px 24px; border-bottom: 1px solid #262c36; }
+.prompt { color: #58a6ff; font-weight: bold; margin-right: 10px; }
+entry { background: transparent; border: none; outline: none; color: #e6edf3; min-height: 0; padding: 0; caret-color: #58a6ff; }
+.count { color: #6e7681; }
+list { background: transparent; padding: 8px 0; }
+row { padding: 3px 24px; border-left: 2px solid transparent; }
+row:selected, row:focus { background: #161b22; border-left-color: #58a6ff; outline: none; }
+row.header { padding: 12px 24px 4px 24px; }
+row.header label { color: #6e7681; }
+.mark { color: #3fb950; min-width: 12px; }
+.name { color: #e6edf3; }
+.id, .meta { color: #6e7681; }
+.status { padding: 8px 24px; border-top: 1px solid #262c36; color: #6e7681; }
+.status.error { color: #f85149; }
 """
 
 
@@ -156,29 +163,40 @@ class Controllers:
 
 
 class Switcher(Gtk.ApplicationWindow):
+    """One filterable list: running instances, then the catalog."""
+
     def __init__(self, app, api):
         super().__init__(application=app, title="hostd")
         self.api = api
         self.set_decorated(False)
 
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        title = Gtk.Label(label="hostd", xalign=0)
-        title.add_css_class("title")
-        self.box.append(title)
-        self.running = self._section("Running")
-        self.apps = self._section("Apps")
-        self.message = Gtk.Label(xalign=0)
-        self.message.add_css_class("error")
-        self.box.append(self.message)
-        hint = Gtk.Label(label="Enter / A: open    Escape / B: back", xalign=0)
-        hint.add_css_class("hint")
-        self.box.append(hint)
+        bar = Gtk.Box(spacing=0)
+        bar.add_css_class("bar")
+        prompt = Gtk.Label(label="hostd >")
+        prompt.add_css_class("prompt")
+        self.entry = Gtk.Text(hexpand=True, placeholder_text="filter")
+        self.entry.connect("changed", lambda *_: self.filter_changed())
+        self.count = Gtk.Label()
+        self.count.add_css_class("count")
+        for w in (prompt, self.entry, self.count):
+            bar.append(w)
 
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_child(self.box)
-        self.set_child(scroll)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE)
+        self.list.set_filter_func(self.visible)
+        self.list.connect("row-activated", lambda _l, row: self.open(row))
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(self.list)
+
+        self.status = Gtk.Label(xalign=0)
+        self.status.add_css_class("status")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        for w in (bar, scroll, self.status):
+            box.append(w)
+        self.set_child(box)
 
         keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
         self.connect("notify::is-active", lambda *_: self.is_active() and self.refresh())
@@ -186,95 +204,127 @@ class Switcher(Gtk.ApplicationWindow):
         self.fullscreen()
         self.refresh()
 
-    def _section(self, name):
-        label = Gtk.Label(label=name, xalign=0)
-        label.add_css_class("section")
-        self.box.append(label)
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
-                           max_children_per_line=6, row_spacing=16, column_spacing=16)
-        self.box.append(flow)
-        return flow
+    # --- content ---
 
-    @staticmethod
-    def _clear(flow):
-        child = flow.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            flow.remove(child)
-            child = nxt
-
-    def _tile(self, flow, text, icon, on_click):
-        button = Gtk.Button()
-        button.add_css_class("tile")
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
-        if icon:
-            image = Gtk.Image.new_from_icon_name(icon)
-            image.set_pixel_size(48)
-            inner.append(image)
-        label = Gtk.Label(label=text, wrap=True, justify=Gtk.Justification.CENTER)
-        inner.append(label)
-        button.set_child(inner)
-        button.connect("clicked", lambda *_: on_click())
-        flow.append(button)
-        return button
+    def _row(self, cells, action=None, header=False):
+        row = Gtk.ListBoxRow(selectable=not header, activatable=not header)
+        box = Gtk.Box(spacing=16)
+        for text, cls, expand in cells:
+            label = Gtk.Label(label=text, xalign=0, hexpand=expand, ellipsize=3)  # 3: end
+            label.add_css_class(cls)
+            box.append(label)
+        row.set_child(box)
+        row.action = action
+        row.header = header
+        row.key = " ".join(c[0] for c in cells).lower()
+        if header:
+            row.add_css_class("header")
+        self.list.append(row)
 
     def refresh(self):
-        self.message.set_text("")
         try:
             instances = self.api.call("GET", "/v1/instances") or []
             apps = (self.api.call("GET", "/v1/apps") or {}).get("apps", [])
         except Exception as e:  # noqa: BLE001 - shown to the person
-            self.message.set_text(f"Cannot reach hostd: {e}")
+            self.show_status(f"cannot reach hostd: {e}", error=True)
             return
-        icons = {a["id"]: a.get("icon", "") for a in apps}
-        self._clear(self.running)
-        self._clear(self.apps)
-        first = None
-        shown = [i for i in instances
-                 if i.get("app") != APP_ID and i.get("surface") == "window"
-                 and i.get("state") in ("starting", "running")]
-        for inst in shown:
-            name = inst.get("name") or inst["id"]
-            if "#" in inst["id"]:
-                name += " " + inst["id"].split("#", 1)[1]
-            b = self._tile(self.running, name, icons.get(inst.get("app"), ""),
-                           lambda i=inst["id"]: self.act("POST", f"/v1/windows/{i}/focus"))
-            first = first or b
-        if not shown:
-            self._empty(self.running, "Nothing is running.")
-        for app in apps:
-            if app["id"] == APP_ID or app.get("surface") != "window":
-                continue
-            b = self._tile(self.apps, app.get("name") or app["id"], app.get("icon", ""),
-                           lambda a=app["id"]: self.act("POST", f"/v1/apps/{a}/start"))
-            first = first or b
-        if first is not None:
-            first.grab_focus()
+        self.list.remove_all()
+        running = [i for i in instances
+                   if i.get("app") != APP_ID and i.get("surface") == "window"
+                   and i.get("state") in ("starting", "running")]
+        listed = [a for a in apps if a["id"] != APP_ID and a.get("surface") == "window"]
+        self._row([("running", "id", True)], header=True)
+        for inst in running:
+            self._row([("*", "mark", False), (inst.get("name") or inst["id"], "name", False),
+                       (inst["id"], "id", True), (inst.get("state", ""), "meta", False)],
+                      ("POST", f"/v1/windows/{inst['id']}/focus"))
+        self._row([("apps", "id", True)], header=True)
+        for app in listed:
+            self._row([(" ", "mark", False), (app.get("name") or app["id"], "name", False),
+                       (app["id"], "id", True), (app.get("runner", {}).get("type", ""), "meta", False)],
+                      ("POST", f"/v1/apps/{app['id']}/start"))
+        self.count.set_text(f"{len(running)} running  {len(listed)} apps")
+        self.entry.set_text("")
+        self.filter_changed()
+        self.entry.grab_focus()
+        self.show_status("up/down move  enter open  esc back  type to filter")
 
-    @staticmethod
-    def _empty(flow, text):
-        label = Gtk.Label(label=text, xalign=0)
-        label.add_css_class("empty")
-        flow.append(label)
+    def visible(self, row):
+        text = self.entry.get_text().strip().lower()
+        if not text:
+            return True
+        return not row.header and all(w in row.key for w in text.split())
 
-    def act(self, method, path):
+    def filter_changed(self):
+        self.list.invalidate_filter()
+        self.select_first()
+
+    def rows(self):
+        out, row = [], self.list.get_first_child()
+        while row is not None:
+            if isinstance(row, Gtk.ListBoxRow) and not row.header and row.get_child_visible() and self.visible(row):
+                out.append(row)
+            row = row.get_next_sibling()
+        return out
+
+    def select_first(self):
+        rows = self.rows()
+        self.list.select_row(rows[0] if rows else None)
+
+    def move(self, step):
+        rows = self.rows()
+        if not rows:
+            return
+        cur = self.list.get_selected_row()
+        i = rows.index(cur) + step if cur in rows else 0
+        row = rows[max(0, min(len(rows) - 1, i))]
+        self.list.select_row(row)
+        row.grab_focus()
+        self.entry.grab_focus()  # typing keeps filtering
+
+    # --- actions ---
+
+    def show_status(self, text, error=False):
+        self.status.set_text(text)
+        if error:
+            self.status.add_css_class("error")
+        else:
+            self.status.remove_css_class("error")
+
+    def open(self, row):
+        if row is None or row.action is None:
+            return
+        method, path = row.action
         try:
             res = self.api.call(method, path)
         except Exception as e:  # noqa: BLE001
-            self.message.set_text(str(e))
+            self.show_status(f"error: {e}", error=True)
             return
         if res and res.get("status") == "skipped":
-            self.message.set_text("Not possible right now: " + (res.get("reason") or "skipped"))
+            self.show_status("skipped: " + (res.get("reason") or ""), error=True)
 
     def back(self):
         subprocess.run(["swaymsg", "workspace", "back_and_forth"], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def on_key(self, _ctl, keyval, _code, _state):
-        if keyval == 0xff1b:  # Escape
-            self.back()
-            return True
-        return False
+        name = Gdk.keyval_name(keyval)
+        if name == "Escape":
+            if self.entry.get_text():
+                self.entry.set_text("")
+            else:
+                self.back()
+        elif name in ("Down", "Tab"):
+            self.move(1)
+        elif name in ("Up", "ISO_Left_Tab"):
+            self.move(-1)
+        elif name in ("Page_Down", "Page_Up"):
+            self.move(10 if name == "Page_Down" else -10)
+        elif name in ("Return", "KP_Enter"):
+            self.open(self.list.get_selected_row())
+        else:
+            return False
+        return True
 
     def on_nav(self, what):
         if not self.is_active():
@@ -282,13 +332,11 @@ class Switcher(Gtk.ApplicationWindow):
         if what == "back":
             self.back()
         elif what == "choose":
-            focus = self.get_focus()
-            if isinstance(focus, Gtk.Button):
-                focus.emit("clicked")
+            self.open(self.list.get_selected_row())
+        elif what in ("up", "left"):
+            self.move(-1)
         else:
-            direction = {"up": Gtk.DirectionType.UP, "down": Gtk.DirectionType.DOWN,
-                         "left": Gtk.DirectionType.LEFT, "right": Gtk.DirectionType.RIGHT}[what]
-            self.child_focus(direction)
+            self.move(1)
 
 
 def main():
