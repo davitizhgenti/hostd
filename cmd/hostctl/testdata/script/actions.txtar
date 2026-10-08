@@ -18,6 +18,14 @@ exec hostctl demo lamp set desk 55 --json
 stdout '"status": "applied"'
 stdout '"version": 2'
 
+# An action with no required argument and one other takes it in place too.
+exec hostctl window close --help
+stdout 'close \[instance\]'
+! exec hostctl window close ghost
+stderr 'Sway is not running'
+! exec hostctl window close ghost extra
+stderr 'accepts at most 1 arg'
+
 # The raw form works for any action.
 exec hostctl action demo.lamp.set '{"lamp":"desk","brightness":60}'
 stdout 'applied \(v3\)'

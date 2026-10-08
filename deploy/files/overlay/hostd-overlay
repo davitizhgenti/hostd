@@ -178,6 +178,7 @@ class Switcher(Gtk.ApplicationWindow):
         super().__init__(application=app, title="hostd")
         self.api = api
         self.apps = {}  # app ID -> app, from the last refresh
+        self.shown = ""  # what the list shows, to notice changes
         self.menu_for = None  # the row whose menu is open
         self.set_decorated(False)
 
@@ -219,6 +220,9 @@ class Switcher(Gtk.ApplicationWindow):
         self.controllers = Controllers(self.on_nav)
         self.fullscreen()
         self.refresh()
+        # While in front, follow changes (an app closed with Super+Q, one
+        # started from a phone) without losing the filter or selection.
+        GLib.timeout_add(1000, self.poll)
 
     def _list(self):
         lst = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE, activate_on_single_click=True)
@@ -249,13 +253,32 @@ class Switcher(Gtk.ApplicationWindow):
     def current(self):
         return self.menu if self.menu_for is not None else self.list
 
-    def refresh(self):
+    def fetch(self):
         try:
             instances = self.api.call("GET", "/v1/instances") or []
             apps = (self.api.call("GET", "/v1/apps") or {}).get("apps", [])
         except Exception as e:  # noqa: BLE001 - shown to the person
             self.show_status(f"cannot reach hostd: {e}", error=True)
+            return None
+        return instances, apps
+
+    def poll(self):
+        if self.is_active() and self.menu_for is None:
+            data = self.fetch()
+            if data is not None and json.dumps(data, sort_keys=True) != self.shown:
+                self.refresh(data, keep=True)
+        return True  # keep polling
+
+    def refresh(self, data=None, keep=False):
+        """Lists again. keep: leave the filter and the selection as they are."""
+        data = data or self.fetch()
+        if data is None:
             return
+        instances, apps = data
+        self.shown = json.dumps(data, sort_keys=True)
+        selected = self.list.get_selected_row()
+        selected = (selected.instance, selected.app) if keep and selected is not None else None
+        text = self.entry.get_text() if keep else ""
         self.close_menu(refilter=False)
         self.apps = {a["id"]: a for a in apps}
         self.list.remove_all()
@@ -270,15 +293,22 @@ class Switcher(Gtk.ApplicationWindow):
                       ("POST", f"/v1/windows/{inst['id']}/focus", None), instance=inst["id"], app=inst.get("app"))
         self._row(self.list, [("apps", "id", True)], header=True)
         for app in listed:
-            more = f"+{len(app['actions'])}  " if app.get("actions") else ""
+            n = len(app.get("actions") or [])
+            more = f"{n} action{'s' if n > 1 else ''}  " if n else ""  # in its menu
             self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
                                   (app["id"], "id", True), (more + app.get("runner", {}).get("type", ""), "meta", False)],
                       ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"])
         self.count.set_text(f"{len(running)} running  {len(listed)} apps")
-        self.entry.set_text("")
+        self.entry.set_text(text)
         self.filter_changed()
-        self.entry.grab_focus()
-        self.show_status(self.HINT)
+        if selected is not None:
+            for row in self.rows():
+                if (row.instance, row.app) == selected:
+                    self.list.select_row(row)
+                    break
+        if not keep:
+            self.entry.grab_focus()
+            self.show_status(self.HINT)
 
     # --- the menu ---
 

@@ -106,25 +106,41 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 	var expect int64
 	cmd.Flags().Int64Var(&expect, "expect-version", -1, "refuse if the resource is not at this version")
 
+	// Positional arguments: the required ones, in order; or, for an action
+	// with none required and one non-boolean argument, that one, optional
+	// ("hostctl window close [instance]").
+	positional := required
 	use := cmd.Name()
 	for _, r := range required {
 		use += " <" + r + ">"
+	}
+	if len(required) == 0 {
+		var plain []string
+		for _, p := range props {
+			if p.typ != "boolean" {
+				plain = append(plain, p.name)
+			}
+		}
+		if len(plain) == 1 {
+			positional = plain
+			use += " [" + plain[0] + "]"
+		}
 	}
 	cmd.Use = use
 	if cmd.Short == "" {
 		cmd.Short = fmt.Sprintf("%s (module %s, scope %s)", spec.Type, module, spec.Scope)
 	}
-	cmd.Args = cobra.MaximumNArgs(len(required))
+	cmd.Args = cobra.MaximumNArgs(len(positional))
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		out := map[string]json.RawMessage{}
 		var order []string // arguments in the order given, for a readable log
 		for i, v := range args {
-			j, err := convert(required[i], types[required[i]], v)
+			j, err := convert(positional[i], types[positional[i]], v)
 			if err != nil {
 				return err
 			}
-			out[required[i]] = j
-			order = append(order, required[i])
+			out[positional[i]] = j
+			order = append(order, positional[i])
 		}
 		for _, p := range props {
 			name, v := p.name, values[p.name]
