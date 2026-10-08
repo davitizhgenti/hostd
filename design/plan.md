@@ -17,7 +17,7 @@ These affect the core's registration rules or the M1 scope. Resolutions below ca
 | D3 | **Pipeline features in M1 vs M5.** Priority holds, versions and loop limits are core logic but listed under M5. | Build the **complete pipeline in M1** (queues, reentrant keys, holds, versions, cause chain, loop limits, audit). M5 only adds the rule engine, scenes and scripts on top. |
 | D4 | **Self-update in M1.** Full rollback is heavy for a thin slice. | M1: `hostctl update push` + symlink switch + a correctly configured `OnFailure=` rollback (§3.11–3.12). M6: signed GitHub releases, branch builds, crash-loop handling and migrations-from-backup. |
 | D5 | **Resource key declaration for external modules.** Go modules can use a function `args → keys`; JSON-RPC modules cannot. | Manifests declare keys as templates (`"instance:{id}"`, `"audio.stream:{instance}"`). Built-ins use the same templates. Keys are **reentrant for synchronous child actions** (§3.3). |
-| D6 | **Overlay UI** (M2). | **No layer-shell.** The overlay is a normal fullscreen window that hostd launches as an instance on its own workspace (`hostd:overlay`) and focuses on demand, so the display module manages it like any app. Toolkit: Gio (pure Go, one static binary) unless the spike shows controller navigation is much easier in GTK4. On-screen notices over a fullscreen game go through the session's notification daemon (`mako`, via `org.freedesktop.Notifications` on D-Bus), so hostd itself has no Wayland protocol dependency. |
+| D6 | **On-screen menu** (M2; first called "overlay", then "switcher"). | **No layer-shell.** The menu is a normal fullscreen window that hostd launches as an instance on its own workspace (`hostd:hostd-menu`) and focuses on demand (`display.menu`), so the display module manages it like any app. Toolkit, as built: GTK 4 in Python (`deploy/files/menu/hostd-menu`), which keeps hostd's binary free of cgo; Gio was the first idea. On-screen notices over a fullscreen game go through the session's notification daemon (`mako`, via `org.freedesktop.Notifications` on D-Bus), so hostd itself has no Wayland protocol dependency. |
 | D7 | Open questions from the design. | No separate service user before 0.1. No phone page before 0.1; the API is enough. Test lists still need filling in (§12). |
 
 ### 0.1 Design-doc edits (applied 2026-10-05)
@@ -95,12 +95,12 @@ hostd/
   internal/ids/           ULID-based act_/evt_/tok_ IDs
   internal/testutil/      shared test helpers, fake modules
   modules/
-    apps/  runners/{exec,flatpak,steam,url,docker,compose,process}  sources/{desktop,flatpak,steam,toml}
-    display/  backends/sway/
-    audio/    backends/{wireplumber,mpris}/
-    deploy/
-    automation/
-  clients/overlay/
+    apps/       catalog (desktop entries incl. Flatpak, app files); runners exec (+flatpak, url, handoff), docker
+    display/    Sway backend, windows, presence, input bindings
+    audio/      wpctl / pw-dump backend
+    deploy/     (M4)
+    automation/ (M5)
+  deploy/files/menu/        the on-screen menu (as built; planned as clients/overlay/)
   examples/python-module/
   test/
     integration/          container harnesses (Containerfiles + Go tests, tag `integration`)

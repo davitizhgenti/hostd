@@ -5,10 +5,13 @@ core routes actions to modules (apps and windows, audio, background services,
 deploys, automation) and events back to listeners. You drive it from the
 `hostctl` CLI, an HTTP API, or scripts.
 
-Status: early development, nothing usable yet.
+Status: in development. The core, the API and hostctl, apps and windows
+(with an on-screen menu), and master volume run on a real machine;
+background services, deploys and automation are next. See the plan.
 
 - Design: [design/hostd Display and Services Daemon Design.md](design/hostd%20Display%20and%20Services%20Daemon%20Design.md)
 - Build and test plan: [design/plan.md](design/plan.md)
+- Architecture report (quality, stability, modularity): [design/architecture-report.md](design/architecture-report.md)
 
 ## Install on a machine
 
