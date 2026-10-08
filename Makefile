@@ -7,7 +7,7 @@ FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
 .PHONY: all build dist test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
-	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd \
+	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
 	check-server test-install m1-gate m1-gate-server
 
 all: lint test build
@@ -58,12 +58,12 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh
+	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
-	python3 -m py_compile deploy/files/menu/hostd-menu
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu
-	@rm -rf deploy/files/menu/__pycache__
+	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py
+	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__
 
 # Coverage report; fails if core/ is below CORE_COVER_MIN percent once it has
 # code with tests.
@@ -109,6 +109,10 @@ devbox: devbox-build build
 # apps). Again after `make build` to restart it on the new binary.
 devbox-hostd: build
 	$(PODMAN) exec -i -u screen -w /home/screen $(DEVBOX) bash -s < test/devbox/setup-hostd.sh
+
+# The menu end to end: real keys through VNC, checked in hostd's log.
+devbox-menu-test: devbox-hostd
+	bash test/devbox/menu-test.sh
 
 devbox-shell:
 	$(PODMAN) exec -it -u screen -w /home/screen $(DEVBOX) bash

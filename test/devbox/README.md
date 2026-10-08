@@ -52,6 +52,12 @@ Run it again after `make build` to restart hostd on the new binary. The
 devbox cannot read input devices, so nobody is ever "at the screen" there:
 every launch comes to the front.
 
+**Test the menu end to end:** `make devbox-menu-test`. It presses real keys
+through VNC (`test/devbox/vnc.py`, usable on its own, e.g.
+`python3 test/devbox/vnc.py F1 type:term Return`) and checks every step in
+hostd's audit log. It takes over the screen for a minute, so stay off VNC
+meanwhile.
+
 **Try hostd with the demo module** (a pretend lamp, until the real modules
 exist):
 
