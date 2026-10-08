@@ -15,22 +15,45 @@
 # Safe to run again: every step checks first and changes only what is
 # missing or different. Files it manages are backed up once as *.orig.
 #
+# The first install also installs this script as `hostd-setup`, so later:
+#   sudo hostd-setup update      fetch the latest installer and run it
+#   sudo hostd-setup uninstall   remove hostd (keeps your data and the base
+#                                system; see below)
+#
 # Usage, as root on the machine:
-#   sudo ./deploy/install.sh [options]
+#   sudo ./deploy/install.sh [install] [options]
+#   sudo hostd-setup update [options]
+#   sudo hostd-setup uninstall [--purge] [--all]
 #
 # Options:
 #   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
 #   --user NAME               screen user name (default: screen)
 #   --from DIR                install hostd and hostctl from DIR instead of
 #                             downloading them (e.g. a local build)
+#   --source DIR              update: run DIR/deploy/install.sh (a checkout)
+#                             instead of downloading the latest one
+#   --purge                   uninstall: also delete hostd's data (tokens,
+#                             audit trail, app files, hostd.toml)
+#   --all                     uninstall: also undo the base setup (autologin
+#                             to Sway, managed configs, lingering)
 #   -h, --help                show this help
+#
+# Uninstall never removes system packages, the NVIDIA driver, or the screen
+# user and its home: they may hold things that are not hostd's.
 set -euo pipefail
 
 SCREEN_USER=screen
 GPU=auto
 FROM=""
+SOURCE=""
+PURGE=0
+ALL=0
+CMD=install
+SETUP_DIR=/usr/local/share/hostd-setup
+SOURCE_URL=${HOSTD_SOURCE_URL:-https://github.com/davitizhgenti/hostd/archive/refs/heads/main.tar.gz}
 RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/download/edge}
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Resolve the hostd-setup symlink: the files live next to the real script.
+HERE=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 FILES=$HERE/files
 
 CHANGED=0       # set when anything on the system changed
@@ -43,15 +66,25 @@ changed() { info "$*"; CHANGED=1; }
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
+case ${1:-} in
+install | update | uninstall) CMD=$1; shift ;;
+esac
+PASS_ARGS=() # options handed to the latest installer by update
 while [ $# -gt 0 ]; do
 	case $1 in
-	--gpu) GPU=${2:?--gpu needs a value}; shift 2 ;;
-	--user) SCREEN_USER=${2:?--user needs a value}; shift 2 ;;
-	--from) FROM=${2:?--from needs a directory}; shift 2 ;;
+	--gpu) GPU=${2:?--gpu needs a value}; PASS_ARGS+=("$1" "$2"); shift 2 ;;
+	--user) SCREEN_USER=${2:?--user needs a value}; PASS_ARGS+=("$1" "$2"); shift 2 ;;
+	--from) FROM=${2:?--from needs a directory}; PASS_ARGS+=("$1" "$2"); shift 2 ;;
+	--source) SOURCE=${2:?--source needs a directory}; shift 2 ;;
+	--purge) PURGE=1; shift ;;
+	--all) ALL=1; shift ;;
 	-h | --help) usage; exit 0 ;;
 	*) die "unknown option: $1 (see --help)" ;;
 	esac
 done
+if [ "$CMD" != uninstall ] && { [ $PURGE -eq 1 ] || [ $ALL -eq 1 ]; }; then
+	die "--purge and --all go with uninstall"
+fi
 case $GPU in auto | nvidia | other) ;; *) die "--gpu must be auto, nvidia or other" ;; esac
 
 # install_file SRC DEST MODE OWNER: copy SRC to DEST unless identical.
@@ -67,10 +100,97 @@ install_file() {
 	changed "wrote $dest"
 }
 
+[ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $CMD"
+
+# as_screen runs a command as the screen user, inside its systemd session.
+as_screen() {
+	runuser -u "$SCREEN_USER" -- env HOME="$SCREEN_HOME" USER="$SCREEN_USER" \
+		XDG_RUNTIME_DIR="/run/user/$SCREEN_UID" \
+		DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$SCREEN_UID/bus" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# update: run the latest installer. It updates hostd, hostctl and whatever
+# else changed (unit files, configs), and changes nothing that is current.
+if [ "$CMD" = update ]; then
+	if [ -n "$SOURCE" ]; then
+		next="$SOURCE/deploy/install.sh"
+		[ -x "$next" ] || die "$next not found"
+	else
+		tmp=$(mktemp -d)
+		trap 'rm -rf "$tmp"' EXIT
+		log "Fetching the latest installer"
+		curl -fsSL --retry 3 "$SOURCE_URL" | tar xz -C "$tmp" || die "cannot download $SOURCE_URL"
+		next=$(find "$tmp" -maxdepth 3 -path '*/deploy/install.sh' | head -1)
+		[ -n "$next" ] || die "the download has no deploy/install.sh"
+	fi
+	# Not exec: the trap must remove the download afterwards.
+	bash "$next" install "${PASS_ARGS[@]}"
+	exit $?
+fi
+
+# ---------------------------------------------------------------------------
+# uninstall
+if [ "$CMD" = uninstall ]; then
+	log "Removing hostd"
+	if id "$SCREEN_USER" >/dev/null 2>&1; then
+		SCREEN_HOME=$(getent passwd "$SCREEN_USER" | cut -d: -f6)
+		SCREEN_UID=$(id -u "$SCREEN_USER")
+		units=$SCREEN_HOME/.config/systemd/user
+		if [ -S "/run/user/$SCREEN_UID/bus" ]; then
+			as_screen systemctl --user disable --now hostd.service >/dev/null 2>&1 || true
+			# Apps hostd started run in their own units and containers.
+			for u in $(as_screen systemctl --user list-units --plain --no-legend 'hostd-*.service' 2>/dev/null | awk '{print $1}'); do
+				as_screen systemctl --user stop "$u" >/dev/null 2>&1 || true
+			done
+			for c in $(as_screen podman ps -aq --filter label=hostd.instance 2>/dev/null); do
+				as_screen podman rm -f "$c" >/dev/null 2>&1 || true
+			done
+			info "stopped hostd and the apps it started"
+		fi
+		rm -f "$units/hostd.service" "$units/hostd-rollback.service" "$units/default.target.wants/hostd.service"
+		rm -rf "$SCREEN_HOME/.local/lib/hostd"
+		[ -S "/run/user/$SCREEN_UID/bus" ] && as_screen systemctl --user daemon-reload || true
+		rm -f "/run/user/$SCREEN_UID/hostd.sock" "/run/user/$SCREEN_UID/hostd-admin-token"
+		info "removed the hostd service and its versions"
+		if [ $PURGE -eq 1 ]; then
+			rm -rf "$SCREEN_HOME/.local/state/hostd" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostctl"
+			info "deleted hostd's data: tokens, audit trail, app files, hostd.toml, hostctl login"
+		else
+			# Kept together: the tokens, and the login that uses one, so a
+			# reinstall continues where this left off.
+			info "kept hostd's data (tokens, audit trail, app files, hostctl login); --purge deletes it"
+		fi
+		if [ $ALL -eq 1 ]; then
+			log "Undoing the base setup"
+			if [ -f /etc/greetd/config.toml.orig ]; then
+				mv /etc/greetd/config.toml.orig /etc/greetd/config.toml
+				info "restored the original greetd config (no more autologin to Sway)"
+			fi
+			for f in sway/config mako/config; do
+				if [ -f "$SCREEN_HOME/.config/$f.orig" ]; then
+					mv "$SCREEN_HOME/.config/$f.orig" "$SCREEN_HOME/.config/$f"
+				else
+					rm -f "$SCREEN_HOME/.config/$f"
+				fi
+			done
+			rm -f "$units/wayvnc.service" "$units/sockets.target.wants/podman.socket"
+			loginctl disable-linger "$SCREEN_USER" 2>/dev/null || true
+			info "removed the managed Sway, mako and VNC configs, the Podman socket, and lingering"
+		fi
+	fi
+	rm -f /usr/local/bin/hostctl /usr/local/sbin/hostd-setup
+	rm -rf "$SETUP_DIR"
+	info "removed hostctl and hostd-setup"
+	log "Done"
+	info "Not removed: system packages, the NVIDIA driver, and the $SCREEN_USER user."
+	info "To remove the user and everything in its home as well: sudo userdel -r $SCREEN_USER"
+	[ $ALL -eq 1 ] && info "Reboot to leave the Sway session: sudo reboot"
+	exit 0
+fi
+
 # ---------------------------------------------------------------------------
 log "Checking the system"
-
-[ "$(id -u)" -eq 0 ] || die "run as root: sudo $0"
 # shellcheck disable=SC1091
 . /etc/os-release
 [ "${ID:-}" = debian ] && [ "${VERSION_CODENAME:-}" = trixie ] ||
@@ -255,13 +375,6 @@ fi
 # ---------------------------------------------------------------------------
 log "Installing hostd"
 
-# as_screen runs a command as the screen user, inside its systemd session.
-as_screen() {
-	runuser -u "$SCREEN_USER" -- env HOME="$SCREEN_HOME" USER="$SCREEN_USER" \
-		XDG_RUNTIME_DIR="/run/user/$SCREEN_UID" \
-		DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$SCREEN_UID/bus" "$@"
-}
-
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 if [ -n "$FROM" ]; then
@@ -363,6 +476,25 @@ if [ -f "$token_file" ] && [ ! -f "$SCREEN_HOME/.config/hostctl/config.toml" ]; 
 fi
 
 # ---------------------------------------------------------------------------
+log "Installing hostd-setup (update and uninstall)"
+# A copy of this installer, so `sudo hostd-setup update` and `uninstall`
+# work without a checkout.
+if [ "$HERE" != "$SETUP_DIR" ]; then
+	if [ -d "$SETUP_DIR" ] && diff -rq "$HERE" "$SETUP_DIR" >/dev/null 2>&1; then
+		info "hostd-setup up to date"
+	else
+		rm -rf "$SETUP_DIR"
+		mkdir -p "$SETUP_DIR"
+		cp -r "$HERE/." "$SETUP_DIR/"
+		changed "installed hostd-setup in $SETUP_DIR"
+	fi
+fi
+if [ "$(readlink /usr/local/sbin/hostd-setup 2>/dev/null)" != "$SETUP_DIR/install.sh" ]; then
+	ln -sfn "$SETUP_DIR/install.sh" /usr/local/sbin/hostd-setup
+	changed "hostd-setup is on the PATH"
+fi
+
+# ---------------------------------------------------------------------------
 log "Done"
 if [ $CHANGED -eq 0 ]; then
 	info "No changes needed; the system was already set up."
@@ -376,3 +508,4 @@ info "hostd $VERSION is running. hostctl works on this machine as $SCREEN_USER:"
 info "  ssh $SCREEN_USER@${ip:-<this-machine>} hostctl apps --all"
 info "Other devices (a phone, a script) use the API at http://${ip:-<this-machine>}:7300"
 info "with their own token, made with: hostctl token create <name> --scopes read,apps"
+info "Later: sudo hostd-setup update (latest version), sudo hostd-setup uninstall"

@@ -48,6 +48,19 @@ its own token (home network only):
 ssh screen@<machine> hostctl token create phone --scopes read,apps,audio
 ```
 
+**Update** to the latest tested build, and **uninstall**, on the machine:
+
+```sh
+sudo hostd-setup update                       # fetches and runs the latest installer
+sudo hostd-setup uninstall                    # removes hostd; keeps its data
+sudo hostd-setup uninstall --purge            # ...and deletes tokens, audit trail, app files
+sudo hostd-setup uninstall --purge --all      # ...and undoes the base setup (autologin, configs)
+```
+
+Uninstall never removes system packages, the NVIDIA driver, or the `screen`
+user. From a laptop with a checkout, `hostctl update push` installs your own
+build instead; if it does not start, the machine rolls back on its own.
+
 Check the whole machine with `ssh screen@<machine> 'bash -s' < deploy/check.sh`
 (or `make check-server SERVER=screen@<machine>` from a clone).
 

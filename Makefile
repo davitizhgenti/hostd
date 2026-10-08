@@ -135,6 +135,7 @@ test-install: dist
 	$(PODMAN) run -d --name $(INSTALL_TEST) --systemd=always --privileged \
 		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro -v $(CURDIR)/test/install:/opt/hostd-test:ro \
 		-v $(CURDIR)/dist:/opt/hostd-dist:ro -v $(CURDIR)/bin/e2e:/opt/hostd-test-bins:ro \
+		-v $(CURDIR):/opt/hostd-src:ro \
 		$(INSTALL_TEST) >/dev/null
 	@$(PODMAN) exec $(INSTALL_TEST) systemctl is-system-running --wait >/dev/null || true
 	@mkdir -p bin
@@ -143,6 +144,7 @@ test-install: dist
 	grep -q "No changes needed" bin/install-second-run.log
 	$(PODMAN) exec $(INSTALL_TEST) bash /opt/hostd-test/verify.sh
 	$(PODMAN) exec -u screen -w /home/screen $(INSTALL_TEST) bash /opt/hostd-test/update.sh
+	$(PODMAN) exec -u admin -w /home/admin $(INSTALL_TEST) bash /opt/hostd-test/lifecycle.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null
 	@echo "install test passed"
 
