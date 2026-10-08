@@ -104,6 +104,13 @@ type fakeAudio struct {
 	sets    []string
 	cues    chan struct{}
 	monitor chan struct{} // closed: the monitor stops
+	watches int           // Watch calls running
+}
+
+func (f *fakeAudio) watching() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.watches
 }
 
 func newFakeAudio(up bool) *fakeAudio {
@@ -147,7 +154,9 @@ func (f *fakeAudio) killMonitor() {
 func (f *fakeAudio) Watch(ctx context.Context, fn func()) error {
 	f.mu.Lock()
 	dead := f.monitor
+	f.watches++
 	f.mu.Unlock()
+	defer func() { f.mu.Lock(); f.watches--; f.mu.Unlock() }()
 	for {
 		select {
 		case <-ctx.Done():
@@ -319,9 +328,16 @@ func TestWaitsForPipeWire(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r.f.killMonitor() // the monitor dies: the module starts over
-	r.clock.BlockUntil(1)
-	r.clock.Advance(2 * time.Second)
+	// The monitor dies: the module starts over. (Wait for the watcher
+	// itself: the module is available a moment before it watches, and a
+	// settle timer may be pending besides the retry timer.)
+	waitFor(t, "watching", func() bool { return r.f.watching() == 1 })
+	r.f.killMonitor()
+	waitFor(t, "watch ended", func() bool { return r.f.watching() == 0 })
+	waitFor(t, "watching again", func() bool {
+		r.clock.Advance(2 * time.Second)
+		return r.f.watching() == 1
+	})
 	if _, _, err := r.set(t, "audio.volume.set", `{"percent":41}`, sdk.SourceManual); err != nil {
 		t.Fatal(err)
 	}
