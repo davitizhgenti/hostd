@@ -8,10 +8,11 @@ name = "Steam"
 # processes, so closing Steam in hostd ends Steam (and gamescope with it).
 runner = { type = "exec", command = ["/usr/local/bin/hostd-steam-session"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
 
-# Its window is gamescope's.
+# Its window is gamescope's, which runs in hostd's unit for Steam: the unit
+# alone finds it, even when gamescope recreates its window without an
+# app_id.
 [match]
 app_id = "gamescope"
-env = "FLATPAK_ID=com.valvesoftware.Steam"
 
 [window]
 fullscreen = true
