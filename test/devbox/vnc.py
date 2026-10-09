@@ -67,6 +67,11 @@ def click(s, x, y, button=1):
 
 def main(steps):
     s = connect()
+    # wayvnc gives each connection a new virtual keyboard, and the app in
+    # front loses the first key sent before it has that keyboard's keymap:
+    # spend it on a lone Shift.
+    press(s, "Shift")
+    time.sleep(0.3)
     for step in steps:
         kind, _, arg = step.partition(":")
         if kind in ("click", "rclick") and arg:

@@ -30,7 +30,8 @@ os.environ.setdefault("GTK_A11Y", "none")  # no accessibility bus on a TV sessio
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+gi.require_version("Graphene", "1.0")
+from gi.repository import Gdk, GLib, Graphene, Gtk  # noqa: E402
 
 APP_ID = "hostd-menu"  # its own entry in hostd's catalog, never listed
 
@@ -49,8 +50,8 @@ row.header label { color: #6e7681; }
 .mark { color: #3fb950; min-width: 12px; }
 .name { color: #e6edf3; }
 .id, .meta { color: #6e7681; }
-popover.actions > contents { background: #161b22; border: 1px solid #30363d; padding: 4px 0; min-width: 280px; }
-popover.actions row { padding: 4px 16px; }
+.actions { background: #161b22; border: 1px solid #30363d; padding: 4px 0; min-width: 280px; }
+.actions row { padding: 4px 16px; }
 .status { padding: 8px 24px; border-top: 1px solid #262c36; color: #6e7681; }
 .status.error { color: #f85149; }
 """
@@ -313,16 +314,14 @@ class Menu(Gtk.ApplicationWindow):
         self.scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.scroll.set_child(self.list)
 
-        # An entry's actions: a small box at the entry, over the list.
+        # An entry's actions: a small box at the entry, over the list. It is
+        # part of the window, not a popover: a popover is a surface of its
+        # own, which drivers without explicit sync (NVIDIA before 555)
+        # showed as garbage until the next redraw.
         self.actions = self._list(filtered=False)
-        self.popover = Gtk.Popover(has_arrow=False, autohide=True, position=Gtk.PositionType.BOTTOM)
-        self.popover.add_css_class("actions")
-        self.popover.set_child(self.actions)
-        self.popover.connect("closed", lambda *_: self.actions_closed())
-        actions_keys = Gtk.EventControllerKey()  # the box is a surface of its own
-        actions_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        actions_keys.connect("key-pressed", lambda _c, keyval, _code, _state: self.on_actions_key(keyval))
-        self.popover.add_controller(actions_keys)
+        self.actions_box = Gtk.Box(halign=Gtk.Align.START, valign=Gtk.Align.START, visible=False)
+        self.actions_box.add_css_class("actions")
+        self.actions_box.append(self.actions)
 
         self.status = Gtk.Label(xalign=0)
         self.status.add_css_class("status")
@@ -330,18 +329,20 @@ class Menu(Gtk.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         for w in (bar, self.scroll, self.status):
             box.append(w)
-        self.set_child(box)
-        # Attached to the layout box, which is never emptied (the list is,
-        # on every refresh, and must not take the box with it).
-        self.box = box
-        self.popover.set_parent(box)
+        self.overlay = Gtk.Overlay(child=box)
+        self.overlay.add_overlay(self.actions_box)
+        self.set_child(self.overlay)
+        # A click outside the actions closes them, and does nothing else.
+        outside = Gtk.GestureClick(button=0)
+        outside.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        outside.connect("pressed", self.on_click_outside)
+        self.overlay.add_controller(outside)
 
         keys = Gtk.EventControllerKey()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
-        # Coming back to the front: list again. Not while actions are open: they
-        # takes the focus itself, and the window turns active again behind it.
+        # Coming back to the front: list again (not while actions are open).
         self.connect("notify::is-active", lambda *_: self.is_active() and self.actions_for is None and self.refresh())
         self.controllers = Controllers(self.on_nav)
         self.fullscreen()
@@ -486,21 +487,33 @@ class Menu(Gtk.ApplicationWindow):
             entry = entry.get_next_sibling()
         self.actions.set_focusable(False)
         self.actions_for = row
-        ok, bounds = row.compute_bounds(self.box)
-        rect = Gdk.Rectangle()
-        rect.x = int(x) if x is not None else 48
-        rect.y = int(bounds.get_y()) if ok else 0
-        rect.width, rect.height = 1, int(bounds.get_height()) if ok else 1
-        self.popover.set_pointing_to(rect)
-        self.popover.popup()
+        # Below the entry, or above it if there is no room below.
+        ok, bounds = row.compute_bounds(self.overlay)
+        top = int(bounds.get_y()) if ok else 0
+        height = int(bounds.get_height()) if ok else 0
+        _, want, _, _ = self.actions_box.measure(Gtk.Orientation.VERTICAL, -1)
+        room = self.overlay.get_height()
+        y = top + height if top + height + want <= room else max(0, top - want)
+        self.actions_box.set_margin_top(y)
+        self.actions_box.set_margin_start(int(x) if x is not None else 48)
+        self.actions_box.set_visible(True)
         self.actions.select_row(self.actions.get_row_at_index(0))
         self.show_status(self.ACTIONS_HINT)
 
-    def close_actions(self):
-        if self.actions_for is not None:
-            self.popover.popdown()  # actions_closed() follows
+    def on_click_outside(self, gesture, _n, x, y):
+        if self.actions_for is None:
+            return
+        ok, bounds = self.actions_box.compute_bounds(self.overlay)
+        if ok and bounds.contains_point(Graphene.Point().init(x, y)):
+            return  # in the box: its rows take it
+        if gesture.get_current_button() != 3:
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)  # only closes
+        self.close_actions()
 
-    def actions_closed(self):
+    def close_actions(self):
+        if self.actions_for is None:
+            return
+        self.actions_box.set_visible(False)
         row, self.actions_for = self.actions_for, None
         if row is not None and row.get_parent() is self.list:
             self.list.select_row(row)
