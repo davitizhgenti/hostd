@@ -19,16 +19,6 @@ env = "FLATPAK_ID=com.valvesoftware.Steam"
 fullscreen = true
 
 [[actions]]
-id = "library"
-name = "Library"
-command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/games"]
-
-[[actions]]
-id = "store"
-name = "Store"
-command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://store"]
-
-[[actions]]
 id = "downloads"
 name = "Downloads"
 command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/downloads"]
