@@ -23,6 +23,9 @@ NV_RUN=NVIDIA-Linux-x86_64-$NV_VERSION.run
 NV_URL=https://download.nvidia.com/XFree86/Linux-x86_64/$NV_VERSION/$NV_RUN
 NV_CACHE=/var/cache/hostd/nvidia
 NV_PIN=/etc/apt/preferences.d/hostd-nvidia
+# Debian's packages kept nouveau away; NVIDIA's installer only does when
+# nouveau is loaded while it runs (it is not: Debian's driver is).
+NV_NOUVEAU=/etc/modprobe.d/hostd-nvidia-nouveau.conf
 # Steam's Flatpak brings its own GL; it needs the build for this driver.
 NV_FLATPAK=("org.freedesktop.Platform.GL.nvidia-${NV_VERSION//./-}//1.4" "org.freedesktop.Platform.GL32.nvidia-${NV_VERSION//./-}//1.4")
 # Debian's NVIDIA packages: removed, and held back while this is installed.
@@ -59,6 +62,22 @@ nv_pin() {
 	rm -f "$tmp"
 }
 
+# nv_no_nouveau keeps the kernel's nouveau driver off the card, so
+# NVIDIA's can take it at boot. Returns 0 if the file changed.
+nv_no_nouveau() {
+	local tmp rc=1
+	tmp=$(mktemp)
+	printf '%s\n' "# Managed by hostd's nvidia add-on: NVIDIA's driver, not nouveau." \
+		"blacklist nouveau" "options nouveau modeset=0" >"$tmp"
+	if install_file "$tmp" "$NV_NOUVEAU" 644 root; then
+		update-initramfs -u >/dev/null 2>&1 || true
+		NEED_REBOOT=1
+		rc=0
+	fi
+	rm -f "$tmp"
+	return $rc
+}
+
 nv_flatpak() {
 	command -v flatpak >/dev/null || return 0
 	flatpak info --system "${NV_FLATPAK[0]%//*}" >/dev/null 2>&1 && return 0
@@ -84,12 +103,18 @@ nv_stop_screen() {
 }
 
 nv_start_screen() {
+	systemctl reset-failed greetd 2>/dev/null || true
 	systemctl start greetd 2>/dev/null || true
+	sleep 3
+	if ! systemctl is-active --quiet greetd || ! pgrep -u "$SCREEN_USER" -x sway >/dev/null; then
+		info "the screen did not come back yet; it does after the reboot"
+		NEED_REBOOT=1
+	fi
 }
 
 # nv_debian_back puts Debian's driver back (after a failure, or on remove).
 nv_debian_back() {
-	rm -f "$NV_PIN"
+	rm -f "$NV_PIN" "$NV_NOUVEAU"
 	info "installing Debian's NVIDIA driver"
 	apt-get update -q >/dev/null || true
 	DEBIAN_FRONTEND=noninteractive apt-get install -y -q linux-headers-amd64 nvidia-driver firmware-misc-nonfree >/dev/null ||
@@ -107,6 +132,7 @@ addon_install() {
 	own=$(nv_own)
 	if [ "$own" = "$NV_VERSION" ]; then
 		info "NVIDIA driver $NV_VERSION is installed"
+		nv_no_nouveau && info "nouveau is kept off the card now; reboot to finish"
 		nv_pin
 		nv_flatpak
 		return 0
@@ -143,6 +169,7 @@ addon_install() {
 			{ nv_start_screen; sed -i '/^nvidia$/d' "$ADDONS_STATE"; die "could not remove Debian's NVIDIA packages"; }
 	fi
 	nv_pin
+	nv_no_nouveau || true
 
 	info "installing NVIDIA's driver $NV_VERSION (builds the kernel modules; a few minutes)"
 	# Proprietary modules: the open ones do not support cards before Turing.
