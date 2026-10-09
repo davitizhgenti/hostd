@@ -398,3 +398,70 @@ func TestShownByAnotherApp(t *testing.T) {
 		t.Fatalf("closing the game touched Steam's window: %q", got)
 	}
 }
+
+func TestReadEventsNav(t *testing.T) {
+	var stream []byte
+	for _, e := range [][3]int{{evKey, btnSouth, 1}, {evKey, btnSouth, 0}, {evAbs, absHat0Y, -1}, {evAbs, absHat0Y, 0},
+		{evKey, btnEast, 1}, {evKey, btnWest, 1}, {evKey, 0x223, 1}} {
+		stream = append(stream, inputEvent(uint16(e[0]), uint16(e[1]), int32(e[2]))...)
+	}
+	stream = append(stream, inputEvent(0, 0, 0)...)
+	var got []string
+	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e.Nav...) })
+	if want := []string{"choose", "up", "back", "actions", "right"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("nav %q, want %q", got, want)
+	}
+	// A keyboard (no controller profile) never navigates.
+	got = nil
+	readEvents(&chunked{data: stream, n: 1000}, nil, func(e InputEvent) { got = append(got, e.Nav...) })
+	if len(got) != 0 {
+		t.Fatalf("keyboard nav %q", got)
+	}
+}
+
+func TestMenuTakesTheControllers(t *testing.T) {
+	// While the menu is in front, apps must not see the controllers: hostd
+	// takes them and sends the menu their navigation.
+	r := newDisplayRig(t, true)
+	nav := r.e.Subscribe(t.Context(), EventNav)
+	r.procEnv(t, 500, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`)
+	r.b.open(1, 100) // tv
+	r.event(t)
+	r.b.focus(1)
+	r.event(t)
+	r.input.send(t, InputEvent{Nav: []string{"down"}})
+	r.b.open(5, 500) // the menu
+	r.event(t)
+	r.b.focus(5)
+	r.event(t)
+	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
+		t.Fatalf("grabs %v, want [true]", got)
+	}
+	r.input.send(t, InputEvent{Nav: []string{"choose"}})
+	select {
+	case ev := <-nav:
+		if string(ev.Data) != `{"what":"choose"}` || ev.Source == nil || ev.Source.Kind != sdk.SourceLocal {
+			t.Fatalf("nav event %s from %+v", ev.Data, ev.Source)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no nav event")
+	}
+	r.b.focus(1) // back to tv: the controllers are the apps' again
+	r.event(t)
+	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Fatalf("grabs %v, want [true false]", got)
+	}
+	r.input.send(t, InputEvent{Nav: []string{"up"}})
+	r.b.focus(5)
+	r.event(t)
+	r.b.closeWin(5) // the menu closes while in front
+	r.event(t)
+	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true, false, true, false}) {
+		t.Fatalf("grabs %v, want [true false true false]", got)
+	}
+	select {
+	case ev := <-nav:
+		t.Fatalf("nav while the menu was not in front: %s", ev.Data)
+	default:
+	}
+}

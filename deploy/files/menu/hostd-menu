@@ -9,8 +9,10 @@ controller X) open in a small box at the entry.
 
 Keyboard: type to filter, up/down, Enter, Delete (close), Menu or Shift+F10
 (actions), Escape. Mouse: click opens, right click shows the actions.
-Controller: D-pad, A, B, X (actions). Going back, closing and starting are
-hostd actions, like everything that changes the screen.
+Controller: D-pad, A, B, X (actions), from hostd (display.nav events):
+while the menu is in front hostd takes the controllers, so apps do not
+act on them too. Going back, closing and starting are hostd actions,
+like everything that changes the screen.
 Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 """
 
@@ -211,71 +213,6 @@ def _send_frame(sock, opcode, payload):
     sock.sendall(head + mask + bytes(c ^ mask[i % 4] for i, c in enumerate(payload)))
 
 
-# --- controller input -----------------------------------------------------------
-
-EV_KEY, EV_ABS = 0x01, 0x03
-ABS_HAT0X, ABS_HAT0Y = 0x10, 0x11
-BTN_SOUTH, BTN_EAST, BTN_WEST = 0x130, 0x131, 0x134  # A, B, X
-BTN_DPAD = {0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
-EVENT = struct.Struct("llHHi")  # struct input_event on 64-bit Linux
-
-
-class Controllers:
-    """Reads gamepads from /dev/input and reports navigation."""
-
-    def __init__(self, on_nav):
-        self.on_nav = on_nav
-        self.open = {}  # path -> (fd, watch id)
-        self.rescan()
-        GLib.timeout_add_seconds(3, self.rescan)
-
-    def rescan(self):
-        try:
-            names = os.listdir("/dev/input")
-        except OSError:
-            return True
-        for name in names:
-            path = os.path.join("/dev/input", name)
-            if not name.startswith("event") or path in self.open:
-                continue
-            try:
-                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-            except OSError:
-                continue
-            watch = GLib.io_add_watch(fd, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.read, path)
-            self.open[path] = (fd, watch)
-        return True
-
-    def read(self, fd, cond, path):
-        try:
-            data = os.read(fd, EVENT.size * 64)
-        except BlockingIOError:
-            return True
-        except OSError:
-            data = b""
-        if not data:  # unplugged
-            os.close(fd)
-            self.open.pop(path, None)
-            return False
-        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
-            _, _, typ, code, value = EVENT.unpack_from(data, i)
-            if typ == EV_KEY and value == 1:
-                if code == BTN_SOUTH:
-                    self.on_nav("choose")
-                elif code == BTN_EAST:
-                    self.on_nav("back")
-                elif code == BTN_WEST:
-                    self.on_nav("actions")
-                elif code in BTN_DPAD:
-                    self.on_nav(BTN_DPAD[code])
-            elif typ == EV_ABS and code in (ABS_HAT0X, ABS_HAT0Y) and value != 0:
-                if code == ABS_HAT0X:
-                    self.on_nav("left" if value < 0 else "right")
-                else:
-                    self.on_nav("up" if value < 0 else "down")
-        return True
-
-
 # --- the window -----------------------------------------------------------------
 
 
@@ -344,7 +281,6 @@ class Menu(Gtk.ApplicationWindow):
         self.add_controller(keys)
         # Coming back to the front: list again (not while actions are open).
         self.connect("notify::is-active", lambda *_: self.is_active() and self.actions_for is None and self.refresh())
-        self.controllers = Controllers(self.on_nav)
         self.fullscreen()
         self.refresh()
         # While in front, follow changes (an app closed with Super+Q, one
@@ -399,6 +335,9 @@ class Menu(Gtk.ApplicationWindow):
         """An event from hostd: list again (once per burst) if it can
         change the list."""
         kind = ev.get("type", "")
+        if kind == "display.nav":  # a controller, while the menu is in front
+            self.on_nav((ev.get("data") or {}).get("what", ""))
+            return False
         if kind.startswith(("instance.", "app.", "hostd.", "bus.")) and not self.pending:
             self.pending = True
             GLib.timeout_add(100, self.update)
@@ -660,7 +599,7 @@ class Menu(Gtk.ApplicationWindow):
                 self.open_actions(self.list.get_selected_row())
         elif what in ("up", "left"):
             self.move(-1)
-        else:
+        elif what in ("down", "right"):
             self.move(1)
 
 

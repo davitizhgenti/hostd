@@ -25,6 +25,7 @@ const (
 	EventActive  = "display.active" // someone started using the screen
 	EventIdle    = "display.idle"   // no input for IdleAfter
 	EventNotice  = "display.notice" // a notice shown on the screen
+	EventNav     = "display.nav"    // controller navigation for the menu in front
 	EventOutputs = "display.output.changed"
 
 	EventControllerConnected    = "controller.connected"
@@ -112,6 +113,8 @@ type Module struct {
 	buttons   map[string]string        // controller button -> action
 	pressing  map[string]bool          // inputs whose action is being handled
 	holds     map[string]chan struct{} // controller buttons held down; closed on release
+	menuFront bool                     // hostd's menu has the focus: controllers are taken for it
+	grabbed   bool                     // the controllers are taken (Grabber)
 	life      context.Context          // ends when the module stops
 	failed    int                      // compositor commands that failed
 	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
@@ -262,6 +265,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventActive, Description: "Someone started using the screen (keyboard, mouse or controller input)"},
 			{Type: EventIdle, Description: "Nobody has used the screen for a while"},
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
+			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
 			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},
@@ -373,6 +377,7 @@ func (m *Module) attach(ctx context.Context, b Backend) {
 
 func (m *Module) detach(b Backend) {
 	_ = b.Disconnect()
+	m.takeControllers(false)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.backend == b {

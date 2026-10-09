@@ -123,6 +123,41 @@ func (m *Module) onInput(ev InputEvent) {
 	for _, b := range ev.Buttons {
 		m.hold(b)
 	}
+	if len(ev.Nav) > 0 {
+		m.mu.Lock()
+		front, core := m.menuFront, m.core
+		m.mu.Unlock()
+		if front && core != nil {
+			for _, n := range ev.Nav {
+				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]string{"what": n}),
+					Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
+			}
+		}
+	}
+}
+
+// isMenu reports whether an instance is hostd's menu.
+func (m *Module) isMenu(instance string) bool {
+	return instance != "" && (instance == m.opts.Menu || strings.HasPrefix(instance, m.opts.Menu+"#"))
+}
+
+// takeControllers takes the controllers while hostd's menu is in front,
+// and gives them back after: apps that read them (Steam) must not act on
+// the menu's navigation.
+func (m *Module) takeControllers(menuFront bool) {
+	g, ok := m.opts.Input.(Grabber)
+	m.mu.Lock()
+	m.menuFront = menuFront
+	change := ok && m.grabbed != menuFront
+	if change {
+		m.grabbed = menuFront
+	}
+	m.mu.Unlock()
+	if change {
+		if err := g.Grab(menuFront); err != nil {
+			m.log.Warn("taking the controllers for the menu", "on", menuFront, "err", err)
+		}
+	}
 }
 
 // hold runs a controller button's action once it has been held for

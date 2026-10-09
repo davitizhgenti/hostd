@@ -108,7 +108,11 @@ func (m *Module) windowClosed(w Window) {
 	}
 	b := m.backend
 	seq := m.focusSeq
+	menuGone := ok && tw.Focused && m.isMenu(tw.Instance)
 	m.mu.Unlock()
+	if menuGone {
+		m.takeControllers(false)
+	}
 	if !ok {
 		tw = &trackedWindow{Window: w}
 	}
@@ -118,10 +122,19 @@ func (m *Module) windowClosed(w Window) {
 		// to end, so the previous app (the menu, say) never lists
 		// it as running. Unless someone moved on in the meantime.
 		closing := tw.Instance
+		m.mu.Lock()
+		life := m.life
+		m.mu.Unlock()
+		if life == nil {
+			life = context.Background()
+		}
 		m.done.Add(1)
 		go func() {
 			defer m.done.Done()
-			m.waitEnded(context.Background(), closing, m.opts.EndWait)
+			m.waitEnded(life, closing, m.opts.EndWait) // ends with the module too
+			if life.Err() != nil {
+				return
+			}
 			m.mu.Lock()
 			moved := m.focusSeq != seq
 			m.mu.Unlock()
@@ -163,6 +176,7 @@ func (m *Module) windowFocused(w Window) {
 		snap = *tw
 	}
 	m.mu.Unlock()
+	m.takeControllers(ok && m.isMenu(snap.Instance))
 	if ok {
 		m.emit(EventFocused, &snap)
 	}
