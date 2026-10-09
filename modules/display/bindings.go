@@ -117,6 +117,17 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 // onInput is called for every input from every device.
 func (m *Module) onInput(ev InputEvent) {
 	m.presence.touch()
+	if len(ev.Released) > 0 || len(ev.Buttons) > 0 {
+		m.mu.Lock()
+		for _, b := range ev.Released {
+			delete(m.down, b)
+		}
+		for _, b := range ev.Buttons {
+			m.down[b] = true
+		}
+		m.mu.Unlock()
+		m.syncGrab()
+	}
 	for _, b := range ev.Released {
 		m.release(b)
 	}
@@ -145,17 +156,29 @@ func (m *Module) isMenu(instance string) bool {
 // and gives them back after: apps that read them (Steam) must not act on
 // the menu's navigation.
 func (m *Module) takeControllers(menuFront bool) {
-	g, ok := m.opts.Input.(Grabber)
 	m.mu.Lock()
 	m.menuFront = menuFront
-	change := ok && m.grabbed != menuFront
-	if change {
-		m.grabbed = menuFront
+	m.mu.Unlock()
+	m.syncGrab()
+}
+
+// syncGrab takes or gives back the controllers. They are taken only once
+// no button is held: an app saw a held button (Guide, held to open the
+// menu) go down and must see it come up, or it stays down for the app.
+// Once taken, they stay taken while the menu is in front.
+func (m *Module) syncGrab() {
+	g, ok := m.opts.Input.(Grabber)
+	if !ok {
+		return
 	}
+	m.mu.Lock()
+	want := m.menuFront && (m.grabbed || len(m.down) == 0)
+	change := m.grabbed != want
+	m.grabbed = want
 	m.mu.Unlock()
 	if change {
-		if err := g.Grab(menuFront); err != nil {
-			m.log.Warn("taking the controllers for the menu", "on", menuFront, "err", err)
+		if err := g.Grab(want); err != nil {
+			m.log.Warn("taking the controllers for the menu", "on", want, "err", err)
 		}
 	}
 }

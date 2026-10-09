@@ -115,6 +115,7 @@ type Module struct {
 	holds     map[string]chan struct{} // controller buttons held down; closed on release
 	menuFront bool                     // hostd's menu has the focus: controllers are taken for it
 	grabbed   bool                     // the controllers are taken (Grabber)
+	down      map[string]bool          // controller buttons held down
 	life      context.Context          // ends when the module stops
 	failed    int                      // compositor commands that failed
 	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
@@ -159,7 +160,7 @@ func New(opts Options) *Module {
 	if opts.HoldFor == 0 {
 		opts.HoldFor = 600 * time.Millisecond
 	}
-	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{},
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{}, down: map[string]bool{},
 		keys: opts.Keys, buttons: opts.Buttons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}

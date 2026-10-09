@@ -465,3 +465,27 @@ func TestMenuTakesTheControllers(t *testing.T) {
 	default:
 	}
 }
+
+func TestMenuWaitsForGuideReleaseBeforeTakingControllers(t *testing.T) {
+	// Guide held opens the menu: the app saw Guide go down, so it must see
+	// it come up before hostd takes the controllers.
+	r := newDisplayRig(t, true)
+	r.procEnv(t, 500, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`)
+	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.b.open(5, 500) // the menu, while Guide is still held
+	r.event(t)
+	r.b.focus(5)
+	r.event(t)
+	if got := r.input.grabbed(); len(got) != 0 {
+		t.Fatalf("taken while Guide was held: %v", got)
+	}
+	r.input.send(t, InputEvent{Released: []string{"guide"}})
+	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
+		t.Fatalf("grabs %v after the release, want [true]", got)
+	}
+	// Pressing Guide again in the menu keeps them taken.
+	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
+		t.Fatalf("grabs %v after a press in the menu", got)
+	}
+}
