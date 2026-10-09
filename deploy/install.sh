@@ -101,13 +101,21 @@ if [ "$CMD" != uninstall ] && { [ $PURGE -eq 1 ] || [ $ALL -eq 1 ]; }; then
 fi
 case $GPU in auto | nvidia | other) ;; *) die "--gpu must be auto, nvidia or other" ;; esac
 
-# install_file SRC DEST MODE OWNER: copy SRC to DEST unless identical.
+# hostd_owned FILE: whether hostd wrote FILE (it says so, or it is in
+# /usr/local, where the system's packages never put files).
+hostd_owned() {
+	case $1 in /usr/local/*) return 0 ;; esac
+	grep -qs "Managed by hostd" "$1"
+}
+
+# install_file SRC DEST MODE OWNER: copy SRC to DEST unless identical. A
+# file hostd did not write is kept as DEST.orig the first time.
 install_file() {
 	local src=$1 dest=$2 mode=$3 owner=$4
 	if [ -f "$dest" ] && cmp -s "$src" "$dest"; then
 		return 1
 	fi
-	if [ -f "$dest" ] && [ ! -e "$dest.orig" ]; then
+	if [ -f "$dest" ] && [ ! -e "$dest.orig" ] && ! hostd_owned "$dest"; then
 		cp -p "$dest" "$dest.orig"
 	fi
 	install -D -m "$mode" -o "$owner" -g "$owner" "$src" "$dest"
@@ -583,6 +591,14 @@ else
 	info "menu up to date"
 fi
 rm -f /usr/local/bin/hostd-switch # replaced by hostd's own key bindings
+# Backups that older installers made of hostd's own files.
+for f in /usr/local/bin/hostctl.orig /usr/local/bin/hostd-steam-session.orig /usr/local/lib/hostd/*.orig \
+	/usr/local/lib/hostd/addons/*.orig "$SCREEN_HOME"/.config/hostd/apps/*.orig; do
+	if [ -f "$f" ] && hostd_owned "$f"; then
+		rm -f "$f"
+		changed "removed $f (a backup of hostd's own file)"
+	fi
+done
 install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
 if install_file "$FILES/menu/hostd-menu.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-menu.toml" 644 "$SCREEN_USER"; then
 	menu_changed=1

@@ -20,6 +20,7 @@ t "greetd on VT 7, logs in screen"     'grep -qx "vt = 7" /etc/greetd/config.tom
 t "greetd starts plain sway (no GPU flags)" 'grep -qx "command = \"sway\"" /etc/greetd/config.toml'
 t "greetd enabled"                     'systemctl is-enabled greetd'
 t "original greetd config backed up"   'test -f /etc/greetd/config.toml.orig'
+t "no backups of hostd's own files"    '! ls /usr/local/bin/*.orig /usr/local/lib/hostd/*.orig /home/screen/.config/hostd/apps/*.orig 2>/dev/null | grep -q .'
 t "hostd installed as current version" 'test -x /home/screen/.local/lib/hostd/current/hostd && readlink /home/screen/.local/lib/hostd/current | grep -q "^versions/"'
 t "rollback script and service installed" 'test -x /home/screen/.local/lib/hostd/rollback.sh && grep -q "OnFailure=hostd-rollback.service" /home/screen/.config/systemd/user/hostd.service && test -f /home/screen/.config/systemd/user/hostd-rollback.service'
 t "hostd starts at boot"               'test -L /home/screen/.config/systemd/user/default.target.wants/hostd.service'
