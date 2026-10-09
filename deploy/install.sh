@@ -96,6 +96,11 @@ while [ $# -gt 0 ]; do
 		;;
 	esac
 done
+# The add-ons an add asked for, handed over by the installer that ran this
+# one (update runs the latest installer).
+if [ "$CMD" = install ] && [ -n "${HOSTD_ADDING:-}" ]; then
+	read -ra ADDON_NAMES <<<"$HOSTD_ADDING"
+fi
 if [ "$CMD" != uninstall ] && { [ $PURGE -eq 1 ] || [ $ALL -eq 1 ]; }; then
 	die "--purge and --all go with uninstall"
 fi
@@ -229,8 +234,9 @@ if [ "$CMD" = update ]; then
 		next=$(find "$tmp" -maxdepth 3 -path '*/deploy/install.sh' | head -1)
 		[ -n "$next" ] || die "the download has no deploy/install.sh"
 	fi
-	# Not exec: the trap must remove the download afterwards.
-	bash "$next" install "${PASS_ARGS[@]}"
+	# Not exec: the trap must remove the download afterwards. The add-ons
+	# just asked for (add) go along: some act only when asked for by name.
+	HOSTD_ADDING="${ADDON_NAMES[*]}" bash "$next" install "${PASS_ARGS[@]}"
 	exit $?
 fi
 
