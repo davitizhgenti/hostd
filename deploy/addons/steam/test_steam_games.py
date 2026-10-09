@@ -57,8 +57,8 @@ class SteamGames(unittest.TestCase):
         self.assertIn('name = "Portal \\"2\\""', body)
         self.assertIn('handoff = "SteamAppId=620"', body)
         self.assertIn('class = "steam_app_620"', body)
-        self.assertIn('"/usr/local/bin/hostd-steam-session", "steam://rungameid/620"', body)
-        self.assertIn('shown_by = "steam"', body)
+        self.assertIn('"flatpak", "run", "com.valvesoftware.Steam", "steam://rungameid/620"', body)
+        self.assertIn('under = "steam"', body)
         self.assertEqual(sg.sync(self.home, self.apps), (0, 0))  # nothing changed
 
         # The person's own file for a game is left alone, even when stale.

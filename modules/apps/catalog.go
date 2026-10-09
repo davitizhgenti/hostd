@@ -46,17 +46,20 @@ type App struct {
 	Source string   `json:"source"`
 	Files  []string `json:"files"`
 
-	Runner   Runner            `json:"runner"`
-	Surface  string            `json:"surface"`
-	Window   Window            `json:"window"`
-	Instance InstancePolicy    `json:"instance"`
-	Audio    Audio             `json:"audio,omitzero"`
-	Requires []string          `json:"requires,omitempty"`
-	Hidden   bool              `json:"hidden"`
-	Match    Match             `json:"match,omitzero"`
-	Restart  string            `json:"restart,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	Health   Health            `json:"health,omitzero"`
+	Runner   Runner         `json:"runner"`
+	Surface  string         `json:"surface"`
+	Window   Window         `json:"window"`
+	Instance InstancePolicy `json:"instance"`
+	Audio    Audio          `json:"audio,omitzero"`
+	Requires []string       `json:"requires,omitempty"`
+	Hidden   bool           `json:"hidden"`
+	// Under is the app this one is listed under rather than on its own: a
+	// Steam game under Steam. Menus show it with that app's actions.
+	Under   string            `json:"under,omitempty"`
+	Match   Match             `json:"match,omitzero"`
+	Restart string            `json:"restart,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Health  Health            `json:"health,omitzero"`
 	// Actions are extra ways to start the app ("New private window"):
 	// from its desktop entry, and from app files.
 	Actions []AppAction `json:"actions,omitempty"`
@@ -253,6 +256,9 @@ func (a *App) validate() error {
 	case "always", "on-failure", "never":
 	default:
 		bad("restart %q: use always, on-failure or never", a.Restart)
+	}
+	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {
+		bad("under %q: another app's id", u)
 	}
 	if s := a.Window.ShownBy; s != "" && (!ValidID(s) || s == a.ID) {
 		bad("window.shown_by %q: another app's id", s)

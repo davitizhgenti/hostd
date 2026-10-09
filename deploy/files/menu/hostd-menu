@@ -228,6 +228,7 @@ class Menu(Gtk.ApplicationWindow):
         super().__init__(application=app, title="hostd")
         self.api = api
         self.apps = {}  # app ID -> app, from the last refresh
+        self.children = {}  # app ID -> the apps listed under it
         self.shown = ""  # what the list shows, to notice changes
         self.actions_for = None  # the row whose actions are open
         self.set_decorated(False)
@@ -255,10 +256,15 @@ class Menu(Gtk.ApplicationWindow):
         # part of the window, not a popover: a popover is a surface of its
         # own, which drivers without explicit sync (NVIDIA before 555)
         # showed as garbage until the next redraw.
+        # It scrolls when long (Steam with its games).
         self.actions = self._list(filtered=False)
+        self.actions_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                                 propagate_natural_height=True, propagate_natural_width=True,
+                                                 max_content_height=420)
+        self.actions_scroll.set_child(self.actions)
         self.actions_box = Gtk.Box(halign=Gtk.Align.START, valign=Gtk.Align.START, visible=False)
         self.actions_box.add_css_class("actions")
-        self.actions_box.append(self.actions)
+        self.actions_box.append(self.actions_scroll)
 
         self.status = Gtk.Label(xalign=0)
         self.status.add_css_class("status")
@@ -301,7 +307,7 @@ class Menu(Gtk.ApplicationWindow):
 
     # --- content ---
 
-    def _row(self, lst, cells, action=None, header=False, instance=None, app=None):
+    def _row(self, lst, cells, action=None, header=False, instance=None, app=None, under=False):
         row = Gtk.ListBoxRow(selectable=not header, activatable=not header)
         box = Gtk.Box(spacing=16)
         for text, cls, expand in cells:
@@ -314,6 +320,7 @@ class Menu(Gtk.ApplicationWindow):
         row.app = app
         row.title = cells[1][0] if len(cells) > 1 else ""
         row.header = header
+        row.under = under  # listed under another app: shown here only when filtering
         row.key = " ".join(c[0] for c in cells).lower()
         if header:
             row.add_css_class("header")
@@ -377,6 +384,13 @@ class Menu(Gtk.ApplicationWindow):
                    if i.get("app") != APP_ID and i.get("surface") == "window"
                    and i.get("state") in ("starting", "running")]
         listed = [a for a in apps if a["id"] != APP_ID and a.get("surface") == "window"]
+        # Apps under another one (Steam's games) are in its actions box.
+        self.children = {}
+        for a in listed:
+            if a.get("under"):
+                self.children.setdefault(a["under"], []).append(a)
+        nested = [a for a in listed if a.get("under")]
+        listed = [a for a in listed if not a.get("under")]
         self._row(self.list, [("running", "id", True)], header=True)
         for inst in running:
             self._row(self.list, [("*", "mark", False), (inst.get("name") or inst["id"], "name", False),
@@ -384,11 +398,17 @@ class Menu(Gtk.ApplicationWindow):
                       ("POST", f"/v1/windows/{inst['id']}/focus", None), instance=inst["id"], app=inst.get("app"))
         self._row(self.list, [("apps", "id", True)], header=True)
         for app in listed:
-            n = len(app.get("actions") or [])
+            n, k = len(app.get("actions") or []), len(self.children.get(app["id"], []))
             more = f"{n} action{'s' if n > 1 else ''}  " if n else ""  # in its actions box
+            more += f"{k} app{'s' if k > 1 else ''}  " if k else ""
             self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
                                   (app["id"], "id", True), (more + app.get("runner", {}).get("type", ""), "meta", False)],
                       ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"])
+        for app in nested:
+            parent = self.apps.get(app["under"], {}).get("name") or app["under"]
+            self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
+                                  (app["id"], "id", True), (parent, "meta", False)],
+                      ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"], under=True)
         self.count.set_text(f"{len(running)} running  {len(listed)} apps")
         self.entry.set_text(text)
         self.filter_changed()
@@ -418,6 +438,10 @@ class Menu(Gtk.ApplicationWindow):
         for act in app.get("actions") or []:
             self._row(self.actions, [("+", "mark", False), (act["name"], "name", True), (act["id"], "id", False)],
                       ("POST", f"/v1/apps/{app['id']}/start", {"action": act["id"]}))
+        for child in self.children.get(app.get("id"), []):
+            self._row(self.actions, [(">", "mark", False), (child.get("name") or child["id"], "name", True),
+                                     (child["id"], "id", False)],
+                      ("POST", f"/v1/apps/{child['id']}/start", None), app=child["id"])
         # No focus inside the box: its keys are the window's (on_key), so
         # nothing else moves the selection or runs an entry too.
         entry = self.actions.get_first_child()
@@ -436,6 +460,7 @@ class Menu(Gtk.ApplicationWindow):
         self.actions_box.set_margin_top(y)
         self.actions_box.set_margin_start(int(x) if x is not None else 48)
         self.actions_box.set_visible(True)
+        self.actions_scroll.get_vadjustment().set_value(0)
         self.actions.select_row(self.actions.get_row_at_index(0))
         self.show_status(self.ACTIONS_HINT)
 
@@ -470,7 +495,7 @@ class Menu(Gtk.ApplicationWindow):
     def visible(self, row):
         text = self.entry.get_text().strip().lower()
         if not text:
-            return True
+            return not row.under
         return not row.header and all(w in row.key for w in text.split())
 
     def filter_changed(self):
@@ -502,6 +527,20 @@ class Menu(Gtk.ApplicationWindow):
         if lst is self.list:
             row.grab_focus()  # scrolls it into view
             self.entry.grab_focus()  # typing keeps filtering
+        else:
+            self.show_in_actions(row)
+
+    def show_in_actions(self, row):
+        """Scrolls the actions box to row (its rows take no focus)."""
+        ok, b = row.compute_bounds(self.actions)
+        if not ok:
+            return
+        adj = self.actions_scroll.get_vadjustment()
+        y, h = b.get_y(), b.get_height()
+        if y < adj.get_value():
+            adj.set_value(y)
+        elif y + h > adj.get_value() + adj.get_page_size():
+            adj.set_value(y + h - adj.get_page_size())
 
     # --- actions ---
 

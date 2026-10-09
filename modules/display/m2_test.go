@@ -489,3 +489,30 @@ func TestMenuWaitsForGuideReleaseBeforeTakingControllers(t *testing.T) {
 		t.Fatalf("grabs %v after a press in the menu", got)
 	}
 }
+
+func TestMenuOpensOverAWindowHostdDidNotStart(t *testing.T) {
+	// The menu was last in front, then another program's window took the
+	// focus: the menu key opens the menu, rather than "going back".
+	r := newDisplayRig(t, true)
+	r.procEnv(t, 500, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`)
+	r.b.open(5, 500) // the menu
+	r.event(t)
+	r.b.focus(5)
+	r.event(t)
+	r.b.open(9, 300) // not hostd's
+	r.event(t)
+	r.b.focus(9)
+	r.event(t)
+	res, err := r.submit(t, "display.menu", `{}`, sdk.SourceLocal)
+	if err != nil || res.Status == sdk.StatusSkipped {
+		t.Fatalf("menu over another window: %+v %v", res, err)
+	}
+	select {
+	case a := <-r.started:
+		if string(a.Args) != `{"id":"hostd-menu"}` {
+			t.Fatalf("started %s", a.Args)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the menu was not brought")
+	}
+}

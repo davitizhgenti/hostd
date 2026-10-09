@@ -645,8 +645,17 @@ func (m *Module) cycleTarget(step int) *trackedWindow {
 
 // handleMenu opens the menu, or goes back if it is in front.
 func (m *Module) handleMenu(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	// In front means the focused window is the menu's: the focus history
+	// records only hostd's apps, and a window of another program (Steam's
+	// own, say) in front must still get the menu.
 	m.mu.Lock()
-	inFront := len(m.stack) > 0 && appOfInstance(m.stack[len(m.stack)-1]) == m.opts.Menu
+	inFront := false
+	for _, t := range m.windows {
+		if t.Focused {
+			inFront = m.isMenu(t.Instance)
+			break
+		}
+	}
 	core := m.core
 	m.mu.Unlock()
 	if inFront {

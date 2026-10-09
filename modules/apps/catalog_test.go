@@ -482,8 +482,8 @@ func TestShippedAppFiles(t *testing.T) {
 	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../deploy/addons/steam/steam.toml"))))
 	app, _ := Build(desktop, []AppFile{steam}, nil).Get("steam")
 	for _, a := range app.Actions {
-		if a.Command[0] != "/usr/local/bin/hostd-steam-session" {
-			t.Errorf("Steam action %s runs outside its session: %q", a.ID, a.Command)
+		if a.Command[len(a.Command)-1][:8] != "steam://" {
+			t.Errorf("Steam action %s does not hand Steam a link: %q", a.ID, a.Command)
 		}
 	}
 	if len(app.Actions) == 0 || app.Runner.Handoff != "FLATPAK_ID=com.valvesoftware.Steam" {
@@ -496,4 +496,18 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+func TestUnder(t *testing.T) {
+	c := Build(nil, []AppFile{
+		mustParse(t, "/x/steam-620.toml", "name = \"Portal 2\"\nunder = \"steam\"\nrunner = { type = \"exec\", command = [\"x\"] }"),
+		mustParse(t, "/x/self.toml", "under = \"self\"\nrunner = { type = \"exec\", command = [\"x\"] }"),
+	}, nil)
+	game, _ := c.Get("steam-620")
+	if game.Under != "steam" {
+		t.Fatalf("under %q", game.Under)
+	}
+	if len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, "under") {
+		t.Fatalf("problems %v", c.Problems)
+	}
 }

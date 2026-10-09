@@ -1,24 +1,19 @@
 # Managed by hostd's steam add-on; changes here are overwritten.
-# Steam runs in Big Picture inside gamescope, as on SteamOS: Steam's
-# overlay and its Guide button work over games, which run inside it.
-# There is one Steam, this session (hostd-steam-session): its actions and
-# the game apps are requests to it, and it closes when Steam is left from
-# its own menu.
+# Steam in Big Picture, fullscreen: an app like any other. Its games are
+# listed under it (their app files say under = "steam"); its actions and
+# the games hand Steam a steam:// link.
 extends = "steam"
 name = "Steam"
 # Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
-# processes, so closing Steam in hostd ends Steam (and gamescope with it).
-runner = { type = "exec", command = ["/usr/local/bin/hostd-steam-session"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
-# Steam's own desktop actions would run a second Steam outside the
-# session; the actions below open the same pages in it instead (Steam is
-# started first if it does not run).
+# processes, so closing Steam in hostd ends Steam, and starting it while
+# it runs brings it forward.
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
+# Steam's own desktop actions open its desktop window; these open pages
+# in Big Picture instead (Steam is started first if it does not run).
 replace_actions = true
 
-# Its window is gamescope's, which runs in hostd's unit for Steam: the unit
-# alone finds it, even when gamescope recreates its window without an
-# app_id.
 [match]
-app_id = "gamescope"
+env = "FLATPAK_ID=com.valvesoftware.Steam"
 
 [window]
 fullscreen = true
@@ -26,24 +21,19 @@ fullscreen = true
 [[actions]]
 id = "library"
 name = "Library"
-command = ["/usr/local/bin/hostd-steam-session", "--pass", "steam://open/games"]
+command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/games"]
 
 [[actions]]
 id = "store"
 name = "Store"
-command = ["/usr/local/bin/hostd-steam-session", "--pass", "steam://store"]
+command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://store"]
 
 [[actions]]
 id = "downloads"
 name = "Downloads"
-command = ["/usr/local/bin/hostd-steam-session", "--pass", "steam://open/downloads"]
-
-[[actions]]
-id = "friends"
-name = "Friends"
-command = ["/usr/local/bin/hostd-steam-session", "--pass", "steam://open/friends"]
+command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/downloads"]
 
 [[actions]]
 id = "settings"
 name = "Settings"
-command = ["/usr/local/bin/hostd-steam-session", "--pass", "steam://open/settings"]
+command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/settings"]

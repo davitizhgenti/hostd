@@ -30,6 +30,7 @@ type AppFile struct {
 	Audio    *fileAudio        `toml:"audio"`
 	Requires []string          `toml:"requires"`
 	Hidden   *bool             `toml:"hidden"`
+	Under    *string           `toml:"under"`
 	Match    *Match            `toml:"match"`
 	Restart  *string           `toml:"restart"`
 	Env      map[string]string `toml:"env"`
@@ -74,6 +75,9 @@ func (f AppFile) applyTo(a *App) {
 	}
 	if f.Surface != nil {
 		a.Surface = *f.Surface
+	}
+	if f.Under != nil {
+		a.Under = *f.Under
 	}
 	if w := f.Window; w != nil {
 		if w.Fullscreen != nil {
