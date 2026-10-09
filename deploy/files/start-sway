@@ -8,9 +8,13 @@
 # frames before the GPU has finished them (flicker). Should Sway not start
 # with the Vulkan renderer, it starts with the default one. It exits 0 when
 # left normally, so that falls through only on a failure.
+#
+# Direct scanout (a fullscreen game's frames sent to the screen as they
+# are) showed games as green, red and black blocks with it; Sway composes
+# every frame instead, a small copy at TV resolutions.
 export WLR_NO_HARDWARE_CURSORS=1
 if [ -x /usr/bin/nvidia-uninstall ]; then
-	WLR_RENDERER=vulkan sway --unsupported-gpu && exit 0
+	WLR_RENDERER=vulkan WLR_SCENE_DISABLE_DIRECT_SCANOUT=1 sway --unsupported-gpu && exit 0
 	echo "start-sway: Sway failed with the Vulkan renderer; starting it with the default one" >&2
 fi
 exec sway --unsupported-gpu
