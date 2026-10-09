@@ -96,10 +96,13 @@ if outs:
     print(m["width"], m["height"], round(m["refresh"] / 1000))
 ' 2>/dev/null || true)
 
-# -e: Steam drives gamescope (its overlay, game focus). Composing every
-# frame in gamescope, rather than passing the game's frames straight to
-# Sway, avoids flicker on drivers without explicit sync (NVIDIA < 555).
-args=(-e -f --force-composition)
+# -e: Steam drives gamescope (its overlay, game focus). Two X servers, as
+# in SteamOS sessions: Steam's own on the first, games on the second;
+# with one, Steam's interface ignored the keyboard and mouse. Composing
+# every frame in gamescope, rather than passing the game's frames
+# straight to Sway, avoids flicker on drivers without explicit sync
+# (NVIDIA < 555).
+args=(-e -f --xwayland-count 2 --force-composition)
 if [ -n "$mode" ]; then
 	read -r w h hz <<<"$mode"
 	args+=(-W "$w" -H "$h" -w "$w" -h "$h" -r "$hz")

@@ -56,6 +56,13 @@ addon_install() {
 		changed "installed Steam"
 	fi
 	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
+	# Steam's gamescope integration talks to gamescope over its sockets
+	# (its on-screen keyboard types through gamescope-0-ei); the sandbox
+	# does not show them otherwise.
+	if ! flatpak override --system --show "$STEAM_ID" 2>/dev/null | grep -q "xdg-run/gamescope-0-ei"; then
+		flatpak override --system --filesystem=xdg-run/gamescope-0 --filesystem=xdg-run/gamescope-0-ei "$STEAM_ID"
+		changed "let Steam reach gamescope"
+	fi
 	install_file "$ADDON_HERE/steam.toml" "$SCREEN_HOME/.config/hostd/apps/steam.toml" 644 "$SCREEN_USER" ||
 		info "Steam app file up to date"
 	install_file "$ADDON_HERE/hostd-steam-games" /usr/local/lib/hostd/addons/hostd-steam-games 755 root ||
@@ -77,6 +84,7 @@ addon_remove() {
 	# The game apps it made, and the Steam app file.
 	as_screen /usr/local/lib/hostd/addons/hostd-steam-games --remove || true
 	rm -f "$SCREEN_HOME/.config/hostd/apps/steam.toml" /usr/local/lib/hostd/addons/hostd-steam-games /usr/local/bin/hostd-steam-session
+	flatpak override --system --reset "$STEAM_ID" 2>/dev/null || true
 	flatpak uninstall --system -y --noninteractive "$STEAM_ID" >/dev/null 2>&1 && changed "removed Steam" || true
 	addon_rescan
 	info "Steam's own data (logins, saves, games) stays in $SCREEN_HOME/.var/app/$STEAM_ID"
