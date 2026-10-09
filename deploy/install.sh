@@ -371,7 +371,9 @@ PACKAGES=(
 	python3-gi gir1.2-gtk-4.0
 )
 if [ "$GPU" = nvidia ]; then
-	PACKAGES+=(linux-headers-amd64 nvidia-driver firmware-misc-nonfree)
+	PACKAGES+=(linux-headers-amd64 firmware-misc-nonfree)
+	# NVIDIA's own driver (the nvidia add-on) replaces Debian's: keep it.
+	[ -x /usr/bin/nvidia-uninstall ] || PACKAGES+=(nvidia-driver)
 fi
 
 missing=()

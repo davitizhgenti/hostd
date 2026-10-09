@@ -190,8 +190,9 @@ The screen runs Sway, and each window instance gets its own workspace, fullscree
 **Add-ons.** Optional software comes as installer add-ons (`deploy/addons/<name>/addon.sh`): `sudo hostd-setup add NAME`, `remove NAME`, `addons` to list them. Installed ones are recorded in `/etc/hostd/addons` and applied again by every install and update, which also updates them. They live outside hostd's core:
 - **controllers** installs udev rules giving the screen session raw HID and uinput access for common pads.
 - **flatpak** sets up Flatpak with Flathub, and updates every Flatpak app and runtime, including the NVIDIA GL runtime that must match the driver.
-- **steam** installs the Steam Flatpak, started in Big Picture. Its `hostd-steam-games` writes an app file per installed game (a handoff to Steam, followed by `SteamAppId`), kept current by a user path unit.
+- **steam** installs the Steam Flatpak, run in Big Picture inside gamescope (`hostd-steam-session`). Its `hostd-steam-games` writes an app file per installed game (a handoff to Steam, followed by `SteamAppId`), kept current by a user path unit.
 - **dolphin** installs Dolphin, which reads Wii Remotes through a DolphinBar.
+- **nvidia** replaces Debian's NVIDIA 550 with NVIDIA's own 580 (the last series for Maxwell, Pascal and Volta), which supports explicit sync: without it Sway, gamescope and Xwayland show unfinished frames. NVIDIA's installer, checked against a pinned checksum, builds the modules with DKMS; Debian's NVIDIA packages are removed and pinned away, and the installer no longer installs them. The screen session is stopped while the driver is swapped; on failure, or on remove, Debian's driver is put back. A plain update never swaps drivers.
 
 **Input and shortcuts**
 

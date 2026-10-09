@@ -19,6 +19,7 @@ t "the add-ons are listed" 'sudo hostd-setup addons | grep -q "controllers" && s
 t "an unknown add-on is refused" '! sudo hostd-setup add nope --source /opt/hostd-src && ! grep -qx nope /etc/hostd/addons'
 # add is an update: from this checkout and build, not GitHub.
 local_src="--source /opt/hostd-src --from /opt/hostd-dist --gpu other"
+t "add nvidia is refused without an NVIDIA card, and not recorded" "! sudo hostd-setup add nvidia $local_src && ! grep -qx nvidia /etc/hostd/addons"
 t "add controllers" "sudo hostd-setup add controllers $local_src"
 t "  its rules are in place" 'grep -q "Managed by hostd" /etc/udev/rules.d/60-hostd-controllers.rules && grep -qx uinput /etc/modules-load.d/hostd-uinput.conf'
 t "  it is recorded and listed as installed" 'grep -qx controllers /etc/hostd/addons && sudo hostd-setup addons | grep -q "^\* controllers"'
