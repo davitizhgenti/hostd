@@ -412,7 +412,13 @@ if [ "$GPU" = nvidia ]; then
 		info "kernel mode setting already on"
 	fi
 	rm -f "$tmp"
-	SWAY_COMMAND="env WLR_NO_HARDWARE_CURSORS=1 sway --unsupported-gpu"
+	# start-sway picks the renderer for the driver (see the file).
+	if install_file "$FILES/start-sway" /usr/local/lib/hostd/start-sway 755 root; then
+		NEED_REBOOT=1
+	else
+		info "Sway start script up to date"
+	fi
+	SWAY_COMMAND="/usr/local/lib/hostd/start-sway"
 else
 	SWAY_COMMAND="sway"
 fi

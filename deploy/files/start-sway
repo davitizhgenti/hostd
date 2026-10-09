@@ -1,0 +1,16 @@
+#!/bin/sh
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Starts Sway on an NVIDIA card (greetd runs it for the screen user).
+#
+# With NVIDIA's own driver (555 and later; the nvidia add-on), Sway does
+# explicit sync only with its Vulkan renderer: the default one needs an
+# EGL feature NVIDIA does not have. Without explicit sync, windows show
+# frames before the GPU has finished them (flicker). Should Sway not start
+# with the Vulkan renderer, it starts with the default one. It exits 0 when
+# left normally, so that falls through only on a failure.
+export WLR_NO_HARDWARE_CURSORS=1
+if [ -x /usr/bin/nvidia-uninstall ]; then
+	WLR_RENDERER=vulkan sway --unsupported-gpu && exit 0
+	echo "start-sway: Sway failed with the Vulkan renderer; starting it with the default one" >&2
+fi
+exec sway --unsupported-gpu
