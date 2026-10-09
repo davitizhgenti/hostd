@@ -175,10 +175,14 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		first = *running[0]
 	}
 	m.mu.Unlock()
-	if p, ok := backend.(Passer); ok && args.Action != "" && app.Runner.Handoff != "" && len(running) > 0 {
-		// The app's program runs and takes the action's request itself
-		// (Steam's Big Picture). As an instance of its own, the action
-		// would last as long as that program.
+	if p, ok := backend.(Passer); ok && args.Action != "" && app.Runner.Handoff != "" {
+		// The app's program takes the action's request itself (Steam's
+		// Big Picture): as an instance of its own, the action would last
+		// as long as that program. If it does not run, the app itself is
+		// started first, and the request follows once it is up.
+		if len(running) == 0 {
+			return m.startThenPass(ctx, p, app, args.Front)
+		}
 		if err := p.Pass(ctx, first, app); err != nil {
 			return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "%s: %v", app.ID, err)
 		}
@@ -259,6 +263,39 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		m.emitInstance(EventStarted, a.ID, snapshot)
 	}
 	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+}
+
+// startThenPass starts a handoff app for one of its actions, then hands
+// the action's request to it in the background: the program may take
+// minutes to be ready (Steam updates itself first).
+func (m *Module) startThenPass(ctx context.Context, p Passer, action *App, front bool) (sdk.Result, error) {
+	res, err := m.core.Do(ctx, sdk.Action{Type: "app.start", Args: sdk.MustJSON(map[string]any{"id": action.ID, "front": front})})
+	if err != nil {
+		return sdk.Result{}, err
+	}
+	var started startResult
+	_ = json.Unmarshal(res.Data, &started)
+	m.mu.Lock()
+	in, ok := m.instances[started.Instance]
+	var inst Instance
+	if ok {
+		inst = *in
+	}
+	life := m.life
+	m.mu.Unlock()
+	if !ok || life == nil {
+		return res, nil
+	}
+	m.watchersRun.Add(1)
+	go func() {
+		defer m.watchersRun.Done()
+		pctx, cancel := context.WithTimeout(life, 5*time.Minute)
+		defer cancel()
+		if err := p.Pass(pctx, inst, action); err != nil && life.Err() == nil {
+			m.log.Warn("handing an action to its app", "app", action.ID, "err", err)
+		}
+	}()
+	return res, nil
 }
 
 // focusRunning brings a running instance forward. Without the display

@@ -1,27 +1,90 @@
 #!/bin/bash
 # Steam's session for hostd's steam add-on: Steam in gamescope, as on
-# SteamOS, so Steam's overlay and its Guide button work over games.
+# SteamOS, so Steam's overlay and its Guide button work over games. There
+# is one Steam, this session; everything else is a request to it.
 #
-#   hostd-steam-session          run the session (the Steam app's command)
-#   hostd-steam-session URL...   pass URL to Steam (a game's command,
-#                                steam://rungameid/ID); the session is
-#                                started through hostd first if needed
+#   hostd-steam-session              run the session (the Steam app)
+#   hostd-steam-session --pass URL   hand URL to the running Steam (the
+#                                    Steam app's actions; hostd has
+#                                    started the session already)
+#   hostd-steam-session URL          a game: start the session through
+#                                    hostd if needed, then hand it URL
+#
+# The session ends with Steam. Steam can leave Big Picture and go on
+# without a screen (Exit Big Picture, or its shutdown hanging); once Big
+# Picture is gone and no game runs, Steam is asked to quit, so leaving
+# Steam from its own menu closes it.
 #
 # The screen's size and refresh rate come from Sway. HOSTD_GAMESCOPE_ARGS
 # adds gamescope options.
 set -eu
 
 STEAM_ID=com.valvesoftware.Steam
+GONE_AFTER=20 # seconds without Big Picture (and no game) before Steam is asked to quit
 # Debian installs gamescope (and its gamescopereaper) in /usr/games.
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/games
 
 steam_runs() { flatpak ps --columns=application 2>/dev/null | grep -qx "$STEAM_ID"; }
 
-if [ $# -gt 0 ]; then
-	# The session is an app of its own (steam), started like any other.
+# big_picture: Steam's Big Picture window is up on gamescope's display.
+big_picture() {
+	local id
+	for id in $(xwininfo -root -tree 2>/dev/null | awk '/"Steam Big Picture Mode"/ {print $1}'); do
+		xwininfo -id "$id" 2>/dev/null | grep -q 'Map State: IsViewable' && return 0
+	done
+	return 1
+}
+
+# game_runs: a game started by Steam runs (its processes have SteamAppId).
+game_runs() { grep -qsz '^SteamAppId=[1-9]' /proc/[0-9]*/environ; }
+
+# inside runs Steam within gamescope (its display) and ends it once it has
+# left Big Picture for good.
+inside() {
+	flatpak run "$STEAM_ID" -gamepadui &
+	local steam=$! seen=0 gone=0
+	while kill -0 "$steam" 2>/dev/null; do
+		sleep 2
+		if big_picture || game_runs; then
+			seen=1 gone=0
+			continue
+		fi
+		[ $seen -eq 1 ] || continue # still starting or updating
+		gone=$((gone + 2))
+		[ $gone -ge $GONE_AFTER ] || continue
+		echo "hostd-steam-session: Steam left Big Picture; asking it to quit" >&2
+		flatpak run "$STEAM_ID" -shutdown >/dev/null 2>&1 &
+		local waited=0
+		while [ $waited -lt 30 ] && kill -0 "$steam" 2>/dev/null; do
+			sleep 2
+			waited=$((waited + 2))
+		done
+		if kill -0 "$steam" 2>/dev/null; then
+			echo "hostd-steam-session: Steam did not quit; ending it" >&2
+			flatpak kill "$STEAM_ID" 2>/dev/null || true
+		fi
+		break
+	done
+	wait "$steam" || true
+}
+
+case "${1:-}" in
+--inside)
+	inside
+	exit 0
+	;;
+--pass)
+	shift
+	exec flatpak run "$STEAM_ID" "$@"
+	;;
+"") ;;
+*)
+	# A game: the session is an app of its own (steam), started like any
+	# other.
 	steam_runs || hostctl start steam --front >/dev/null
 	exec flatpak run "$STEAM_ID" "$@"
-fi
+	;;
+esac
 
 # The focused output's mode: "WIDTH HEIGHT HZ".
 mode=$(swaymsg -t get_outputs -r 2>/dev/null | python3 -c '
@@ -43,4 +106,4 @@ if [ -n "$mode" ]; then
 fi
 # shellcheck disable=SC2206 # options, split on purpose
 args+=(${HOSTD_GAMESCOPE_ARGS:-})
-exec gamescope "${args[@]}" -- flatpak run "$STEAM_ID" -gamepadui
+exec gamescope "${args[@]}" -- "$0" --inside

@@ -69,7 +69,8 @@ type Module struct {
 	instances   map[string]*Instance // live instances by ID
 	ended       []Instance           // recently ended, newest first
 	stopWatch   context.CancelFunc
-	watchersRun sync.WaitGroup
+	watchersRun sync.WaitGroup  // watchers and background hand-offs
+	life        context.Context // ends when the module stops
 }
 
 // New returns the apps module.
@@ -127,6 +128,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.adopt(context.Background())
 	wctx, cancel := context.WithCancel(context.Background())
 	m.stopWatch = cancel
+	m.life = wctx
 	for name, b := range m.opts.Backends {
 		m.watchersRun.Add(1)
 		go func() { defer m.watchersRun.Done(); m.watchBackend(wctx, name, b) }()

@@ -456,3 +456,44 @@ func (m *Module) seenChanges() int {
 	defer m.mu.Unlock()
 	return m.changes
 }
+
+func TestShippedAppFiles(t *testing.T) {
+	// The app files the installer and its add-ons write: each must load
+	// without a problem (over the desktop entries they extend).
+	paths, _ := filepath.Glob("../../deploy/addons/*/*.toml")
+	paths = append(paths, "../../deploy/files/menu/hostd-menu.toml")
+	desktop := []App{{ID: "steam", Name: "Steam", Runner: Runner{Type: RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
+		Actions: []AppAction{{ID: "bigpicture", Name: "Big Picture", Command: []string{"flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"}}}}}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := ParseAppFile(p, data)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		c := Build(desktop, []AppFile{f}, nil)
+		if len(c.Problems) != 0 {
+			t.Errorf("%s: %v", p, c.Problems)
+		}
+	}
+	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../deploy/addons/steam/steam.toml"))))
+	app, _ := Build(desktop, []AppFile{steam}, nil).Get("steam")
+	for _, a := range app.Actions {
+		if a.Command[0] != "/usr/local/bin/hostd-steam-session" {
+			t.Errorf("Steam action %s runs outside its session: %q", a.ID, a.Command)
+		}
+	}
+	if len(app.Actions) == 0 || app.Runner.Handoff != "FLATPAK_ID=com.valvesoftware.Steam" {
+		t.Errorf("steam app %+v", app)
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}

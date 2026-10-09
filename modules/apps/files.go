@@ -37,6 +37,9 @@ type AppFile struct {
 	// Actions add to the app's actions; one with the ID of an existing one
 	// replaces it.
 	Actions []AppAction `toml:"actions"`
+	// ReplaceActions: the file's actions replace the inherited ones (a
+	// desktop entry's) instead of adding to them.
+	ReplaceActions bool `toml:"replace_actions"`
 	// Source is how a background app's new versions arrive (deploy
 	// module, M4); accepted now so files can already declare it.
 	Source any `toml:"source"`
@@ -113,7 +116,9 @@ func (f AppFile) applyTo(a *App) {
 	if f.Health != nil {
 		a.Health = *f.Health
 	}
-	if len(f.Actions) > 0 {
+	if f.ReplaceActions {
+		a.Actions = append([]AppAction(nil), f.Actions...)
+	} else if len(f.Actions) > 0 {
 		merged := append([]AppAction(nil), a.Actions...)
 		for _, x := range f.Actions {
 			if i := slices.IndexFunc(merged, func(y AppAction) bool { return y.ID == x.ID }); i >= 0 {

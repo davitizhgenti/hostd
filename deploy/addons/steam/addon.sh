@@ -45,6 +45,7 @@ ensure_gamescope() {
 
 addon_install() {
 	ensure_gamescope
+	ensure_packages x11-utils # xwininfo: the session watches for Big Picture
 	install_file "$ADDON_HERE/hostd-steam-session" /usr/local/bin/hostd-steam-session 755 root ||
 		info "Steam session up to date"
 	if flatpak info --system "$STEAM_ID" >/dev/null 2>&1; then

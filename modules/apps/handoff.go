@@ -80,8 +80,11 @@ func (r *ExecRunner) runCommand(ctx context.Context, argv, env []string) error {
 			return nil
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 	return run(ctx, argv, env, r.HomeDir)
 }
 

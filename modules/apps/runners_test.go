@@ -434,6 +434,13 @@ Exec=chromium --incognito %U
 	if len(cat.Problems) != 0 || !reflect.DeepEqual(app.Actions, wantActions) {
 		t.Fatalf("actions %+v, problems %v", app.Actions, cat.Problems)
 	}
+	// Or replaces them all (Steam's desktop actions run outside its session).
+	files[0].ReplaceActions = true
+	files[0].Actions = files[0].Actions[:1]
+	app, _ = Build(found, files, nil).Get("chromium")
+	if !reflect.DeepEqual(app.Actions, []AppAction{{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}}}) {
+		t.Fatalf("replaced actions %+v", app.Actions)
+	}
 
 	for body, want := range map[string]string{
 		`[[actions]]` + "\nid = \"x\"\nname = \"X\"":                                                                         "needs a name and a command",
@@ -570,7 +577,7 @@ func TestClosingCountsAsExit(t *testing.T) {
 }
 
 func TestHandoffActionGoesToRunningApp(t *testing.T) {
-	// Steam runs; its Big Picture action is passed to it, not a second
+	// Steam's Big Picture action is passed to Steam, never a second
 	// instance that would last as long as Steam.
 	sd := newFakeSystemd()
 	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
@@ -588,10 +595,25 @@ name = "Big Picture"
 command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"]
 `)
 	r.m.rescan()
-	r.start(t, "steam")
-	r.next(t)
-	r.next(t)
+	// Steam does not run: the action starts Steam itself (its own
+	// command), then hands Steam the request.
 	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
+		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+	if err != nil || !strings.Contains(string(res.Data), `"instance":"steam"`) {
+		t.Fatalf("start for an action: %s %v", res.Data, err)
+	}
+	r.next(t)
+	r.next(t)
+	sd.mu.Lock()
+	first := sd.started[0].Argv
+	sd.mu.Unlock()
+	if !reflect.DeepEqual(first, []string{"flatpak", "run", "com.valvesoftware.Steam"}) {
+		t.Fatalf("started %q", first)
+	}
+	if argv := <-ran; argv[len(argv)-1] != "steam://open/bigpicture" {
+		t.Fatalf("passed %q", argv)
+	}
+	res, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
 		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 	if err != nil {
 		t.Fatal(err)
