@@ -149,7 +149,7 @@ addon_install() {
 	mkdir -p "$NV_CACHE"
 	if ! echo "$NV_SHA256  $NV_CACHE/$NV_RUN" | sha256sum -c --status 2>/dev/null; then
 		info "downloading NVIDIA's driver $NV_VERSION (about 380 MB)"
-		curl -fsSL -o "$NV_CACHE/$NV_RUN.part" "$NV_URL" || die "could not download $NV_URL"
+		curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$NV_CACHE/$NV_RUN.part" "$NV_URL" || die "could not download $NV_URL"
 		mv "$NV_CACHE/$NV_RUN.part" "$NV_CACHE/$NV_RUN"
 		echo "$NV_SHA256  $NV_CACHE/$NV_RUN" | sha256sum -c --status ||
 			{ rm -f "$NV_CACHE/$NV_RUN"; die "$NV_RUN does not match its checksum; not installed"; }

@@ -230,7 +230,7 @@ if [ "$CMD" = update ]; then
 		tmp=$(mktemp -d)
 		trap 'rm -rf "$tmp"' EXIT
 		log "Fetching the latest installer"
-		curl -fsSL --retry 3 "$SOURCE_URL" | tar xz -C "$tmp" || die "cannot download $SOURCE_URL"
+		curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors "$SOURCE_URL" | tar xz -C "$tmp" || die "cannot download $SOURCE_URL"
 		next=$(find "$tmp" -maxdepth 3 -path '*/deploy/install.sh' | head -1)
 		[ -n "$next" ] || die "the download has no deploy/install.sh"
 	fi
@@ -549,7 +549,7 @@ if [ -n "$FROM" ]; then
 	info "using the binaries in $FROM"
 else
 	for f in "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS; do
-		if ! curl -fsSL --retry 3 -o "$work/$f" "$RELEASE_URL/$f" 2>"$work/curl.err"; then
+		if ! curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$work/$f" "$RELEASE_URL/$f" 2>"$work/curl.err"; then
 			if grep -q "404" "$work/curl.err"; then
 				die "no published build at $RELEASE_URL yet. CI publishes one a few minutes after each push to main; try again shortly"
 			fi
