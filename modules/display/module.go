@@ -124,9 +124,9 @@ type Module struct {
 	down      map[string]bool          // controller buttons held down
 	gpuUsed   int64                    // video memory in use, bytes (GPU)
 	gpuTotal  int64
-	life      context.Context          // ends when the module stops
-	failed    int                      // compositor commands that failed
-	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
+	life      context.Context      // ends when the module stops
+	failed    int                  // compositor commands that failed
+	warned    map[string]time.Time // when each kind of failure was last logged as a warning
 	presence  *presence
 
 	stop context.CancelFunc

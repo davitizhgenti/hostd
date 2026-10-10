@@ -2,6 +2,7 @@ package display
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -73,7 +74,7 @@ func TestSystemGPUFromAMDSysfs(t *testing.T) {
 	if err != nil || used != 1<<30 || total != 4<<30 {
 		t.Fatalf("%d %d %v", used, total, err)
 	}
-	if _, _, err := (SystemGPU{SysRoot: t.TempDir(), NvidiaSMI: "-"}).Memory(context.Background()); err != errNoGPUInfo {
+	if _, _, err := (SystemGPU{SysRoot: t.TempDir(), NvidiaSMI: "-"}).Memory(context.Background()); !errors.Is(err, errNoGPUInfo) {
 		t.Fatalf("no card: %v", err)
 	}
 }
