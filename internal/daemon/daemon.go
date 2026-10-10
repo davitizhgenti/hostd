@@ -25,6 +25,7 @@ import (
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/demo"
+	"github.com/davitizhgenti/hostd/modules/deploy"
 	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -107,6 +108,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		case "audio":
 			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log,
 				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
+		case "deploy":
+			mods = append(mods, deploy.New(deploy.Options{Logger: log}))
 		case "demo":
 			mods = append(mods, demo.New())
 		}
