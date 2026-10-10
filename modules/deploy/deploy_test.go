@@ -33,6 +33,7 @@ type fakeApps struct {
 	n         int
 	port      int            // the service's public port
 	source    map[string]any // extra [source] settings
+	rescans   int
 }
 
 type fakeInstance struct {
@@ -107,6 +108,8 @@ func (f *fakeApps) module(t *testing.T) *testutil.Module {
 	apps.M.Actions = []sdk.ActionSpec{
 		{Type: "app.start", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`), Keys: []sdk.KeyTemplate{"app:{id}"}},
 		{Type: "instance.stop", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`), Keys: []sdk.KeyTemplate{"instance:{id}"}},
+		{Type: "app.check", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`)},
+		{Type: "app.rescan", Scope: "apps"},
 	}
 	apps.M.Reads = []sdk.ReadSpec{{Name: "apps", Path: "/v1/apps"}, {Name: "instance", Path: "/v1/instances/{id}"}}
 	apps.ReadFunc = func(_ context.Context, name string, params map[string]string) (any, error) {
@@ -127,6 +130,22 @@ func (f *fakeApps) module(t *testing.T) *testutil.Module {
 	}
 	apps.HandleFunc = func(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		switch a.Type {
+		case "app.check": // a file saying BROKEN is a problem
+			var args struct{ Dir string }
+			_ = a.DecodeArgs(&args)
+			problems := []map[string]string{}
+			entries, _ := os.ReadDir(args.Dir)
+			for _, e := range entries {
+				if b, _ := os.ReadFile(filepath.Join(args.Dir, e.Name())); strings.Contains(string(b), "BROKEN") {
+					problems = append(problems, map[string]string{"file": e.Name(), "error": "broken"})
+				}
+			}
+			return sdk.Result{Data: sdk.MustJSON(map[string]any{"problems": problems})}, nil
+		case "app.rescan":
+			f.mu.Lock()
+			f.rescans++
+			f.mu.Unlock()
+			return sdk.Result{}, nil
 		case "app.start":
 			var args contract.AppStart
 			_ = a.DecodeArgs(&args)
@@ -493,5 +512,99 @@ func TestWebhookSource(t *testing.T) {
 	v, err := g.e.ModuleHook(context.Background(), "deploy", "git", sdk.HookRequest{Params: map[string]string{"app": "site"}, Header: h, Body: []byte(push)})
 	if err != nil || v.(map[string]string)["reason"] != "this delivery was already handled" {
 		t.Fatalf("replay: %v %v", v, err)
+	}
+}
+
+func TestConfigFollow(t *testing.T) {
+	upstream := filepath.Join(t.TempDir(), "config.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "main", upstream).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	appsDir := filepath.Join(t.TempDir(), "hostd", "apps")
+	_ = os.MkdirAll(appsDir, 0o755)
+	_ = os.WriteFile(filepath.Join(appsDir, "mine.toml"), []byte("hand-written"), 0o644)
+	g := newGate(t, nil, Options{AppsDir: appsDir})
+	work := g.work
+	g.sh(work, "git", "init", "-q", "-b", "main")
+	g.sh(work, "git", "remote", "add", "origin", upstream)
+	commit := func(files map[string]string) {
+		_ = os.RemoveAll(filepath.Join(work, "apps"))
+		_ = os.MkdirAll(filepath.Join(work, "apps"), 0o755)
+		for name, body := range files {
+			_ = os.WriteFile(filepath.Join(work, "apps", name), []byte(body), 0o644)
+		}
+		g.sh(work, "git", "add", "-A")
+		g.sh(work, "git", "commit", "-q", "--allow-empty", "-m", "config")
+		g.sh(work, "git", "push", "-q", "origin", "main")
+	}
+	do := func(typ, args string) (sdk.Result, error) {
+		return g.e.Submit(context.Background(), sdk.Action{Type: typ, Args: json.RawMessage(args),
+			Source: sdk.Source{Kind: sdk.SourceManual}}, core.Auth{Scopes: []string{sdk.ScopeAdmin}})
+	}
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(appsDir, name))
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+
+	commit(map[string]string{"site.toml": "v1"})
+	if _, err := do("config.follow", fmt.Sprintf(`{"url":%q}`, upstream)); err != nil {
+		t.Fatal(err)
+	}
+	if read("site.toml") != "v1" || read("mine.toml") != "" {
+		t.Fatalf("applied: site=%q mine=%q", read("site.toml"), read("mine.toml"))
+	}
+	if b, _ := os.ReadFile(filepath.Join(appsDir+".before-follow", "mine.toml")); string(b) != "hand-written" {
+		t.Fatal("the hand-written app files were not kept")
+	}
+
+	// An invalid commit is rejected; the previous config stays.
+	commit(map[string]string{"site.toml": "BROKEN"})
+	_, err := do("config.sync", `{}`)
+	if sdk.CodeOf(err) != sdk.CodePreconditionFailed || !strings.Contains(err.Error(), "previous config stays") {
+		t.Fatalf("broken config: %v", err)
+	}
+	if read("site.toml") != "v1" {
+		t.Fatalf("after the rejection: %q", read("site.toml"))
+	}
+	f, _ := g.m.loadFollow()
+	if f.Rejected == "" || len(f.Problems) != 1 || f.Applied == f.Rejected {
+		t.Fatalf("state %+v", f)
+	}
+
+	// A good commit after it.
+	commit(map[string]string{"site.toml": "v2", "blog.toml": "b"})
+	if _, err := do("config.sync", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if read("site.toml") != "v2" || read("blog.toml") != "b" {
+		t.Fatalf("v2: %q %q", read("site.toml"), read("blog.toml"))
+	}
+	g.f.mu.Lock()
+	rescans := g.f.rescans
+	g.f.mu.Unlock()
+	if rescans != 2 {
+		t.Fatalf("rescans %d", rescans)
+	}
+
+	// No apps/ folder: rejected.
+	g.sh(work, "git", "rm", "-q", "-r", "apps")
+	g.sh(work, "git", "commit", "-q", "-m", "oops")
+	g.sh(work, "git", "push", "-q", "origin", "main")
+	if _, err := do("config.sync", `{}`); err == nil || !strings.Contains(err.Error(), "no apps/ folder") {
+		t.Fatalf("no apps folder: %v", err)
+	}
+
+	// Unfollow: the files in use become an ordinary folder.
+	if _, err := do("config.unfollow", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(appsDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || read("site.toml") != "v2" {
+		t.Fatalf("after unfollow: %v %v %q", fi, err, read("site.toml"))
+	}
+	if _, err := do("config.sync", `{}`); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("sync after unfollow: %v", err)
 	}
 }

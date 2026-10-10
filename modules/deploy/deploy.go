@@ -51,6 +51,9 @@ type Options struct {
 	// (default /usr/local/bin/hostctl git-shell).
 	AuthorizedKeys string
 	GitShell       string
+	// AppsDir is the app files' folder, which can follow a repository
+	// (config.follow).
+	AppsDir string
 	// SecretsDir holds the secrets (the apps module's), for webhook
 	// secrets.
 	SecretsDir string
@@ -116,7 +119,7 @@ func (m *Module) Manifest() sdk.Manifest {
 	keys := []sdk.KeyTemplate{"deploy:{app}"}
 	return sdk.Manifest{
 		Name: "deploy", Version: "0.1.0", Requires: []string{contract.AppsModule},
-		Owns: []string{"deploy.*"},
+		Owns: []string{"deploy.*", "config.*"},
 		Actions: append([]sdk.ActionSpec{
 			{Type: "deploy.init", Description: "Create the service's git repository: git push to it deploys",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(30 * time.Second),
@@ -130,17 +133,20 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "deploy.rollback", Description: "Switch back to the release before the live one",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(10 * time.Minute),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/rollback"}},
-		}, pushKeyActions()...),
+		}, append(pushKeyActions(), configActions()...)...),
 		Events: []sdk.EventSpec{
 			{Type: EventStarted, Description: "A deploy started"},
 			{Type: EventDone, Description: "A release is live"},
 			{Type: EventFailed, Description: "A deploy failed; the running release stays"},
 			{Type: EventRolledBack, Description: "A service went back to its previous release"},
+			{Type: EventConfigApplied, Description: "A commit of the followed config is in use"},
+			{Type: EventConfigRejected, Description: "A commit of the followed config was refused; the previous config stays"},
 		},
 		Reads: []sdk.ReadSpec{
 			{Name: "deploys", Description: "Every service: its live release and recent ones", Path: "/v1/deploys"},
 			{Name: "deploy", Description: "One service's releases", Path: "/v1/deploys/{app}"},
 			{Name: "push_keys", Description: "SSH keys that may only git push", Path: "/v1/push-keys"},
+			{Name: "config_follow", Description: "The followed config repository and its last result", Path: "/v1/config/follow"},
 		},
 		Hooks: []sdk.HookSpec{
 			{Name: "git", Description: "A git host's push webhook (GitHub, Gitea), signed with the source's secret", Path: "/v1/hooks/git/{app}"},
@@ -409,6 +415,8 @@ func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	switch a.Type {
+	case "config.follow", "config.unfollow", "config.sync", "config.key":
+		return m.handleConfig(ctx, a)
 	case "deploy.authorize", "deploy.revoke":
 		var args struct{ Name, Key string }
 		if err := a.DecodeArgs(&args); err != nil {
@@ -590,6 +598,8 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 		return m.load(params["app"])
 	case "push_keys":
 		return m.pushKeys()
+	case "config_follow":
+		return m.readFollow()
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "deploy module has no read %q", name)
 }

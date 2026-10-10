@@ -310,6 +310,9 @@ func (a *App) validate() error {
 		}
 	}
 	if d := a.Deploy; d != nil {
+		if strings.HasPrefix(d.URL, "-") {
+			bad("source.url %q: a git repository", d.URL)
+		}
 		switch d.Type {
 		case "push":
 			if d.URL != "" || d.Poll != "" || d.Secret != "" {

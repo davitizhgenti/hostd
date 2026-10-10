@@ -2,12 +2,14 @@ package apps
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,6 +106,8 @@ func (m *Module) Manifest() sdk.Manifest {
 		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
+			{Type: "app.check", Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
+				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
 		}, append(instanceActions(), secretActions()...)...),
 		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
@@ -283,12 +287,38 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	case "secret.set", "secret.remove":
 		return m.handleSecret(a)
 	}
+	if a.Type == "app.check" {
+		return m.handleCheck(a)
+	}
 	if a.Type == "app.rescan" {
 		m.rescan()
 		cat := m.catalog()
 		return sdk.Result{Data: sdk.MustJSON(map[string]int{"apps": cat.Len(), "problems": len(cat.Problems)})}, nil
 	}
 	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "apps module has no action %q", a.Type)
+}
+
+// handleCheck builds the catalog as it would be with dir as the app
+// files, and reports the files' problems.
+func (m *Module) handleCheck(a sdk.Action) (sdk.Result, error) {
+	var args struct{ Dir string }
+	if err := a.DecodeArgs(&args); err != nil {
+		return sdk.Result{}, err
+	}
+	if fi, err := os.Stat(args.Dir); err != nil || !fi.IsDir() {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s is not a folder", args.Dir)
+	}
+	src := DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
+	discovered, _ := src.Scan()
+	files, problems := LoadAppFiles(args.Dir)
+	cat := Build(discovered, files, problems)
+	out := []Problem{}
+	for _, p := range cat.Problems {
+		if strings.HasPrefix(p.File, args.Dir+string(os.PathSeparator)) || p.File == args.Dir {
+			out = append(out, p)
+		}
+	}
+	return sdk.Result{Data: sdk.MustJSON(map[string]any{"files": len(files), "problems": out})}, nil
 }
 
 func (m *Module) catalog() *Catalog {

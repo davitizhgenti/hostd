@@ -94,7 +94,12 @@ func (s service) pollEvery() time.Duration {
 // pollLoop looks at every remote source when it is due.
 func (m *Module) pollLoop(ctx context.Context) {
 	last := map[string]time.Time{}
+	var configAt time.Time
 	for {
+		if f, err := m.loadFollow(); err == nil && f != nil && m.opts.Clock.Now().Sub(configAt) >= f.pollEvery() {
+			configAt = m.opts.Clock.Now()
+			m.pollConfig(ctx)
+		}
 		if svcs, err := m.services(ctx); err == nil {
 			now := m.opts.Clock.Now()
 			for id, s := range svcs {

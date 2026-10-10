@@ -790,3 +790,39 @@ func TestSourceSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckFolder(t *testing.T) {
+	r := newRig(t, newFakeSystemd(), newFakeDocker(), fakeSession(t))
+	dir := t.TempDir()
+	writeApps(t, dir, `
+-- good.toml --
+runner = { type = "exec", command = ["good"] }
+-- bad.toml --
+runner = { type = "warp" }
+`)
+	check := func(d string) (map[string]any, error) {
+		res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.check", Args: sdk.MustJSON(map[string]string{"dir": d}),
+			Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+		if err != nil {
+			return nil, err
+		}
+		var out map[string]any
+		_ = json.Unmarshal(res.Data, &out)
+		return out, nil
+	}
+	out, err := check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	problems, _ := out["problems"].([]any)
+	if out["files"] != float64(2) || len(problems) != 1 || !strings.Contains(fmt.Sprint(problems[0]), "bad.toml") {
+		t.Fatalf("check %v", out)
+	}
+	// The catalog in use is untouched.
+	if _, ok := r.m.catalog().Get("good"); ok {
+		t.Fatal("app.check changed the catalog")
+	}
+	if _, err := check(filepath.Join(dir, "nope")); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("missing folder: %v", err)
+	}
+}

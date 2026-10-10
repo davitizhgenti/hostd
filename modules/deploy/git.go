@@ -73,33 +73,8 @@ func (m *Module) export(ctx context.Context, app, rev, branch string) (sha, dir 
 		return "", "", fmt.Errorf("no commit %q in %s: %w", rev, repo, err)
 	}
 	dir = filepath.Join(m.opts.Root, "releases", app, sha[:12]+"-"+m.opts.Clock.Now().UTC().Format("20060102T150405"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := m.exportTree(ctx, repo, sha, dir); err != nil {
 		return "", "", err
-	}
-	// git archive | tar -x, through an OS pipe both processes hold.
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return "", "", err
-	}
-	archive := exec.CommandContext(ctx, "git", "--git-dir", repo, "archive", "--format=tar", sha)
-	untar := exec.CommandContext(ctx, "tar", "-x", "-C", dir)
-	var archiveErr, untarErr bytes.Buffer
-	archive.Stdout, archive.Stderr = pw, &archiveErr
-	untar.Stdin, untar.Stderr = pr, &untarErr
-	if err := untar.Start(); err != nil {
-		pr.Close()
-		pw.Close()
-		return "", "", err
-	}
-	pr.Close() // tar has it
-	aerr := archive.Run()
-	pw.Close() // tar sees the end
-	uerr := untar.Wait()
-	if aerr != nil {
-		return "", "", fmt.Errorf("git archive: %w: %s", aerr, strings.TrimSpace(archiveErr.String()))
-	}
-	if uerr != nil {
-		return "", "", fmt.Errorf("tar: %w: %s", uerr, strings.TrimSpace(untarErr.String()))
 	}
 	return sha, dir, nil
 }
@@ -146,4 +121,37 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// exportTree writes commit sha's tree into dir.
+func (m *Module) exportTree(ctx context.Context, repo, sha, dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	// git archive | tar -x, through an OS pipe both processes hold.
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	archive := exec.CommandContext(ctx, "git", "--git-dir", repo, "archive", "--format=tar", sha)
+	untar := exec.CommandContext(ctx, "tar", "-x", "-C", dir)
+	var archiveErr, untarErr bytes.Buffer
+	archive.Stdout, archive.Stderr = pw, &archiveErr
+	untar.Stdin, untar.Stderr = pr, &untarErr
+	if err := untar.Start(); err != nil {
+		pr.Close()
+		pw.Close()
+		return err
+	}
+	pr.Close() // tar has it
+	aerr := archive.Run()
+	pw.Close() // tar sees the end
+	uerr := untar.Wait()
+	if aerr != nil {
+		return fmt.Errorf("git archive: %w: %s", aerr, strings.TrimSpace(archiveErr.String()))
+	}
+	if uerr != nil {
+		return fmt.Errorf("tar: %w: %s", uerr, strings.TrimSpace(untarErr.String()))
+	}
+	return nil
 }

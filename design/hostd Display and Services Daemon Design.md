@@ -332,7 +332,7 @@ auth  = "ghcr-token"        # secret name, only for private images
 
 **Recommended GitHub workflow.** For anything that takes long to build, let GitHub Actions build and test the image and push it to GHCR, and use the `image` source. The mini PC then never compiles anything, and only tested images are deployed. Use `remote` for small apps that build quickly on the machine, and `push` for experiments.
 
-**Config from git too.** The hostd config folder (app definitions, scenes, rules) can follow a repository the same way: `hostctl config follow git@github.com:me/hostd-config.git`. On each new commit hostd validates the whole config first. A valid config is applied and reloaded without a restart; an invalid one is rejected, the previous config stays active, and a `config.rejected` event explains why.
+**Config from git too.** The hostd config folder (app definitions, scenes, rules) can follow a repository the same way: `hostctl config follow git@github.com:me/hostd-config.git`. On each new commit hostd validates the whole config first. A valid config is applied and reloaded without a restart; an invalid one is rejected, the previous config stays active, and a `config.rejected` event explains why. The repository's `apps/` folder holds the app files (rules and scenes will sit beside it); `hostd.toml`, which needs a restart, stays local, and so do secrets.
 
 **Every deploy is an action.** Deploys triggered by a source run as `deploy.run` with source `automation` on the resource key `deploy:<app>`, so they queue behind each other and appear in the audit trail with the commit SHA, author and message. `hostctl deploy status` shows each app's source, current version, last check and last result.
 
