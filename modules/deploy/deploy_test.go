@@ -28,7 +28,8 @@ type fakeApps struct {
 	mu        sync.Mutex
 	instances map[string]*fakeInstance
 	n         int
-	port      int // the service's public port
+	port      int            // the service's public port
+	source    map[string]any // extra [source] settings
 }
 
 type fakeInstance struct {
@@ -107,8 +108,11 @@ func (f *fakeApps) module(t *testing.T) *testutil.Module {
 	apps.M.Reads = []sdk.ReadSpec{{Name: "apps", Path: "/v1/apps"}, {Name: "instance", Path: "/v1/instances/{id}"}}
 	apps.ReadFunc = func(_ context.Context, name string, params map[string]string) (any, error) {
 		if name == "apps" {
-			return map[string]any{"apps": []map[string]any{{"id": "site", "deploy": map[string]any{
-				"type": "push", "port": f.port, "build": []string{"sh", "-c", "test ! -f FAIL && cp index.html built.html"}}}}}, nil
+			src := map[string]any{"type": "push", "port": f.port, "build": []string{"sh", "-c", "test ! -f FAIL && cp index.html built.html"}}
+			for k, v := range f.source {
+				src[k] = v
+			}
+			return map[string]any{"apps": []map[string]any{{"id": "site", "deploy": src}}}, nil
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -150,6 +154,7 @@ type gate struct {
 	t    *testing.T
 	e    *core.Engine
 	m    *Module
+	f    *fakeApps
 	work string // a clone that pushes to the service's repo
 	url  string
 }
@@ -193,16 +198,18 @@ func (g *gate) get() (int, string) {
 	return resp.StatusCode, string(b)
 }
 
-func TestDeployGate(t *testing.T) {
+// newGate runs the deploy module with fake apps whose service is "site".
+func newGate(t *testing.T, source map[string]any, opts Options) *gate {
+	t.Helper()
 	for _, tool := range []string{"git", "python3", "tar"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("no %s", tool)
 		}
 	}
-	f := &fakeApps{instances: map[string]*fakeInstance{}, port: freeTestPort(t)}
+	f := &fakeApps{instances: map[string]*fakeInstance{}, port: freeTestPort(t), source: source}
 	t.Cleanup(f.stopAll)
-	root := t.TempDir()
-	m := New(Options{Root: root, ListenHost: "127.0.0.1", Drain: 2 * time.Second, HealthWait: 20 * time.Second})
+	opts.Root, opts.ListenHost, opts.Drain, opts.HealthWait = t.TempDir(), "127.0.0.1", 2*time.Second, 20*time.Second
+	m := New(opts)
 	reg := core.NewRegistry()
 	for _, mod := range []sdk.Module{f.module(t), m} {
 		if err := reg.Add(mod); err != nil {
@@ -214,7 +221,12 @@ func TestDeployGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.Stop(context.Background()) })
-	g := &gate{t: t, e: e, m: m, work: t.TempDir(), url: fmt.Sprintf("http://127.0.0.1:%d/built.html", f.port)}
+	return &gate{t: t, e: e, m: m, f: f, work: t.TempDir(), url: fmt.Sprintf("http://127.0.0.1:%d/built.html", f.port)}
+}
+
+func TestDeployGate(t *testing.T) {
+	g := newGate(t, nil, Options{})
+	m := g.m
 
 	if _, err := g.do("deploy.init"); err != nil {
 		t.Fatal(err)
@@ -266,9 +278,9 @@ func TestDeployGate(t *testing.T) {
 	if code, body := g.get(); code != 200 || body != "v2" {
 		t.Fatalf("v2: %d %q", code, body)
 	}
-	f.mu.Lock()
-	first := f.instances["site"].state
-	f.mu.Unlock()
+	g.f.mu.Lock()
+	first := g.f.instances["site"].state
+	g.f.mu.Unlock()
 	if first != "exited" {
 		t.Fatalf("v1's release still %s after the switch", first)
 	}
@@ -306,5 +318,86 @@ func TestDeployGate(t *testing.T) {
 	}
 	if st.Releases[0].Result != "live" || st.Releases[0].Rev != st.Current {
 		t.Fatalf("history after rollback %+v", st.Releases)
+	}
+}
+
+// waitFor polls cond for up to 30s.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for range 300 {
+		if cond() {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+func TestRemoteSource(t *testing.T) {
+	upstream := filepath.Join(t.TempDir(), "up.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "main", upstream).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	g := newGate(t, map[string]any{"type": "remote", "url": upstream, "poll": "100ms"}, Options{PollTick: 50 * time.Millisecond})
+	g.sh(g.work, "git", "init", "-q", "-b", "main")
+	g.sh(g.work, "git", "remote", "add", "origin", upstream)
+
+	serves := func(want string) func() bool {
+		return func() bool { code, body := g.get(); return code == 200 && body == want }
+	}
+	g.commit("v1", false)
+	waitFor(t, "v1 deployed by polling", serves("v1"))
+
+	// A broken commit fails once and is not retried; v1 keeps serving.
+	g.commit("v2", true)
+	failed := func() int {
+		st, _ := g.m.load("site")
+		n := 0
+		for _, r := range st.Releases {
+			if r.Result == "failed" {
+				n++
+			}
+		}
+		return n
+	}
+	waitFor(t, "v2 refused", func() bool { return failed() == 1 })
+	time.Sleep(500 * time.Millisecond) // several polls
+	if n := failed(); n != 1 {
+		t.Fatalf("the broken commit was tried %d times", n)
+	}
+	if !serves("v1")() {
+		t.Fatal("v1 stopped serving")
+	}
+
+	g.commit("v3", false)
+	waitFor(t, "v3 deployed", serves("v3"))
+}
+
+func TestDeployKey(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("no ssh-keygen")
+	}
+	g := newGate(t, map[string]any{"type": "remote", "url": "/nonexistent", "poll": "1h"}, Options{})
+	key := func() string {
+		res, err := g.do("deploy.key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out struct {
+			PublicKey string `json:"public_key"`
+		}
+		_ = json.Unmarshal(res.Data, &out)
+		return out.PublicKey
+	}
+	first := key()
+	if !strings.HasPrefix(first, "ssh-ed25519 ") || key() != first {
+		t.Fatalf("keys %q", first)
+	}
+	if fi, err := os.Stat(g.m.keyPath("site")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("private key: %v %v", fi, err)
+	}
+	env := strings.Join(g.m.gitEnv("site"), "\n")
+	if !strings.Contains(env, "GIT_SSH_COMMAND=ssh -i "+g.m.keyPath("site")) {
+		t.Fatalf("env %s", env)
 	}
 }

@@ -16,7 +16,13 @@ func (m *Module) repo(app string) string {
 }
 
 func (m *Module) git(ctx context.Context, args ...string) (string, error) {
+	return m.gitWith(ctx, nil, args...)
+}
+
+// gitWith runs git with env (nil: hostd's own).
+func (m *Module) gitWith(ctx context.Context, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = env
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

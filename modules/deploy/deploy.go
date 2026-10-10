@@ -46,6 +46,9 @@ type Options struct {
 	HealthWait time.Duration
 	// Drain is how long requests on a replaced release may take (default 30s).
 	Drain time.Duration
+	// PollTick is how often remote sources are checked for being due
+	// (default 10s; each has its own poll interval).
+	PollTick time.Duration
 }
 
 // Module is the deploy module.
@@ -56,6 +59,7 @@ type Module struct {
 	mu      sync.Mutex
 	core    sdk.Core
 	proxies map[string]*proxy // by app
+	polling map[string]bool   // apps with a deploy started by polling
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -79,7 +83,10 @@ func New(opts Options) *Module {
 	if opts.Drain == 0 {
 		opts.Drain = 30 * time.Second
 	}
-	return &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}}
+	if opts.PollTick == 0 {
+		opts.PollTick = 10 * time.Second
+	}
+	return &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}, polling: map[string]bool{}}
 }
 
 var appSchema = json.RawMessage(`{"type":"object","properties":{
@@ -98,6 +105,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "deploy.run", Description: "Build a commit and switch to it with no downtime; on any failure the running release stays",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(20 * time.Minute),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/run"}},
+			{Type: "deploy.key", Description: "The service's deploy key (made once): add its public key to the repository, read-only",
+				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(30 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/key"}},
 			{Type: "deploy.rollback", Description: "Switch back to the release before the live one",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(10 * time.Minute),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/rollback"}},
@@ -119,6 +129,9 @@ func (m *Module) Manifest() sdk.Manifest {
 type service struct {
 	ID     string `json:"id"`
 	Deploy *struct {
+		Type   string   `json:"type"`
+		URL    string   `json:"url"`
+		Poll   string   `json:"poll"`
 		Build  []string `json:"build"`
 		Port   int      `json:"port"`
 		Branch string   `json:"branch"`
@@ -185,6 +198,11 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 		for range events {
 			m.sync(ctx)
 		}
+	}()
+	m.done.Add(1)
+	go func() {
+		defer m.done.Done()
+		m.pollLoop(ctx)
 	}()
 	return nil
 }
@@ -376,12 +394,21 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return sdk.Result{}, err
 	}
 	switch a.Type {
+	case "deploy.key":
+		pub, err := m.makeKey(ctx, s.ID)
+		if err != nil {
+			return sdk.Result{}, err
+		}
+		return sdk.Result{Data: sdk.MustJSON(map[string]string{"public_key": pub, "path": m.keyPath(s.ID)})}, nil
 	case "deploy.init":
 		dir, err := m.initRepo(ctx, s.ID, s.branch())
 		if err != nil {
 			return sdk.Result{}, err
 		}
 		m.sync(ctx) // the public port opens now, before the first push
+		if s.Deploy.Type == "remote" {
+			return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": s.branch(), "url": s.Deploy.URL})}, nil
+		}
 		host, _ := os.Hostname()
 		return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": s.branch(),
 			"remote": "ssh://" + os.Getenv("USER") + "@" + host + dir})}, nil
@@ -415,6 +442,11 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 			still = "release " + live.Rev[:min(12, len(live.Rev))] + " keeps serving"
 		}
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "deploying %s failed (%s): %v", s.ID, still, err)
+	}
+	if s.Deploy.Type == "remote" {
+		if err := m.fetch(ctx, s); err != nil {
+			return fail(Release{}, err)
+		}
 	}
 	sha, dir, err := m.export(ctx, s.ID, rev, s.branch())
 	if err != nil {

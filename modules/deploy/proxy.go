@@ -25,9 +25,49 @@ type proxy struct {
 }
 
 type upstream struct {
-	port   int
-	rp     *httputil.ReverseProxy
-	active sync.WaitGroup
+	port int
+	rp   *httputil.ReverseProxy
+
+	mu       sync.Mutex
+	active   int           // requests on it
+	draining bool          // replaced: takes no new requests
+	idle     chan struct{} // closed when draining and no request is left
+}
+
+// acquire counts a request on u, unless u is draining.
+func (u *upstream) acquire() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.draining {
+		return false
+	}
+	u.active++
+	return true
+}
+
+func (u *upstream) release() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.active--
+	if u.active == 0 && u.idle != nil {
+		close(u.idle)
+		u.idle = nil
+	}
+}
+
+// startDrain stops u taking requests; the channel closes once the ones
+// on it have finished.
+func (u *upstream) startDrain() <-chan struct{} {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.draining = true
+	ch := make(chan struct{})
+	if u.active == 0 {
+		close(ch)
+	} else {
+		u.idle = ch
+	}
+	return ch
 }
 
 func newUpstream(port int) *upstream {
@@ -40,14 +80,19 @@ func newUpstream(port int) *upstream {
 }
 
 func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	up := p.upstream.Load()
-	if up == nil {
-		http.Error(w, "hostd: "+p.app+" has no release deployed yet", http.StatusServiceUnavailable)
-		return
+	for {
+		up := p.upstream.Load()
+		if up == nil {
+			http.Error(w, "hostd: "+p.app+" has no release deployed yet", http.StatusServiceUnavailable)
+			return
+		}
+		// A replaced upstream is draining: the new one is already in place.
+		if up.acquire() {
+			defer up.release()
+			up.rp.ServeHTTP(w, r)
+			return
+		}
 	}
-	up.active.Add(1)
-	defer up.active.Done()
-	up.rp.ServeHTTP(w, r)
 }
 
 // listen starts serving the public port.
@@ -79,10 +124,8 @@ func drain(u *upstream, d time.Duration) {
 	if u == nil {
 		return
 	}
-	done := make(chan struct{})
-	go func() { u.active.Wait(); close(done) }()
 	select {
-	case <-done:
+	case <-u.startDrain():
 	case <-time.After(d):
 	}
 }

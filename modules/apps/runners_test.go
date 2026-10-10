@@ -763,3 +763,29 @@ env = { DB = "postgres://app:{secret:db-pass}@db/app", MODE = "prod" }
 		t.Fatalf("after remove %v", list)
 	}
 }
+
+func TestSourceSettings(t *testing.T) {
+	head := "runner = { type = \"process\", command = [\"site\"] }\n[source]\n"
+	f, err := ParseAppFile("/x/site.toml", []byte(head+"type = \"remote\"\nurl = \"git@github.com:me/site.git\"\npoll = \"5m\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Build(nil, []AppFile{f}, nil)
+	if app, _ := c.Get("site"); len(c.Problems) != 0 || app.Deploy.URL != "git@github.com:me/site.git" || app.Deploy.Poll != "5m" {
+		t.Fatalf("remote source %+v, problems %v", app.Deploy, c.Problems)
+	}
+	for body, want := range map[string]string{
+		"type = \"remote\"\n":                           "needs url",
+		"type = \"remote\"\nurl = \"x\"\npoll = \"1s\"": "at least 10s",
+		"type = \"push\"\nurl = \"x\"":                  "for type remote",
+		"type = \"ftp\"":                                "push or remote",
+	} {
+		f, err := ParseAppFile("/x/site.toml", []byte(head+body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := Build(nil, []AppFile{f}, nil); len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
+			t.Errorf("%q: problems %v, want %q", body, c.Problems, want)
+		}
+	}
+}

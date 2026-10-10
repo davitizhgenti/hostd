@@ -310,9 +310,8 @@ Because the API stays on the home network, `remote` is the default for GitHub: i
 [source]
 type   = "remote"
 url    = "git@github.com:me/blog.git"
-branch = "main"             # or: tag = "v*" to deploy only matching release tags
-poll   = "60s"
-key    = "blog"             # deploy key, see below
+branch = "main"             # later: tag = "v*" to deploy only matching release tags
+poll   = "60s"              # at least 10s
 ```
 
 ```toml
@@ -325,7 +324,7 @@ poll  = "2m"
 auth  = "ghcr-token"        # secret name, only for private images
 ```
 
-**Private repositories.** `hostctl deploy key blog` generates a per-app SSH key pair and prints the public key, to be added on GitHub under the repository's Deploy keys as read-only. Registry credentials for private images are stored as secrets (`hostctl secret set ghcr-token`) and need only read access. hostd never needs write access to any remote.
+**Private repositories.** `hostctl deploy key blog` generates a per-app SSH key pair (`~/hostd/keys/blog`) and prints the public key, to be added on GitHub under the repository's Deploy keys as read-only; once it exists, the service's fetches use it, with hostd's own `known_hosts` (a host is trusted on first use). A commit that polling has already deployed, or that failed, is not deployed again by polling; `hostctl deploy run blog` still can. Registry credentials for private images are stored as secrets (`hostctl secret set ghcr-token`) and need only read access. hostd never needs write access to any remote.
 
 **Secrets** are stored unencrypted in files with mode 0600 under `~/.config/hostd/secrets/`, outside any config repository that hostd follows. Encrypting them with a key kept on the same disk would add little. This protects against other local users and against secrets being committed with the config; it does not protect against anything running as `screen` or against someone holding the disk. TPM-backed `systemd-creds` is a candidate for a later version.
 

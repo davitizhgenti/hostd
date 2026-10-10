@@ -73,11 +73,13 @@ type App struct {
 // Deploy is a service's [source]: where new versions come from, how they
 // are built, and the public port hostd serves them on.
 type Deploy struct {
-	Type   string   `json:"type" toml:"type"`               // push: git push to the box
+	Type   string   `json:"type" toml:"type"`               // push: git push to the box; remote: hostd polls url
 	Build  []string `json:"build,omitempty" toml:"build"`   // run in the release's directory
 	Port   int      `json:"port,omitempty" toml:"port"`     // public port; each release gets PORT
 	Branch string   `json:"branch,omitempty" toml:"branch"` // default main
 	Keep   int      `json:"keep,omitempty" toml:"keep"`     // releases kept (default 5)
+	URL    string   `json:"url,omitempty" toml:"url"`       // remote: the repository
+	Poll   string   `json:"poll,omitempty" toml:"poll"`     // remote: how often to look (default 60s)
 }
 
 // AppAction is an extra way to start an app: app.start with action=<id>
@@ -307,8 +309,22 @@ func (a *App) validate() error {
 		}
 	}
 	if d := a.Deploy; d != nil {
-		if d.Type != "push" {
-			bad("source.type %q: push", d.Type)
+		switch d.Type {
+		case "push":
+			if d.URL != "" || d.Poll != "" {
+				bad("source: url and poll are for type remote")
+			}
+		case "remote":
+			if d.URL == "" {
+				bad("source: type remote needs url")
+			}
+			if d.Poll != "" {
+				if v, err := time.ParseDuration(d.Poll); err != nil || v < 10*time.Second {
+					bad("source.poll %q: a duration of at least 10s", d.Poll)
+				}
+			}
+		default:
+			bad("source.type %q: push or remote", d.Type)
 		}
 		if d.Port < 0 || d.Port > 65535 {
 			bad("source.port %d: 1-65535", d.Port)
