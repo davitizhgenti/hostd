@@ -50,6 +50,17 @@ func (s *State) record(r Release) {
 	s.Releases = out
 }
 
+// remove drops a release's entry.
+func (s *State) remove(rev string, at time.Time) {
+	out := s.Releases[:0]
+	for _, r := range s.Releases {
+		if r.Rev != rev || !r.At.Equal(at) {
+			out = append(out, r)
+		}
+	}
+	s.Releases = out
+}
+
 // set changes a release's entry.
 func (s *State) set(rev string, at time.Time, fn func(*Release)) {
 	for i := range s.Releases {

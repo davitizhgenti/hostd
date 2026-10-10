@@ -687,3 +687,28 @@ runner = { type = "exec", command = ["game"] }
 		t.Fatalf("%d starts, want 3", n)
 	}
 }
+
+func TestInstanceLogs(t *testing.T) {
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	var asked []string
+	r.m.opts.Journal = func(_ context.Context, unit string, n int) ([]string, error) {
+		asked = append(asked, fmt.Sprintf("%s %d", unit, n))
+		return []string{"2026-10-10T19:00:00 core site[1]: listening"}, nil
+	}
+	r.start(t, "term")
+	got, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "term", "lines": "50"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logs := got.(Logs)
+	if logs.Unit != "hostd-term.service" || len(logs.Lines) != 1 || asked[0] != "hostd-term.service 50" {
+		t.Fatalf("logs %+v, asked %q", logs, asked)
+	}
+	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "term", "lines": "99999"}); err != nil || asked[1] != "hostd-term.service 5000" {
+		t.Fatalf("capped: %q %v", asked, err)
+	}
+	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "ghost"}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown instance: %v", err)
+	}
+}

@@ -39,6 +39,8 @@ type Options struct {
 	Logger   *slog.Logger
 	Debounce time.Duration // wait after the last file change before rescanning (default 500ms)
 	NoWatch  bool          // do not watch the directories (tests)
+	// Journal reads a unit's last lines (default: journalctl --user).
+	Journal func(ctx context.Context, unit string, n int) ([]string, error)
 }
 
 // DefaultAppsDir is $XDG_CONFIG_HOME/hostd/apps.
@@ -300,7 +302,7 @@ type AppList struct {
 	Problems []Problem `json:"problems"`
 }
 
-func (m *Module) Read(_ context.Context, name string, params map[string]string) (any, error) {
+func (m *Module) Read(ctx context.Context, name string, params map[string]string) (any, error) {
 	cat := m.catalog()
 	switch name {
 	case "apps":
@@ -319,6 +321,8 @@ func (m *Module) Read(_ context.Context, name string, params map[string]string) 
 		return m.readInstances(params), nil
 	case "instance":
 		return m.readInstance(params["id"])
+	case "logs":
+		return m.readLogs(ctx, params)
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "apps module has no read %q", name)
 }

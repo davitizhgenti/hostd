@@ -470,6 +470,7 @@ func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
 	}
 	r := *prev
 	r.Instance, r.Port, r.At = inst, port, m.opts.Clock.Now().UTC()
+	st.remove(prev.Rev, prev.At) // one entry per release: it moves to the top
 	st.record(r)
 	if err := m.switchTo(ctx, s, st, r); err != nil {
 		return sdk.Result{}, err

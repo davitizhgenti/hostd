@@ -294,4 +294,17 @@ func TestDeployGate(t *testing.T) {
 	if code, body := g.get(); code != 200 || body != "v1" {
 		t.Fatalf("after rollback: %d %q", code, body)
 	}
+	st, _ = m.load("site")
+	revs := map[string]int{}
+	for _, r := range st.Releases {
+		revs[r.Rev]++
+	}
+	for rev, n := range revs {
+		if n > 1 {
+			t.Fatalf("release %s listed %d times: %+v", rev[:8], n, st.Releases)
+		}
+	}
+	if st.Releases[0].Result != "live" || st.Releases[0].Rev != st.Current {
+		t.Fatalf("history after rollback %+v", st.Releases)
+	}
 }

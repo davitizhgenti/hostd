@@ -70,6 +70,7 @@ func instanceReads() []sdk.ReadSpec {
 	return []sdk.ReadSpec{
 		{Name: contract.ReadInstances, Description: "Running instances (?all=true adds recently ended ones)", Path: "/v1/instances"},
 		{Name: "instance", Description: "One instance", Path: "/v1/instances/{id}"},
+		{Name: "logs", Description: "An instance's latest log lines (?lines=200)", Path: "/v1/instances/{id}/logs"},
 	}
 }
 
