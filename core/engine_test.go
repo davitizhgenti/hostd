@@ -972,3 +972,23 @@ func TestModuleSubscriptionSurvivesLag(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretArgsNotAudited(t *testing.T) {
+	vault := testutil.NewModule("vault", nil, nil, nil)
+	vault.M.Actions = []sdk.ActionSpec{{Type: "vault.put", Scope: sdk.ScopeAdmin, Secret: []string{"value"},
+		Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"value":{"type":"string"}}}`)}}
+	h := newHarness(t, Options{}, vault)
+	if _, err := h.submit(t, act("vault.put", `{"name":"db","value":"hunter2"}`, sdk.SourceManual)); err != nil {
+		t.Fatal(err)
+	}
+	h.e.Stop(context.Background()) //nolint:errcheck // flushes the audit; Cleanup stops again
+	for _, e := range h.audit.Entries() {
+		if e.Type == "vault.put" {
+			if strings.Contains(string(e.Args), "hunter2") || !strings.Contains(string(e.Args), `"name":"db"`) {
+				t.Fatalf("audited args %s", e.Args)
+			}
+			return
+		}
+	}
+	t.Fatal("no audit entry")
+}

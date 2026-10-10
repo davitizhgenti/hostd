@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -710,5 +711,55 @@ func TestInstanceLogs(t *testing.T) {
 	}
 	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "ghost"}); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("unknown instance: %v", err)
+	}
+}
+
+func TestSecrets(t *testing.T) {
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	r.m.opts.SecretsDir = filepath.Join(t.TempDir(), "secrets")
+	writeApps(t, r.m.opts.AppsDir, `
+-- api.toml --
+runner = { type = "exec", command = ["api"] }
+env = { DB = "postgres://app:{secret:db-pass}@db/app", MODE = "prod" }
+`)
+	r.m.rescan()
+	if _, err := r.do(t, "app.start", "api"); sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "hostctl secret set db-pass") {
+		t.Fatalf("missing secret: %v", err)
+	}
+	put := func(name, value string) error {
+		_, err := r.e.Submit(context.Background(), sdk.Action{Type: "secret.set", Args: sdk.MustJSON(map[string]string{"name": name, "value": value}),
+			Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
+		return err
+	}
+	if err := put("../x", "v"); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("bad name: %v", err)
+	}
+	if err := put("db-pass", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(filepath.Join(r.m.opts.SecretsDir, "db-pass")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("secret file: %v %v", fi, err)
+	}
+	r.start(t, "api")
+	sd.mu.Lock()
+	env := sd.started[len(sd.started)-1].Env
+	sd.mu.Unlock()
+	if !slices.Contains(env, "DB=postgres://app:s3cret@db/app") || !slices.Contains(env, "MODE=prod") {
+		t.Fatalf("env %q", env)
+	}
+	if a, _ := r.m.Read(context.Background(), "app", map[string]string{"id": "api"}); strings.Contains(fmt.Sprint(a), "s3cret") {
+		t.Fatalf("the catalog shows the value: %v", a)
+	}
+	list, _ := r.m.Read(context.Background(), "secrets", nil)
+	if fmt.Sprint(list) != "{[db-pass]}" {
+		t.Fatalf("list %v", list)
+	}
+	if _, err := r.e.Submit(context.Background(), sdk.Action{Type: "secret.remove", Args: sdk.MustJSON(map[string]string{"name": "db-pass"}),
+		Source: sdk.Source{Kind: sdk.SourceManual}}, admin); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := r.m.Read(context.Background(), "secrets", nil); fmt.Sprint(list) != "{[]}" {
+		t.Fatalf("after remove %v", list)
 	}
 }

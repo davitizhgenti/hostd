@@ -582,7 +582,7 @@ func (e *Engine) fail(a sdk.Action, start time.Time, err error) error {
 
 func (e *Engine) record(a sdk.Action, start time.Time, res sdk.Result, err *sdk.Error, resource string) {
 	entry := AuditEntry{
-		Time: start, Action: a.ID, Type: a.Type, Args: a.Args, Source: a.Source,
+		Time: start, Action: a.ID, Type: a.Type, Args: e.redact(a), Source: a.Source,
 		Cause: a.Cause, Parent: a.Parent, Status: string(res.Status), Reason: res.Reason,
 		HeldBy: res.HeldBy, Until: res.Until, Resource: resource, Version: res.Version,
 		Duration: e.opts.Clock.Since(start),
@@ -591,6 +591,25 @@ func (e *Engine) record(a sdk.Action, start time.Time, res sdk.Result, err *sdk.
 		entry.Status, entry.Code, entry.Reason = StatusFailed, err.Code, err.Message
 	}
 	e.opts.Audit.Record(entry)
+}
+
+// redact returns a's arguments with the ones its spec marks secret
+// replaced, for the audit trail.
+func (e *Engine) redact(a sdk.Action) json.RawMessage {
+	_, spec, ok := e.reg.lookup(a.Type)
+	if !ok || len(spec.Secret) == 0 || len(a.Args) == 0 {
+		return a.Args
+	}
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(a.Args, &args); err != nil {
+		return nil // not an object: recorded without arguments
+	}
+	for _, name := range spec.Secret {
+		if _, ok := args[name]; ok {
+			args[name] = json.RawMessage(`"[secret]"`)
+		}
+	}
+	return sdk.MustJSON(args)
 }
 
 // moduleCore is the sdk.Core a module gets.

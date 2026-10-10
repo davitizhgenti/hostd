@@ -73,6 +73,10 @@ type ActionSpec struct {
 	Scope     string            `json:"scope"`
 	ArgScopes map[string]string `json:"arg_scopes,omitempty"`
 
+	// Secret names arguments whose values are never recorded (the audit
+	// trail shows "[secret]"); hostctl reads them from standard input.
+	Secret []string `json:"secret,omitempty"`
+
 	// Timeout for Handle; zero means the core's default.
 	Timeout Duration `json:"timeout,omitempty"`
 

@@ -511,10 +511,13 @@ Gate: *`git push box main` updates a site with no downtime, and a broken build r
   - `remote`: poll `git ls-remote` (default 60 s), fetch with a per-app deploy key; branch or tag glob
   - `image`: poll registry manifest digest (OCI distribution API, anonymous or token auth)
   - `webhook`: `POST /v1/hooks/git/<app>`, `X-Hub-Signature-256` HMAC check, exempt from token auth but not from the signature
-- [ ] `hostctl deploy key <app>`, `hostctl secret set <name>`. Secrets live in a 0600 file under `~/.config/hostd/secrets/`, unencrypted. Encrypting with a key on the same disk would add little. Documented threat model: protects against other local users and accidental commits of the config repo (the secrets dir sits outside it); does **not** protect against anything running as `screen` or someone holding the disk. `systemd-creds` (TPM-backed) is a later improvement.
+- [ ] `hostctl deploy key <app>`.
+- [x] `hostctl secret set <name>`. Secrets live in a 0600 file under `~/.config/hostd/secrets/`, unencrypted. Encrypting with a key on the same disk would add little. Documented threat model: protects against other local users and accidental commits of the config repo (the secrets dir sits outside it); does **not** protect against anything running as `screen` or someone holding the disk. `systemd-creds` (TPM-backed) is a later improvement.
+  *Done (2026-10-10): `secret.set` / `secret.remove` (admin scope) in the apps module; a 0600 file per secret in `~/.config/hostd/secrets/` (directory 0700), names only at `GET /v1/secrets`. An app's `env` names one as `{secret:<name>}`, filled in at start on a copy (the catalog and reads keep the reference); a missing secret fails the start with the command to set it. Generic: an action spec's `secret` arguments are recorded as `"[secret]"` in the audit trail, and hostctl reads them from standard input (no echo on a terminal), never from the command line.*
 - [x] Deploy events are `deploy.*` (`deploy.started`, `deploy.done`, `deploy.failed`, `deploy.rolled_back`), per D1
 - [ ] `hostctl config follow <repo>`: same fetch logic; validate the whole config in a temp dir; apply atomically or emit `config.rejected`
-- [ ] `hostctl deploy status`, `GET /v1/services/{id}/logs`
+- [x] `hostctl deploy status`, `GET /v1/services/{id}/logs`
+  *Done (2026-10-10): status is `GET /v1/deploys[/{app}]`; logs are `GET /v1/instances/{id}/logs?lines=N` (the unit's journal, default 200, at most 5000), for any exec or process instance. A rollback no longer lists the release twice.*
 
 **Tests**
 - Deploy state machine with a fake runner: a failure injected at every step leads to the right final state.

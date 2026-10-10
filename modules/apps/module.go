@@ -28,6 +28,7 @@ const (
 type Options struct {
 	DesktopDirs []string // .desktop directories, lowest priority first
 	AppsDir     string   // hand-written app files
+	SecretsDir  string   // secrets, one 0600 file each
 	Desktop     string   // for OnlyShowIn/NotShowIn; default "sway"
 	LookPath    func(string) (string, error)
 
@@ -93,7 +94,7 @@ func New(opts Options) *Module {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: contract.AppsModule, Version: "0.1.0",
-		Owns: []string{"app.*", "instance.*"},
+		Owns: []string{"app.*", "instance.*", "secret.*"},
 		Scopes: []sdk.ScopeSpec{
 			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
 			// Used by app.start and the display module's window.focus.
@@ -103,7 +104,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
-		}, instanceActions()...),
+		}, append(instanceActions(), secretActions()...)...),
 		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
 			{Type: EventFileRejected, Description: "An app file could not be used"},
@@ -111,6 +112,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Reads: append([]sdk.ReadSpec{
 			{Name: "apps", Description: "The catalog (?all=true includes hidden apps)", Path: "/v1/apps"},
 			{Name: "app", Description: "One app, by ID or alias", Path: "/v1/apps/{id}"},
+			{Name: "secrets", Description: "The secrets' names (never their values)", Path: "/v1/secrets"},
 		}, instanceReads()...),
 	}
 }
@@ -278,6 +280,8 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleStop(ctx, a)
 	case contract.ActionInstanceClosing:
 		return m.handleClosing(a)
+	case "secret.set", "secret.remove":
+		return m.handleSecret(a)
 	}
 	if a.Type == "app.rescan" {
 		m.rescan()
@@ -323,6 +327,8 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 		return m.readInstance(params["id"])
 	case "logs":
 		return m.readLogs(ctx, params)
+	case "secrets":
+		return m.readSecrets()
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "apps module has no read %q", name)
 }

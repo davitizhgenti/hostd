@@ -88,7 +88,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		switch name {
 		case "apps":
 			mods = append(mods, apps.New(apps.Options{
-				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), Logger: log,
+				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: apps.DefaultSecretsDir(), Logger: log,
 				Backends: map[string]apps.Backend{
 					apps.RunnerExec: &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home,
 						StateDir: *stateDir, Browser: cfg.Browser, Gamescope: cfg.Gamescope},

@@ -182,6 +182,10 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 			return sdk.Result{}, sdk.Errorf(sdk.CodeOf(err), "%s requires %s: %v", app.ID, req, err)
 		}
 	}
+	app, err := m.withSecrets(app)
+	if err != nil {
+		return sdk.Result{}, err
+	}
 	backend := m.backend(app.Runner.Type)
 
 	m.mu.Lock()

@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/davitizhgenti/hostd/internal/client"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -87,6 +91,20 @@ func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
 
 func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module string) {
 	props, required := schemaInfo(spec.Schema)
+	// Secret arguments are read from standard input, never from the
+	// command line (shell history, the process list).
+	secret := map[string]bool{}
+	for _, name := range spec.Secret {
+		secret[name] = true
+	}
+	var secrets []string
+	props = slices.DeleteFunc(props, func(p prop) bool {
+		if secret[p.name] {
+			secrets = append(secrets, p.name)
+		}
+		return secret[p.name]
+	})
+	required = slices.DeleteFunc(slices.Clone(required), func(r string) bool { return secret[r] })
 	types := map[string]string{}
 	values := map[string]*string{}
 	bools := map[string]*bool{}
@@ -164,6 +182,14 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 				order = append(order, name)
 			}
 		}
+		for _, name := range secrets {
+			v, err := readSecret(cmd, name)
+			if err != nil {
+				return err
+			}
+			out[name], _ = json.Marshal(v)
+			order = append(order, name)
+		}
 		req := client.ActionRequest{Type: spec.Type}
 		if len(out) > 0 {
 			req.Args = orderedObject(order, out)
@@ -238,4 +264,28 @@ func orderedObject(keys []string, values map[string]json.RawMessage) json.RawMes
 	}
 	b.WriteByte('}')
 	return json.RawMessage(b.String())
+}
+
+// readSecret reads a secret argument: typed without echo on a terminal,
+// or all of standard input otherwise (one trailing newline dropped).
+func readSecret(cmd *cobra.Command, name string) (string, error) {
+	in := cmd.InOrStdin()
+	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", name)
+		b, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(cmd.ErrOrStderr())
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	b, err := io.ReadAll(in)
+	if err != nil {
+		return "", fmt.Errorf("reading %s from standard input: %w", name, err)
+	}
+	v := strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r")
+	if v == "" {
+		return "", usageError{fmt.Errorf("%s is read from standard input, which was empty", name)}
+	}
+	return v, nil
 }
