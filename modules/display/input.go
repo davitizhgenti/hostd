@@ -119,12 +119,23 @@ func (e *Evdev) Grab(on bool) error {
 	return errors.Join(errs...)
 }
 
+// grab sets EVIOCGRAB on f. Through SyscallConn, not f.Fd(): Fd puts the
+// file in blocking mode, and then closing it no longer ends the reader's
+// Read, so hostd hung on shutdown after a grab.
 func grab(f *os.File, on bool) error {
 	v := 0
 	if on {
 		v = 1
 	}
-	return unix.IoctlSetInt(int(f.Fd()), evioCGrab, v)
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var ioErr error
+	if err := rc.Control(func(fd uintptr) { ioErr = unix.IoctlSetInt(int(fd), evioCGrab, v) }); err != nil {
+		return err
+	}
+	return ioErr
 }
 
 // pad notes an open controller (f) or its end (nil), and grabs it if

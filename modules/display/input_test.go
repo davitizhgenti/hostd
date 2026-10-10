@@ -2,6 +2,7 @@ package display
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -239,5 +240,28 @@ func TestCloseFront(t *testing.T) {
 	r.event(t)
 	if _, err := r.submit(t, "window.close", `{}`, sdk.SourceLocal); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("nothing in front: %v", err)
+	}
+}
+
+func TestGrabKeepsTheFileCloseable(t *testing.T) {
+	// A grab must leave the file in the poller's non-blocking mode, so that
+	// closing it ends a Read in progress (hostd's shutdown waits for that).
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	_ = grab(r, true) // not an input device: the ioctl fails, the mode must not change
+	if err := r.SetReadDeadline(time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("the file left the poller after a grab: %v", err)
+	}
+	done := make(chan struct{})
+	go func() { _, _ = r.Read(make([]byte, 1)); close(done) }()
+	time.Sleep(20 * time.Millisecond)
+	_ = r.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("closing the file did not end the Read")
 	}
 }

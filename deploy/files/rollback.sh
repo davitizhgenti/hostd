@@ -1,9 +1,10 @@
 #!/bin/sh
 # Managed by hostd deploy/install.sh; changes here are overwritten.
 #
-# Run by hostd-rollback.service when hostd.service fails: switches back to
-# the version that ran before the last update, then starts hostd again. It
-# never depends on the hostd binary, which is what just failed.
+# Run by hostd-rollback.service when hostd.service fails: if the run that
+# failed was the current version, switches back to the version that ran
+# before the last update, then starts hostd again. It never depends on the
+# hostd binary, which is what just failed.
 set -u
 lib=${HOSTD_LIB:-$HOME/.local/lib/hostd}
 prev=$(cat "$lib/previous" 2>/dev/null) || exit 0
@@ -11,6 +12,20 @@ cur=$(readlink "$lib/current" 2>/dev/null) || cur=""
 if [ -z "$prev" ] || [ "$prev" = "$cur" ] || [ ! -x "$lib/$prev/hostd" ]; then
 	echo "hostd-rollback: nothing to roll back to"
 	exit 0
+fi
+# Only a failure of the current version counts. The run that failed may
+# be the one before it, stopping (an update restarts hostd after switching
+# versions): systemd names the failed run, whose log says its version.
+inv=${MONITOR_INVOCATION_ID:-}
+if [ -n "$inv" ]; then
+	ran=$(journalctl --user _SYSTEMD_INVOCATION_ID="$inv" -o cat --no-pager 2>/dev/null |
+		sed -n 's/.*msg="hostd started" version=\([^ ]*\).*/\1/p' | tail -1)
+	if [ -n "$ran" ] && [ "versions/$ran" != "$cur" ]; then
+		echo "hostd-rollback: the run that failed was $ran, not $cur; keeping $cur"
+		systemctl --user reset-failed hostd.service
+		systemctl --user start hostd.service
+		exit 0
+	fi
 fi
 ln -sfn "$prev" "$lib/.current.tmp" && mv -T "$lib/.current.tmp" "$lib/current"
 echo "$cur" > "$lib/rolled-back-from"
