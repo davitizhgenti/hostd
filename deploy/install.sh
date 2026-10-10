@@ -373,7 +373,7 @@ PACKAGES=(
 	sway swaybg xwayland foot greetd mako-notifier libnotify-bin wayvnc grim
 	pipewire pipewire-pulse wireplumber rtkit dbus-user-session
 	podman uidmap fuse-overlayfs passt catatonit nftables
-	jq curl ca-certificates
+	jq curl ca-certificates git
 	python3-gi gir1.2-gtk-4.0
 )
 if [ "$GPU" = nvidia ]; then

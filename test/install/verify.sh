@@ -34,5 +34,5 @@ t "menu in the catalog, hidden"        'hc() { runuser -u screen -- env HOME=/ho
 t "menu token: local, private"         '[ "$(stat -c "%U %a" /home/screen/.config/hostd/local.token)" = "screen 600" ] && runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl --json token list | jq -e ".[] | select(.name == \"menu\" and .kind == \"local\")"'
 t "hostd config dir owned by screen"   '[ "$(stat -c %U /home/screen/.config/hostd)" = screen ] && [ "$(stat -c %U /home/screen/.config/hostd/apps)" = screen ]'
 t "menu runs (GTK 4 bindings)"         'python3 -c "import gi; gi.require_version(\"Gtk\", \"4.0\")"'
-t "packages present"                   'for b in sway foot mako wayvnc grim wpctl podman greetd /usr/sbin/nft; do command -v $b || exit 1; done'
+t "packages present"                   'for b in sway foot mako wayvnc grim wpctl podman greetd git /usr/sbin/nft; do command -v $b || exit 1; done'
 exit $fail
