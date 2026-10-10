@@ -44,6 +44,9 @@ type AppStart struct {
 	Dir string            `json:"dir,omitempty"`
 	Env map[string]string `json:"env,omitempty"`
 	New bool              `json:"new,omitempty"`
+	// A container release: the image to run (by digest) and its ports.
+	Image string   `json:"image,omitempty"`
+	Ports []string `json:"ports,omitempty"`
 }
 
 // ScopeDeploy allows starting an app as a release (AppStart Dir, Env, New).

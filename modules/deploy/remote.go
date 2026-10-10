@@ -103,7 +103,7 @@ func (m *Module) pollLoop(ctx context.Context) {
 		if svcs, err := m.services(ctx); err == nil {
 			now := m.opts.Clock.Now()
 			for id, s := range svcs {
-				if s.Deploy.Type != "remote" || now.Sub(last[id]) < s.pollEvery() {
+				if (s.Deploy.Type != "remote" && s.Deploy.Type != "image") || now.Sub(last[id]) < s.pollEvery() {
 					continue
 				}
 				last[id] = now
@@ -122,7 +122,11 @@ func (m *Module) pollLoop(ctx context.Context) {
 // history (live, replaced, rolled back from or failed) is not deployed
 // again by polling, only by hand.
 func (m *Module) poll(ctx context.Context, s service) {
-	sha, err := m.head(ctx, s)
+	head := m.head
+	if s.Deploy.Type == "image" {
+		head = m.imageDigest
+	}
+	sha, err := head(ctx, s)
 	if err != nil {
 		m.log.Warn("looking at a service's remote", "app", s.ID, "err", err)
 		return

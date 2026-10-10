@@ -48,6 +48,9 @@ type Instance struct {
 	// Dir and Env: a release's directory and environment (deploy).
 	Dir string            `json:"dir,omitempty"`
 	Env map[string]string `json:"env,omitempty"`
+	// Image and Ports: a container release's image and ports (deploy).
+	Image string   `json:"image,omitempty"`
+	Ports []string `json:"ports,omitempty"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

@@ -85,17 +85,21 @@ func restartPolicy(r string) string {
 }
 
 func (r *DockerRunner) Start(ctx context.Context, inst Instance, app *App) (Instance, error) {
-	if app.Runner.Image == "" {
+	image, ports := app.Runner.Image, app.Runner.Ports
+	if inst.Image != "" { // a release
+		image, ports = inst.Image, inst.Ports
+	}
+	if image == "" {
 		return inst, sdk.Errorf(sdk.CodeModuleUnavailable,
 			"app %q builds its image from %q; building arrives with deploys (M4), set image for now", app.ID, app.Runner.Build)
 	}
-	ok, err := r.Docker.ImageExists(ctx, app.Runner.Image)
+	ok, err := r.Docker.ImageExists(ctx, image)
 	if err != nil {
 		return inst, err
 	}
 	if !ok {
-		if err := r.Docker.Pull(ctx, app.Runner.Image); err != nil {
-			return inst, fmt.Errorf("pulling %s: %w", app.Runner.Image, err)
+		if err := r.Docker.Pull(ctx, image); err != nil {
+			return inst, fmt.Errorf("pulling %s: %w", image, err)
 		}
 	}
 	name := containerName(inst.ID)
@@ -107,13 +111,19 @@ func (r *DockerRunner) Start(ctx context.Context, inst Instance, app *App) (Inst
 		}
 		_ = r.Docker.Remove(ctx, old.ID)
 	}
-	env := make([]string, 0, len(app.Env))
-	for k, v := range app.Env {
+	vars := map[string]string{}
+	for _, m := range []map[string]string{app.Env, inst.Env} { // a release's (PORT) last
+		for k, v := range m {
+			vars[k] = v
+		}
+	}
+	env := make([]string, 0, len(vars))
+	for k, v := range vars {
 		env = append(env, k+"="+v)
 	}
 	sort.Strings(env)
 	id, err := r.Docker.Create(ctx, name, ContainerSpec{
-		Image: app.Runner.Image, Env: env, Ports: app.Runner.Ports, Restart: restartPolicy(app.Restart),
+		Image: image, Env: env, Ports: ports, Restart: restartPolicy(app.Restart),
 		Labels: map[string]string{labelInstance: inst.ID, labelApp: inst.App},
 	})
 	if err != nil {

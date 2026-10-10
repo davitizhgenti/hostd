@@ -81,6 +81,13 @@ type Deploy struct {
 	URL    string   `json:"url,omitempty" toml:"url"`       // remote: the repository
 	Poll   string   `json:"poll,omitempty" toml:"poll"`     // remote: how often to look (default 60s)
 	Secret string   `json:"secret,omitempty" toml:"secret"` // webhook: the secret's name (hostctl secret set)
+	// image: the image (ghcr.io/me/blog), its tag (default latest), the
+	// port the container listens on, and a secret with registry
+	// credentials (user:token) for a private image.
+	Image         string `json:"image,omitempty" toml:"image"`
+	Tag           string `json:"tag,omitempty" toml:"tag"`
+	ContainerPort int    `json:"container_port,omitempty" toml:"container_port"`
+	Auth          string `json:"auth,omitempty" toml:"auth"`
 }
 
 // AppAction is an extra way to start an app: app.start with action=<id>
@@ -325,6 +332,15 @@ func (a *App) validate() error {
 			if d.Poll != "" {
 				bad("source: poll is for type remote")
 			}
+		case "image":
+			if d.URL != "" || d.Secret != "" {
+				bad("source: url and secret are not for type image")
+			}
+			if d.Poll != "" {
+				if v, err := time.ParseDuration(d.Poll); err != nil || v < 10*time.Second {
+					bad("source.poll %q: a duration of at least 10s", d.Poll)
+				}
+			}
 		case "remote":
 			if d.URL == "" {
 				bad("source: type remote needs url")
@@ -338,13 +354,25 @@ func (a *App) validate() error {
 				}
 			}
 		default:
-			bad("source.type %q: push, remote or webhook", d.Type)
+			bad("source.type %q: push, remote, webhook or image", d.Type)
 		}
 		if d.Port < 0 || d.Port > 65535 {
 			bad("source.port %d: 1-65535", d.Port)
 		}
-		if a.Runner.Type != RunnerProcess {
-			bad("source: deploys need runner type process")
+		if d.Type == "image" {
+			if a.Runner.Type != RunnerDocker {
+				bad("source: type image needs runner type docker")
+			}
+			if d.Image == "" || d.ContainerPort < 1 || d.ContainerPort > 65535 {
+				bad("source: type image needs image and container_port (the port the container listens on)")
+			}
+		} else {
+			if a.Runner.Type != RunnerProcess {
+				bad("source: deploys need runner type process")
+			}
+			if d.Image != "" || d.Tag != "" || d.ContainerPort != 0 || d.Auth != "" {
+				bad("source: image, tag, container_port and auth are for type image")
+			}
 		}
 	}
 	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {

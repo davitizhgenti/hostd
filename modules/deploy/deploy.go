@@ -15,9 +15,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,6 +59,8 @@ type Options struct {
 	// SecretsDir holds the secrets (the apps module's), for webhook
 	// secrets.
 	SecretsDir string
+	// HTTP talks to image registries (default: a client with a timeout).
+	HTTP *http.Client
 	// PollTick is how often remote sources are checked for being due
 	// (default 10s; each has its own poll interval).
 	PollTick time.Duration
@@ -104,6 +108,9 @@ func New(opts Options) *Module {
 	}
 	if opts.GitShell == "" {
 		opts.GitShell = "/usr/local/bin/hostctl git-shell"
+	}
+	if opts.HTTP == nil {
+		opts.HTTP = &http.Client{Timeout: time.Minute}
 	}
 	if opts.PollTick == 0 {
 		opts.PollTick = 10 * time.Second
@@ -158,14 +165,18 @@ func (m *Module) Manifest() sdk.Manifest {
 type service struct {
 	ID     string `json:"id"`
 	Deploy *struct {
-		Type   string   `json:"type"`
-		URL    string   `json:"url"`
-		Poll   string   `json:"poll"`
-		Secret string   `json:"secret"`
-		Build  []string `json:"build"`
-		Port   int      `json:"port"`
-		Branch string   `json:"branch"`
-		Keep   int      `json:"keep"`
+		Type          string   `json:"type"`
+		URL           string   `json:"url"`
+		Poll          string   `json:"poll"`
+		Secret        string   `json:"secret"`
+		Image         string   `json:"image"`
+		Tag           string   `json:"tag"`
+		ContainerPort int      `json:"container_port"`
+		Auth          string   `json:"auth"`
+		Build         []string `json:"build"`
+		Port          int      `json:"port"`
+		Branch        string   `json:"branch"`
+		Keep          int      `json:"keep"`
 	} `json:"deploy"`
 }
 
@@ -326,7 +337,7 @@ func (m *Module) instanceState(ctx context.Context, id string) (state, errText s
 }
 
 // launch starts a release and waits until it is healthy (running).
-func (m *Module) launch(ctx context.Context, app, dir string) (instance string, port int, err error) {
+func (m *Module) launch(ctx context.Context, s service, r Release) (instance string, port int, err error) {
 	port, err = freePort()
 	if err != nil {
 		return "", 0, err
@@ -334,8 +345,12 @@ func (m *Module) launch(ctx context.Context, app, dir string) (instance string, 
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(contract.AppStart{
-		ID: app, New: true, Dir: dir, Env: map[string]string{"PORT": strconv.Itoa(port)}})})
+	start := contract.AppStart{ID: s.ID, New: true, Dir: r.Dir, Env: map[string]string{"PORT": strconv.Itoa(port)}}
+	if r.Image != "" { // the container's port, published on the release's port
+		start.Dir, start.Image = "", r.Image
+		start.Ports = []string{fmt.Sprintf("127.0.0.1:%d:%d", port, s.Deploy.ContainerPort)}
+	}
+	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(start)})
 	if err != nil {
 		return "", 0, fmt.Errorf("starting the release: %w", err)
 	}
@@ -492,20 +507,31 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 		}
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "deploying %s failed (%s): %v", s.ID, still, err)
 	}
-	if s.Deploy.Type == "remote" || s.Deploy.Type == "webhook" {
-		if err := m.fetch(ctx, s); err != nil {
+	var r Release
+	if s.Deploy.Type == "image" {
+		digest := rev
+		if !strings.HasPrefix(digest, "sha256:") {
+			if digest, err = m.imageDigest(ctx, s); err != nil {
+				return fail(Release{}, err)
+			}
+		}
+		r = Release{Rev: digest, Image: s.Deploy.Image + "@" + digest, At: m.opts.Clock.Now().UTC(), Result: "starting"}
+	} else {
+		if s.Deploy.Type == "remote" || s.Deploy.Type == "webhook" {
+			if err := m.fetch(ctx, s); err != nil {
+				return fail(Release{}, err)
+			}
+		}
+		sha, dir, err := m.export(ctx, s.ID, rev, s.branch())
+		if err != nil {
 			return fail(Release{}, err)
 		}
+		r = Release{Rev: sha, Dir: dir, At: m.opts.Clock.Now().UTC(), Result: "building"}
+		if err := m.build(ctx, dir, s.Deploy.Build); err != nil {
+			return fail(r, err)
+		}
 	}
-	sha, dir, err := m.export(ctx, s.ID, rev, s.branch())
-	if err != nil {
-		return fail(Release{}, err)
-	}
-	r := Release{Rev: sha, Dir: dir, At: m.opts.Clock.Now().UTC(), Result: "building"}
-	if err := m.build(ctx, dir, s.Deploy.Build); err != nil {
-		return fail(r, err)
-	}
-	inst, port, err := m.launch(ctx, s.ID, dir)
+	inst, port, err := m.launch(ctx, s, r)
 	r.Instance, r.Port = inst, port
 	if err != nil {
 		m.stopInstance(ctx, inst)
@@ -535,7 +561,7 @@ func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
 	for i := range st.Releases {
 		r := st.Releases[i]
 		if r.Rev != st.Current && r.Result == "stopped" {
-			if _, err := os.Stat(r.Dir); err == nil {
+			if _, err := os.Stat(r.Dir); err == nil || r.Image != "" {
 				prev = &r
 				break
 			}
@@ -544,7 +570,7 @@ func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
 	if prev == nil {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "%s has no earlier release to go back to", s.ID)
 	}
-	inst, port, err := m.launch(ctx, s.ID, prev.Dir)
+	inst, port, err := m.launch(ctx, s, *prev)
 	if err != nil {
 		m.stopInstance(ctx, inst)
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "rolling %s back failed: %v", s.ID, err)
@@ -562,7 +588,7 @@ func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
 
 // revive starts the live release again (after a reboot).
 func (m *Module) revive(ctx context.Context, s service, st *State, cur Release) error {
-	inst, port, err := m.launch(ctx, s.ID, cur.Dir)
+	inst, port, err := m.launch(ctx, s, cur)
 	if err != nil {
 		m.stopInstance(ctx, inst)
 		return err

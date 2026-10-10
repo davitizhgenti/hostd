@@ -775,12 +775,22 @@ func TestSourceSettings(t *testing.T) {
 	if app, _ := c.Get("site"); len(c.Problems) != 0 || app.Deploy.URL != "git@github.com:me/site.git" || app.Deploy.Poll != "5m" {
 		t.Fatalf("remote source %+v, problems %v", app.Deploy, c.Problems)
 	}
+	img, err := ParseAppFile("/x/blog.toml", []byte("runner = { type = \"docker\", image = \"ghcr.io/me/blog:main\" }\n[source]\ntype = \"image\"\nimage = \"ghcr.io/me/blog\"\ntag = \"main\"\ncontainer_port = 80\nauth = \"ghcr\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c = Build(nil, []AppFile{img}, nil)
+	if app, _ := c.Get("blog"); len(c.Problems) != 0 || app.Deploy.ContainerPort != 80 || app.Deploy.Auth != "ghcr" {
+		t.Fatalf("image source %+v, problems %v", app.Deploy, c.Problems)
+	}
 	for body, want := range map[string]string{
-		"type = \"remote\"\n":                           "needs url",
-		"type = \"remote\"\nurl = \"x\"\npoll = \"1s\"": "at least 10s",
-		"type = \"push\"\nurl = \"x\"":                  "for types remote and webhook",
-		"type = \"ftp\"":                                "push, remote or webhook",
-		"type = \"webhook\"\nurl = \"x\"":               "needs url (to fetch from) and secret",
+		"type = \"remote\"\n":                                  "needs url",
+		"type = \"remote\"\nurl = \"x\"\npoll = \"1s\"":        "at least 10s",
+		"type = \"push\"\nurl = \"x\"":                         "for types remote and webhook",
+		"type = \"ftp\"":                                       "push, remote, webhook or image",
+		"type = \"image\"\nimage = \"x\"\ncontainer_port = 80": "needs runner type docker",
+		"type = \"push\"\nimage = \"x\"":                       "are for type image",
+		"type = \"webhook\"\nurl = \"x\"":                      "needs url (to fetch from) and secret",
 	} {
 		f, err := ParseAppFile("/x/site.toml", []byte(head+body))
 		if err != nil {

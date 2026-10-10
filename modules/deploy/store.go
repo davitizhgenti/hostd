@@ -12,8 +12,9 @@ import (
 
 // Release is one deployed version of a service.
 type Release struct {
-	Rev      string    `json:"rev"` // the commit
-	Dir      string    `json:"dir"`
+	Rev      string    `json:"rev"`             // the commit
+	Dir      string    `json:"dir,omitempty"`   // a git release's files
+	Image    string    `json:"image,omitempty"` // an image release: image@digest
 	Instance string    `json:"instance,omitempty"`
 	Port     int       `json:"port,omitempty"` // internal: the proxy's upstream
 	At       time.Time `json:"at"`

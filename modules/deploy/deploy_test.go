@@ -34,6 +34,7 @@ type fakeApps struct {
 	port      int            // the service's public port
 	source    map[string]any // extra [source] settings
 	rescans   int
+	tmp       string
 }
 
 type fakeInstance struct {
@@ -51,6 +52,17 @@ func (f *fakeApps) start(args contract.AppStart) (string, error) {
 	f.mu.Unlock()
 	cmd := exec.Command("python3", "-m", "http.server", "--bind", "127.0.0.1", args.Env["PORT"])
 	cmd.Dir = args.Dir
+	if args.Image != "" { // a container release: serves its image name
+		if len(args.Ports) != 1 || !strings.HasPrefix(args.Ports[0], "127.0.0.1:"+args.Env["PORT"]+":") {
+			return "", fmt.Errorf("ports %q", args.Ports)
+		}
+		dir, err := os.MkdirTemp(f.tmp, "image-")
+		if err != nil {
+			return "", err
+		}
+		_ = os.WriteFile(filepath.Join(dir, "built.html"), []byte(args.Image), 0o644)
+		cmd.Dir = dir
+	}
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
@@ -239,7 +251,7 @@ func newGate(t *testing.T, source map[string]any, opts Options) *gate {
 			t.Skipf("no %s", tool)
 		}
 	}
-	f := &fakeApps{instances: map[string]*fakeInstance{}, port: freeTestPort(t), source: source}
+	f := &fakeApps{instances: map[string]*fakeInstance{}, port: freeTestPort(t), source: source, tmp: t.TempDir()}
 	t.Cleanup(f.stopAll)
 	opts.Root, opts.ListenHost, opts.Drain, opts.HealthWait = t.TempDir(), "127.0.0.1", 2*time.Second, 20*time.Second
 	m := New(opts)
@@ -606,5 +618,31 @@ func TestConfigFollow(t *testing.T) {
 	}
 	if _, err := do("config.sync", `{}`); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("sync after unfollow: %v", err)
+	}
+}
+
+func TestImageSource(t *testing.T) {
+	reg := newFakeRegistry(t, true)
+	reg.set("main", digestOf('1'))
+	secrets := t.TempDir()
+	_ = os.WriteFile(filepath.Join(secrets, "ghcr"), []byte("me:pat\n"), 0o600)
+	g := newGate(t, map[string]any{"type": "image", "image": reg.image(), "tag": "main", "container_port": 80,
+		"auth": "ghcr", "poll": "100ms", "build": nil}, Options{SecretsDir: secrets, PollTick: 50 * time.Millisecond})
+	serves := func(digest string) func() bool {
+		return func() bool { code, body := g.get(); return code == 200 && body == reg.image()+"@"+digest }
+	}
+	waitFor(t, "the first image deployed by polling", serves(digestOf('1')))
+	reg.set("main", digestOf('2'))
+	waitFor(t, "the new digest deployed", serves(digestOf('2')))
+
+	if _, err := g.do("deploy.rollback"); err != nil {
+		t.Fatal(err)
+	}
+	if !serves(digestOf('1'))() {
+		t.Fatal("rollback to the first image")
+	}
+	time.Sleep(400 * time.Millisecond) // polls: the newer digest is not deployed again
+	if !serves(digestOf('1'))() {
+		t.Fatal("polling undid the rollback")
 	}
 }

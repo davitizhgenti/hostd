@@ -906,3 +906,19 @@ func TestWatchIgnoresStopsOfReplacedUnits(t *testing.T) {
 		t.Fatalf("new unit = %+v %v", info, ok)
 	}
 }
+
+func TestDockerRelease(t *testing.T) {
+	// A container release runs its own image (by digest) on its own port.
+	d := newFakeDocker()
+	r := &DockerRunner{Docker: d}
+	img := "ghcr.io/me/blog@sha256:" + strings.Repeat("a", 64)
+	inst := Instance{ID: "blog#2", App: "blog", Image: img, Ports: []string{"127.0.0.1:41000:80"}, Env: map[string]string{"PORT": "41000"}}
+	if _, err := r.Start(context.Background(), inst, dockerApp("blog", "ghcr.io/me/blog:main", "never")); err != nil {
+		t.Fatal(err)
+	}
+	spec := d.created[0]
+	if spec.Image != img || !reflect.DeepEqual(spec.Ports, []string{"127.0.0.1:41000:80"}) ||
+		!reflect.DeepEqual(spec.Env, []string{"PORT=41000", "TZ=Europe/Tbilisi"}) || !reflect.DeepEqual(d.pulled, []string{img}) {
+		t.Fatalf("spec %+v, pulled %v", spec, d.pulled)
+	}
+}
