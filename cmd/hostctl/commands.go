@@ -28,7 +28,7 @@ import (
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
 	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "windows": true, "controllers": true,
-	"volume": true, "mute": true, "update": true,
+	"volume": true, "mute": true, "update": true, "git-shell": true,
 	"help": true, "completion": true,
 }
 
@@ -48,7 +48,7 @@ see them all.`,
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
 		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand(),
-		a.focusCommand(), a.windowsCommand(), a.controllersCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand())
+		a.focusCommand(), a.windowsCommand(), a.controllersCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand(), a.gitShellCommand())
 	return root
 }
 

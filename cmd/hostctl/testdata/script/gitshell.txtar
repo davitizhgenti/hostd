@@ -1,0 +1,26 @@
+# hostctl git-shell, an SSH forced command, lets only git through.
+[!exec:git] skip
+env HOME=$WORK/home
+exec git init -q --bare $HOME/hostd/git/site.git
+
+env SSH_ORIGINAL_COMMAND='bash -c id'
+! exec hostctl git-shell
+stderr 'may only git push'
+env SSH_ORIGINAL_COMMAND='git-receive-pack ''/etc'''
+! exec hostctl git-shell
+stderr 'may only git push'
+
+# A real push through it (git's ssh is replaced by the forced command).
+exec git init -q -b main $WORK/src
+exec git -C $WORK/src -c user.name=t -c user.email=t@t commit -q --allow-empty -m one
+env GIT_SSH_COMMAND=$WORK/fake-ssh
+chmod 755 $WORK/fake-ssh
+exec git -C $WORK/src push -q fake:hostd/git/site.git main
+exec git --git-dir $HOME/hostd/git/site.git rev-parse main
+stdout '^[0-9a-f]{40}$'
+
+-- fake-ssh --
+#!/bin/sh
+# ssh fake: host, then the remote command; run it as sshd would.
+shift
+SSH_ORIGINAL_COMMAND="$*" exec hostctl git-shell

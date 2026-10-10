@@ -46,6 +46,11 @@ type Options struct {
 	HealthWait time.Duration
 	// Drain is how long requests on a replaced release may take (default 30s).
 	Drain time.Duration
+	// AuthorizedKeys is the SSH authorized_keys file push keys go in
+	// (default ~/.ssh/authorized_keys), GitShell their forced command
+	// (default /usr/local/bin/hostctl git-shell).
+	AuthorizedKeys string
+	GitShell       string
 	// PollTick is how often remote sources are checked for being due
 	// (default 10s; each has its own poll interval).
 	PollTick time.Duration
@@ -83,6 +88,13 @@ func New(opts Options) *Module {
 	if opts.Drain == 0 {
 		opts.Drain = 30 * time.Second
 	}
+	if opts.AuthorizedKeys == "" {
+		home, _ := os.UserHomeDir()
+		opts.AuthorizedKeys = filepath.Join(home, ".ssh", "authorized_keys")
+	}
+	if opts.GitShell == "" {
+		opts.GitShell = "/usr/local/bin/hostctl git-shell"
+	}
 	if opts.PollTick == 0 {
 		opts.PollTick = 10 * time.Second
 	}
@@ -98,7 +110,7 @@ func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "deploy", Version: "0.1.0", Requires: []string{contract.AppsModule},
 		Owns: []string{"deploy.*"},
-		Actions: []sdk.ActionSpec{
+		Actions: append([]sdk.ActionSpec{
 			{Type: "deploy.init", Description: "Create the service's git repository: git push to it deploys",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(30 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/init"}},
@@ -111,7 +123,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "deploy.rollback", Description: "Switch back to the release before the live one",
 				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(10 * time.Minute),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/rollback"}},
-		},
+		}, pushKeyActions()...),
 		Events: []sdk.EventSpec{
 			{Type: EventStarted, Description: "A deploy started"},
 			{Type: EventDone, Description: "A release is live"},
@@ -121,6 +133,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Reads: []sdk.ReadSpec{
 			{Name: "deploys", Description: "Every service: its live release and recent ones", Path: "/v1/deploys"},
 			{Name: "deploy", Description: "One service's releases", Path: "/v1/deploys/{app}"},
+			{Name: "push_keys", Description: "SSH keys that may only git push", Path: "/v1/push-keys"},
 		},
 	}
 }
@@ -382,6 +395,21 @@ func (m *Module) emit(typ string, data any) {
 func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	switch a.Type {
+	case "deploy.authorize", "deploy.revoke":
+		var args struct{ Name, Key string }
+		if err := a.DecodeArgs(&args); err != nil {
+			return sdk.Result{}, err
+		}
+		if a.Type == "deploy.revoke" {
+			return sdk.Result{}, m.revoke(args.Name)
+		}
+		k, err := m.authorize(args.Name, args.Key)
+		if err != nil {
+			return sdk.Result{}, err
+		}
+		return sdk.Result{Data: sdk.MustJSON(k)}, nil
+	}
 	var args struct {
 		App string `json:"app"`
 		Rev string `json:"rev"`
@@ -547,6 +575,8 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 			return nil, err
 		}
 		return m.load(params["app"])
+	case "push_keys":
+		return m.pushKeys()
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "deploy module has no read %q", name)
 }
