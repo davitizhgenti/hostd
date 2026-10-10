@@ -38,7 +38,16 @@ type AppStart struct {
 	ID     string `json:"id"`
 	Front  bool   `json:"front,omitempty"`
 	Action string `json:"action,omitempty"`
+	// For the deploy module (scope deploy): a release runs as a new
+	// instance (New), from its own directory (Dir), with its environment
+	// (Env, e.g. PORT).
+	Dir string            `json:"dir,omitempty"`
+	Env map[string]string `json:"env,omitempty"`
+	New bool              `json:"new,omitempty"`
 }
+
+// ScopeDeploy allows starting an app as a release (AppStart Dir, Env, New).
+const ScopeDeploy = "deploy"
 
 // Instance is what other modules see of an instance, in instance events
 // and the instances read. The apps module's own type carries more; the

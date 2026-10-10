@@ -41,9 +41,8 @@ type AppFile struct {
 	// ReplaceActions: the file's actions replace the inherited ones (a
 	// desktop entry's) instead of adding to them.
 	ReplaceActions bool `toml:"replace_actions"`
-	// Source is how a background app's new versions arrive (deploy
-	// module, M4); accepted now so files can already declare it.
-	Source any `toml:"source"`
+	// Source is how a service's new versions arrive (the deploy module).
+	Source *Deploy `toml:"source"`
 }
 
 type fileWindow struct {
@@ -119,6 +118,10 @@ func (f AppFile) applyTo(a *App) {
 	}
 	if f.Health != nil {
 		a.Health = *f.Health
+	}
+	if f.Source != nil {
+		d := *f.Source
+		a.Deploy = &d
 	}
 	if f.ReplaceActions {
 		a.Actions = append([]AppAction(nil), f.Actions...)

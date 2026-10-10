@@ -96,6 +96,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
 			// Used by app.start and the display module's window.focus.
 			{Name: contract.ScopeFront, Description: "Bring an app to the front even while someone is using the screen"},
+			{Name: contract.ScopeDeploy, Description: "Start an app as a release of a service: its own directory and environment (deploys)"},
 		},
 		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,

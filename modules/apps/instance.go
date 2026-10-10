@@ -45,6 +45,9 @@ type Instance struct {
 	ShownBy string `json:"shown_by,omitempty"`
 	// Volume: the app's own volume (audio.volume), for the audio module.
 	Volume *int `json:"volume,omitempty"`
+	// Dir and Env: a release's directory and environment (deploy).
+	Dir string            `json:"dir,omitempty"`
+	Env map[string]string `json:"env,omitempty"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

@@ -65,6 +65,19 @@ type App struct {
 	// Actions are extra ways to start the app ("New private window"):
 	// from its desktop entry, and from app files.
 	Actions []AppAction `json:"actions,omitempty"`
+	// Deploy is how a service's new versions arrive ([source] in its
+	// file); the deploy module builds and switches to them.
+	Deploy *Deploy `json:"deploy,omitempty"`
+}
+
+// Deploy is a service's [source]: where new versions come from, how they
+// are built, and the public port hostd serves them on.
+type Deploy struct {
+	Type   string   `json:"type" toml:"type"`               // push: git push to the box
+	Build  []string `json:"build,omitempty" toml:"build"`   // run in the release's directory
+	Port   int      `json:"port,omitempty" toml:"port"`     // public port; each release gets PORT
+	Branch string   `json:"branch,omitempty" toml:"branch"` // default main
+	Keep   int      `json:"keep,omitempty" toml:"keep"`     // releases kept (default 5)
 }
 
 // AppAction is an extra way to start an app: app.start with action=<id>
@@ -291,6 +304,17 @@ func (a *App) validate() error {
 			if v, err := time.ParseDuration(d.v); err != nil || v <= 0 {
 				bad("health.%s %q: a duration such as 30s", d.name, d.v)
 			}
+		}
+	}
+	if d := a.Deploy; d != nil {
+		if d.Type != "push" {
+			bad("source.type %q: push", d.Type)
+		}
+		if d.Port < 0 || d.Port > 65535 {
+			bad("source.port %d: 1-65535", d.Port)
+		}
+		if a.Runner.Type != RunnerProcess {
+			bad("source: deploys need runner type process")
 		}
 	}
 	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {

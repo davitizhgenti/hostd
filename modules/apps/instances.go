@@ -29,7 +29,10 @@ var (
 	startSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"app ID or alias"},
 		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"},
-		"action":{"type":"string","description":"one of the app's actions (e.g. new-private-window): always a new instance"}},"required":["id"]}`)
+		"action":{"type":"string","description":"one of the app's actions (e.g. new-private-window): always a new instance"},
+		"dir":{"type":"string","description":"run in this directory: a release (needs scope deploy)"},
+		"env":{"type":"object","additionalProperties":{"type":"string"},"description":"extra environment, e.g. PORT (needs scope deploy)"},
+		"new":{"type":"boolean","description":"always a new instance (needs scope deploy)"}},"required":["id"]}`)
 	instanceSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["id"]}`)
 )
@@ -38,9 +41,10 @@ func instanceActions() []sdk.ActionSpec {
 	return []sdk.ActionSpec{
 		{Type: contract.ActionAppStart, Description: "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
 			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: contract.ScopeApps,
-			ArgScopes: map[string]string{"front": contract.ScopeFront},
-			Timeout:   sdk.Duration(5 * time.Minute), // pulling a container image can take a while
-			Route:     &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"}},
+			ArgScopes: map[string]string{"front": contract.ScopeFront, "dir": contract.ScopeDeploy,
+				"env": contract.ScopeDeploy, "new": contract.ScopeDeploy},
+			Timeout: sdk.Duration(5 * time.Minute), // pulling a container image can take a while
+			Route:   &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"}},
 		{Type: contract.ActionInstanceStop, Description: "Stop a running instance",
 			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
 			Timeout: sdk.Duration(time.Minute),
@@ -145,10 +149,7 @@ type startResult struct {
 }
 
 func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		ID, Action string
-		Front      bool
-	}
+	var args contract.AppStart
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
 	}
@@ -202,7 +203,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		}
 		return m.focusRunning(ctx, app, first, args.Front)
 	}
-	if app.Instance.Policy == "single" && len(running) > 0 {
+	if app.Instance.Policy == "single" && len(running) > 0 && !args.New {
 		switch app.Instance.IfRunning {
 		case "focus":
 			return m.focusRunning(ctx, app, first, args.Front)
@@ -224,6 +225,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
 		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(), ShownBy: app.Window.ShownBy, Volume: app.Audio.Volume,
+		Dir: args.Dir, Env: args.Env,
 		Action: args.Action,
 		State:  StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
@@ -280,7 +282,8 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if gated {
 		// Running once its health check passes (health.go).
 		m.watchersRun.Add(1)
-		go func() { defer m.watchersRun.Done(); m.watchHealth(life, id, app) }()
+		h := app.Health.forInstance(*inst)
+		go func() { defer m.watchersRun.Done(); m.watchHealth(life, id, h) }()
 	}
 	if emitStarted {
 		m.emitInstance(EventStarted, a.ID, snapshot)

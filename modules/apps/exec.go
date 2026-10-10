@@ -230,13 +230,15 @@ func (r *ExecRunner) prepare(inst Instance, app *App) (argv, env []string, err e
 		}
 		env = append(env, session...)
 	}
-	keys := make([]string, 0, len(app.Env))
-	for k := range app.Env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		env = append(env, k+"="+app.Env[k])
+	for _, vars := range []map[string]string{app.Env, inst.Env} { // a release's (PORT) last
+		keys := make([]string, 0, len(vars))
+		for k := range vars {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			env = append(env, k+"="+vars[k])
+		}
 	}
 	return argv, env, nil
 }
@@ -282,7 +284,11 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 		_ = r.Systemd.Stop(ctx, name)
 		_ = r.Systemd.ResetFailed(ctx, name)
 	}
-	spec := UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: r.HomeDir}
+	dir := r.HomeDir
+	if inst.Dir != "" {
+		dir = inst.Dir // a release
+	}
+	spec := UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: dir}
 	if app.Runner.Type == RunnerProcess {
 		spec.Service = true
 		if app.Restart != "never" {

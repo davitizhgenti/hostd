@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -53,8 +54,8 @@ func checkHealth(ctx context.Context, h Health) error {
 
 // watchHealth holds an instance's start until its health check passes,
 // then keeps checking it until it ends.
-func (m *Module) watchHealth(ctx context.Context, id string, app *App) {
-	start, every := app.Health.durations()
+func (m *Module) watchHealth(ctx context.Context, id string, h Health) {
+	start, every := h.durations()
 	deadline := m.opts.Clock.Now().Add(start)
 	tick := m.opts.Clock.NewTicker(time.Second)
 	defer tick.Stop()
@@ -63,12 +64,12 @@ func (m *Module) watchHealth(ctx context.Context, id string, app *App) {
 		if !m.alive(id) {
 			return
 		}
-		if last = checkHealth(ctx, app.Health); last == nil {
+		if last = checkHealth(ctx, h); last == nil {
 			m.healthy(id)
 			break
 		}
 		if m.opts.Clock.Now().After(deadline) {
-			m.unhealthyStart(ctx, id, app, last, start)
+			m.unhealthyStart(ctx, id, last, start)
 			return
 		}
 		select {
@@ -88,7 +89,7 @@ func (m *Module) watchHealth(ctx context.Context, id string, app *App) {
 		if !m.alive(id) {
 			return
 		}
-		err := checkHealth(ctx, app.Health)
+		err := checkHealth(ctx, h)
 		switch {
 		case err == nil && fails >= unhealthyAfter:
 			fails = 0
@@ -131,7 +132,7 @@ func (m *Module) healthy(id string) {
 
 // unhealthyStart stops an instance whose check never passed, and records
 // it as failed.
-func (m *Module) unhealthyStart(ctx context.Context, id string, app *App, last error, within time.Duration) {
+func (m *Module) unhealthyStart(ctx context.Context, id string, last error, within time.Duration) {
 	m.mu.Lock()
 	cur, ok := m.instances[id]
 	var inst Instance
@@ -142,7 +143,7 @@ func (m *Module) unhealthyStart(ctx context.Context, id string, app *App, last e
 	if !ok {
 		return
 	}
-	if b := m.backend(app.Runner.Type); b != nil {
+	if b := m.backend(inst.Runner); b != nil {
 		if err := b.Stop(ctx, inst); err != nil && !errors.Is(err, context.Canceled) {
 			m.log.Warn("stopping an app that never became healthy", "instance", id, "err", err)
 		}
@@ -179,4 +180,14 @@ func (m *Module) emitHealth(typ, id string, err error) {
 		snapshot.Error = data["error"]
 		m.emitInstance(typ, "", snapshot)
 	}
+}
+
+// forInstance fills in {port} from the instance's PORT: each release of a
+// service checks its own port.
+func (h Health) forInstance(in Instance) Health {
+	if p := in.Env["PORT"]; p != "" {
+		h.HTTP = strings.ReplaceAll(h.HTTP, "{port}", p)
+		h.TCP = strings.ReplaceAll(h.TCP, "{port}", p)
+	}
+	return h
 }
