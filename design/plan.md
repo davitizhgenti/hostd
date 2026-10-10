@@ -499,7 +499,8 @@ Gate: *a game and a browser have different volumes, and audio moves to a headset
 
 Gate: *`git push box main` updates a site with no downtime, and a broken build rolls back.*
 
-- [ ] **`compose` runner:** `docker compose -p hostd-<app>` against the configured socket; status from container labels
+- [x] **`compose` runner:** `docker compose -p hostd-<app>` against the configured socket; status from container labels
+  *Done (2026-10-10): each instance is a compose project `hostd-<instance>` (reversibly encoded: `#`→`__`, `.`→`_d`, `_`→`_u`), brought up with `podman compose` (else `docker compose`) `-p … -f <file> up -d --remove-orphans`, `DOCKER_HOST` pointing at the engine socket, and the app's environment for `${VAR}` in the file. A relative `file` is beside the app file, so a followed config repository can carry its compose files. Stop, adoption after a restart and the end of an instance (once none of its containers runs or restarts) use the engine API by the `com.docker.compose.project` label, so they need neither the file nor the tool; named volumes stay. Installer add-on `compose` (podman-compose; core has no compose provider yet).*
 - [x] **`process` runner:** generated user unit `hostd-svc-<app>.service` with `Restart=`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, environment from `[env]`; logs via journald
 - [x] **Health checks:** `http` (2xx within timeout, retries), later `tcp` / `exec`
   *Done (2026-10-10): `process` apps run as transient units (`hostd-<instance>.service`, like every instance, not `hostd-svc-`), with `Restart=` from the app and `NoNewPrivileges`/`PrivateTmp` (both work in user units on core). `[health] http` (2xx) or `tcp`, `start` (default 60s) and `every` (10s): an app with a check stays `starting` until it passes, fails (and is stopped) if it does not within `start`, and emits `instance.unhealthy` after 3 failed checks, `instance.healthy` when it recovers (`modules/apps/health.go`).*

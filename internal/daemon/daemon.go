@@ -87,12 +87,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	for _, name := range cfg.Modules {
 		switch name {
 		case "apps":
+			engine := &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}
 			mods = append(mods, apps.New(apps.Options{
 				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: apps.DefaultSecretsDir(), Logger: log,
 				Backends: map[string]apps.Backend{
 					apps.RunnerExec: &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home,
 						StateDir: *stateDir, Browser: cfg.Browser, Gamescope: cfg.Gamescope},
-					apps.RunnerDocker: &apps.DockerRunner{Docker: &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}},
+					apps.RunnerDocker:  &apps.DockerRunner{Docker: engine},
+					apps.RunnerCompose: &apps.ComposeRunner{Docker: engine, Socket: engine.Socket},
 				},
 			}))
 		case "display":

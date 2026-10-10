@@ -155,6 +155,10 @@ func ParseAppFile(path string, data []byte) (AppFile, error) {
 		return AppFile{}, fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
 	}
 	f.Path = path
+	if f.Runner != nil && f.Runner.File != "" && !filepath.IsAbs(f.Runner.File) {
+		// A compose file beside the app file (or in a followed config).
+		f.Runner.File = filepath.Join(filepath.Dir(path), f.Runner.File)
+	}
 	if f.ID == "" && f.Extends == "" {
 		// The file name is the ID: apps/jellyfin.toml defines "jellyfin".
 		f.ID = strings.TrimSuffix(filepath.Base(path), ".toml")
