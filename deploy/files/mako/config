@@ -2,5 +2,16 @@
 # Draw notices above fullscreen windows (games). mako's default layer, top,
 # is hidden under fullscreen windows in Sway.
 layer=overlay
-anchor=top-right
-default-timeout=8000
+# Readable on a TV across the room: large, at the top centre, for a while.
+anchor=top-center
+font=DejaVu Sans 22
+width=720
+height=200
+margin=24
+padding=18,24
+border-size=3
+border-radius=0
+background-color=#161b22ee
+text-color=#e6edf3
+border-color=#58a6ff
+default-timeout=12000

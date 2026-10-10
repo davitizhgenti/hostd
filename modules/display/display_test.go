@@ -919,3 +919,23 @@ func TestWindowOfAnAppThatLeftItsUnit(t *testing.T) {
 		t.Fatalf("window %+v", tw)
 	}
 }
+
+func TestClosingAnUnownedWindowGoesBack(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.b.open(1, 100) // tv
+	r.event(t)
+	r.b.focus(1)
+	r.event(t)
+	r.b.open(9, 300) // not hostd's; nobody present, so it comes forward
+	r.event(t)
+	r.b.focus(9)
+	r.event(t)
+	r.b.commands()
+	r.b.closeWin(9)
+	r.event(t)
+	waitFor(t, "back to tv", func() bool {
+		r.b.mu.Lock()
+		defer r.b.mu.Unlock()
+		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:tv", "focus 1"})
+	})
+}

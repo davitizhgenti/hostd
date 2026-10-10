@@ -170,6 +170,11 @@ func (m *Module) windowClosed(w Window) {
 			}
 		}
 	}
+	if ok && tw.Focused && tw.Instance == "" && !tw.Dialog {
+		// A window of no instance closed in front: back to the app used
+		// before it, not an empty workspace.
+		stay = m.previous()
+	}
 	b := m.backend
 	seq := m.focusSeq
 	menuGone := ok && tw.Focused && m.isMenu(tw.Instance)
