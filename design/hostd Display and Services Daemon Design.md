@@ -194,6 +194,7 @@ The screen runs Sway, and each window instance gets its own workspace, fullscree
 - **flatpak** sets up Flatpak with Flathub, and updates every Flatpak app and runtime, including the NVIDIA GL runtime that must match the driver.
 - **steam** installs the Steam Flatpak, run in Big Picture. Its `hostd-steam-games` writes an app file per installed game (a handoff to Steam, followed by `SteamAppId`, listed under Steam), kept current by a user path unit.
 - **dolphin** installs Dolphin, which reads Wii Remotes through a DolphinBar.
+- **chromium** installs Debian's Chromium: an app with its desktop entry's actions (new window, incognito), and the browser hostd's web-page apps open in.
 - **nvidia** replaces Debian's NVIDIA 550 with NVIDIA's own 580 (the last series for Maxwell, Pascal and Volta), which supports explicit sync: without it Sway, gamescope and Xwayland show unfinished frames. NVIDIA's installer, checked against a pinned checksum, builds the modules with DKMS; Debian's NVIDIA packages are removed and pinned away, and the installer no longer installs them. The screen session is stopped while the driver is swapped; on failure, or on remove, Debian's driver is put back. A plain update never swaps drivers.
 
 **Input and shortcuts**
