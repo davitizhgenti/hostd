@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -43,9 +44,19 @@ func (a Auth) authorize(spec sdk.ActionSpec, args json.RawMessage) error {
 	var values map[string]json.RawMessage
 	_ = json.Unmarshal(args, &values)
 	for arg, scope := range spec.ArgScopes {
-		if string(values[arg]) == "true" && !a.Has(scope) {
-			return sdk.Errorf(sdk.CodeForbidden, "%s with %s=true needs scope %q", spec.Type, arg, scope)
+		if given(values[arg]) && !a.Has(scope) {
+			return sdk.Errorf(sdk.CodeForbidden, "%s with %s needs scope %q", spec.Type, arg, scope)
 		}
 	}
 	return nil
+}
+
+// given reports whether an argument is set: present and not false, null
+// or empty.
+func given(v json.RawMessage) bool {
+	switch strings.TrimSpace(string(v)) {
+	case "", "false", "null", `""`, "{}", "[]":
+		return false
+	}
+	return true
 }

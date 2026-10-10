@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
+	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -824,5 +825,28 @@ runner = { type = "warp" }
 	}
 	if _, err := check(filepath.Join(dir, "nope")); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
 		t.Fatalf("missing folder: %v", err)
+	}
+}
+
+func TestReleaseArgsNeedDeployScope(t *testing.T) {
+	r := newRig(t, newFakeSystemd(), newFakeDocker(), fakeSession(t))
+	appsOnly := core.Auth{Scopes: []string{contract.ScopeApps}}
+	start := func(args string, auth core.Auth) error {
+		_, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(args),
+			Source: sdk.Source{Kind: sdk.SourceManual}}, auth)
+		return err
+	}
+	for _, args := range []string{
+		`{"id":"term","env":{"LD_PRELOAD":"/tmp/x.so"}}`,
+		`{"id":"term","dir":"/tmp"}`,
+		`{"id":"term","new":true}`,
+		`{"id":"term","front":true}`,
+	} {
+		if err := start(args, appsOnly); sdk.CodeOf(err) != sdk.CodeForbidden {
+			t.Errorf("%s with scope apps only: %v", args, err)
+		}
+	}
+	if err := start(`{"id":"term","front":false,"env":{}}`, appsOnly); err != nil {
+		t.Fatalf("unset arguments need no scope: %v", err)
 	}
 }

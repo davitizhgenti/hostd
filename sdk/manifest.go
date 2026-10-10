@@ -80,8 +80,8 @@ type ActionSpec struct {
 	Keys []KeyTemplate `json:"keys,omitempty"`
 
 	// Scope a token needs to send this action. ArgScopes adds scopes
-	// needed when a boolean argument is true, such as
-	// {"front": "display.front"}.
+	// needed when an argument is given (not false, null or empty), such
+	// as {"front": "display.front"} or {"env": "deploy"}.
 	Scope     string            `json:"scope"`
 	ArgScopes map[string]string `json:"arg_scopes,omitempty"`
 
