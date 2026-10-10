@@ -317,7 +317,7 @@ func TestBackgroundAppDoesNotStealFocusLater(t *testing.T) {
 	r.b.commands()
 	r.b.open(3, 201) // the browser's second window
 	r.event(t)
-	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 3 hostd:browser", "fullscreen 3 true"}) {
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 3 hostd:browser:3", "fullscreen 3 true"}) {
 		t.Fatalf("commands %q", got)
 	}
 }

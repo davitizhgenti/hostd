@@ -215,7 +215,7 @@ func (m *Module) learnLaunch(ctx context.Context, instance, name string, src *sd
 	b := m.backend
 	m.mu.Unlock()
 	if bring != nil && b != nil {
-		m.screen("show", b.Show(ctx, WorkspacePrefix+instance))
+		m.screen("show", b.Show(ctx, bring.Workspace))
 		m.screen("focus", b.Focus(ctx, bring.ID))
 	}
 }

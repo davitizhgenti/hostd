@@ -25,6 +25,9 @@ type Window struct {
 	Output     string `json:"output,omitempty"`
 	Focused    bool   `json:"focused"`
 	Fullscreen bool   `json:"fullscreen"`
+	// Dialog: a window that belongs to another (floating, or an X11
+	// transient or dialog); it stays with that window.
+	Dialog bool `json:"dialog,omitempty"`
 }
 
 // Output is a screen.
@@ -194,7 +197,9 @@ type node struct {
 	Focused          bool    `json:"focused"`
 	FullscreenMode   int     `json:"fullscreen_mode"`
 	WindowProperties *struct {
-		Class string `json:"class"`
+		Class        string `json:"class"`
+		WindowType   string `json:"window_type"`
+		TransientFor *int64 `json:"transient_for"`
 	} `json:"window_properties"`
 	Nodes         []node `json:"nodes"`
 	FloatingNodes []node `json:"floating_nodes"`
@@ -211,7 +216,9 @@ func (n node) window() Window {
 	}
 	if n.WindowProperties != nil {
 		w.Class = n.WindowProperties.Class
+		w.Dialog = n.WindowProperties.TransientFor != nil || n.WindowProperties.WindowType == "dialog"
 	}
+	w.Dialog = w.Dialog || n.Type == "floating_con"
 	if n.Name != nil {
 		w.Title = *n.Name
 	}

@@ -808,7 +808,74 @@ func TestFocusGoesToTheWindowLastUsed(t *testing.T) {
 	if _, err := r.act(t, "window.focus", "browser"); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"show hostd:browser", "focus 2"}) {
+	// Its second window is on a screen of its own.
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"show hostd:browser:2", "focus 2"}) {
 		t.Fatalf("commands %q", got)
+	}
+}
+
+func TestEachWindowOfAFullscreenAppHasItsOwnScreen(t *testing.T) {
+	// Steam and a game it started are one instance: they never share a
+	// workspace (Sway would split the screen between them); a dialog stays
+	// with its app; closing the game brings Steam back, not an empty screen.
+	r := newDisplayRig(t, true)
+	r.b.open(1, 200) // "Steam"
+	r.event(t)
+	r.b.open(2, 201) // "the game"
+	r.event(t)
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 1 hostd:browser", "show hostd:browser", "focus 1", "fullscreen 1 true",
+		"move 2 hostd:browser:2", "show hostd:browser:2", "focus 2", "fullscreen 2 true"}) {
+		t.Fatalf("commands %q", got)
+	}
+	r.b.openWindow(Window{ID: 3, PID: 201, Class: "game", Dialog: true}) // its dialog
+	r.event(t)
+	if got := r.b.commands(); len(got) == 0 || got[0] != "move 3 hostd:browser" {
+		t.Fatalf("dialog commands %q", got)
+	}
+	r.b.focus(1)
+	r.event(t)
+	r.b.focus(2)
+	r.event(t)
+	r.b.commands()
+	r.autoEnd.Store(false) // Steam runs on
+	r.b.closeWin(2)
+	r.event(t)
+	waitFor(t, "back to Steam's window", func() bool {
+		r.b.mu.Lock()
+		defer r.b.mu.Unlock()
+		return reflect.DeepEqual(r.b.cmds, []string{"show hostd:browser", "focus 1"})
+	})
+}
+
+func TestWindowedAppKeepsOneScreen(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.apps.Core().Emit(sdk.Event{Type: "instance.starting", Data: json.RawMessage(`{"id":"browser","fullscreen":false}`)})
+	waitFor(t, "preference", func() bool { r.m.mu.Lock(); defer r.m.mu.Unlock(); _, ok := r.m.prefs["browser"]; return ok })
+	r.b.open(1, 200)
+	r.event(t)
+	r.b.open(2, 201)
+	r.event(t)
+	for _, c := range r.b.commands() {
+		if strings.HasPrefix(c, "move 2 ") && c != "move 2 hostd:browser" {
+			t.Fatalf("a windowed app's window got its own screen: %q", c)
+		}
+	}
+}
+
+func TestSwayDialogs(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`{"type":"con","pid":1,"window_properties":{"class":"steam_app_1","window_type":"normal","transient_for":null}}`: false,
+		`{"type":"con","pid":1,"window_properties":{"class":"game","transient_for":4194305}}`:                            true,
+		`{"type":"con","pid":1,"window_properties":{"class":"game","window_type":"dialog"}}`:                             true,
+		`{"type":"floating_con","pid":1,"app_id":"foot"}`:                                                                true,
+		`{"type":"con","pid":1,"app_id":"foot"}`:                                                                         false,
+	} {
+		var n node
+		if err := json.Unmarshal([]byte(raw), &n); err != nil {
+			t.Fatal(err)
+		}
+		if got := n.window().Dialog; got != want {
+			t.Errorf("%s: dialog %v, want %v", raw, got, want)
+		}
 	}
 }

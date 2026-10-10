@@ -5,6 +5,7 @@ package display
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -53,9 +54,10 @@ func (m *Module) onEvent(ev Event) {
 func (m *Module) windowOpened(ctx context.Context, w Window) {
 	inst := m.resolver(ctx)(w)
 	m.mu.Lock()
+	full, known := m.prefs[inst]
+	ws := m.workspaceFor(inst, w, full || !known)
 	tw := &trackedWindow{Window: w, Instance: inst}
 	m.windows[w.ID] = tw
-	full, known := m.prefs[inst]
 	front, announce := m.placement(inst)
 	b := m.backend
 	m.mu.Unlock()
@@ -63,7 +65,6 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 		// Its own workspace, fullscreen unless the app says otherwise.
 		// In front, unless someone else is using the screen and did
 		// not ask for it: then it waits on its workspace, announced.
-		ws := WorkspacePrefix + inst
 		if err := b.Move(ctx, w.ID, ws); err != nil {
 			m.log.Warn("placing window", "instance", inst, "err", err)
 		}
@@ -91,6 +92,23 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 // windowClosed forgets a window. When the focused app's last window
 // closes, the screen goes back to the app before it, once the app has
 // ended.
+// workspaceFor picks a new window's workspace: its instance's. A
+// fullscreen app's further top-level windows (a game Steam started) each
+// get one of their own, so two never share the screen; dialogs stay with
+// their app. Caller holds m.mu.
+func (m *Module) workspaceFor(inst string, w Window, fullscreen bool) string {
+	ws := WorkspacePrefix + inst
+	if inst == "" || w.Dialog || !fullscreen {
+		return ws
+	}
+	for id, t := range m.windows {
+		if id != w.ID && t.Instance == inst && t.Workspace == ws && !t.Dialog {
+			return ws + ":" + strconv.FormatInt(w.ID, 10)
+		}
+	}
+	return ws
+}
+
 func (m *Module) windowClosed(w Window) {
 	m.mu.Lock()
 	tw, ok := m.windows[w.ID]
@@ -106,12 +124,30 @@ func (m *Module) windowClosed(w Window) {
 		m.stack = m.stack[:len(m.stack)-1]
 		back = m.previous()
 	}
+	// The focused window closed but its app has others (a game started
+	// from Steam): the app's window used last comes forward, rather than
+	// an empty workspace.
+	var stay *trackedWindow
+	if ok && tw.Focused && tw.Instance != "" && back == nil {
+		for _, t := range m.windows {
+			if t.Instance == tw.Instance && (stay == nil || t.used > stay.used) {
+				c := *t
+				stay = &c
+			}
+		}
+	}
 	b := m.backend
 	seq := m.focusSeq
 	menuGone := ok && tw.Focused && m.isMenu(tw.Instance)
 	m.mu.Unlock()
 	if menuGone {
 		m.takeControllers(false)
+	}
+	if stay != nil && b != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		m.screen("show", b.Show(ctx, stay.Workspace))
+		m.screen("focus", b.Focus(ctx, stay.ID))
+		cancel()
 	}
 	if !ok {
 		tw = &trackedWindow{Window: w}
