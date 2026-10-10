@@ -1,0 +1,9 @@
+# Managed by hostd's chromium add-on; changes here are overwritten.
+# Debian's Chromium entry has no actions: an incognito window is one.
+extends = "chromium"
+name = "Chromium"
+
+[[actions]]
+id = "incognito"
+name = "New incognito window"
+command = ["chromium", "--incognito"]

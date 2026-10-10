@@ -462,7 +462,8 @@ func TestShippedAppFiles(t *testing.T) {
 	// without a problem (over the desktop entries they extend).
 	paths, _ := filepath.Glob("../../deploy/addons/*/*.toml")
 	paths = append(paths, "../../deploy/files/menu/hostd-menu.toml")
-	desktop := []App{{ID: "steam", Name: "Steam", Runner: Runner{Type: RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
+	desktop := []App{{ID: "chromium", Name: "Chromium Web Browser", Runner: Runner{Type: RunnerExec, Command: []string{"chromium"}}},
+		{ID: "steam", Name: "Steam", Runner: Runner{Type: RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
 		Actions: []AppAction{{ID: "bigpicture", Name: "Big Picture", Command: []string{"flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"}}}}}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
