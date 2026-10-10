@@ -23,6 +23,31 @@ steam_drop_gamescope() {
 	fi
 }
 
+# steam_vram_cap tells Proton games (DXVK) the card has 768 MiB less video
+# memory than it has: games size their textures and caches to what they
+# are told, which leaves room for Steam, the compositor and the menu, so
+# a game cannot fill a small card (4 GB) and break up.
+steam_vram_cap() {
+	local total=""
+	if command -v nvidia-smi >/dev/null; then
+		total=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d " ")
+	else
+		local f
+		for f in /sys/class/drm/card[0-9]*/device/mem_info_vram_total; do
+			[ -r "$f" ] && total=$(($(cat "$f") >> 20)) && break
+		done
+	fi
+	case $total in '' | *[!0-9]*) info "video memory size unknown; no limit for games"; return 0 ;; esac
+	[ "$total" -ge 2048 ] || return 0
+	local want="dxgi.maxDeviceMemory = $((total - 768))"
+	if flatpak override --system --show "$STEAM_ID" 2>/dev/null | grep -qF "DXVK_CONFIG=$want"; then
+		info "games see $((total - 768)) of $total MiB video memory"
+		return 0
+	fi
+	flatpak override --system --env="DXVK_CONFIG=$want" "$STEAM_ID"
+	changed "games see $((total - 768)) of $total MiB video memory (DXVK)"
+}
+
 addon_install() {
 	steam_drop_gamescope
 	if flatpak info --system "$STEAM_ID" >/dev/null 2>&1; then
@@ -32,6 +57,7 @@ addon_install() {
 		flatpak install --system -y --noninteractive flathub "$STEAM_ID" >/dev/null
 		changed "installed Steam"
 	fi
+	steam_vram_cap
 	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
 	install_file "$ADDON_HERE/steam.toml" "$SCREEN_HOME/.config/hostd/apps/steam.toml" 644 "$SCREEN_USER" ||
 		info "Steam app file up to date"
@@ -55,6 +81,7 @@ addon_remove() {
 	as_screen /usr/local/lib/hostd/addons/hostd-steam-games --remove || true
 	rm -f "$SCREEN_HOME/.config/hostd/apps/steam.toml" /usr/local/lib/hostd/addons/hostd-steam-games
 	steam_drop_gamescope
+	flatpak override --system --reset "$STEAM_ID" 2>/dev/null || true # the games' video memory limit
 	flatpak uninstall --system -y --noninteractive "$STEAM_ID" >/dev/null 2>&1 && changed "removed Steam" || true
 	addon_rescan
 	info "Steam's own data (logins, saves, games) stays in $SCREEN_HOME/.var/app/$STEAM_ID"

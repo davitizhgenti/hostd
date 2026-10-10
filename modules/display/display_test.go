@@ -587,14 +587,21 @@ func TestNewWindowGetsItsOwnFullscreenWorkspace(t *testing.T) {
 		t.Fatalf("commands %q, want %q", got, want)
 	}
 
-	// A window hostd did not start is left where it is.
+	// A window hostd did not start gets a workspace of its own, so it
+	// never splits another app's screen.
 	r.b.open(2, 300)
 	typ, tw = r.event(t)
-	if typ != EventOpened || tw.Instance != "" {
+	if typ != EventOpened || tw.Instance != "" || tw.Workspace != "hostd:window-2" {
 		t.Fatalf("%s %+v", typ, tw)
 	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 2 hostd:window-2", "show hostd:window-2", "focus 2"}) {
+		t.Fatalf("unowned window commands %q", got)
+	}
+	// Its dialog stays with it.
+	r.b.openWindow(Window{ID: 3, PID: 300, Class: "x", Dialog: true})
+	r.event(t)
 	if got := r.b.commands(); len(got) != 0 {
-		t.Fatalf("an unowned window was moved: %q", got)
+		t.Fatalf("an unowned dialog was moved: %q", got)
 	}
 }
 

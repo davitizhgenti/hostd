@@ -59,6 +59,7 @@ class SteamGames(unittest.TestCase):
         self.assertIn('class = "steam_app_620"', body)
         self.assertIn('"flatpak", "run", "com.valvesoftware.Steam", "steam://rungameid/620"', body)
         self.assertIn('under = "steam"', body)
+        self.assertIn('requires = ["steam"]', body)
         self.assertEqual(sg.sync(self.home, self.apps), (0, 0))  # nothing changed
 
         # The person's own file for a game is left alone, even when stale.

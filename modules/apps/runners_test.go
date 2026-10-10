@@ -655,3 +655,35 @@ func mustParse(t *testing.T, path, body string) AppFile {
 	}
 	return f
 }
+
+func TestRequiredAppsStartFirst(t *testing.T) {
+	// A game requires Steam: starting the game starts Steam first, once.
+	sd := newFakeSystemd()
+	r := newRig(t, sd, newFakeDocker(), fakeSession(t))
+	writeApps(t, r.m.opts.AppsDir, `
+-- steam.toml --
+runner = { type = "exec", command = ["steam"] }
+-- game.toml --
+requires = ["steam"]
+runner = { type = "exec", command = ["game"] }
+`)
+	r.m.rescan()
+	r.start(t, "game")
+	sd.mu.Lock()
+	var argv []string
+	for _, u := range sd.started {
+		argv = append(argv, u.Argv[0])
+	}
+	sd.mu.Unlock()
+	if !reflect.DeepEqual(argv, []string{"steam", "game"}) {
+		t.Fatalf("started %q, want steam then game", argv)
+	}
+	r.do(t, "instance.stop", "game")
+	r.start(t, "game") // Steam still runs: not started again
+	sd.mu.Lock()
+	n := len(sd.started)
+	sd.mu.Unlock()
+	if n != 3 {
+		t.Fatalf("%d starts, want 3", n)
+	}
+}

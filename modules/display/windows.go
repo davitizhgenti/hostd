@@ -83,6 +83,22 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 		tw = &trackedWindow{Window: w, Instance: inst}
 		tw.Workspace = ws
 	}
+	if inst == "" && !w.Dialog && b != nil {
+		// Not an instance's (a window Steam opened by itself): it would
+		// open next to whatever is on screen, splitting it (the menu and
+		// Steam side by side). It gets a workspace of its own and comes
+		// forward, as Sway would show it anyway.
+		ws := WorkspacePrefix + "window-" + strconv.FormatInt(w.ID, 10)
+		m.screen("move", b.Move(ctx, w.ID, ws))
+		m.screen("show", b.Show(ctx, ws))
+		m.screen("focus", b.Focus(ctx, w.ID))
+		m.mu.Lock()
+		if t, ok := m.windows[w.ID]; ok {
+			t.Workspace = ws
+		}
+		m.mu.Unlock()
+		tw.Workspace = ws
+	}
 	m.emit(EventOpened, tw)
 	if announce != "" {
 		m.notice(inst, announce+" is ready")

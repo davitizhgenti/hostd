@@ -5,7 +5,8 @@ Reads Steam's library (libraryfolders.vdf, appmanifest_*.acf) and writes
 ~/.config/hostd/apps/steam-<appid>.toml for each installed game: a handoff
 to Steam (steam://rungameid/<id>), followed by the SteamAppId variable
 Steam gives the game's processes, listed under the Steam app
-(under = "steam") rather than on its own. Files it made carry a marker line; it
+(under = "steam") rather than on its own; starting it starts Steam first
+(requires = ["steam"]), so Steam is hostd's Big Picture app. Files it made carry a marker line; it
 removes those whose game is gone, and never touches other files. Run it
 again any time; --remove deletes everything it made.
 """
@@ -104,6 +105,7 @@ def app_file(appid, name):
     return f"""{MARKER}
 name = {toml_string(name)}
 under = "steam"
+requires = ["steam"]
 runner = {{ type = "exec", command = {command}, handoff = "SteamAppId={appid}" }}
 
 [match]

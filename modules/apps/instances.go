@@ -166,6 +166,18 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		variant.Instance.Policy = "multiple"
 		app = &variant
 	}
+	// What it requires starts first (a Steam game: Steam itself).
+	for _, req := range app.Requires {
+		m.mu.Lock()
+		up := len(m.live(req)) > 0
+		m.mu.Unlock()
+		if up {
+			continue
+		}
+		if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]any{"id": req})}); err != nil {
+			return sdk.Result{}, sdk.Errorf(sdk.CodeOf(err), "%s requires %s: %v", app.ID, req, err)
+		}
+	}
 	backend := m.backend(app.Runner.Type)
 
 	m.mu.Lock()
