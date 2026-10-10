@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	sdbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
@@ -94,6 +95,14 @@ func (s *UserSystemd) StartTransient(ctx context.Context, name string, spec Unit
 	}
 	if spec.Dir != "" {
 		props = append(props, sdbus.Property{Name: "WorkingDirectory", Value: dbus.MakeVariant(spec.Dir)})
+	}
+	if spec.Restart != "" {
+		props = append(props, sdbus.Property{Name: "Restart", Value: dbus.MakeVariant(spec.Restart)},
+			sdbus.Property{Name: "RestartUSec", Value: dbus.MakeVariant(uint64(2 * time.Second / time.Microsecond))})
+	}
+	if spec.Service {
+		props = append(props, sdbus.Property{Name: "NoNewPrivileges", Value: dbus.MakeVariant(true)},
+			sdbus.Property{Name: "PrivateTmp", Value: dbus.MakeVariant(true)})
 	}
 	ch := make(chan string, 1)
 	if _, err := conn.StartTransientUnitContext(ctx, name, "fail", props, ch); err != nil {

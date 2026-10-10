@@ -57,6 +57,8 @@ func instanceEvents() []sdk.EventSpec {
 		{Type: EventStarted, Description: "An instance is running"},
 		{Type: EventExited, Description: "An instance ended normally or was stopped"},
 		{Type: EventFailed, Description: "An instance could not start, or ended with an error"},
+		{Type: EventUnhealthy, Description: "A background app failed its health check 3 times in a row"},
+		{Type: EventHealthy, Description: "A background app passes its health check again"},
 	}
 }
 
@@ -265,12 +267,21 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	}
 	cur.Unit, cur.Container, cur.PID = started.Unit, started.Container, started.PID
 	emitStarted := false
-	if s, err := next(cur.State, changeStarted, 0); err == nil && s != cur.State {
-		cur.State = s
-		emitStarted = true
+	gated := app.Health.Set() && m.life != nil
+	if !gated {
+		if s, err := next(cur.State, changeStarted, 0); err == nil && s != cur.State {
+			cur.State = s
+			emitStarted = true
+		}
 	}
 	snapshot := *cur
+	life := m.life
 	m.mu.Unlock()
+	if gated {
+		// Running once its health check passes (health.go).
+		m.watchersRun.Add(1)
+		go func() { defer m.watchersRun.Done(); m.watchHealth(life, id, app) }()
+	}
 	if emitStarted {
 		m.emitInstance(EventStarted, a.ID, snapshot)
 	}
@@ -452,7 +463,7 @@ func (m *Module) backend(runner string) Backend {
 	if b, ok := m.opts.Backends[runner]; ok {
 		return b
 	}
-	if runner == RunnerFlatpak || runner == RunnerURL {
+	if runner == RunnerFlatpak || runner == RunnerURL || runner == RunnerProcess {
 		return m.opts.Backends[RunnerExec]
 	}
 	return nil

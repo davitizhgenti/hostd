@@ -500,8 +500,9 @@ Gate: *a game and a browser have different volumes, and audio moves to a headset
 Gate: *`git push box main` updates a site with no downtime, and a broken build rolls back.*
 
 - [ ] **`compose` runner:** `docker compose -p hostd-<app>` against the configured socket; status from container labels
-- [ ] **`process` runner:** generated user unit `hostd-svc-<app>.service` with `Restart=`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, environment from `[env]`; logs via journald
-- [ ] **Health checks:** `http` (2xx within timeout, retries), later `tcp` / `exec`
+- [x] **`process` runner:** generated user unit `hostd-svc-<app>.service` with `Restart=`, `NoNewPrivileges=yes`, `PrivateTmp=yes`, environment from `[env]`; logs via journald
+- [x] **Health checks:** `http` (2xx within timeout, retries), later `tcp` / `exec`
+  *Done (2026-10-10): `process` apps run as transient units (`hostd-<instance>.service`, like every instance, not `hostd-svc-`), with `Restart=` from the app and `NoNewPrivileges`/`PrivateTmp` (both work in user units on core). `[health] http` (2xx) or `tcp`, `start` (default 60s) and `every` (10s): an app with a check stays `starting` until it passes, fails (and is stopped) if it does not within `start`, and emits `instance.unhealthy` after 3 failed checks, `instance.healthy` when it recovers (`modules/apps/health.go`).*
 - [ ] **Deploy state machine** shared by all sources: `fetch → build|pull → start new → health → switch → stop old` or `→ remove new` on failure; releases in `~/hostd/releases/<app>/<sha>`, keep 5; `deploy.rollback`. Runs as `deploy.run` on key `deploy:<app>`.
 - [ ] **Zero-downtime switch via a built-in reverse proxy:** for services with `ports`, hostd owns the public port with `httputil.ReverseProxy`. Each release listens on an internal port picked by hostd; after the health check the proxy's upstream is swapped atomically (`atomic.Pointer`), in-flight requests on the old release finish, then the old release is stopped. Plain TCP (non-HTTP) services fall back to stop-then-start, documented as having a short gap.
 - [ ] **Sources:**

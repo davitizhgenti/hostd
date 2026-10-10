@@ -5,9 +5,11 @@ package apps
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
 )
@@ -134,9 +136,28 @@ func (a *App) matchRules() *Match {
 	return &m
 }
 
-// Health check for background apps.
+// Health check for background apps: an app with one counts as running
+// once it passes, and as failed if it does not within Start.
 type Health struct {
-	HTTP string `json:"http,omitempty" toml:"http"`
+	HTTP  string `json:"http,omitempty" toml:"http"`   // a URL that answers 2xx
+	TCP   string `json:"tcp,omitempty" toml:"tcp"`     // host:port that accepts connections
+	Start string `json:"start,omitempty" toml:"start"` // how long the first pass may take (default 60s)
+	Every string `json:"every,omitempty" toml:"every"` // between checks afterwards (default 10s)
+}
+
+// Set reports whether the app has a health check.
+func (h Health) Set() bool { return h.HTTP != "" || h.TCP != "" }
+
+// durations returns Start and Every, defaulted.
+func (h Health) durations() (start, every time.Duration) {
+	start, every = 60*time.Second, 10*time.Second
+	if d, err := time.ParseDuration(h.Start); err == nil && d > 0 {
+		start = d
+	}
+	if d, err := time.ParseDuration(h.Every); err == nil && d > 0 {
+		every = d
+	}
+	return start, every
 }
 
 // Problem is a file the catalog could not use, and why.
@@ -256,6 +277,21 @@ func (a *App) validate() error {
 	case "always", "on-failure", "never":
 	default:
 		bad("restart %q: use always, on-failure or never", a.Restart)
+	}
+	if h := a.Health; h.HTTP != "" && !strings.HasPrefix(h.HTTP, "http://") && !strings.HasPrefix(h.HTTP, "https://") {
+		bad("health.http %q: an http:// or https:// URL", h.HTTP)
+	}
+	if h := a.Health; h.TCP != "" {
+		if _, port, err := net.SplitHostPort(h.TCP); err != nil || port == "" {
+			bad("health.tcp %q: host:port", h.TCP)
+		}
+	}
+	for _, d := range []struct{ name, v string }{{"start", a.Health.Start}, {"every", a.Health.Every}} {
+		if d.v != "" {
+			if v, err := time.ParseDuration(d.v); err != nil || v <= 0 {
+				bad("health.%s %q: a duration such as 30s", d.name, d.v)
+			}
+		}
 	}
 	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {
 		bad("under %q: another app's id", u)

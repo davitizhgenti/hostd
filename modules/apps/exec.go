@@ -26,6 +26,12 @@ type UnitSpec struct {
 	Argv        []string
 	Env         []string // KEY=value
 	Dir         string
+	// Restart is systemd's Restart= for services (on-failure, always);
+	// "" for apps that are not restarted.
+	Restart string
+	// Service: a background service, run with NoNewPrivileges and a
+	// private /tmp.
+	Service bool
 }
 
 // UnitInfo is what the exec runner reads back about a unit.
@@ -276,9 +282,14 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 		_ = r.Systemd.Stop(ctx, name)
 		_ = r.Systemd.ResetFailed(ctx, name)
 	}
-	err = r.Systemd.StartTransient(ctx, name, UnitSpec{
-		Description: description(inst, kv), Argv: argv, Env: env, Dir: r.HomeDir,
-	})
+	spec := UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: r.HomeDir}
+	if app.Runner.Type == RunnerProcess {
+		spec.Service = true
+		if app.Restart != "never" {
+			spec.Restart = app.Restart
+		}
+	}
+	err = r.Systemd.StartTransient(ctx, name, spec)
 	if err != nil {
 		_ = r.Systemd.ResetFailed(ctx, name)
 		return inst, fmt.Errorf("starting %s: %w", strings.Join(argv, " "), err)

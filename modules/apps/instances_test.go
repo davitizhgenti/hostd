@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -527,9 +528,14 @@ func writeApps(t *testing.T, dir, txt string) {
 
 func newRig(t *testing.T, sd *fakeSystemd, d *fakeDocker, runtimeDir string) *rig {
 	t.Helper()
+	return newRigClock(t, sd, d, runtimeDir, nil)
+}
+
+func newRigClock(t *testing.T, sd *fakeSystemd, d *fakeDocker, runtimeDir string, clk clock.Clock) *rig {
+	t.Helper()
 	appsDir := t.TempDir()
 	writeApps(t, appsDir, rigApps)
-	m := New(Options{AppsDir: appsDir, NoWatch: true, Backends: map[string]Backend{
+	m := New(Options{AppsDir: appsDir, NoWatch: true, Clock: clk, Backends: map[string]Backend{
 		RunnerExec:   &ExecRunner{Systemd: sd, RuntimeDir: runtimeDir},
 		RunnerDocker: &DockerRunner{Docker: d},
 	}})
