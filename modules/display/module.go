@@ -26,6 +26,8 @@ const (
 	EventIdle    = "display.idle"   // no input for IdleAfter
 	EventNotice  = "display.notice" // a notice shown on the screen
 	EventNav     = "display.nav"    // controller navigation for the menu in front
+	EventGPUFull = "display.gpu.full"
+	EventGPUOK   = "display.gpu.ok"
 	EventOutputs = "display.output.changed"
 
 	EventControllerConnected    = "controller.connected"
@@ -59,6 +61,10 @@ type Options struct {
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
+	// GPU reads video memory, watched every GPUEvery (default 15s) so the
+	// person is told before it is full (nil: not watched).
+	GPU      GPUMemory
+	GPUEvery time.Duration
 	// HoldFor is how long a controller button is held before its action
 	// runs; a shorter press is left to the app (default 600ms; negative:
 	// on press).
@@ -116,6 +122,8 @@ type Module struct {
 	menuFront bool                     // hostd's menu has the focus: controllers are taken for it
 	grabbed   bool                     // the controllers are taken (Grabber)
 	down      map[string]bool          // controller buttons held down
+	gpuUsed   int64                    // video memory in use, bytes (GPU)
+	gpuTotal  int64
 	life      context.Context          // ends when the module stops
 	failed    int                      // compositor commands that failed
 	warned    map[string]time.Time     // when each kind of failure was last logged as a warning
@@ -156,6 +164,9 @@ func New(opts Options) *Module {
 	}
 	if opts.Buttons == nil {
 		opts.Buttons = DefaultButtons
+	}
+	if opts.GPUEvery == 0 {
+		opts.GPUEvery = 15 * time.Second
 	}
 	if opts.HoldFor == 0 {
 		opts.HoldFor = 600 * time.Millisecond
@@ -266,6 +277,8 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventActive, Description: "Someone started using the screen (keyboard, mouse or controller input)"},
 			{Type: EventIdle, Description: "Nobody has used the screen for a while"},
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
+			{Type: EventGPUFull, Description: "Video memory is nearly full (90%); a notice asks to lower the game's settings"},
+			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
 			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
@@ -300,8 +313,9 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	}
 	m.done.Add(2)
 	go func() { defer m.done.Done(); m.attachLoop(ctx) }()
-	m.done.Add(1)
+	m.done.Add(2)
 	go func() { defer m.done.Done(); m.followControllers(ctx) }()
+	go func() { defer m.done.Done(); m.followGPU(ctx, m.opts.GPU) }()
 	// Subscribed before Start returns, so no event after it is missed.
 	instances := core.Subscribe(ctx, contract.EventInstances)
 	go func() { defer m.done.Done(); m.followInstances(ctx, instances) }()
@@ -433,9 +447,13 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	case "display":
 		m.mu.Lock()
 		failed := m.failed
+		gpuUsed, gpuTotal := m.gpuUsed, m.gpuTotal
 		m.mu.Unlock()
 		st := map[string]any{"attached": b != nil, "focused_instance": focused, "outputs": []Output{},
 			"present": m.presence.present(), "failed_commands": failed}
+		if gpuTotal > 0 {
+			st["gpu_memory"] = map[string]int64{"used": gpuUsed, "total": gpuTotal}
+		}
 		if last := m.presence.lastInput(); !last.IsZero() {
 			st["last_input"] = last.UTC()
 		}

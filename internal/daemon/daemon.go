@@ -103,7 +103,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			mods = append(mods, display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log,
 				Input: &display.Evdev{Profiles: profiles}, Profiles: profiles, IdleAfter: time.Duration(cfg.IdleAfter),
 				Notifier: &display.DesktopNotifier{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons,
-				HoldFor: time.Duration(cfg.Input.Hold)}))
+				HoldFor: time.Duration(cfg.Input.Hold), GPU: display.SystemGPU{}}))
 		case "audio":
 			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log}))
 		case "demo":
