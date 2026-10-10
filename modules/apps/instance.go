@@ -43,6 +43,8 @@ type Instance struct {
 	Match *Match `json:"match,omitempty"`
 	// ShownBy: the app whose window shows it (see Window.ShownBy).
 	ShownBy string `json:"shown_by,omitempty"`
+	// Volume: the app's own volume (audio.volume), for the audio module.
+	Volume *int `json:"volume,omitempty"`
 
 	Unit      string `json:"unit,omitempty"`      // systemd unit (exec runner)
 	Container string `json:"container,omitempty"` // container name (docker runner)

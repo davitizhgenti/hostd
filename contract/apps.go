@@ -61,6 +61,9 @@ type Instance struct {
 	// own (a game inside Steam's gamescope session): focusing it brings
 	// that app's window.
 	ShownBy string `json:"shown_by,omitempty"`
+	// Volume is the app's own volume (0-150), set on its sound when it
+	// first plays.
+	Volume *int `json:"volume,omitempty"`
 }
 
 // Ended reports whether the instance has ended.

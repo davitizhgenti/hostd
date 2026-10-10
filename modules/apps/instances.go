@@ -221,7 +221,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return ok && !in.State.Ended()
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
-		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(), ShownBy: app.Window.ShownBy,
+		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(), ShownBy: app.Window.ShownBy, Volume: app.Audio.Volume,
 		Action: args.Action,
 		State:  StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
@@ -482,6 +482,7 @@ func (m *Module) adopt(ctx context.Context) {
 				in.Fullscreen = app.Surface == SurfaceWindow && app.Window.Fullscreen
 				in.Match = app.matchRules()
 				in.ShownBy = app.Window.ShownBy
+				in.Volume = app.Audio.Volume
 			}
 			in.Started = m.opts.Clock.Now().UTC()
 			m.mu.Lock()

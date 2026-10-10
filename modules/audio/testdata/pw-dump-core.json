@@ -1,0 +1,725 @@
+[
+ {
+  "id": 32,
+  "type": "PipeWire:Interface:Metadata",
+  "props": {
+   "metadata.name": "settings",
+   "object.serial": 32
+  },
+  "metadata": [
+   {
+    "subject": 0,
+    "key": "log.level",
+    "type": "",
+    "value": 2
+   },
+   {
+    "subject": 0,
+    "key": "clock.rate",
+    "type": "",
+    "value": 48000
+   },
+   {
+    "subject": 0,
+    "key": "clock.allowed-rates",
+    "type": "",
+    "value": "[ 48000 ]"
+   },
+   {
+    "subject": 0,
+    "key": "clock.quantum",
+    "type": "",
+    "value": 1024
+   },
+   {
+    "subject": 0,
+    "key": "clock.min-quantum",
+    "type": "",
+    "value": 32
+   },
+   {
+    "subject": 0,
+    "key": "clock.max-quantum",
+    "type": "",
+    "value": 2048
+   },
+   {
+    "subject": 0,
+    "key": "clock.force-quantum",
+    "type": "",
+    "value": 0
+   },
+   {
+    "subject": 0,
+    "key": "clock.force-rate",
+    "type": "",
+    "value": 0
+   }
+  ]
+ },
+ {
+  "id": 36,
+  "type": "PipeWire:Interface:Metadata",
+  "props": {
+   "client.id": 33,
+   "factory.id": 7,
+   "metadata.name": "schema-sm-settings",
+   "module.id": 6,
+   "object.serial": 36
+  },
+  "metadata": [
+   {
+    "subject": 0,
+    "key": "bluetooth.use-persistent-storage",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to use persistent BT storage or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "bluetooth.autoswitch-to-headset-profile",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to autoswitch to BT headset profile or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "device.restore-profile",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to restore device profile or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "device.restore-routes",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to restore device routes or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "device.routes.default-sink-volume",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The default volume for sink devices",
+     "type": "float",
+     "default": 0.064,
+     "min": 0.0,
+     "max": 1.0
+    }
+   },
+   {
+    "subject": 0,
+    "key": "device.routes.default-source-volume",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The default volume for source devices",
+     "type": "float",
+     "default": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    }
+   },
+   {
+    "subject": 0,
+    "key": "linking.role-based.duck-level",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The volume level to apply when ducking (= reducing volume for a higher priority stream to be audible) in the role-based linking policy",
+     "type": "float",
+     "default": 0.3,
+     "min": 0.0,
+     "max": 1.0
+    }
+   },
+   {
+    "subject": 0,
+    "key": "linking.allow-moving-streams",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to allow metadata to move streams at runtime or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "linking.follow-default-target",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to allow streams follow the default device or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "monitor.camera-discovery-timeout",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The camera discovery timeout in milliseconds",
+     "type": "int",
+     "default": 1000,
+     "min": 0,
+     "max": 60000
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.no-dsp",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to never convert audio to F32 format or not",
+     "type": "bool",
+     "default": false
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.monitor-ports",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to enable monitor ports on audio nodes or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.control-port",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to enable control ports on audio nodes or not",
+     "type": "bool",
+     "default": false
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.restore-props",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to restore properties on stream nodes or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.restore-target",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to restore target on stream nodes or not",
+     "type": "bool",
+     "default": true
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-playback-volume",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The default volume for playback nodes",
+     "type": "float",
+     "default": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-capture-volume",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "The default volume for capture nodes",
+     "type": "float",
+     "default": 1.0,
+     "min": 0.0,
+     "max": 1.0
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-media-role",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "A media.role to assign on streams that have none specified",
+     "type": "string",
+     "default": "null"
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.filter.forward-format",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to forward format on filter nodes or not",
+     "type": "bool",
+     "default": false
+    }
+   },
+   {
+    "subject": 0,
+    "key": "node.restore-default-targets",
+    "type": "Spa:String:JSON",
+    "value": {
+     "description": "Whether to restore default targets or not",
+     "type": "bool",
+     "default": true
+    }
+   }
+  ]
+ },
+ {
+  "id": 38,
+  "type": "PipeWire:Interface:Metadata",
+  "props": {
+   "client.id": 33,
+   "factory.id": 7,
+   "metadata.name": "sm-settings",
+   "module.id": 6,
+   "object.serial": 38
+  },
+  "metadata": [
+   {
+    "subject": 0,
+    "key": "bluetooth.use-persistent-storage",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "bluetooth.autoswitch-to-headset-profile",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "device.restore-profile",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "device.restore-routes",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "device.routes.default-sink-volume",
+    "type": "Spa:String:JSON",
+    "value": 0.064
+   },
+   {
+    "subject": 0,
+    "key": "device.routes.default-source-volume",
+    "type": "Spa:String:JSON",
+    "value": 1.0
+   },
+   {
+    "subject": 0,
+    "key": "linking.role-based.duck-level",
+    "type": "Spa:String:JSON",
+    "value": 0.3
+   },
+   {
+    "subject": 0,
+    "key": "linking.allow-moving-streams",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "linking.follow-default-target",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "monitor.camera-discovery-timeout",
+    "type": "Spa:String:JSON",
+    "value": 1000
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.no-dsp",
+    "type": "Spa:String:JSON",
+    "value": false
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.monitor-ports",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "node.features.audio.control-port",
+    "type": "Spa:String:JSON",
+    "value": false
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.restore-props",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.restore-target",
+    "type": "Spa:String:JSON",
+    "value": true
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-playback-volume",
+    "type": "Spa:String:JSON",
+    "value": 1.0
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-capture-volume",
+    "type": "Spa:String:JSON",
+    "value": 1.0
+   },
+   {
+    "subject": 0,
+    "key": "node.stream.default-media-role",
+    "type": "Spa:String:JSON",
+    "value": "null"
+   },
+   {
+    "subject": 0,
+    "key": "node.filter.forward-format",
+    "type": "Spa:String:JSON",
+    "value": false
+   },
+   {
+    "subject": 0,
+    "key": "node.restore-default-targets",
+    "type": "Spa:String:JSON",
+    "value": true
+   }
+  ]
+ },
+ {
+  "id": 40,
+  "type": "PipeWire:Interface:Metadata",
+  "props": {
+   "client.id": 33,
+   "factory.id": 7,
+   "metadata.name": "default",
+   "module.id": 6,
+   "object.serial": 40
+  },
+  "metadata": [
+   {
+    "subject": 0,
+    "key": "default.audio.sink",
+    "type": "Spa:String:JSON",
+    "value": {
+     "name": "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+    }
+   },
+   {
+    "subject": 0,
+    "key": "default.audio.source",
+    "type": "Spa:String:JSON",
+    "value": {
+     "name": "alsa_output.pci-0000_01_00.1.hdmi-stereo"
+    }
+   }
+  ]
+ },
+ {
+  "id": 48,
+  "type": "PipeWire:Interface:Device",
+  "info": {
+   "props": {
+    "alsa.card": 0,
+    "alsa.card_name": "HDA NVidia",
+    "alsa.components": "HDA:10de0080,38426255,00100100",
+    "alsa.driver_name": "snd_hda_intel",
+    "alsa.id": "NVidia",
+    "alsa.long_card_name": "HDA NVidia at 0xf7080000 irq 66",
+    "alsa.mixer_name": "Nvidia GPU 80 HDMI/DP",
+    "api.acp.auto-port": false,
+    "api.acp.auto-profile": false,
+    "api.alsa.card": 0,
+    "api.alsa.card.longname": "HDA NVidia at 0xf7080000 irq 66",
+    "api.alsa.card.name": "HDA NVidia",
+    "api.alsa.path": "hw:0",
+    "api.alsa.split-enable": true,
+    "api.alsa.use-acp": true,
+    "api.dbus.ReserveDevice1": "Audio0",
+    "api.dbus.ReserveDevice1.Priority": -20,
+    "client.id": 47,
+    "device.api": "alsa",
+    "device.bus": "pci",
+    "device.bus-path": "pci-0000:01:00.1",
+    "device.description": "GP107GL High Definition Audio Controller",
+    "device.enum.api": "udev",
+    "device.icon-name": "audio-card-analog-pci",
+    "device.name": "alsa_card.pci-0000_01_00.1",
+    "device.nick": "HDA NVidia",
+    "device.plugged.usec": 3077691,
+    "device.product.id": "0x0fb9",
+    "device.product.name": "GP107GL High Definition Audio Controller",
+    "device.string": 0,
+    "device.subsystem": "sound",
+    "device.sysfs.path": "/devices/pci0000:00/0000:00:01.1/0000:01:00.1/sound/card0",
+    "device.vendor.id": "0x10de",
+    "device.vendor.name": "NVIDIA Corporation",
+    "factory.id": 15,
+    "media.class": "Audio/Device",
+    "object.id": 48,
+    "object.path": "alsa:acp:NVidia",
+    "object.serial": 48,
+    "spa.object.id": 2
+   },
+   "params": {
+    "Props": []
+   }
+  }
+ },
+ {
+  "id": 49,
+  "type": "PipeWire:Interface:Device",
+  "info": {
+   "props": {
+    "alsa.card": 1,
+    "alsa.card_name": "HD-Audio Generic",
+    "alsa.components": "HDA:10ec0662,17aa36ee,00100300",
+    "alsa.driver_name": "snd_hda_intel",
+    "alsa.id": "Generic",
+    "alsa.long_card_name": "HD-Audio Generic at 0xf7540000 irq 67",
+    "alsa.mixer_name": "Realtek ALC662 rev3",
+    "api.acp.auto-port": false,
+    "api.acp.auto-profile": false,
+    "api.alsa.card": 1,
+    "api.alsa.card.longname": "HD-Audio Generic at 0xf7540000 irq 67",
+    "api.alsa.card.name": "HD-Audio Generic",
+    "api.alsa.path": "hw:1",
+    "api.alsa.split-enable": true,
+    "api.alsa.use-acp": true,
+    "api.dbus.ReserveDevice1": "Audio1",
+    "api.dbus.ReserveDevice1.Priority": -20,
+    "client.id": 47,
+    "device.api": "alsa",
+    "device.bus": "pci",
+    "device.bus-path": "pci-0000:04:00.6",
+    "device.description": "Ryzen HD Audio Controller",
+    "device.enum.api": "udev",
+    "device.icon-name": "audio-card-analog-pci",
+    "device.name": "alsa_card.pci-0000_04_00.6",
+    "device.nick": "HD-Audio Generic",
+    "device.plugged.usec": 3131163,
+    "device.product.id": "0x15e3",
+    "device.product.name": "Ryzen HD Audio Controller",
+    "device.string": 1,
+    "device.subsystem": "sound",
+    "device.sysfs.path": "/devices/pci0000:00/0000:00:08.1/0000:04:00.6/sound/card1",
+    "device.vendor.id": "0x1022",
+    "device.vendor.name": "Advanced Micro Devices, Inc. [AMD]",
+    "factory.id": 15,
+    "media.class": "Audio/Device",
+    "object.id": 49,
+    "object.path": "alsa:acp:Generic",
+    "object.serial": 49,
+    "spa.object.id": 4
+   },
+   "params": {
+    "Props": []
+   }
+  }
+ },
+ {
+  "id": 54,
+  "type": "PipeWire:Interface:Node",
+  "info": {
+   "props": {
+    "alsa.card": 0,
+    "alsa.card_name": "HDA NVidia",
+    "alsa.class": "generic",
+    "alsa.components": "HDA:10de0080,38426255,00100100",
+    "alsa.device": 3,
+    "alsa.driver_name": "snd_hda_intel",
+    "alsa.id": "HDMI 0",
+    "alsa.long_card_name": "HDA NVidia at 0xf7080000 irq 66",
+    "alsa.mixer_name": "Nvidia GPU 80 HDMI/DP",
+    "alsa.name": "HDMI 0",
+    "alsa.resolution_bits": 16,
+    "alsa.subclass": "generic-mix",
+    "alsa.subdevice": 0,
+    "alsa.subdevice_name": "subdevice #0",
+    "alsa.sync.id": "00000000:00000000:00000000:00000000",
+    "api.alsa.card.longname": "HDA NVidia at 0xf7080000 irq 66",
+    "api.alsa.card.name": "HDA NVidia",
+    "api.alsa.path": "hdmi:0",
+    "api.alsa.pcm.card": 0,
+    "api.alsa.pcm.stream": "playback",
+    "audio.channels": 2,
+    "audio.position": "FL,FR",
+    "card.profile.device": 4,
+    "client.id": 47,
+    "clock.quantum-limit": 8192,
+    "device.api": "alsa",
+    "device.class": "sound",
+    "device.icon-name": "audio-card-analog",
+    "device.id": 48,
+    "device.profile.description": "Digital Stereo (HDMI)",
+    "device.profile.name": "hdmi-stereo",
+    "device.routes": 1,
+    "factory.id": 19,
+    "factory.name": "api.alsa.pcm.sink",
+    "iec958.codecs": "[\"PCM\"]",
+    "library.name": "audioconvert/libspa-audioconvert",
+    "media.class": "Audio/Sink",
+    "node.description": "GP107GL High Definition Audio Controller Digital Stereo (HDMI)",
+    "node.driver": true,
+    "node.loop.name": "data-loop.0",
+    "node.name": "alsa_output.pci-0000_01_00.1.hdmi-stereo",
+    "node.nick": "HDMI 0",
+    "node.pause-on-idle": false,
+    "object.id": 54,
+    "object.path": "alsa:acp:NVidia:4:playback",
+    "object.serial": 58,
+    "port.group": "playback",
+    "priority.driver": 696,
+    "priority.session": 696
+   },
+   "params": {
+    "Props": [
+     {
+      "volume": 1.0,
+      "mute": false,
+      "channelVolumes": [
+       0.125,
+       0.125
+      ],
+      "channelMap": [
+       "FL",
+       "FR"
+      ],
+      "softMute": false,
+      "softVolumes": [
+       0.125,
+       0.125
+      ],
+      "monitorMute": false,
+      "monitorVolumes": [
+       1.0,
+       1.0
+      ],
+      "params": [
+       "monitor.channel-volumes",
+       false,
+       "channelmix.disable",
+       false,
+       "channelmix.min-volume",
+       0.0,
+       "channelmix.max-volume",
+       10.0,
+       "channelmix.normalize",
+       false,
+       "channelmix.mix-lfe",
+       true,
+       "channelmix.upmix",
+       true,
+       "channelmix.lfe-cutoff",
+       0.0,
+       "channelmix.fc-cutoff",
+       0.0,
+       "channelmix.rear-delay",
+       0.0,
+       "channelmix.stereo-widen",
+       0.0,
+       "channelmix.hilbert-taps",
+       0,
+       "channelmix.upmix-method",
+       "none",
+       "resample.quality",
+       4,
+       "resample.disable",
+       false,
+       "dither.noise",
+       0,
+       "dither.method",
+       "none",
+       "debug.wav-path",
+       "",
+       "channelmix.lock-volumes",
+       false,
+       "audioconvert.filter-graph.disable",
+       false,
+       "audioconvert.filter-graph",
+       ""
+      ]
+     },
+     {
+      "device": "hdmi:0",
+      "deviceName": "",
+      "cardName": "",
+      "latencyOffsetNsec": 0,
+      "iec958Codecs": [
+       "PCM"
+      ],
+      "params": [
+       "audio.channels",
+       2,
+       "audio.rate",
+       0,
+       "audio.format",
+       "UNKNOWN",
+       "audio.position",
+       "[ FL, FR ]",
+       "audio.allowed-rates",
+       "[  ]",
+       "api.alsa.period-size",
+       0,
+       "api.alsa.period-num",
+       0,
+       "api.alsa.headroom",
+       0,
+       "api.alsa.start-delay",
+       0,
+       "api.alsa.disable-mmap",
+       false,
+       "api.alsa.disable-batch",
+       false,
+       "api.alsa.disable-tsched",
+       false,
+       "api.alsa.use-chmap",
+       false,
+       "api.alsa.multi-rate",
+       true,
+       "api.alsa.htimestamp",
+       false,
+       "api.alsa.htimestamp.max-errors",
+       64,
+       "latency.internal.rate",
+       0,
+       "latency.internal.ns",
+       0,
+       "clock.name",
+       "api.alsa.p-0"
+      ]
+     }
+    ]
+   }
+  }
+ }
+]

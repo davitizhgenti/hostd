@@ -1,7 +1,7 @@
 // Package audio is the audio module: master volume and mute of the default
 // output, kept in step with changes made elsewhere (a game's own slider, a
-// headset connecting). Output switching, per-app volume and media keys
-// come in M3.
+// headset connecting), the outputs (with stable names) and each app's
+// own volume and mute.
 package audio
 
 import (
@@ -28,6 +28,7 @@ type Options struct {
 	Backend    Backend
 	Clock      clock.Clock
 	Logger     *slog.Logger
+	ProcRoot   string        // default /proc: finds which app a stream belongs to
 	RetryEvery time.Duration // between attempts to reach PipeWire (default 2s)
 	Settle     time.Duration // wait after a change cue before reading (default 150ms)
 }
@@ -42,6 +43,8 @@ type Module struct {
 	available bool
 	last      Master
 	settle    clock.Timer
+	outputs   Graph        // outputs and streams, after the last change
+	applied   map[int]bool // streams that got their app's own volume
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -57,6 +60,9 @@ func New(opts Options) *Module {
 	}
 	if opts.RetryEvery == 0 {
 		opts.RetryEvery = 2 * time.Second
+	}
+	if opts.ProcRoot == "" {
+		opts.ProcRoot = "/proc"
 	}
 	if opts.Settle == 0 {
 		opts.Settle = 150 * time.Millisecond
@@ -80,7 +86,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Name: "audio", Version: "0.1.0",
 		Owns:   []string{"audio.*", "media.*"},
 		Scopes: []sdk.ScopeSpec{{Name: "audio", Description: "Volume, mute, outputs, per-app audio, media keys"}},
-		Actions: []sdk.ActionSpec{
+		Actions: append([]sdk.ActionSpec{
 			{Type: "audio.volume.set", Description: "Set the volume (0-150) or change it (\"+5\", \"-5\")",
 				Schema: volumeSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
 				Timeout: sdk.Duration(10 * time.Second),
@@ -89,9 +95,13 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: muteSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
 				Timeout: sdk.Duration(10 * time.Second),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/mute"}},
+		}, m3Actions()...),
+		Events: []sdk.EventSpec{
+			{Type: EventVolumeChanged, Description: "Volume or mute changed"},
+			{Type: EventOutputsChanged, Description: "An output came or went, or the default output changed"},
+			{Type: EventAppVolumeChanged, Description: "An app's own volume or mute changed"},
 		},
-		Events: []sdk.EventSpec{{Type: EventVolumeChanged, Description: "Volume or mute changed"}},
-		Reads:  []sdk.ReadSpec{{Name: "audio", Description: "Volume, mute and the current output", Path: "/v1/audio"}},
+		Reads: []sdk.ReadSpec{{Name: "audio", Description: "Volume, mute, the outputs and the sound each app plays", Path: "/v1/audio"}},
 	}
 }
 
@@ -138,6 +148,7 @@ func (m *Module) follow(ctx context.Context) {
 			m.mu.Lock()
 			m.available, m.last = true, cur
 			m.mu.Unlock()
+			m.followGraph(ctx)
 			err := m.opts.Backend.Watch(ctx, m.cue)
 			if ctx.Err() != nil {
 				return
@@ -174,6 +185,7 @@ func (m *Module) cue() {
 func (m *Module) check() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	m.followGraph(ctx)
 	cur, err := m.opts.Backend.Master(ctx)
 	if err != nil {
 		return
@@ -225,6 +237,10 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	m.mu.Unlock()
 
 	switch a.Type {
+	case "audio.output.set":
+		return m.handleOutput(ctx, a)
+	case "audio.app.volume.set", "audio.app.mute.set":
+		return m.handleApp(ctx, a)
 	case "audio.volume.set":
 		var args struct {
 			Percent json.RawMessage `json:"percent"`
@@ -289,6 +305,8 @@ func (m *Module) expect(s Master) {
 type Status struct {
 	Available bool `json:"available"`
 	Master
+	Outputs []Output `json:"outputs"`
+	Streams []Stream `json:"streams"`
 }
 
 func (m *Module) Read(_ context.Context, name string, _ map[string]string) (any, error) {
@@ -297,7 +315,14 @@ func (m *Module) Read(_ context.Context, name string, _ map[string]string) (any,
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return Status{Available: m.available, Master: m.last}, nil
+	outs, streams := m.outputs.Outputs, m.outputs.Streams
+	if outs == nil {
+		outs = []Output{}
+	}
+	if streams == nil {
+		streams = []Stream{}
+	}
+	return Status{Available: m.available, Master: m.last, Outputs: outs, Streams: streams}, nil
 }
 
 func (m *Module) State(ctx context.Context) (any, error) { return m.Read(ctx, "audio", nil) }

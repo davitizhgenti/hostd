@@ -1,12 +1,7 @@
 package display
 
 import (
-	"bufio"
-	"os"
 	"path"
-	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/davitizhgenti/hostd/contract"
 )
@@ -15,31 +10,7 @@ import (
 // cgroup: apps run in hostd-<instance>.service units, and every process
 // they start (helpers, child windows) stays in that unit's cgroup. Returns
 // "" for windows hostd did not start.
-func instanceOf(procRoot string, pid int) string {
-	if pid <= 0 {
-		return ""
-	}
-	f, err := os.Open(filepath.Join(procRoot, strconv.Itoa(pid), "cgroup"))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		// cgroup v2: "0::/user.slice/.../app.slice/hostd-foot.service"
-		_, path, ok := strings.Cut(sc.Text(), "::")
-		if !ok {
-			continue
-		}
-		segs := strings.Split(path, "/")
-		for i := len(segs) - 1; i >= 0; i-- {
-			if id, ok := contract.InstanceFromUnit(segs[i]); ok {
-				return id
-			}
-		}
-	}
-	return ""
-}
+func instanceOf(procRoot string, pid int) string { return contract.InstanceOfPID(procRoot, pid) }
 
 func globMatch(pattern, s string) bool {
 	if pattern == "" || s == "" {
@@ -73,19 +44,7 @@ func score(r *contract.Match, procRoot string, w Window) int {
 
 // hasEnv reports whether a process has kv in its environment.
 func hasEnv(procRoot string, pid int, kv string) bool {
-	if pid <= 0 {
-		return false
-	}
-	env, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
-	if err != nil {
-		return false
-	}
-	for _, v := range strings.Split(string(env), "\x00") {
-		if v == kv {
-			return true
-		}
-	}
-	return false
+	return contract.ProcessHasEnv(procRoot, pid, kv)
 }
 
 // resolveWindow finds a window's instance: by cgroup first, then by the

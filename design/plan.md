@@ -479,9 +479,10 @@ Gate: *a remote launch during a game opens in the background, and the controller
 
 Gate: *a game and a browser have different volumes, and audio moves to a headset on command.*
 
-- [ ] **Stable output names** from node/device properties (`device.bus`, `device.form-factor`, `api.alsa.card.name`, `api.bluez5.address`, `device.description`): `hdmi-1`, `speakers`, `bt-<slug>`. The name ↔ device-identity map is stored in SQLite so names survive reconnects and reboots.
-- [ ] `audio.output.set <name>`: set default sink and move existing streams
-- [ ] **Per-app streams:** match stream nodes by `application.process.id` → cgroup → instance; `audio.app.volume.set`, `audio.app.mute.set`; app `audio.volume` applied when the stream first appears
+- [x] **Stable output names** from node/device properties (`device.bus`, `device.form-factor`, `api.alsa.card.name`, `api.bluez5.address`, `device.description`): `hdmi-1`, `speakers`, `bt-<slug>`. The name ↔ device-identity map is stored in SQLite so names survive reconnects and reboots.
+- [x] `audio.output.set <name>`: set default sink and move existing streams
+- [x] **Per-app streams:** match stream nodes by `application.process.id` → cgroup → instance; `audio.app.volume.set`, `audio.app.mute.set`; app `audio.volume` applied when the stream first appears
+  *Done (2026-10-10): `modules/audio/graph.go` reads outputs and streams from one `pw-dump`; names are derived from the device (`hdmi`, `speakers`, `headphones`, `bt-<device>`, `usb-<device>`, numbered when two share one), so the same device keeps its name without storing anything (not SQLite). `audio.output.set` sets the default (`wpctl set-default`) and moves playing streams (`pw-metadata target.object`). Streams find their instance by unit, or by an instance's env rule (Flatpak apps, Steam games; the more specific rule wins); `audio.app.volume.set` / `audio.app.mute.set`; an app's `audio.volume` is set once when its sound first appears. `GET /v1/audio` lists outputs and streams; `audio.outputs.changed`, `audio.app.changed`.*
 - [ ] **MPRIS:** `playerctl` backend behind an interface (`godbus` later if needed); target the focused instance's player (match by PID via `org.freedesktop.DBus.GetConnectionUnixProcessID`) or a named player; `media.changed` events
 
 **Tests**
