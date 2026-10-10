@@ -105,7 +105,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 				Notifier: &display.DesktopNotifier{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons,
 				HoldFor: time.Duration(cfg.Input.Hold), GPU: display.SystemGPU{}}))
 		case "audio":
-			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log}))
+			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log,
+				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
 		case "demo":
 			mods = append(mods, demo.New())
 		}

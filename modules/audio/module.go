@@ -29,6 +29,7 @@ type Options struct {
 	Clock      clock.Clock
 	Logger     *slog.Logger
 	ProcRoot   string        // default /proc: finds which app a stream belongs to
+	Media      Media         // media players (nil: no media keys)
 	RetryEvery time.Duration // between attempts to reach PipeWire (default 2s)
 	Settle     time.Duration // wait after a change cue before reading (default 150ms)
 }
@@ -45,6 +46,7 @@ type Module struct {
 	settle    clock.Timer
 	outputs   Graph        // outputs and streams, after the last change
 	applied   map[int]bool // streams that got their app's own volume
+	media     []Player     // media players, after the last change
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -95,13 +97,17 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: muteSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
 				Timeout: sdk.Duration(10 * time.Second),
 				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/mute"}},
-		}, m3Actions()...),
+		}, append(m3Actions(), mediaActions()...)...),
 		Events: []sdk.EventSpec{
 			{Type: EventVolumeChanged, Description: "Volume or mute changed"},
 			{Type: EventOutputsChanged, Description: "An output came or went, or the default output changed"},
 			{Type: EventAppVolumeChanged, Description: "An app's own volume or mute changed"},
+			{Type: EventMediaChanged, Description: "A media player started, stopped, paused or changed track"},
 		},
-		Reads: []sdk.ReadSpec{{Name: "audio", Description: "Volume, mute, the outputs and the sound each app plays", Path: "/v1/audio"}},
+		Reads: []sdk.ReadSpec{
+			{Name: "audio", Description: "Volume, mute, the outputs and the sound each app plays", Path: "/v1/audio"},
+			{Name: "media", Description: "Media players: their app, status and track", Path: "/v1/media"},
+		},
 	}
 }
 
@@ -113,8 +119,9 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.stop = cancel
-	m.done.Add(1)
+	m.done.Add(2)
 	go func() { defer m.done.Done(); m.follow(ctx) }()
+	go func() { defer m.done.Done(); m.followMedia(ctx) }()
 	return nil
 }
 
@@ -201,7 +208,10 @@ func (m *Module) check() {
 	}
 }
 
-func (m *Module) Validate(context.Context, sdk.Action) error {
+func (m *Module) Validate(_ context.Context, a sdk.Action) error {
+	if strings.HasPrefix(a.Type, "media.") {
+		return nil // players, not PipeWire
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.available {
@@ -241,6 +251,8 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleOutput(ctx, a)
 	case "audio.app.volume.set", "audio.app.mute.set":
 		return m.handleApp(ctx, a)
+	case "media.play_pause", "media.next", "media.previous":
+		return m.handleMedia(ctx, a)
 	case "audio.volume.set":
 		var args struct {
 			Percent json.RawMessage `json:"percent"`
@@ -310,6 +322,14 @@ type Status struct {
 }
 
 func (m *Module) Read(_ context.Context, name string, _ map[string]string) (any, error) {
+	if name == "media" {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.media == nil {
+			return []Player{}, nil
+		}
+		return append([]Player(nil), m.media...), nil
+	}
 	if name != "audio" {
 		return nil, sdk.Errorf(sdk.CodeNotFound, "audio module has no read %q", name)
 	}

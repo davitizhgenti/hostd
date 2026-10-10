@@ -97,7 +97,7 @@ func fakeProcs(t *testing.T, procs map[int][2]string) string {
 	return root
 }
 
-func newM3Rig(t *testing.T) *m3Rig {
+func newM3Rig(t *testing.T, media Media) *m3Rig {
 	t.Helper()
 	unit := "0::/user.slice/user-1000.slice/user@1000.service/app.slice/"
 	proc := fakeProcs(t, map[int][2]string{
@@ -116,7 +116,7 @@ func newM3Rig(t *testing.T) *m3Rig {
 		{ID: "steam", App: "steam", State: "running", Match: &contract.Match{Env: "FLATPAK_ID=com.valvesoftware.Steam"}},
 		{ID: "portal2", App: "portal2", State: "running", Match: &contract.Match{Class: "steam_app_620", Env: "SteamAppId=620"}},
 	}
-	r.m = New(Options{Backend: r.f, Clock: clock.NewFake(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)), ProcRoot: proc})
+	r.m = New(Options{Backend: r.f, Clock: clock.NewFake(time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)), ProcRoot: proc, Media: media})
 	apps := testutil.NewModule("apps", nil, nil, nil)
 	apps.M.Reads = []sdk.ReadSpec{{Name: "instances", Path: "/v1/instances"}}
 	apps.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
@@ -150,7 +150,7 @@ func (r *m3Rig) do(t *testing.T, typ, args string) (sdk.Result, error) {
 }
 
 func TestOutputSet(t *testing.T) {
-	r := newM3Rig(t)
+	r := newM3Rig(t, nil)
 	events := r.e.Subscribe(t.Context(), EventOutputsChanged)
 	if _, err := r.do(t, "audio.output.set", `{"output":"speakers"}`); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestOutputSet(t *testing.T) {
 }
 
 func TestAppVolumeAndStreams(t *testing.T) {
-	r := newM3Rig(t)
+	r := newM3Rig(t, nil)
 	st, _ := r.m.Read(context.Background(), "audio", nil)
 	streams := st.(Status).Streams
 	// The browser by its unit; the game's process has Steam's FLATPAK_ID
@@ -197,7 +197,7 @@ func TestAppVolumeAndStreams(t *testing.T) {
 }
 
 func TestAppOwnVolumeWhenItStartsPlaying(t *testing.T) {
-	r := newM3Rig(t)
+	r := newM3Rig(t, nil)
 	v := 30
 	r.lmu.Lock()
 	r.live[1].Volume = &v // Steam's own volume
