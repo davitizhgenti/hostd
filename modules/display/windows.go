@@ -86,12 +86,30 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 	if inst == "" && !w.Dialog && b != nil {
 		// Not an instance's (a window Steam opened by itself): it would
 		// open next to whatever is on screen, splitting it (the menu and
-		// Steam side by side). It gets a workspace of its own and comes
-		// forward, as Sway would show it anyway.
+		// Steam side by side). It gets a workspace of its own. It comes
+		// forward unless someone is using an app, which keeps the screen;
+		// then a notice says it opened.
 		ws := WorkspacePrefix + "window-" + strconv.FormatInt(w.ID, 10)
 		m.screen("move", b.Move(ctx, w.ID, ws))
-		m.screen("show", b.Show(ctx, ws))
-		m.screen("focus", b.Focus(ctx, w.ID))
+		m.mu.Lock()
+		inUse := false
+		for _, t := range m.windows {
+			if t.Focused && t.ID != w.ID && t.Instance != "" && !m.isMenu(t.Instance) {
+				inUse = true
+			}
+		}
+		inUse = inUse && m.presence.present()
+		m.mu.Unlock()
+		if inUse {
+			name := w.Title
+			if name == "" {
+				name = w.AppID + w.Class
+			}
+			m.notice("", name+" opened in the background")
+		} else {
+			m.screen("show", b.Show(ctx, ws))
+			m.screen("focus", b.Focus(ctx, w.ID))
+		}
 		m.mu.Lock()
 		if t, ok := m.windows[w.ID]; ok {
 			t.Workspace = ws

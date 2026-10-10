@@ -55,3 +55,33 @@ func ProcessHasEnv(procRoot string, pid int, kv string) bool {
 	}
 	return false
 }
+
+// ProcessDescends reports whether pid is ancestor or one of its
+// descendants, following parent PIDs in /proc.
+func ProcessDescends(procRoot string, pid, ancestor int) bool {
+	for range 64 {
+		if pid <= 1 || ancestor <= 0 {
+			return false
+		}
+		if pid == ancestor {
+			return true
+		}
+		stat, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
+		if err != nil {
+			return false
+		}
+		// "pid (comm) state ppid ...": comm may hold spaces and parentheses.
+		i := strings.LastIndexByte(string(stat), ')')
+		if i < 0 {
+			return false
+		}
+		f := strings.Fields(string(stat)[i+1:])
+		if len(f) < 2 {
+			return false
+		}
+		if pid, err = strconv.Atoi(f[1]); err != nil {
+			return false
+		}
+	}
+	return false
+}

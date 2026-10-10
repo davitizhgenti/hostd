@@ -38,7 +38,7 @@ const richDump = `[
  {"id": 24, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "node.name": "alsa_output.pci-0000_01_00.1.hdmi-stereo-extra1", "device.id": 13, "device.profile.name": "hdmi-stereo-extra1"}}},
  {"id": 30, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "application.process.id": 4242, "application.name": "Chromium"},
    "params": {"Props": [{"channelVolumes": [0.125, 0.125], "mute": false}]}}},
- {"id": 31, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "application.process.id": "5151", "application.name": "game.exe"}}},
+ {"id": 31, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "application.process.id": "666", "pipewire.sec.pid": 5151, "application.name": "game.exe"}}},
  {"id": 40, "type": "PipeWire:Interface:Metadata", "props": {"metadata.name": "default"}, "metadata": [{"subject": 0, "key": "default.audio.sink", "type": "Spa:String:JSON", "value": {"name": "bluez_output.AA_BB.1"}}]}
 ]`
 

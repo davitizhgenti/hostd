@@ -64,6 +64,10 @@ type Instance struct {
 	// Volume is the app's own volume (0-150), set on its sound when it
 	// first plays.
 	Volume *int `json:"volume,omitempty"`
+	// PID is the instance's main process. Some apps move it into a
+	// systemd scope of their own (Chromium); its windows and sound are
+	// still the instance's (ProcessDescends).
+	PID int `json:"pid,omitempty"`
 }
 
 // Ended reports whether the instance has ended.

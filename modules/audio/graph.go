@@ -110,7 +110,14 @@ func parseGraph(data []byte) (Graph, error) {
 				ID: o.ID, Default: str(p, "node.name") == defaultSink, Percent: percent, Muted: muted,
 			})
 		case "Stream/Output/Audio":
-			g.Streams = append(g.Streams, Stream{ID: o.ID, PID: num(p, "application.process.id"),
+			// pipewire.sec.pid is what PipeWire saw of the client's socket:
+			// the real process. application.process.id is what the app
+			// says, which inside a sandbox (Steam's) is its own namespace's.
+			pid := num(p, "pipewire.sec.pid")
+			if pid == 0 {
+				pid = num(p, "application.process.id")
+			}
+			g.Streams = append(g.Streams, Stream{ID: o.ID, PID: pid,
 				App: str(p, "application.name"), Percent: percent, Muted: muted})
 		}
 	}

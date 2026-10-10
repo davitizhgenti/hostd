@@ -71,5 +71,17 @@ func resolveWindow(procRoot string, w Window, live []contract.Instance) string {
 			best, top = in.ID, n
 		}
 	}
-	return best
+	if best != "" {
+		return best
+	}
+	// An app that moved itself out of its unit (Chromium into a scope of
+	// its own): its main process, or a child of it, is still the
+	// instance's. After the rules, which are more specific: a game's
+	// process descends from Steam's too.
+	for _, in := range live {
+		if contract.ProcessDescends(procRoot, w.PID, in.PID) {
+			return in.ID
+		}
+	}
+	return ""
 }

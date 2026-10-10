@@ -135,7 +135,15 @@ func (m *Module) instanceOf(pid int, live []contract.Instance) string {
 			best, top = in.ID, n
 		}
 	}
-	return best
+	if best != "" {
+		return best
+	}
+	for _, in := range live { // an app that moved itself out of its unit
+		if contract.ProcessDescends(m.opts.ProcRoot, pid, in.PID) {
+			return in.ID
+		}
+	}
+	return ""
 }
 
 // followGraph notes the outputs and streams after a change: it announces

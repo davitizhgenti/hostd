@@ -886,3 +886,36 @@ func TestSwayDialogs(t *testing.T) {
 		}
 	}
 }
+
+func TestUnownedWindowDoesNotTakeAnAppInUse(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.b.open(1, 100) // tv, in use
+	r.event(t)
+	r.b.focus(1)
+	r.event(t)
+	r.input.press(t)
+	waitFor(t, "present", r.m.presence.present)
+	r.b.commands()
+	r.b.openWindow(Window{ID: 9, PID: 300, AppID: "chromium", Title: "New Tab"})
+	r.event(t)
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 9 hostd:window-9"}) {
+		t.Fatalf("commands %q", got)
+	}
+	waitFor(t, "notice", func() bool { return len(r.notes.all()) == 1 })
+	if got := r.notes.all()[0]; got != "New Tab opened in the background" {
+		t.Fatalf("notice %q", got)
+	}
+}
+
+func TestWindowOfAnAppThatLeftItsUnit(t *testing.T) {
+	// Chromium moves its main process into a scope of its own: its window
+	// is still the instance's, by the instance's main process.
+	r := newDisplayRig(t, true)
+	r.procEnv(t, 2929, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-2929.scope`)
+	_ = os.WriteFile(filepath.Join(r.proc, "2929", "stat"), []byte("2929 (chromium) S 1 2929 2929 0"), 0o644)
+	r.setLive(contract.Instance{ID: "chromium", App: "chromium", State: "running", PID: 2929})
+	r.b.openWindow(Window{ID: 7, PID: 2929, AppID: "chromium"})
+	if _, tw := r.event(t); tw.Instance != "chromium" || tw.Workspace != "hostd:chromium" {
+		t.Fatalf("window %+v", tw)
+	}
+}
