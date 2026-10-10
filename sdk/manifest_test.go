@@ -82,6 +82,10 @@ func TestManifestInvalid(t *testing.T) {
 		{"duplicate route", func(m *Manifest) { m.Actions[2].Route.Path = "/v1/audio/volume" }, "already used"},
 		{"read with bad name", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "Apps", Path: "/v1/x"}} }, `read "Apps"`},
 		{"read outside /v1", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/x"}} }, "must start with /v1/"},
+		{"hook outside /v1/hooks", func(m *Manifest) { m.Hooks = []HookSpec{{Name: "git", Path: "/v1/git"}} }, "must start with /v1/hooks/"},
+		{"hook twice", func(m *Manifest) {
+			m.Hooks = []HookSpec{{Name: "git", Path: "/v1/hooks/a"}, {Name: "git", Path: "/v1/hooks/b"}}
+		}, "declared twice"},
 		{"read twice", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x"}, {Name: "x", Path: "/v1/y"}} }, "declared twice"},
 		{"read route taken", func(m *Manifest) {
 			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/same"}, {Name: "y", Path: "/v1/same"}}

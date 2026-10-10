@@ -39,6 +39,18 @@ type Manifest struct {
 	// Reads are GET routes serving parts of the module's state, such as
 	// the app catalog. The module implements Reader to answer them.
 	Reads []ReadSpec `json:"reads,omitempty"`
+
+	// Hooks are POST routes for systems that cannot hold a token, such as
+	// a git host's webhook. No token is checked: the module implements
+	// Hooker and must authenticate every request itself (a signature).
+	Hooks []HookSpec `json:"hooks,omitempty"`
+}
+
+// HookSpec declares a hook route; its path starts with /v1/hooks/.
+type HookSpec struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path"` // e.g. /v1/hooks/git/{app}
 }
 
 // ReadSpec declares a read-only route. Path parameters and query
@@ -259,6 +271,25 @@ func (m *Manifest) Validate() error {
 				}
 			}
 		}
+	}
+
+	hookNames := map[string]bool{}
+	for _, h := range m.Hooks {
+		where := fmt.Sprintf("hook %q", h.Name)
+		switch {
+		case !isIdent(h.Name):
+			bad("%s: use lowercase letters, digits and _", where)
+		case hookNames[h.Name]:
+			bad("%s declared twice", where)
+		case !strings.HasPrefix(h.Path, "/v1/hooks/"):
+			bad("%s: path %q must start with /v1/hooks/", where, h.Path)
+		}
+		hookNames[h.Name] = true
+		id := "POST " + h.Path
+		if prev, dup := routes[id]; dup {
+			bad("%s: route %s is already used by %q", where, id, prev)
+		}
+		routes[id] = h.Name
 	}
 
 	readNames := map[string]bool{}

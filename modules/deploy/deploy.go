@@ -51,6 +51,9 @@ type Options struct {
 	// (default /usr/local/bin/hostctl git-shell).
 	AuthorizedKeys string
 	GitShell       string
+	// SecretsDir holds the secrets (the apps module's), for webhook
+	// secrets.
+	SecretsDir string
 	// PollTick is how often remote sources are checked for being due
 	// (default 10s; each has its own poll interval).
 	PollTick time.Duration
@@ -64,7 +67,11 @@ type Module struct {
 	mu      sync.Mutex
 	core    sdk.Core
 	proxies map[string]*proxy // by app
-	polling map[string]bool   // apps with a deploy started by polling
+	polling map[string]bool   // apps with a deploy started by polling or a webhook
+	// deliveries are the latest webhook delivery IDs, oldest first.
+	deliveries []string
+
+	life context.Context // until Stop
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -98,7 +105,7 @@ func New(opts Options) *Module {
 	if opts.PollTick == 0 {
 		opts.PollTick = 10 * time.Second
 	}
-	return &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}, polling: map[string]bool{}}
+	return &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}, polling: map[string]bool{}, life: context.Background()}
 }
 
 var appSchema = json.RawMessage(`{"type":"object","properties":{
@@ -135,6 +142,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: "deploy", Description: "One service's releases", Path: "/v1/deploys/{app}"},
 			{Name: "push_keys", Description: "SSH keys that may only git push", Path: "/v1/push-keys"},
 		},
+		Hooks: []sdk.HookSpec{
+			{Name: "git", Description: "A git host's push webhook (GitHub, Gitea), signed with the source's secret", Path: "/v1/hooks/git/{app}"},
+		},
 	}
 }
 
@@ -145,6 +155,7 @@ type service struct {
 		Type   string   `json:"type"`
 		URL    string   `json:"url"`
 		Poll   string   `json:"poll"`
+		Secret string   `json:"secret"`
 		Build  []string `json:"build"`
 		Port   int      `json:"port"`
 		Branch string   `json:"branch"`
@@ -202,7 +213,9 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.core = core
 	m.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
-	m.stop = cancel
+	m.mu.Lock()
+	m.stop, m.life = cancel, ctx
+	m.mu.Unlock()
 	events := core.Subscribe(ctx, "app.catalog.changed")
 	m.done.Add(1)
 	go func() {
@@ -434,7 +447,7 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 			return sdk.Result{}, err
 		}
 		m.sync(ctx) // the public port opens now, before the first push
-		if s.Deploy.Type == "remote" {
+		if s.Deploy.Type != "push" {
 			return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": s.branch(), "url": s.Deploy.URL})}, nil
 		}
 		host, _ := os.Hostname()
@@ -471,7 +484,7 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 		}
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "deploying %s failed (%s): %v", s.ID, still, err)
 	}
-	if s.Deploy.Type == "remote" {
+	if s.Deploy.Type == "remote" || s.Deploy.Type == "webhook" {
 		if err := m.fetch(ctx, s); err != nil {
 			return fail(Release{}, err)
 		}

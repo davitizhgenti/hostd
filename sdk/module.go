@@ -72,6 +72,21 @@ type StateReporter interface {
 	State(ctx context.Context) (any, error)
 }
 
+// Hooker is implemented by modules that declare Hooks. The request comes
+// from outside with no token: Hook must authenticate it. The result is
+// the response body (status 200); an *Error sets the status as for
+// actions.
+type Hooker interface {
+	Hook(ctx context.Context, name string, req HookRequest) (any, error)
+}
+
+// HookRequest is a hook's HTTP request.
+type HookRequest struct {
+	Params map[string]string   // path parameters
+	Header map[string][]string // canonical header names (http.Header)
+	Body   []byte
+}
+
 // Reader is implemented by modules that declare Reads in their manifest.
 // params holds the path parameters and the query string (path wins).
 // Return an *Error with not_found for a missing item.

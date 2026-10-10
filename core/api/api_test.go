@@ -47,7 +47,16 @@ func (l *lamp) Manifest() sdk.Manifest {
 				Route: &sdk.Route{Method: "POST", Path: "/v1/lamps/fail"}},
 		},
 		Events: []sdk.EventSpec{{Type: "lamp.changed"}},
+		Hooks:  []sdk.HookSpec{{Name: "doorbell", Path: "/v1/hooks/lamp/{id}"}},
 	}
+}
+
+// Hook authenticates with a header of its own, as a webhook's signature.
+func (l *lamp) Hook(_ context.Context, _ string, req sdk.HookRequest) (any, error) {
+	if http.Header(req.Header).Get("X-Doorbell") != "ding" {
+		return nil, sdk.Errorf(sdk.CodeUnauthorized, "bad signature")
+	}
+	return map[string]string{"lamp": req.Params["id"], "body": string(req.Body)}, nil
 }
 func (l *lamp) Start(_ context.Context, c sdk.Core) error  { l.core = c; return nil }
 func (l *lamp) Stop(context.Context) error                 { return nil }
@@ -755,5 +764,37 @@ func TestUpdateEndpoint(t *testing.T) {
 	none := setup(t, Options{})
 	if r := none.do(t, "POST", "/v1/update", none.admin, "x"); r.status != 503 {
 		t.Fatalf("no updater: %d %s", r.status, r.body)
+	}
+}
+
+func TestHookNeedsNoToken(t *testing.T) {
+	e := setup(t, Options{})
+	post := func(header string) (int, string) {
+		req, _ := http.NewRequest("POST", e.http.URL+"/v1/hooks/lamp/porch", strings.NewReader("hello"))
+		if header != "" {
+			req.Header.Set("X-Doorbell", header)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	if code, body := post("ding"); code != 200 || !strings.Contains(body, `"lamp":"porch"`) || !strings.Contains(body, `"body":"hello"`) {
+		t.Fatalf("hook: %d %s", code, body)
+	}
+	if code, body := post("dong"); code != 401 || !strings.Contains(body, "bad signature") {
+		t.Fatalf("refused by the module: %d %s", code, body)
+	}
+	// Other routes still need a token.
+	res, err := http.Post(e.http.URL+"/v1/lamps/porch/brightness", "application/json", strings.NewReader(`{"brightness":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatalf("action without a token: %d", res.StatusCode)
 	}
 }

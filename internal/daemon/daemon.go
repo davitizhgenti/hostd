@@ -109,7 +109,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log,
 				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
 		case "deploy":
-			mods = append(mods, deploy.New(deploy.Options{Logger: log}))
+			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: apps.DefaultSecretsDir()}))
 		case "demo":
 			mods = append(mods, demo.New())
 		}

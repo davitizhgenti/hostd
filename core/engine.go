@@ -718,6 +718,24 @@ func (e *Engine) ModuleState(ctx context.Context, name string) (any, error) {
 	return sr.State(ctx)
 }
 
+// ModuleHook passes a hook request to its module.
+func (e *Engine) ModuleHook(ctx context.Context, moduleName, hook string, req sdk.HookRequest) (any, error) {
+	e.reg.mu.RLock()
+	m, ok := e.reg.byName[moduleName]
+	e.reg.mu.RUnlock()
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "no module %q", moduleName)
+	}
+	if !e.reg.started(m) {
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "module %q is not running", moduleName)
+	}
+	h, ok := m.mod.(sdk.Hooker)
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "module %q has no hooks", moduleName)
+	}
+	return h.Hook(ctx, hook, req)
+}
+
 // ModuleRead answers one of a module's declared reads.
 func (e *Engine) ModuleRead(ctx context.Context, moduleName, read string, params map[string]string) (any, error) {
 	e.reg.mu.RLock()

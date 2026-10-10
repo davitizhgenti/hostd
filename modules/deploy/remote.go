@@ -122,33 +122,49 @@ func (m *Module) poll(ctx context.Context, s service) {
 		m.log.Warn("looking at a service's remote", "app", s.ID, "err", err)
 		return
 	}
-	st, err := m.load(s.ID)
-	if err != nil {
+	if m.inHistory(s.ID, sha) {
 		return
 	}
+	m.deployInBackground(s, sha)
+}
+
+// inHistory reports whether rev was deployed before (live, replaced,
+// rolled back from or failed): automatic sources do not deploy it again.
+func (m *Module) inHistory(app, rev string) bool {
+	st, err := m.load(app)
+	if err != nil {
+		return true
+	}
 	for _, r := range st.Releases {
-		if r.Rev == sha {
-			return
+		if r.Rev == rev {
+			return true
 		}
 	}
+	return false
+}
+
+// deployInBackground starts deploy.run for rev unless one started this
+// way still runs; a deploy takes minutes.
+func (m *Module) deployInBackground(s service, rev string) bool {
 	m.mu.Lock()
 	if m.polling[s.ID] {
 		m.mu.Unlock()
-		return
+		return false
 	}
 	m.polling[s.ID] = true
-	core := m.core
+	core, ctx := m.core, m.life
 	m.mu.Unlock()
 	m.done.Add(1)
-	go func() { // a deploy takes minutes; other services keep being polled
+	go func() {
 		defer m.done.Done()
 		defer func() {
 			m.mu.Lock()
 			delete(m.polling, s.ID)
 			m.mu.Unlock()
 		}()
-		if _, err := core.Do(ctx, sdk.Action{Type: "deploy.run", Args: sdk.MustJSON(map[string]string{"app": s.ID, "rev": sha})}); err != nil {
-			m.log.Warn("deploying a new commit", "app", s.ID, "rev", sha, "err", err)
+		if _, err := core.Do(ctx, sdk.Action{Type: "deploy.run", Args: sdk.MustJSON(map[string]string{"app": s.ID, "rev": rev})}); err != nil {
+			m.log.Warn("deploying a new commit", "app", s.ID, "rev", rev, "err", err)
 		}
 	}()
+	return true
 }

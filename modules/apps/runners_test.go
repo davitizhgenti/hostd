@@ -777,8 +777,9 @@ func TestSourceSettings(t *testing.T) {
 	for body, want := range map[string]string{
 		"type = \"remote\"\n":                           "needs url",
 		"type = \"remote\"\nurl = \"x\"\npoll = \"1s\"": "at least 10s",
-		"type = \"push\"\nurl = \"x\"":                  "for type remote",
-		"type = \"ftp\"":                                "push or remote",
+		"type = \"push\"\nurl = \"x\"":                  "for types remote and webhook",
+		"type = \"ftp\"":                                "push, remote or webhook",
+		"type = \"webhook\"\nurl = \"x\"":               "needs url (to fetch from) and secret",
 	} {
 		f, err := ParseAppFile("/x/site.toml", []byte(head+body))
 		if err != nil {

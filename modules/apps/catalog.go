@@ -80,6 +80,7 @@ type Deploy struct {
 	Keep   int      `json:"keep,omitempty" toml:"keep"`     // releases kept (default 5)
 	URL    string   `json:"url,omitempty" toml:"url"`       // remote: the repository
 	Poll   string   `json:"poll,omitempty" toml:"poll"`     // remote: how often to look (default 60s)
+	Secret string   `json:"secret,omitempty" toml:"secret"` // webhook: the secret's name (hostctl secret set)
 }
 
 // AppAction is an extra way to start an app: app.start with action=<id>
@@ -311,12 +312,22 @@ func (a *App) validate() error {
 	if d := a.Deploy; d != nil {
 		switch d.Type {
 		case "push":
-			if d.URL != "" || d.Poll != "" {
-				bad("source: url and poll are for type remote")
+			if d.URL != "" || d.Poll != "" || d.Secret != "" {
+				bad("source: url, poll and secret are for types remote and webhook")
+			}
+		case "webhook":
+			if d.URL == "" || d.Secret == "" {
+				bad("source: type webhook needs url (to fetch from) and secret (the webhook's, set with hostctl secret set)")
+			}
+			if d.Poll != "" {
+				bad("source: poll is for type remote")
 			}
 		case "remote":
 			if d.URL == "" {
 				bad("source: type remote needs url")
+			}
+			if d.Secret != "" {
+				bad("source: secret is for type webhook")
 			}
 			if d.Poll != "" {
 				if v, err := time.ParseDuration(d.Poll); err != nil || v < 10*time.Second {
@@ -324,7 +335,7 @@ func (a *App) validate() error {
 				}
 			}
 		default:
-			bad("source.type %q: push or remote", d.Type)
+			bad("source.type %q: push, remote or webhook", d.Type)
 		}
 		if d.Port < 0 || d.Port > 65535 {
 			bad("source.port %d: 1-65535", d.Port)

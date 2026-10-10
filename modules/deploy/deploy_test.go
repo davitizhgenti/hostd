@@ -2,6 +2,9 @@ package deploy
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -167,6 +170,17 @@ func (g *gate) sh(dir string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		g.t.Fatalf("%v: %v\n%s", args, err, out)
 	}
+}
+
+func (g *gate) out(dir string, args ...string) string {
+	g.t.Helper()
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		g.t.Fatalf("%v: %v", args, err)
+	}
+	return string(out)
 }
 
 // commit writes index.html (and FAIL to break the build) and pushes.
@@ -399,5 +413,85 @@ func TestDeployKey(t *testing.T) {
 	env := strings.Join(g.m.gitEnv("site"), "\n")
 	if !strings.Contains(env, "GIT_SSH_COMMAND=ssh -i "+g.m.keyPath("site")) {
 		t.Fatalf("env %s", env)
+	}
+}
+
+func TestWebhookSource(t *testing.T) {
+	upstream := filepath.Join(t.TempDir(), "up.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "main", upstream).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	secrets := t.TempDir()
+	g := newGate(t, map[string]any{"type": "webhook", "url": upstream, "secret": "gh-hook"}, Options{SecretsDir: secrets})
+	g.sh(g.work, "git", "init", "-q", "-b", "main")
+	g.sh(g.work, "git", "remote", "add", "origin", upstream)
+	g.commit("v1", false)
+	head := strings.TrimSpace(g.out(g.work, "git", "rev-parse", "HEAD"))
+
+	key := []byte("s3cret")
+	n := 0
+	hook := func(event string, body string, sign func([]byte) string) (map[string]string, error) {
+		n++
+		h := http.Header{}
+		h.Set("X-GitHub-Event", event)
+		h.Set("X-GitHub-Delivery", fmt.Sprintf("d-%d", n))
+		if sign != nil {
+			h.Set("X-Hub-Signature-256", sign([]byte(body)))
+		}
+		v, err := g.e.ModuleHook(context.Background(), "deploy", "git", sdk.HookRequest{Params: map[string]string{"app": "site"}, Header: h, Body: []byte(body)})
+		if err != nil {
+			return nil, err
+		}
+		return v.(map[string]string), nil
+	}
+	good := func(b []byte) string {
+		mac := hmac.New(sha256.New, key)
+		mac.Write(b)
+		return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	}
+	push := fmt.Sprintf(`{"ref":"refs/heads/main","after":%q}`, head)
+
+	if _, err := hook("push", push, good); sdk.CodeOf(err) != sdk.CodeModuleUnavailable || !strings.Contains(err.Error(), "hostctl secret set gh-hook") {
+		t.Fatalf("no secret yet: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(secrets, "gh-hook"), key, 0o600)
+	for name, sign := range map[string]func([]byte) string{
+		"missing": nil,
+		"wrong key": func(b []byte) string {
+			mac := hmac.New(sha256.New, []byte("x"))
+			mac.Write(b)
+			return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		},
+		"no prefix":  func(b []byte) string { return strings.TrimPrefix(good(b), "sha256=") },
+		"not hex":    func([]byte) string { return "sha256=zz" },
+		"other body": func([]byte) string { return good([]byte(push + " ")) },
+	} {
+		if _, err := hook("push", push, sign); sdk.CodeOf(err) != sdk.CodeUnauthorized {
+			t.Errorf("%s signature: %v", name, err)
+		}
+	}
+	if v, err := hook("ping", `{}`, good); err != nil || v["status"] != "pong" {
+		t.Fatalf("ping: %v %v", v, err)
+	}
+	if v, _ := hook("push", `{"ref":"refs/heads/dev","after":"`+head+`"}`, good); v["status"] != "ignored" {
+		t.Fatalf("other branch: %v", v)
+	}
+	if v, _ := hook("push", `{"ref":"refs/heads/main","after":"0000000000000000000000000000000000000000"}`, good); v["status"] != "ignored" {
+		t.Fatalf("deleted branch: %v", v)
+	}
+	if v, err := hook("push", push, good); err != nil || v["status"] != "deploying" {
+		t.Fatalf("push: %v %v", v, err)
+	}
+	delivered := fmt.Sprintf("d-%d", n)
+	waitFor(t, "v1 deployed by the webhook", func() bool { code, body := g.get(); return code == 200 && body == "v1" })
+
+	// The same delivery again (a replay) is ignored.
+	h := http.Header{}
+	h.Set("X-GitHub-Event", "push")
+	h.Set("X-GitHub-Delivery", delivered)
+	h.Set("X-Hub-Signature-256", good([]byte(push)))
+	v, err := g.e.ModuleHook(context.Background(), "deploy", "git", sdk.HookRequest{Params: map[string]string{"app": "site"}, Header: h, Body: []byte(push)})
+	if err != nil || v.(map[string]string)["reason"] != "this delivery was already handled" {
+		t.Fatalf("replay: %v %v", v, err)
 	}
 }

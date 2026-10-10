@@ -121,6 +121,13 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 			}
 		}
 	}
+	for _, m := range e.Registry().Manifests() {
+		for _, hk := range m.Hooks {
+			if err := srv.handleHook(m.Name, hk); err != nil {
+				return nil, fmt.Errorf("module %q, hook %q: %w", m.Name, hk.Name, err)
+			}
+		}
+	}
 	srv.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, sdk.CodeNotFound, "no route "+r.Method+" "+r.URL.Path)
 	})
@@ -361,6 +368,35 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, tok store.Token,
 // --- reads ----------------------------------------------------------------
 
 // read serves a module's declared read route.
+// handleHook registers a hook: no token, the module authenticates the
+// request itself.
+func (s *Server) handleHook(module string, hk sdk.HookSpec) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("route %q: %v", hk.Path, p)
+		}
+	}()
+	params := pathParams(hk.Path)
+	s.mux.HandleFunc("POST "+hk.Path, func(w http.ResponseWriter, r *http.Request) {
+		body, err := readBody(r)
+		if err != nil {
+			writeErr(w, r, err)
+			return
+		}
+		req := sdk.HookRequest{Params: map[string]string{}, Header: r.Header, Body: body}
+		for _, p := range params {
+			req.Params[p] = r.PathValue(p)
+		}
+		v, err := s.engine.ModuleHook(r.Context(), module, hk.Name, req)
+		if err != nil {
+			writeErr(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	})
+	return nil
+}
+
 func (s *Server) read(module string, rd sdk.ReadSpec) func(http.ResponseWriter, *http.Request, store.Token) error {
 	params := pathParams(rd.Path)
 	return func(w http.ResponseWriter, r *http.Request, _ store.Token) error {
