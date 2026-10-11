@@ -105,6 +105,7 @@ func (w *world) modules() []sdk.Module {
 		{Type: "audio.output.set", Scope: "audio", Schema: anyArgs, Keys: []sdk.KeyTemplate{"audio.output"}},
 	}
 	audio.M.Reads = []sdk.ReadSpec{{Name: "audio", Path: "/v1/audio"}}
+	audio.M.Events = []sdk.EventSpec{{Type: "audio.volume.changed"}}
 	audio.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
 		w.mu.Lock()
 		defer w.mu.Unlock()

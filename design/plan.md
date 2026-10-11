@@ -562,6 +562,8 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
   4. rule fires after the hold expires → applied v19
   Then compare `hostctl log` output to a golden file.
 
+*Gate passed in-process (2026-10-11), `modules/automation/gate_test.go`: the real core with a fake clock, a fake audio module and a real rule; the audit trail for `audio.master` is exactly: `+0s applied v1 manual (phone) 30`, `+2m skipped held_by=manual automation (evening volume) 70`, `+2m observed v2 external (audio) 55`, `+4m applied v3 automation (evening volume) 70`. (A hostd process cannot run on a fake clock, so this is a Go test rather than a testscript.) Found while building it: a skipped action was recorded without its resource; it now is, so the audit shows what was skipped where. Not yet run on core.*
+
 ---
 
 ## 8. M6: release 0.1

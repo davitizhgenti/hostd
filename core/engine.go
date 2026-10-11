@@ -323,7 +323,11 @@ func (e *Engine) run(ctx context.Context, m *module, spec sdk.ActionSpec, a sdk.
 	if res, held := e.checkHolds(a, keys, c.root.Kind.Priority()); held {
 		hcancel()
 		release()
-		e.record(a, start, res, nil, "")
+		resource := ""
+		if len(keys) == 1 { // the held resource, so the audit shows what was skipped where
+			resource = keys[0]
+		}
+		e.record(a, start, res, nil, resource)
 		e.publish(sdk.Event{Type: EventActionSkipped, Action: a.ID, Source: &a.Source, Data: sdk.MustJSON(res)}, c.depth)
 		return res, nil
 	}
