@@ -579,7 +579,8 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
 - [ ] **Packaging:** nfpm `.deb` (binaries, user units, docs); `deploy/install.sh` (base system done early, §1.2.1) gains the hostd install step
 - [ ] **Releases:** GitHub Actions builds `amd64` + `arm64`, signs the checksum file (minisign or cosign); hostd verifies before staging
 - [ ] **Update channels:** `github-release` (stable/prerelease), `github-branch` (build on the server), `push-only`; `apply = auto|notify|manual`; wait-for-quiet (no deploy/scene in progress, max 5 min)
-- [ ] **Full rollback:** dedicated `hostd-rollback.service`, crash-loop detection (3 failures), state/config migration from the backup
+- [x] **Full rollback:** dedicated `hostd-rollback.service`, crash-loop detection (3 failures), state/config migration from the backup
+  *Done (2026-10-11): `hostd-rollback.service` (OnFailure of hostd.service, which fails after 3 starts in 2 minutes) runs `rollback.sh`, which needs no hostd: if the failed run was the current version, back to the previous one. New: the data comes back too. `hostctl update` backs up the database and hostd.toml next to the old version and records which update the backup is for (`backup-for`); the rollback restores them only for that version (an update through the installer makes no backup, so an old one never replaces newer data), keeps the failed version's files as `state.db.from-<version>` / `hostd.toml.from-<version>`, and uses the backup once. Tested in Go (the script with stubbed systemctl) and in the install container (a token made before a broken update is there after the rollback).*
 - [ ] **Docs site** (`docs/`, mkdocs or Hugo): install, config reference, API (from OpenAPI), CLI (from testscripts), writing a module
 
 **Tests**

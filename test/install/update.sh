@@ -22,6 +22,9 @@ else
 fi
 systemctl --user is-active --quiet hostd && ok "hostd.service active after the update" || bad "hostd.service not active"
 
+# Something in the state database, to find again after the rollback.
+hostctl token create before-bad --scopes read >/dev/null || bad "token create"
+
 # 2. A build that passes the version check but cannot start: systemd
 #    gives up after three tries, the rollback unit switches back, and
 #    hostctl reports the rollback (with a non-zero exit).
@@ -34,6 +37,11 @@ else
 fi
 [ "$(readlink ~/.local/lib/hostd/current)" = "versions/e2e-next" ] && ok "current points at the good version" ||
 	bad "current = $(readlink ~/.local/lib/hostd/current)"
+# The state backup made for this update came back, and was used once.
+[ -e ~/.local/state/hostd/state.db.from-e2e-bad ] && ok "the state from before the update was restored" ||
+	bad "no state.db.from-e2e-bad"
+hostctl token list | grep -q before-bad && ok "the restored state has what came before" || bad "token before-bad lost"
+[ ! -e ~/.local/lib/hostd/versions/e2e-next/backup-for ] && ok "the backup is used once" || bad "backup-for still there"
 
 # 3. Apps keep running across updates (they are not hostd's children).
 exit $fail

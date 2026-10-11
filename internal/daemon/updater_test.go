@@ -43,6 +43,9 @@ func TestUpdaterInstall(t *testing.T) {
 			t.Errorf("no backup %s next to the old version: %v", f, err)
 		}
 	}
+	if b, _ := os.ReadFile(filepath.Join(lib.Dir, "versions", "v1", "backup-for")); string(b) != "versions/v2\n" {
+		t.Errorf("backup-for = %q", b)
+	}
 	if cur, _ := lib.Current(); cur != "versions/v2" {
 		t.Fatalf("current = %q", cur)
 	}

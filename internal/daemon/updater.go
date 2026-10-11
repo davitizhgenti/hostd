@@ -47,6 +47,11 @@ func (u *updater) Install(ctx context.Context, binary io.Reader) (string, string
 	if b, err := os.ReadFile(u.configPath); err == nil {
 		_ = os.WriteFile(filepath.Join(backupDir, "hostd.toml.bak"), b, 0o600)
 	}
+	// Which update the backup is for: the rollback script restores it only
+	// when that version fails, never after an update made another way.
+	if err := os.WriteFile(filepath.Join(backupDir, "backup-for"), []byte(filepath.Join("versions", ver)+"\n"), 0o600); err != nil {
+		return "", "", err
+	}
 	prev, err := u.lib.Switch(ver)
 	if err != nil {
 		return "", "", err

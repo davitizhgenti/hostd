@@ -30,5 +30,29 @@ fi
 ln -sfn "$prev" "$lib/.current.tmp" && mv -T "$lib/.current.tmp" "$lib/current"
 echo "$cur" > "$lib/rolled-back-from"
 echo "hostd-rollback: $cur failed to start; back to $prev"
+
+# The data as it was before the update: the new version may have changed
+# the database (or the config) in a way the old one cannot read. Only the
+# backup made for this very update counts (an update through the installer
+# makes none). What the failed version left is kept beside it.
+if [ "$(cat "$lib/$prev/backup-for" 2>/dev/null)" = "$cur" ]; then
+	state=${HOSTD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/hostd}
+	config=${HOSTD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hostd/hostd.toml}
+	from=${cur#versions/}
+	if [ -f "$lib/$prev/state.db.bak" ]; then
+		mkdir -p "$state"
+		for f in state.db state.db-wal state.db-shm; do
+			[ -e "$state/$f" ] && mv -f "$state/$f" "$state/$f.from-$from"
+		done
+		cp "$lib/$prev/state.db.bak" "$state/state.db"
+		echo "hostd-rollback: the state from before the update is back (the newer one is $state/state.db.from-$from)"
+	fi
+	if [ -f "$lib/$prev/hostd.toml.bak" ] && ! cmp -s "$lib/$prev/hostd.toml.bak" "$config"; then
+		[ -e "$config" ] && cp "$config" "$config.from-$from"
+		cp "$lib/$prev/hostd.toml.bak" "$config"
+		echo "hostd-rollback: hostd.toml from before the update is back (the newer one is $config.from-$from)"
+	fi
+	rm -f "$lib/$prev/backup-for"
+fi
 systemctl --user reset-failed hostd.service
 systemctl --user start hostd.service
