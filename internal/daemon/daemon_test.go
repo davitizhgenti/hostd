@@ -71,6 +71,10 @@ guide = "window.back"
 		`modules = "apps"`:                         "",
 		"[hold_windows]\n\"audio.\" = 5":           "",
 		`this is not toml`:                         "",
+		"[external.apps]\ncommand = [\"x\"]":       "a built-in module's name",
+		"[external.Lights]\ncommand = [\"x\"]":     "use lowercase",
+		"[external.lights]\nenv = {}":              "needs a command",
+		"[external.lights]\ncommnd = [\"x\"]":      "unknown key(s): external.lights.commnd",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -166,5 +170,12 @@ func TestRunRefusesBadConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(rt, "hostd.sock")); err == nil {
 		t.Fatal("started serving despite a bad config")
+	}
+}
+
+func TestLoadConfigExternal(t *testing.T) {
+	c, err := LoadConfig(writeConfig(t, "[external.lights]\ncommand = [\"python3\", \"lights.py\"]\nenv = { BRIDGE = \"10.0.0.2\" }\n"))
+	if err != nil || len(c.External["lights"].Command) != 2 || c.External["lights"].Env["BRIDGE"] != "10.0.0.2" {
+		t.Fatalf("%+v %v", c.External, err)
 	}
 }

@@ -41,6 +41,11 @@ func TestScripts(t *testing.T) {
 			env.Setenv("XDG_CONFIG_HOME", filepath.Join(env.WorkDir, "config"))
 			env.Setenv("XDG_STATE_HOME", filepath.Join(env.WorkDir, "state"))
 			env.Setenv("XDG_RUNTIME_DIR", run)
+			repo, err := filepath.Abs(filepath.Join("..", ".."))
+			if err != nil {
+				return err
+			}
+			env.Setenv("REPO", repo)
 			return nil
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){

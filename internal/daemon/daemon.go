@@ -13,12 +13,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"syscall"
 	"time"
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/extmod"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
@@ -119,6 +121,23 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			mods = append(mods, demo.New())
 		}
 	}
+	// External modules: one that fails to start or to describe itself is
+	// left out, and hostd runs without it.
+	names := make([]string, 0, len(cfg.External))
+	for name := range cfg.External {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		x := cfg.External[name]
+		em, err := extmod.Load(ctx, extmod.Options{Name: name, Command: x.Command, Env: x.Env,
+			SocketDir: filepath.Join(*runtimeDir, "hostd-modules"), Logger: log})
+		if err != nil {
+			log.Error("external module left out", "module", name, "err", err)
+			continue
+		}
+		mods = append(mods, em)
+	}
 	coreOpts := core.Options{Logger: log, HoldWindow: time.Duration(cfg.HoldWindow), HoldWindows: cfg.holdWindows()}
 	// Updates work when hostd runs from the installer's layout under
 	// systemd; a development build just has none.
@@ -159,6 +178,11 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 	reg := core.NewRegistry()
 	for _, m := range mods {
 		if err := reg.Add(m); err != nil {
+			if em, ok := m.(*extmod.Module); ok { // e.g. a namespace another module owns
+				log.Error("external module left out", "module", em.Manifest().Name, "err", err)
+				_ = em.Stop(ctx)
+				continue
+			}
 			return err
 		}
 	}

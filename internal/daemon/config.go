@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -50,6 +51,12 @@ import (
 //	"F1" = "display.menu"
 //	[input.buttons]
 //	guide = "display.menu"
+//
+//	# External modules: programs that speak the module protocol
+//	# (sdk/PROTOCOL.md), in any language.
+//	[external.lights]
+//	command = ["python3", "/home/screen/hostd/modules/lights.py"]
+//	env = { LIGHTS_BRIDGE = "192.168.1.20" }
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`
@@ -63,6 +70,7 @@ type Config struct {
 		Buttons map[string]string `toml:"buttons"`
 		Hold    duration          `toml:"hold"`
 	} `toml:"input"`
+	External map[string]External `toml:"external"`
 
 	// The key and button bindings in effect: the defaults with Input
 	// applied (filled in by LoadConfig).
@@ -139,12 +147,30 @@ func LoadConfig(path string) (Config, error) {
 		}
 		seen[m] = true
 	}
+	for name, x := range c.External {
+		switch {
+		case contains(builtinModules, name):
+			return Config{}, fmt.Errorf("%s: external module %q has a built-in module's name", path, name)
+		case !externalName.MatchString(name):
+			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and _", path, name)
+		case len(x.Command) == 0:
+			return Config{}, fmt.Errorf("%s: external module %q needs a command", path, name)
+		}
+	}
 	c.keys, c.buttons, err = display.Bindings(c.Input.Keys, c.Input.Buttons)
 	if err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return c, nil
 }
+
+// External is an external module's settings.
+type External struct {
+	Command []string          `toml:"command"`
+	Env     map[string]string `toml:"env"`
+}
+
+var externalName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 func contains(list []string, s string) bool {
 	for _, x := range list {

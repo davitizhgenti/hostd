@@ -62,9 +62,9 @@ SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/roll
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
-	python3 -m py_compile deploy/addons/steam/hostd-steam-games
+	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py
 	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py \
-		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py
+		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py examples/python-module/lights.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
 	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__
 

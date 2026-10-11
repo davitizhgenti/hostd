@@ -1,0 +1,23 @@
+# An external module (the Python example) is a module like the others.
+[!exec:python3] skip
+mkdir $XDG_CONFIG_HOME/hostd
+cp hostd.toml $XDG_CONFIG_HOME/hostd/hostd.toml
+exec sed -i s|@REPO@|$REPO| $XDG_CONFIG_HOME/hostd/hostd.toml
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+# Its actions are commands, its routes and scope are in the API.
+exec hostctl lights set porch --brightness 40
+stdout 'applied'
+exec hostctl lights dim_all
+exec hostctl log --limit 5
+stdout 'lights.set .*manual'
+exits 4 hostctl lights set garage --brightness 1
+
+-- hostd.toml --
+modules = ["apps"]
+[external.lights]
+command = ["python3", "@REPO@/examples/python-module/lights.py"]
+[external.broken]
+command = ["false"]
