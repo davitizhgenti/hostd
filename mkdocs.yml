@@ -1,0 +1,29 @@
+# The docs site: mkdocs build --strict (CI checks it).
+site_name: hostd
+site_description: The display and services daemon for a home machine
+repo_url: https://github.com/davitizhgenti/hostd
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+theme:
+  name: mkdocs
+  navigation_depth: 3
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Apps: apps.md
+  - Services and deploys: services.md
+  - Automation: automation.md
+  - Configuration: config.md
+  - The API: api.md
+  - The CLI: cli.md
+  - Writing a module: modules.md
+  - The module protocol: protocol.md
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+validation:
+  links:
+    not_found: warn
+    anchors: warn

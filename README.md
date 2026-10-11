@@ -5,9 +5,12 @@ core routes actions to modules (apps and windows, audio, background services,
 deploys, automation) and events back to listeners. You drive it from the
 `hostctl` CLI, an HTTP API, or scripts.
 
-Status: in development. The core, the API and hostctl, apps and windows
-(with an on-screen menu), and master volume run on a real machine;
-background services, deploys and automation are next. See the plan.
+Status: heading for 0.1. Apps and windows with an on-screen menu, audio,
+background services with zero-downtime deploys, automation (scenes, rules,
+scripts), external modules and signed automatic updates all run on a real
+machine.
+
+- Documentation: [docs/](docs/index.md) (an MkDocs site: `mkdocs serve`)
 
 - Design: [design/hostd Display and Services Daemon Design.md](design/hostd%20Display%20and%20Services%20Daemon%20Design.md)
 - Build and test plan: [design/plan.md](design/plan.md)

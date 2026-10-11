@@ -2171,7 +2171,7 @@
           {
             "description": "an event type or namespace (audio.*)",
             "in": "query",
-            "name": "filter",
+            "name": "type",
             "schema": {
               "type": "string"
             }
@@ -2205,7 +2205,7 @@
             "$ref": "#/components/responses/Unavailable"
           }
         },
-        "summary": "Events as a WebSocket stream (or after ?since=\u003cevent id\u003e)",
+        "summary": "Events as a WebSocket stream (?since=\u003cevent id\u003e replays what came after it)",
         "tags": [
           "core"
         ]

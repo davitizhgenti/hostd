@@ -251,10 +251,10 @@ func coreRoutes() []coreRoute {
 		{"name": "limit", "in": "query", "schema": obj{"type": "integer"}},
 		{"name": "before", "in": "query", "schema": obj{"type": "integer"}, "description": "entries before this sequence number"},
 	}
-	events := op("core.events", "Events as a WebSocket stream (or after ?since=<event id>)",
+	events := op("core.events", "Events as a WebSocket stream (?since=<event id> replays what came after it)",
 		withErrors(obj{"101": obj{"description": "switching to the WebSocket"}}))
 	events["parameters"] = []obj{
-		{"name": "filter", "in": "query", "schema": obj{"type": "string"}, "description": "an event type or namespace (audio.*)"},
+		{"name": "type", "in": "query", "schema": obj{"type": "string"}, "description": "an event type or namespace (audio.*)"},
 		{"name": "since", "in": "query", "schema": obj{"type": "string"}, "description": "replay events after this one"},
 	}
 	update := op("core.update", "Upload a new hostd binary: staged, switched to, rolled back if it does not start",
