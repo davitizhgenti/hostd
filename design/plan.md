@@ -562,7 +562,9 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
   4. rule fires after the hold expires → applied v19
   Then compare `hostctl log` output to a golden file.
 
-*Gate passed in-process (2026-10-11), `modules/automation/gate_test.go`: the real core with a fake clock, a fake audio module and a real rule; the audit trail for `audio.master` is exactly: `+0s applied v1 manual (phone) 30`, `+2m skipped held_by=manual automation (evening volume) 70`, `+2m observed v2 external (audio) 55`, `+4m applied v3 automation (evening volume) 70`. (A hostd process cannot run on a fake clock, so this is a Go test rather than a testscript.) Found while building it: a skipped action was recorded without its resource; it now is, so the audit shows what was skipped where. Not yet run on core.*
+*Gate passed in-process (2026-10-11), `modules/automation/gate_test.go`: the real core with a fake clock, a fake audio module and a real rule; the audit trail for `audio.master` is exactly: `+0s applied v1 manual (phone) 30`, `+2m skipped held_by=manual automation (evening volume) 70`, `+2m observed v2 external (audio) 55`, `+4m applied v3 automation (evening volume) 70`. (A hostd process cannot run on a fake clock, so this is a Go test rather than a testscript.) Found while building it: a skipped action was recorded without its resource; it now is, so the audit shows what was skipped where.*
+
+*Gate passed on core (2026-10-11), real WirePlumber volume, a rule on `instance.started` of a background app: 09:52:14 manual 30 applied v1; 09:52:19 the rule's 70 skipped, held by manual until 09:55:14; 09:52:23 `wpctl set-volume 0.55` observed v2; 09:55:43 the rule's 70 applied v3. Rule, scene and app removed afterwards, volume back to 50%. Also on core: a compose app (busybox via podman-compose, `${GREETING}` from the app's env) started, served on 127.0.0.1, stopped with its containers removed; its compose network stays behind (harmless, reused by the next start).*
 
 ---
 
