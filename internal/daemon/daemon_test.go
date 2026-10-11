@@ -65,7 +65,6 @@ guide = "window.back"
 		"[input]\nmice = {}":                       "unknown key(s): input.mice",
 		`modules = ["apps", "lights"]`:             `no module "lights"`,
 		`modules = ["apps", "apps"]`:               "listed twice",
-		`modules = ["apps", "automation"]`:         "later version (M5)",
 		`listn = ":7300"`:                          "unknown key(s): listn",
 		`hold_window = "three minutes"`:            "not a duration",
 		`hold_window = "-1m"`:                      "negative",

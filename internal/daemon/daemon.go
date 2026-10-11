@@ -24,6 +24,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
+	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/modules/demo"
 	"github.com/davitizhgenti/hostd/modules/deploy"
 	"github.com/davitizhgenti/hostd/modules/display"
@@ -112,6 +113,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
 		case "deploy":
 			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: apps.DefaultSecretsDir(), AppsDir: apps.DefaultAppsDir()}))
+		case "automation":
+			mods = append(mods, automation.New(automation.Options{Logger: log}))
 		case "demo":
 			mods = append(mods, demo.New())
 		}

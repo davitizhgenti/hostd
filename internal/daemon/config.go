@@ -19,7 +19,7 @@ import (
 //
 //	# Which built-in modules to load. A headless machine leaves out
 //	# display and audio.
-//	modules = ["apps", "display", "audio", "deploy"]
+//	modules = ["apps", "display", "audio", "deploy", "automation"]
 //
 //	# TCP address of the API for the home network; "" turns it off.
 //	listen = ":7300"
@@ -72,13 +72,13 @@ type Config struct {
 // builtinModules are the modules this hostd can load, in start order
 // preference; DefaultModules are loaded when the config names none.
 var (
-	builtinModules = []string{"apps", "display", "audio", "deploy", "demo"}
-	DefaultModules = []string{"apps", "display", "audio", "deploy"}
+	builtinModules = []string{"apps", "display", "audio", "deploy", "automation", "demo"}
+	DefaultModules = []string{"apps", "display", "audio", "deploy", "automation"}
 )
 
 // laterModules are in the design but not in this version yet; naming one
 // gets a clear message rather than "unknown".
-var laterModules = map[string]string{"automation": "M5"}
+var laterModules = map[string]string{}
 
 type duration time.Duration
 
