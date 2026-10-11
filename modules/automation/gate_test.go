@@ -45,7 +45,9 @@ func TestM5Gate(t *testing.T) {
 	// 4.
 	r.clock.Advance(2 * time.Minute) // 4 minutes after the manual change: its 3-minute hold is over
 	r.emit(t, "display.idle", map[string]any{})
-	waitFor(t, "the rule's second firing", func() bool { return r.state(t, "evening volume").Fired == 2 && r.state(t, "evening volume").LastResult != "applied: volume skipped" })
+	waitFor(t, "the rule's second firing", func() bool {
+		return r.state(t, "evening volume").Fired == 2 && r.state(t, "evening volume").LastResult != "applied: volume skipped"
+	})
 	if res := r.state(t, "evening volume").LastResult; res != "applied: volume applied" {
 		t.Fatalf("second firing: %q", res)
 	}
