@@ -35,7 +35,8 @@ jobs:
           msg=$(grep -h -B3 -A25 -E -- '--- FAIL|^panic:|FAIL: testdata' test.log cover.log 2>/dev/null | head -80 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
           echo "::error title=Failing tests::${msg:-no test failure found in the output}"
 
-  # Shell scripts and the Python menu: what make lint does not see.
+  # Shell scripts, the Python menu and the OpenAPI description: what make
+  # lint does not see. (The description's freshness is a Go test.)
   scripts:
     runs-on: ubuntu-latest
     steps:
@@ -45,6 +46,8 @@ jobs:
           sudo apt-get install -y -q shellcheck >/dev/null
           pipx install ruff
       - run: make lint-scripts
+      - name: OpenAPI
+        run: npx --yes @redocly/cli@1.34.5 lint docs/openapi.json
 
   # After the tests pass on main, publish the binaries as the rolling
   # "edge" pre-release. deploy/install.sh downloads them from there and

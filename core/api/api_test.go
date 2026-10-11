@@ -798,3 +798,47 @@ func TestHookNeedsNoToken(t *testing.T) {
 		t.Fatalf("action without a token: %d", res.StatusCode)
 	}
 }
+
+func TestOpenAPI(t *testing.T) {
+	e := setup(t, Options{})
+	if r := e.do(t, "GET", "/v1/openapi.json", "", ""); r.status != 401 {
+		t.Fatalf("without a token: %d", r.status)
+	}
+	r := e.do(t, "GET", "/v1/openapi.json", e.admin, "")
+	var doc struct {
+		OpenAPI string                               `json:"openapi"`
+		Paths   map[string]map[string]map[string]any `json:"paths"`
+	}
+	r.json(t, &doc)
+	if doc.OpenAPI != "3.1.0" {
+		t.Fatalf("openapi %q", doc.OpenAPI)
+	}
+	// Every route the server has is described.
+	for _, m := range e.srv.engine.Registry().Manifests() {
+		for _, a := range m.Actions {
+			if a.Route == nil {
+				continue
+			}
+			op := doc.Paths[a.Route.Path][strings.ToLower(a.Route.Method)]
+			if op == nil || op["x-hostd-action"] != a.Type || op["x-hostd-scope"] != a.Scope {
+				t.Errorf("%s %s: %v", a.Route.Method, a.Route.Path, op)
+			}
+		}
+		for _, h := range m.Hooks {
+			if op := doc.Paths[h.Path]["post"]; op == nil || len(op["security"].([]any)) != 0 {
+				t.Errorf("hook %s: %v", h.Path, op)
+			}
+		}
+	}
+	// The path parameter is not also in the body.
+	body := doc.Paths["/v1/lamps/{id}/brightness"]["post"]["requestBody"].(map[string]any)
+	schema := body["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	if _, ok := schema["properties"].(map[string]any)["id"]; ok {
+		t.Fatalf("body schema still has the path parameter: %v", schema)
+	}
+	for _, p := range []string{"/v1/actions", "/v1/events", "/v1/tokens/{id}", "/v1/openapi.json"} {
+		if doc.Paths[p] == nil {
+			t.Errorf("core route %s missing", p)
+		}
+	}
+}

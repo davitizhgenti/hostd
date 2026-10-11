@@ -1,0 +1,7 @@
+# Lint settings for docs/openapi.json (generated from the manifests).
+extends:
+  - recommended
+rules:
+  # GET /v1/events is a WebSocket: its answer is 101 Switching Protocols,
+  # which OpenAPI cannot describe as a 2xx.
+  operation-2xx-response: off

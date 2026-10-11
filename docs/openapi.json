@@ -1,0 +1,4076 @@
+{
+  "components": {
+    "responses": {
+      "Conflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "instance_not_running, or loop_detected"
+      },
+      "Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "forbidden: the token lacks the scope"
+      },
+      "InvalidArgs": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "invalid_args: the arguments do not fit the schema"
+      },
+      "NotFound": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "not_found"
+      },
+      "PreconditionFailed": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "precondition_failed: expect_version did not match"
+      },
+      "Timeout": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "timeout: the outcome follows as an event"
+      },
+      "Unauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "unauthorized: no token, or an invalid, expired or revoked one"
+      },
+      "Unavailable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "module_unavailable: the owning module is not running"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "properties": {
+          "error": {
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "code": {
+                "enum": [
+                  "invalid_args",
+                  "not_found",
+                  "instance_not_running",
+                  "precondition_failed",
+                  "forbidden",
+                  "timeout",
+                  "module_unavailable",
+                  "loop_detected",
+                  "unauthorized",
+                  "internal"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Result": {
+        "properties": {
+          "action": {
+            "description": "the action's ID",
+            "type": "string"
+          },
+          "data": {
+            "description": "the module's payload"
+          },
+          "held_by": {
+            "description": "skipped: the source kind holding the resource",
+            "type": "string"
+          },
+          "reason": {
+            "description": "skipped: why (held)",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "applied",
+              "skipped",
+              "accepted"
+            ],
+            "type": "string"
+          },
+          "until": {
+            "description": "skipped: when the hold ends",
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "description": "the resource's version after the action",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "status"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "description": "A token from hostctl token create (hostd_...)",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Every change is an action: validated, authorized, ordered per resource, held by priority, and audited. Reads are plain GETs; events stream over a WebSocket.",
+    "license": {
+      "identifier": "Apache-2.0",
+      "name": "Apache-2.0"
+    },
+    "title": "hostd",
+    "version": "0.1.0-dev"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/actions": {
+      "get": {
+        "operationId": "core.actions.audit",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "entries before this sequence number",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Audit entries"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "The audit trail, newest first",
+        "tags": [
+          "core"
+        ]
+      },
+      "post": {
+        "operationId": "core.actions.submit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "args": {
+                    "description": "its arguments (the action's schema)",
+                    "type": "object"
+                  },
+                  "cause": {
+                    "description": "the event this action reacts to",
+                    "type": "string"
+                  },
+                  "expect_version": {
+                    "type": "integer"
+                  },
+                  "type": {
+                    "description": "the action type, e.g. audio.volume.set",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "accepted: the outcome follows as an event with the action's ID"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "summary": "Send any action (the generic form of every action route)",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/apps": {
+      "get": {
+        "operationId": "apps.apps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The catalog (?all=true includes hidden apps)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/apps/rescan": {
+      "post": {
+        "description": "Read installed apps and app files again",
+        "operationId": "app.rescan",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read installed apps and app files again",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.rescan",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/apps/{id}": {
+      "get": {
+        "operationId": "apps.app",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One app, by ID or alias",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/apps/{id}/start": {
+      "post": {
+        "description": "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
+        "operationId": "app.start",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "action": {
+                    "description": "one of the app's actions (e.g. new-private-window): always a new instance",
+                    "type": "string"
+                  },
+                  "dir": {
+                    "description": "run in this directory: a release (needs scope deploy)",
+                    "type": "string"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "extra environment, e.g. PORT (needs scope deploy)",
+                    "type": "object"
+                  },
+                  "front": {
+                    "description": "open in front even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  },
+                  "image": {
+                    "description": "a container app: run this image (needs scope deploy)",
+                    "type": "string"
+                  },
+                  "new": {
+                    "description": "always a new instance (needs scope deploy)",
+                    "type": "boolean"
+                  },
+                  "ports": {
+                    "description": "a container app: publish these ports (needs scope deploy)",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.start",
+        "x-hostd-arg-scopes": {
+          "dir": "deploy",
+          "env": "deploy",
+          "front": "display.front",
+          "image": "deploy",
+          "new": "deploy",
+          "ports": "deploy"
+        },
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/audio": {
+      "get": {
+        "operationId": "audio.audio",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Volume, mute, the outputs and the sound each app plays",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/audio/apps/{instance}/mute": {
+      "post": {
+        "description": "Mute, unmute or toggle an app",
+        "operationId": "audio.app.mute.set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "muted": {
+                    "description": "true, false or \"toggle\"",
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "const": "toggle"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "muted"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mute, unmute or toggle an app",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "audio.app.mute.set",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/audio/apps/{instance}/volume": {
+      "post": {
+        "description": "Set an app's own volume (0-150) or change it",
+        "operationId": "audio.app.volume.set",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "percent": {
+                    "description": "0-150, or a change such as \"+5\" or \"-5\"",
+                    "oneOf": [
+                      {
+                        "maximum": 150,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "pattern": "^([+-][0-9]{1,3}|[0-9]{1,3})$",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "percent"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set an app's own volume (0-150) or change it",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "audio.app.volume.set",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/audio/mute": {
+      "post": {
+        "description": "Mute, unmute or toggle",
+        "operationId": "audio.mute.set",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "muted": {
+                    "description": "true, false or \"toggle\"",
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "const": "toggle"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "muted"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Mute, unmute or toggle",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "audio.mute.set",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/audio/output": {
+      "post": {
+        "description": "Send sound to an output; what plays moves there too",
+        "operationId": "audio.output.set",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "output": {
+                    "description": "an output's name, as GET /v1/audio lists them (hdmi, speakers, bt-...)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "output"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Send sound to an output; what plays moves there too",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "audio.output.set",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/audio/volume": {
+      "post": {
+        "description": "Set the volume (0-150) or change it (\"+5\", \"-5\")",
+        "operationId": "audio.volume.set",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "percent": {
+                    "description": "0-150, or a change such as \"+5\" or \"-5\"",
+                    "oneOf": [
+                      {
+                        "maximum": 150,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "pattern": "^([+-][0-9]{1,3}|[0-9]{1,3})$",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "percent"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set the volume (0-150) or change it (\"+5\", \"-5\")",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "audio.volume.set",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/config/follow": {
+      "get": {
+        "operationId": "deploy.config_follow",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The followed config repository and its last result",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/controllers": {
+      "get": {
+        "operationId": "display.controllers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Connected game controllers, with their profile and bindable buttons",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/deploys": {
+      "get": {
+        "operationId": "deploy.deploys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Every service: its live release and recent ones",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/deploys/{app}": {
+      "get": {
+        "operationId": "deploy.deploy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One service's releases",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/deploys/{app}/init": {
+      "post": {
+        "description": "Create the service's git repository: git push to it deploys",
+        "operationId": "deploy.init",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "rev": {
+                    "description": "commit, tag or branch (default: the source's branch)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create the service's git repository: git push to it deploys",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-action": "deploy.init",
+        "x-hostd-scope": "deploy"
+      }
+    },
+    "/v1/deploys/{app}/key": {
+      "post": {
+        "description": "The service's deploy key (made once): add its public key to the repository, read-only",
+        "operationId": "deploy.key",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "rev": {
+                    "description": "commit, tag or branch (default: the source's branch)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The service's deploy key (made once): add its public key to the repository, read-only",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-action": "deploy.key",
+        "x-hostd-scope": "deploy"
+      }
+    },
+    "/v1/deploys/{app}/rollback": {
+      "post": {
+        "description": "Switch back to the release before the live one",
+        "operationId": "deploy.rollback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "rev": {
+                    "description": "commit, tag or branch (default: the source's branch)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Switch back to the release before the live one",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-action": "deploy.rollback",
+        "x-hostd-scope": "deploy"
+      }
+    },
+    "/v1/deploys/{app}/run": {
+      "post": {
+        "description": "Build a commit and switch to it with no downtime; on any failure the running release stays",
+        "operationId": "deploy.run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "rev": {
+                    "description": "commit, tag or branch (default: the source's branch)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Build a commit and switch to it with no downtime; on any failure the running release stays",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-action": "deploy.run",
+        "x-hostd-scope": "deploy"
+      }
+    },
+    "/v1/display": {
+      "get": {
+        "operationId": "display.display",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Whether a session is attached, outputs, the focused instance",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/display/menu": {
+      "post": {
+        "description": "Open hostd's on-screen menu, or go back if it is in front",
+        "operationId": "display.menu",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Open hostd's on-screen menu, or go back if it is in front",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "display.menu",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/display/outputs/{output}/enable": {
+      "post": {
+        "description": "Use or stop using a screen",
+        "operationId": "display.output.enable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "output",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "enabled": {
+                    "description": "true (default) or false",
+                    "type": "boolean"
+                  },
+                  "front": {
+                    "description": "even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Use or stop using a screen",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "display.output.enable",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "display"
+      }
+    },
+    "/v1/display/outputs/{output}/mode": {
+      "post": {
+        "description": "Set a screen's resolution and refresh rate",
+        "operationId": "display.mode",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "output",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "front": {
+                    "description": "even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "description": "WIDTHxHEIGHT or WIDTHxHEIGHT@HZ, e.g. 1920x1080@60",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Set a screen's resolution and refresh rate",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "display.mode",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "display"
+      }
+    },
+    "/v1/display/power": {
+      "post": {
+        "description": "Turn screens on or off (power saving)",
+        "operationId": "display.power",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "front": {
+                    "description": "even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  },
+                  "on": {
+                    "description": "true: screen on; false: off (power saving)",
+                    "type": "boolean"
+                  },
+                  "output": {
+                    "description": "a screen name (see GET /v1/display); default all",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "on"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Turn screens on or off (power saving)",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "display.power",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "display"
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "core.events",
+        "parameters": [
+          {
+            "description": "an event type or namespace (audio.*)",
+            "in": "query",
+            "name": "filter",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "replay events after this one",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "switching to the WebSocket"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Events as a WebSocket stream (or after ?since=\u003cevent id\u003e)",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/hooks/git/{app}": {
+      "post": {
+        "description": "No token: the module authenticates the request itself (a signature).",
+        "operationId": "deploy.hook.git",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Handled"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "A git host's push webhook (GitHub, Gitea), signed with the source's secret",
+        "tags": [
+          "deploy"
+        ]
+      }
+    },
+    "/v1/instances": {
+      "get": {
+        "operationId": "apps.instances",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Running instances (?all=true adds recently ended ones)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/instances/{id}": {
+      "get": {
+        "operationId": "apps.instance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One instance",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/instances/{id}/logs": {
+      "get": {
+        "operationId": "apps.logs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "An instance's latest log lines (?lines=200)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/instances/{id}/stop": {
+      "post": {
+        "description": "Stop a running instance",
+        "operationId": "instance.stop",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stop a running instance",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "instance.stop",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/manifests": {
+      "get": {
+        "operationId": "core.manifests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Manifests"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Every module's manifest: its actions, events, reads and scopes",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/media": {
+      "get": {
+        "operationId": "audio.media",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Media players: their app, status and track",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/media/next": {
+      "post": {
+        "description": "Next track",
+        "operationId": "media.next",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "player": {
+                    "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Next track",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "media.next",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/media/play-pause": {
+      "post": {
+        "description": "Play or pause",
+        "operationId": "media.play_pause",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "player": {
+                    "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Play or pause",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "media.play_pause",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/media/previous": {
+      "post": {
+        "description": "Previous track",
+        "operationId": "media.previous",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "player": {
+                    "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Previous track",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-action": "media.previous",
+        "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "operationId": "core.openapi",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenAPI 3.1"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "This description",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/push-keys": {
+      "get": {
+        "operationId": "deploy.push_keys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "SSH keys that may only git push",
+        "tags": [
+          "deploy"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/rules": {
+      "get": {
+        "operationId": "automation.rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The rules: when each fired, its last result, whether it is paused",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/rules/{name}/pause": {
+      "post": {
+        "description": "Stop a rule from firing until it is resumed",
+        "operationId": "rule.pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stop a rule from firing until it is resumed",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-action": "rule.pause",
+        "x-hostd-scope": "rules"
+      }
+    },
+    "/v1/rules/{name}/resume": {
+      "post": {
+        "description": "Let a paused rule fire again",
+        "operationId": "rule.resume",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Let a paused rule fire again",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-action": "rule.resume",
+        "x-hostd-scope": "rules"
+      }
+    },
+    "/v1/scenes": {
+      "get": {
+        "operationId": "automation.scenes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The scenes, and scene files that cannot be used",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/scenes/{id}": {
+      "get": {
+        "operationId": "automation.scene",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One scene",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/scenes/{id}/apply": {
+      "post": {
+        "description": "Reach a scene: send only the actions still needed, in a fixed order",
+        "operationId": "scene.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reach a scene: send only the actions still needed, in a fixed order",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-action": "scene.apply",
+        "x-hostd-scope": "scenes"
+      }
+    },
+    "/v1/secrets": {
+      "get": {
+        "operationId": "apps.secrets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The secrets' names (never their values)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/state/{module}": {
+      "get": {
+        "operationId": "core.state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "State"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "A module's whole state",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/tokens": {
+      "get": {
+        "operationId": "core.tokens.list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Tokens"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "The tokens (never their secrets)",
+        "tags": [
+          "core"
+        ]
+      },
+      "post": {
+        "operationId": "core.tokens.create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "manual",
+                      "automation",
+                      "local"
+                    ],
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "scopes": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "ttl": {
+                    "description": "e.g. 720h; empty: no expiry",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The token, with its secret"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Create a token (its secret is shown only now)",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/tokens/{id}": {
+      "delete": {
+        "operationId": "core.tokens.revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "revoked"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Revoke a token",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/update": {
+      "post": {
+        "operationId": "core.update",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The staged update"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Upload a new hostd binary: staged, switched to, rolled back if it does not start",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "operationId": "core.version",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Version"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "hostd's version",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/windows": {
+      "get": {
+        "operationId": "display.windows",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "All windows, including ones hostd did not start",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/windows/back": {
+      "post": {
+        "description": "Go back to the app that was in front before",
+        "operationId": "window.back",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Go back to the app that was in front before",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.back",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/windows/next": {
+      "post": {
+        "description": "Bring the next running app to the front",
+        "operationId": "window.next",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bring the next running app to the front",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.next",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/windows/prev": {
+      "post": {
+        "description": "Bring the previous running app to the front",
+        "operationId": "window.prev",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bring the previous running app to the front",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.prev",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/windows/{instance}/close": {
+      "post": {
+        "description": "Close an instance's windows politely (default: the app in front); stop the app if they stay open",
+        "operationId": "window.close",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Close an instance's windows politely (default: the app in front); stop the app if they stay open",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.close",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/windows/{instance}/focus": {
+      "post": {
+        "description": "Bring an instance's window to the front",
+        "operationId": "window.focus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "front": {
+                    "description": "even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bring an instance's window to the front",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.focus",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/windows/{instance}/fullscreen": {
+      "post": {
+        "description": "Turn fullscreen on or off for an instance's windows",
+        "operationId": "window.fullscreen",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "enabled": {
+                    "description": "true (default) or false",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Turn fullscreen on or off for an instance's windows",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.fullscreen",
+        "x-hostd-scope": "display"
+      }
+    },
+    "/v1/windows/{instance}/place": {
+      "post": {
+        "description": "Put an instance's window beside another's, side by side",
+        "operationId": "window.place",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "beside": {
+                    "description": "the instance to place it next to",
+                    "type": "string"
+                  },
+                  "front": {
+                    "description": "even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "beside"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Put an instance's window beside another's, side by side",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "window.place",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "display"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "the unix socket, or the machine's address on the home network (port 7300)",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "The core: actions, events, audit, tokens, updates",
+      "name": "core"
+    },
+    {
+      "description": "Module apps 0.1.0",
+      "name": "apps"
+    },
+    {
+      "description": "Module audio 0.1.0",
+      "name": "audio"
+    },
+    {
+      "description": "Module automation 0.1.0",
+      "name": "automation"
+    },
+    {
+      "description": "Module deploy 0.1.0",
+      "name": "deploy"
+    },
+    {
+      "description": "Module display 0.1.0",
+      "name": "display"
+    }
+  ]
+}

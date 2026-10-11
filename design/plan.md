@@ -570,7 +570,8 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
 
 ## 8. M6: release 0.1
 
-- [ ] **OpenAPI** generated from manifests at `/v1/openapi.json`; golden-file test; validated with an OpenAPI linter in CI
+- [x] **OpenAPI** generated from manifests at `/v1/openapi.json`; golden-file test; validated with an OpenAPI linter in CI
+  *Done (2026-10-11): `GET /v1/openapi.json` (any token), OpenAPI 3.1 so the actions' JSON Schemas go in as they are: the core's routes, every action route (body = the action's schema without the path parameters, `expect_version`, `x-hostd-action` / `x-hostd-scope` / `x-hostd-arg-scopes`, 202 for slow ones), every read and every hook (no security). Shared error answers by code. `docs/openapi.json` is the description with all built-in modules, kept current by a golden test (`go test ./internal/daemon -run OpenAPI -update`) and linted by Redocly in CI (`redocly.yaml`: the WebSocket's 101 is allowed).*
 - [ ] **External modules:** core host for JSON-RPC over a unix socket (`hostd.handshake`, `manifest`, `start`, `handle`, `stop`, `emit`, `do`, `subscribe`); process supervision with backoff; same ownership rules. Protocol spec in `sdk/PROTOCOL.md`.
 - [ ] `examples/python-module`: a `lights`-style example using only the standard library
 - [ ] **Packaging:** nfpm `.deb` (binaries, user units, docs); `deploy/install.sh` (base system done early, §1.2.1) gains the hostd install step
