@@ -29,8 +29,23 @@ type world struct {
 	outputs   []string
 	focused   string
 	power     bool
+	lastInput time.Time
 	sent      []string // actions handled, "type args"
 	fail      map[string]bool
+	minted    []string // script tokens: "name scopes"
+	mods      map[string]*testutil.Module
+	revoked   int
+}
+
+type fakeTokens struct{ w *world }
+
+func (w *world) tokens() fakeTokens { return fakeTokens{w} }
+
+func (t fakeTokens) Mint(_ context.Context, name string, scopes []string, _ time.Duration) (string, func(), error) {
+	t.w.mu.Lock()
+	defer t.w.mu.Unlock()
+	t.w.minted = append(t.w.minted, name+" "+strings.Join(scopes, ","))
+	return "hostd_secret", func() { t.w.mu.Lock(); t.w.revoked++; t.w.mu.Unlock() }, nil
 }
 
 var anyArgs = json.RawMessage(`{"type":"object","additionalProperties":true}`)
@@ -58,6 +73,9 @@ func (w *world) modules() []sdk.Module {
 		{Type: contract.ActionInstanceStop, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"instance:{id}"}},
 	}
 	apps.M.Reads = []sdk.ReadSpec{{Name: contract.ReadInstances, Path: "/v1/instances"}}
+	for _, e := range []string{"instance.starting", "instance.started", "instance.exited", "instance.failed", "instance.closing"} {
+		apps.M.Events = append(apps.M.Events, sdk.EventSpec{Type: e})
+	}
 	apps.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
 		w.mu.Lock()
 		defer w.mu.Unlock()
@@ -116,11 +134,16 @@ func (w *world) modules() []sdk.Module {
 		{Type: "display.power", Scope: "display", Schema: anyArgs, Keys: []sdk.KeyTemplate{"display.outputs"}},
 	}
 	display.M.Reads = []sdk.ReadSpec{{Name: "display", Path: "/v1/display"}}
+	display.M.Events = []sdk.EventSpec{{Type: "display.idle"}}
 	display.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
 		w.mu.Lock()
 		defer w.mu.Unlock()
-		return map[string]any{"focused_instance": w.focused,
-			"outputs": []map[string]any{{"name": "HDMI-A-1", "active": true, "power": w.power}}}, nil
+		st := map[string]any{"focused_instance": w.focused,
+			"outputs": []map[string]any{{"name": "HDMI-A-1", "active": true, "power": w.power}}}
+		if !w.lastInput.IsZero() {
+			st["last_input"] = w.lastInput
+		}
+		return st, nil
 	}
 	display.HandleFunc = w.handle(func(a sdk.Action, args map[string]any) error {
 		if a.Type == "window.focus" {
@@ -130,6 +153,7 @@ func (w *world) modules() []sdk.Module {
 		}
 		return nil
 	})
+	w.mods = map[string]*testutil.Module{"apps": apps, "audio": audio, "display": display}
 	return []sdk.Module{apps, audio, display}
 }
 
@@ -142,6 +166,7 @@ func (w *world) takeSent() []string {
 }
 
 type rig struct {
+	audit *core.MemoryAudit
 	e     *core.Engine
 	m     *Module
 	w     *world
@@ -153,19 +178,21 @@ func newRig(t *testing.T, w *world) *rig {
 	t.Helper()
 	dir := t.TempDir()
 	clk := clock.NewFake(time.Date(2026, 10, 11, 20, 0, 0, 0, time.UTC))
-	m := New(Options{ScenesDir: dir, Clock: clk})
+	m := New(Options{ScenesDir: dir, RulesFile: filepath.Join(dir, "rules.toml"), ScriptsDir: filepath.Join(dir, "scripts"),
+		Location: time.UTC, Clock: clk, Limiter: core.NewRuleLimiter(clk), Tokens: w.tokens()})
 	reg := core.NewRegistry()
 	for _, mod := range append(w.modules(), m) {
 		if err := reg.Add(mod); err != nil {
 			t.Fatal(err)
 		}
 	}
-	e := core.New(reg, core.Options{Clock: clk})
+	audit := core.NewMemoryAudit(1000)
+	e := core.New(reg, core.Options{Clock: clk, Audit: audit})
 	if err := e.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.Stop(context.Background()) })
-	return &rig{e: e, m: m, w: w, dir: dir, clock: clk}
+	return &rig{e: e, m: m, w: w, dir: dir, clock: clk, audit: audit}
 }
 
 func (r *rig) scene(t *testing.T, id, body string) {
@@ -186,6 +213,8 @@ func (r *rig) apply(t *testing.T, id string, kind sdk.SourceKind) (Applied, erro
 	_ = json.Unmarshal(res.Data, &out)
 	return out, nil
 }
+
+var adminAuth = core.Auth{Scopes: []string{sdk.ScopeAdmin}}
 
 func summary(a Applied) string {
 	var parts []string

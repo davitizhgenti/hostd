@@ -1,0 +1,44 @@
+# Scenes and rules: listed, applied, paused.
+mkdir $XDG_CONFIG_HOME/hostd/scenes
+cp quiet.toml $XDG_CONFIG_HOME/hostd/scenes/quiet.toml
+cp rules.toml $XDG_CONFIG_HOME/hostd/rules.toml
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl scenes
+stdout '^quiet +Quiet +apps$'
+
+# Nothing to stop: reached already, no steps.
+exec hostctl scene apply quiet
+stdout 'applied \(v1\) \{"scene":"quiet","steps":\[\]\}'
+exits 4 hostctl scene apply nope
+
+exec hostctl rules
+stdout '^bedtime +instance.started +scene quiet +0 +- +active$'
+exec hostctl rule pause bedtime
+exec hostctl rules
+stdout 'paused: paused by hand$'
+exec hostctl rule resume bedtime
+exec hostctl rules
+stdout 'active$'
+
+# A broken rules file: reported, the rules before it stay.
+cp broken.toml $XDG_CONFIG_HOME/hostd/rules.toml
+exec hostctl rules
+stdout '^bedtime '
+stderr 'rules.toml: .*needs on'
+
+-- quiet.toml --
+name = "Quiet"
+[apps]
+stop = ["game"]
+-- rules.toml --
+[[rule]]
+name = "bedtime"
+on   = "instance.started"
+do   = { scene = "quiet" }
+-- broken.toml --
+[[rule]]
+name = "bedtime"
+do   = { scene = "quiet" }

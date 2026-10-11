@@ -114,7 +114,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		case "deploy":
 			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: apps.DefaultSecretsDir(), AppsDir: apps.DefaultAppsDir()}))
 		case "automation":
-			mods = append(mods, automation.New(automation.Options{Logger: log}))
+			mods = append(mods, automation.New(automation.Options{Logger: log, URL: "unix://" + *socket}))
 		case "demo":
 			mods = append(mods, demo.New())
 		}
@@ -164,6 +164,11 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 	}
 	coreOpts.Audit = st
 	eng := core.New(reg, coreOpts)
+	for _, m := range mods {
+		if auto, ok := m.(*automation.Module); ok {
+			auto.Wire(eng.Limiter(), scriptTokens{st})
+		}
+	}
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}
@@ -216,4 +221,16 @@ func defaultStateDir() string {
 		return "hostd-state"
 	}
 	return filepath.Join(home, ".local", "state", "hostd")
+}
+
+// scriptTokens mints the tokens of rule scripts: automation, expiring
+// with the run, revoked when it ends.
+type scriptTokens struct{ st *store.Store }
+
+func (t scriptTokens) Mint(ctx context.Context, name string, scopes []string, ttl time.Duration) (string, func(), error) {
+	tok, secret, err := t.st.CreateToken(ctx, name, sdk.SourceAutomation, scopes, ttl)
+	if err != nil {
+		return "", nil, err
+	}
+	return secret, func() { _ = t.st.RevokeToken(context.Background(), tok.ID) }, nil
 }
