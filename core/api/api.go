@@ -93,6 +93,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		{"GET /v1/state/{module}", sdk.ScopeRead, srv.getState},
 		{"POST /v1/actions", "", srv.postAction}, // scope depends on the action
 		{"GET /v1/actions", sdk.ScopeRead, srv.getAudit},
+		{"GET /v1/actions/running", sdk.ScopeRead, srv.getRunning},
 		{"GET /v1/events", sdk.ScopeRead, srv.getEvents},
 		{"GET /v1/tokens", sdk.ScopeAdmin, srv.listTokens},
 		{"POST /v1/tokens", sdk.ScopeAdmin, srv.createToken},
@@ -658,4 +659,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
+}
+
+func (s *Server) getRunning(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
+	writeJSON(w, http.StatusOK, s.engine.Running())
+	return nil
 }

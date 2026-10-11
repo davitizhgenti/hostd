@@ -64,6 +64,8 @@ func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Win
 
 func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 	switch a.Type {
+	case "display.notice":
+		return nil // shown or not, it targets nothing
 	case "display.power", "display.mode", "display.output.enable":
 		_, _, err := m.outputArgs(ctx, a)
 		return err
@@ -104,6 +106,13 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	switch a.Type {
+	case "display.notice":
+		var args struct{ Text string }
+		if err := a.DecodeArgs(&args); err != nil {
+			return sdk.Result{}, err
+		}
+		m.notice("", args.Text)
+		return sdk.Result{}, nil
 	case "display.power", "display.mode", "display.output.enable":
 		return m.handleOutput(ctx, a)
 	case "window.place":

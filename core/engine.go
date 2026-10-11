@@ -85,6 +85,7 @@ type hold struct {
 
 type running struct {
 	action  sdk.Action
+	started time.Time
 	depth   int
 	pending []sdk.Event // resource events emitted while handling
 }
@@ -344,7 +345,7 @@ func (e *Engine) run(ctx context.Context, m *module, spec sdk.ActionSpec, a sdk.
 	// 5. Execute. The keys stay held until Handle returns, even past the
 	// timeout, so nothing races a handler that is still working.
 	e.mu.Lock()
-	e.running[a.ID] = &running{action: a, depth: c.depth}
+	e.running[a.ID] = &running{action: a, depth: c.depth, started: e.opts.Clock.Now()}
 	e.mu.Unlock()
 
 	out := make(chan outcome, 1)
@@ -685,6 +686,30 @@ func (mc moduleCore) Do(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	}
 	a.Source.Module = mc.name
 	return mc.e.submit(ctx, a, Auth{Name: mc.name, trusted: true}, nil)
+}
+
+// RunningAction is an action being handled.
+type RunningAction struct {
+	ID      string     `json:"id"`
+	Type    string     `json:"type"`
+	Source  sdk.Source `json:"source"`
+	Parent  string     `json:"parent,omitempty"`
+	Started time.Time  `json:"started"`
+}
+
+// Running lists the actions being handled, oldest first: what an update
+// waits for (a deploy or a scene) before it restarts hostd.
+func (e *Engine) Running() []RunningAction {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]RunningAction, 0, len(e.running))
+	for id, r := range e.running {
+		out = append(out, RunningAction{ID: id, Type: r.action.Type, Source: r.action.Source, Parent: r.action.Parent, Started: r.started})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Started.Before(out[j].Started) || (out[i].Started.Equal(out[j].Started) && out[i].ID < out[j].ID)
+	})
+	return out
 }
 
 // HeldKeys returns the keys with an active hold, for diagnostics.

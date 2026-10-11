@@ -33,6 +33,16 @@
 #   sudo hostd-setup update [options]
 #   sudo hostd-setup uninstall [--purge] [--all]
 #   sudo hostd-setup addons | add NAME... | remove NAME...
+#   sudo hostd-setup auto-update     what hostd-update.timer runs
+#
+# Updates: every build is signed (SHA256SUMS.sig, checked against the key
+# below), and the installer itself comes from the same build. The timer
+# hostd-update.timer looks for a new build every few hours and, as
+# /etc/hostd/update.conf says, applies it (once no deploy or scene is in
+# progress and nobody is using the screen), shows a notice, or does
+# nothing:
+#   CHANNEL=edge    edge: every build of main that passed CI; stable: releases
+#   APPLY=auto      auto, notify or manual
 #
 # Options:
 #   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
@@ -62,7 +72,24 @@ SETUP_DIR=/usr/local/share/hostd-setup
 ADDONS_STATE=/etc/hostd/addons # installed add-ons, one name per line
 ADDON_NAMES=()
 SOURCE_URL=${HOSTD_SOURCE_URL:-https://github.com/davitizhgenti/hostd/archive/refs/heads/main.tar.gz}
-RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/download/edge}
+UPDATE_CONF=/etc/hostd/update.conf
+CHANNEL=edge
+APPLY=auto
+if [ -f "$UPDATE_CONF" ]; then
+	c=$(sed -n 's/^CHANNEL=\([a-z]*\).*/\1/p' "$UPDATE_CONF" | tail -1)
+	a=$(sed -n 's/^APPLY=\([a-z]*\).*/\1/p' "$UPDATE_CONF" | tail -1)
+	CHANNEL=${c:-$CHANNEL} APPLY=${a:-$APPLY}
+fi
+case $CHANNEL in
+stable) RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/latest/download} ;;
+*) RELEASE_URL=${HOSTD_RELEASE_URL:-https://github.com/davitizhgenti/hostd/releases/download/edge} ;;
+esac
+# The key builds are signed with (Ed25519; CI holds the private half).
+# HOSTD_RELEASE_KEY replaces it, for tests with a key of their own.
+RELEASE_KEY="${HOSTD_RELEASE_KEY:-}"
+[ -n "$RELEASE_KEY" ] || RELEASE_KEY="-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAc5GeAgxeWgwQ5JnhYERGeBTMgDWk45+Nfv+FfVr5WiQ=
+-----END PUBLIC KEY-----"
 # Resolve the hostd-setup symlink: the files live next to the real script.
 HERE=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 FILES=$HERE/files
@@ -78,7 +105,7 @@ changed() { info "$*"; CHANGED=1; }
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
 case ${1:-} in
-install | update | uninstall | addons | add | remove) CMD=$1; shift ;;
+install | update | auto-update | uninstall | addons | add | remove) CMD=$1; shift ;;
 esac
 PASS_ARGS=() # options handed to the latest installer by update
 while [ $# -gt 0 ]; do
@@ -185,6 +212,41 @@ ensure_packages() {
 	changed "installed ${missing[*]}"
 }
 
+# fetch_release DIR FILE...: downloads FILEs of the build at RELEASE_URL.
+fetch_release() {
+	local dir=$1 f
+	shift
+	for f in "$@"; do
+		if ! curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$dir/$f" "$RELEASE_URL/$f" 2>"$dir/curl.err"; then
+			if grep -q "404" "$dir/curl.err"; then
+				die "no $f in the build at $RELEASE_URL (CI publishes one a few minutes after each push to main; a stable channel needs a release)"
+			fi
+			die "cannot download $RELEASE_URL/$f: $(cat "$dir/curl.err")"
+		fi
+	done
+}
+
+# verify_release DIR FILE...: SHA256SUMS in DIR is signed with the release
+# key, and lists each FILE with the right checksum.
+verify_release() {
+	local dir=$1 key f
+	shift
+	command -v openssl >/dev/null || ensure_packages openssl
+	key=$(mktemp)
+	printf '%s\n' "$RELEASE_KEY" >"$key"
+	if ! openssl pkeyutl -verify -pubin -inkey "$key" -rawin -in "$dir/SHA256SUMS" -sigfile "$dir/SHA256SUMS.sig" >/dev/null 2>&1; then
+		rm -f "$key"
+		die "the build at $RELEASE_URL is not signed with hostd's key: not installing it"
+	fi
+	rm -f "$key"
+	[ $# -gt 0 ] || return 0 # only the signature (auto-update compares SHA256SUMS)
+	: >"$dir/check.sha256"
+	for f in "$@"; do
+		grep "  $f\$" "$dir/SHA256SUMS" >>"$dir/check.sha256" || die "the signed SHA256SUMS does not list $f"
+	done
+	(cd "$dir" && sha256sum --check --quiet check.sha256) || die "downloaded files do not match the signed SHA256SUMS"
+}
+
 if [ "$CMD" = addons ]; then
 	installed=" $(addons_installed | tr '\n' ' ') "
 	for d in "$ADDONS_DIR"/*/; do
@@ -220,19 +282,69 @@ as_screen() {
 }
 
 # ---------------------------------------------------------------------------
+# auto-update: run by hostd-update.timer. A new signed build is applied,
+# announced or left, as update.conf says.
+if [ "$CMD" = auto-update ]; then
+	if [ "$APPLY" = manual ]; then
+		info "updates are manual ($UPDATE_CONF): sudo hostd-setup update"
+		exit 0
+	fi
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	fetch_release "$tmp" SHA256SUMS SHA256SUMS.sig
+	verify_release "$tmp"
+	if cmp -s "$tmp/SHA256SUMS" /etc/hostd/applied.sha256; then
+		info "up to date ($CHANNEL)"
+		exit 0
+	fi
+	ver=$(sed -n 's/.*  hostd_\(.*\)_amd64\.deb$/\1/p' "$tmp/SHA256SUMS" | head -1)
+	SCREEN_UID=$(id -u "$SCREEN_USER")
+	if [ "$APPLY" = notify ]; then
+		if ! cmp -s "$tmp/SHA256SUMS" /etc/hostd/notified.sha256; then
+			as_screen hostctl display notice "hostd ${ver:-update} is available: sudo hostd-setup update" >/dev/null 2>&1 || true
+			install -D -m 644 "$tmp/SHA256SUMS" /etc/hostd/notified.sha256
+			info "a new build (${ver:-?}) is available; announced on the screen"
+		fi
+		exit 0
+	fi
+	# Not in the middle of a deploy or a scene, nor while someone uses the
+	# screen (hostd and the menu restart); else the next run tries again.
+	if ! as_screen hostctl wait-quiet --idle --max 5m >/dev/null 2>&1; then
+		info "busy or in use; trying again at the next check"
+		exit 0
+	fi
+	log "Updating to ${ver:-the newest build} ($CHANNEL)"
+	exec bash "$0" update "${PASS_ARGS[@]}"
+fi
+
+# ---------------------------------------------------------------------------
 # update: run the latest installer. It updates hostd, hostctl and whatever
 # else changed (unit files, configs), and changes nothing that is current.
 if [ "$CMD" = update ]; then
 	if [ -n "$SOURCE" ]; then
 		next="$SOURCE/deploy/install.sh"
 		[ -x "$next" ] || die "$next not found"
-	else
+	elif [ -n "${HOSTD_SOURCE_URL:-}" ]; then
+		# Development: an installer from a branch, not from a signed build.
 		tmp=$(mktemp -d)
 		trap 'rm -rf "$tmp"' EXIT
-		log "Fetching the latest installer"
+		log "Fetching the installer from $SOURCE_URL (not signed)"
 		curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors "$SOURCE_URL" | tar xz -C "$tmp" || die "cannot download $SOURCE_URL"
 		next=$(find "$tmp" -maxdepth 3 -path '*/deploy/install.sh' | head -1)
 		[ -n "$next" ] || die "the download has no deploy/install.sh"
+	else
+		# The installer of the newest build ($CHANNEL), signed with it.
+		tmp=$(mktemp -d)
+		trap 'rm -rf "$tmp"' EXIT
+		log "Fetching the latest build's installer ($CHANNEL)"
+		fetch_release "$tmp" SHA256SUMS SHA256SUMS.sig hostd-setup.tar.gz
+		verify_release "$tmp" hostd-setup.tar.gz
+		mkdir "$tmp/setup"
+		tar xzf "$tmp/hostd-setup.tar.gz" -C "$tmp/setup" || die "cannot unpack the installer"
+		next=$tmp/setup/deploy/install.sh
+		[ -f "$next" ] || die "the build has no deploy/install.sh"
+		info "signature and checksums match"
+		export HOSTD_RELEASE_URL=$RELEASE_URL # the binaries come from the same channel
 	fi
 	# Not exec: the trap must remove the download afterwards. The add-ons
 	# just asked for (add) go along: some act only when asked for by name.
@@ -313,6 +425,11 @@ if [ "$CMD" = uninstall ]; then
 			info "removed the managed Sway, mako and VNC configs, the Podman socket, and lingering"
 		fi
 	fi
+	systemctl disable --now hostd-update.timer >/dev/null 2>&1 || true
+	rm -f /etc/systemd/system/hostd-update.service /etc/systemd/system/hostd-update.timer \
+		/etc/hostd/applied.sha256 /etc/hostd/notified.sha256
+	systemctl daemon-reload 2>/dev/null || true
+	if [ $ALL -eq 1 ]; then rm -f "$UPDATE_CONF"; fi
 	rm -f /usr/local/bin/hostctl /usr/local/sbin/hostd-setup /usr/local/bin/hostd-switch
 	rm -rf "$SETUP_DIR" /usr/local/lib/hostd
 	rm -f "$SCREEN_HOME/.config/hostd/apps/hostd-menu.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml"
@@ -373,7 +490,7 @@ PACKAGES=(
 	sway swaybg xwayland foot greetd mako-notifier libnotify-bin wayvnc grim
 	pipewire pipewire-pulse wireplumber rtkit dbus-user-session
 	podman uidmap fuse-overlayfs passt catatonit nftables
-	jq curl ca-certificates git
+	jq curl ca-certificates git openssl
 	python3-gi gir1.2-gtk-4.0
 )
 if [ "$GPU" = nvidia ]; then
@@ -548,18 +665,12 @@ if [ -n "$FROM" ]; then
 	done
 	info "using the binaries in $FROM"
 else
-	for f in "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS; do
-		if ! curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$work/$f" "$RELEASE_URL/$f" 2>"$work/curl.err"; then
-			if grep -q "404" "$work/curl.err"; then
-				die "no published build at $RELEASE_URL yet. CI publishes one a few minutes after each push to main; try again shortly"
-			fi
-			die "cannot download $RELEASE_URL/$f: $(cat "$work/curl.err")"
-		fi
-	done
-	(cd "$work" && sha256sum --check --ignore-missing --quiet SHA256SUMS) || die "downloaded binaries do not match SHA256SUMS"
+	fetch_release "$work" "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS SHA256SUMS.sig
+	verify_release "$work" "hostd-linux-$ARCH" "hostctl-linux-$ARCH"
+	cp "$work/SHA256SUMS" "$work/applied.sha256" # recorded once the install succeeds
 	mv "$work/hostd-linux-$ARCH" "$work/hostd"
 	mv "$work/hostctl-linux-$ARCH" "$work/hostctl"
-	info "downloaded from $RELEASE_URL (checksums match)"
+	info "downloaded from $RELEASE_URL (signed; checksums match)"
 fi
 chmod 755 "$work/hostd" "$work/hostctl"
 VERSION=$("$work/hostd" -version 2>&1 | awk '{print $2}')
@@ -720,6 +831,38 @@ if [ -n "$(addons_installed)" ]; then
 		addon_load "$n"
 		addon_install
 	done
+fi
+
+# ---------------------------------------------------------------------------
+log "Updates"
+if [ ! -f "$UPDATE_CONF" ]; then
+	install -d /etc/hostd
+	printf '%s\n' \
+		"# hostd updates: hostd-update.timer looks for a new signed build every few" \
+		"# hours (sudo hostd-setup auto-update)." \
+		"#   CHANNEL: edge (every build of main that passed CI) or stable (releases)" \
+		"#   APPLY:   auto (install it once no deploy or scene runs and nobody uses" \
+		"#            the screen), notify (a notice on the screen), manual (nothing;" \
+		"#            sudo hostd-setup update)" \
+		"CHANNEL=edge" "APPLY=auto" >"$UPDATE_CONF"
+	changed "wrote $UPDATE_CONF (channel edge, applied automatically)"
+fi
+units_changed=0
+for u in hostd-update.service hostd-update.timer; do
+	install_file "$FILES/systemd/$u" "/etc/systemd/system/$u" 644 root && units_changed=1
+done
+[ $units_changed -eq 1 ] && systemctl daemon-reload
+if ! systemctl is-enabled --quiet hostd-update.timer 2>/dev/null; then
+	if systemctl enable --now hostd-update.timer >/dev/null 2>&1; then
+		changed "enabled hostd-update.timer"
+	else
+		info "could not enable hostd-update.timer (no systemd?)"
+	fi
+fi
+info "channel $CHANNEL, updates $APPLY ($UPDATE_CONF)"
+# This build is the one in use now: auto-update compares against it.
+if [ -f "$work/applied.sha256" ]; then
+	install -D -m 644 "$work/applied.sha256" /etc/hostd/applied.sha256
 fi
 
 # ---------------------------------------------------------------------------

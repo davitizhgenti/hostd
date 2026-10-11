@@ -54,7 +54,7 @@ ssh screen@<machine> hostctl token create phone --scopes read,apps,audio
 **Update** to the latest tested build, and **uninstall**, on the machine:
 
 ```sh
-sudo hostd-setup update                       # fetches and runs the latest installer
+sudo hostd-setup update                       # the latest signed build, now
 sudo hostd-setup uninstall                    # removes hostd; keeps its data
 sudo hostd-setup uninstall --purge            # ...and deletes tokens, audit trail, app files
 sudo hostd-setup uninstall --purge --all      # ...and undoes the base setup (autologin, configs)
@@ -63,6 +63,18 @@ sudo hostd-setup uninstall --purge --all      # ...and undoes the base setup (au
 Uninstall never removes system packages, the NVIDIA driver, or the `screen`
 user. From a laptop with a checkout, `hostctl update push` installs your own
 build instead; if it does not start, the machine rolls back on its own.
+
+Every build is signed. The installer checks the signature with the key it
+carries (`deploy/release-key.pem`) and refuses a build that does not match.
+`hostd-update.timer` looks for a new build every few hours. It installs the
+build when no deploy or scene is running and nobody is using the screen; if
+the machine is busy, it tries again at the next check. To get a notice
+instead, or nothing, set `APPLY` in `/etc/hostd/update.conf`:
+
+```sh
+CHANNEL=edge    # edge: every build of main that passed CI; stable: tagged releases
+APPLY=auto      # auto | notify (a notice on the screen) | manual
+```
 
 **Add-ons** install optional things on top, and every update keeps them
 current:

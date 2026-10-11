@@ -1,0 +1,12 @@
+# Managed by hostd deploy/install.sh; changes here are overwritten.
+#
+# Looks for a new signed hostd build and applies it, announces it or
+# leaves it, as /etc/hostd/update.conf says.
+[Unit]
+Description=Look for a new hostd build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hostd-setup auto-update

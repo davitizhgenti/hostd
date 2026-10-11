@@ -196,6 +196,8 @@ var (
 		"instance":{"type":"string","description":"the instance to place"},
 		"beside":{"type":"string","description":"the instance to place it next to"},
 		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance","beside"]}`)
+	noticeArg = json.RawMessage(`{"type":"object","properties":{
+		"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}`)
 	powerArg = json.RawMessage(`{"type":"object","properties":{
 		"on":{"type":"boolean","description":"true: screen on; false: off (power saving)"},
 		"output":{"type":"string","description":"a screen name (see GET /v1/display); default all"},
@@ -257,6 +259,9 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
 				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/place"}},
+			{Type: "display.notice", Description: "Show a short notice on the screen, above any app",
+				Schema: noticeArg, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/display/notice"}},
 			{Type: "display.power", Description: "Turn screens on or off (power saving)",
 				Schema: powerArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
 				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),

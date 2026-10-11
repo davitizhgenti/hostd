@@ -23,6 +23,10 @@ exec hostctl rule resume bedtime
 exec hostctl rules
 stdout 'active$'
 
+# Nothing in progress: an update would not wait.
+exec hostctl wait-quiet --max 1s
+exec hostctl wait-quiet --idle --max 1s
+
 # A broken rules file: reported, the rules before it stay.
 cp broken.toml $XDG_CONFIG_HOME/hostd/rules.toml
 exec hostctl rules

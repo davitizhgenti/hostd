@@ -20,6 +20,32 @@ t "sudo hostd-setup update" "sudo hostd-setup update --source $src --from $dist 
 t "hostd runs the updated build" 'hostd_up && [ "$(as_screen hostctl version | awk "/^hostd /{print \$2}" | tr -d ,)" = "$(sudo runuser -u screen -- /home/screen/.local/lib/hostd/current/hostd -version 2>&1 | awk "{print \$2}")" ]'
 t "a second update changes nothing" "sudo hostd-setup update --source $src --from $dist --gpu other | grep -q 'No changes needed'"
 
+echo "signed updates"
+# A build like CI's, signed with a key of the test's own.
+rel=$(mktemp -d)
+chmod 755 "$rel"
+openssl genpkey -algorithm ed25519 -out "$rel.key" 2>/dev/null
+openssl pkey -in "$rel.key" -pubout -out "$rel.pub"
+cp "$dist/hostd-linux-amd64" "$dist/hostctl-linux-amd64" "$rel/"
+(cd "$src" && tar czf "$rel/hostd-setup.tar.gz" deploy)
+sign() { (cd "$rel" && openssl pkeyutl -sign -inkey "$1" -rawin -in SHA256SUMS -out SHA256SUMS.sig); }
+(cd "$rel" && sha256sum hostd-linux-amd64 hostctl-linux-amd64 hostd-setup.tar.gz >SHA256SUMS)
+sign "$rel.key"
+signed="sudo env HOSTD_RELEASE_KEY=\"\$(cat $rel.pub)\" HOSTD_RELEASE_URL=file://$rel"
+t "update from a signed build" "$signed hostd-setup update --gpu other"
+t "the build in use is recorded" "cmp -s $rel/SHA256SUMS /etc/hostd/applied.sha256"
+t "auto-update: nothing new" "$signed hostd-setup auto-update | grep -q 'up to date'"
+cp "$rel/SHA256SUMS" "$rel/SHA256SUMS.good"
+echo "0000000000000000000000000000000000000000000000000000000000000000  evil" >>"$rel/SHA256SUMS"
+t "a changed SHA256SUMS is refused" "! $signed hostd-setup update --gpu other && $signed hostd-setup update --gpu other 2>&1 | grep -q 'not signed with'"
+cp "$rel/SHA256SUMS.good" "$rel/SHA256SUMS"
+openssl genpkey -algorithm ed25519 -out "$rel.other" 2>/dev/null
+sign "$rel.other"
+t "a build signed with another key is refused" "! $signed hostd-setup update --gpu other"
+t "auto-update refuses it too" "! $signed hostd-setup auto-update"
+sign "$rel.key"
+t "the update timer is enabled" 'systemctl is-enabled --quiet hostd-update.timer && grep -q "^APPLY=auto" /etc/hostd/update.conf'
+
 echo "uninstall (keeps data)"
 as_screen hostctl token create keepme --scopes read >/dev/null
 t "sudo hostd-setup uninstall" 'sudo hostd-setup uninstall'
@@ -27,6 +53,7 @@ t "hostd service gone" '! as_screen systemctl --user cat hostd.service'
 t "no hostd process" '! pgrep -u screen -x hostd'
 t "binaries gone" '! test -e /home/screen/.local/lib/hostd && ! test -e /usr/local/bin/hostctl'
 t "hostd-setup gone" '! test -e /usr/local/sbin/hostd-setup && ! test -e /usr/local/share/hostd-setup'
+t "update timer gone" '! test -e /etc/systemd/system/hostd-update.timer'
 t "data kept" 'sudo test -f /home/screen/.local/state/hostd/state.db && sudo test -f /home/screen/.config/hostctl/config.toml'
 t "base setup kept" 'grep -qx "vt = 7" /etc/greetd/config.toml && test -e /var/lib/systemd/linger/screen'
 

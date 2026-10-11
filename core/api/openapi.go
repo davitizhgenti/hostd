@@ -274,6 +274,7 @@ func coreRoutes() []coreRoute {
 		{"GET", "/v1/state/{module}", op("core.state", "A module's whole state", json200("State", obj{"type": "object"}))},
 		{"POST", "/v1/actions", actions},
 		{"GET", "/v1/actions", audit},
+		{"GET", "/v1/actions/running", op("core.actions.running", "The actions being handled now, oldest first", json200("Running actions", obj{"type": "array"}))},
 		{"GET", "/v1/events", events},
 		{"GET", "/v1/tokens", op("core.tokens.list", "The tokens (never their secrets)", json200("Tokens", obj{"type": "array"}))},
 		{"POST", "/v1/tokens", createToken},

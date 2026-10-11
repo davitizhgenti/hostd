@@ -24,6 +24,7 @@ dist:
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
 			-o dist/$$cmd-linux-$$arch ./cmd/$$cmd || exit 1; \
 	done; done
+	tar czf dist/hostd-setup.tar.gz deploy # the installer of this build (hostd-setup update)
 	cd dist && sha256sum hostd-* hostctl-* > SHA256SUMS
 
 # .deb packages of the dist binaries (nfpm). A Debian version starts with a

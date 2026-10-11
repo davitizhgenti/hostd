@@ -992,3 +992,33 @@ func TestSecretArgsNotAudited(t *testing.T) {
 	}
 	t.Fatal("no audit entry")
 }
+
+func TestRunning(t *testing.T) {
+	block := make(chan struct{})
+	entered := make(chan struct{})
+	slow := testutil.NewModule("builder", nil, []string{"builder.build"}, nil)
+	slow.HandleFunc = func(context.Context, sdk.Action) (sdk.Result, error) {
+		close(entered)
+		<-block
+		return sdk.Result{}, nil
+	}
+	h := newHarness(t, Options{}, slow)
+	if got := h.e.Running(); len(got) != 0 {
+		t.Fatalf("running before: %+v", got)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = h.submit(t, act("builder.build", "", sdk.SourceManual))
+	}()
+	<-entered
+	got := h.e.Running()
+	if len(got) != 1 || got[0].Type != "builder.build" || got[0].Source.Kind != sdk.SourceManual {
+		t.Fatalf("running: %+v", got)
+	}
+	close(block)
+	<-done
+	if got := h.e.Running(); len(got) != 0 {
+		t.Fatalf("running after: %+v", got)
+	}
+}

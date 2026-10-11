@@ -516,3 +516,16 @@ func TestMenuOpensOverAWindowHostdDidNotStart(t *testing.T) {
 		t.Fatal("the menu was not brought")
 	}
 }
+
+func TestNoticeAction(t *testing.T) {
+	r := newDisplayRig(t, true)
+	if _, err := r.submit(t, "display.notice", `{"text":"hostd edge-abc1234 is available"}`, sdk.SourceAutomation); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.notes.all(); len(got) != 1 || got[0] != "hostd edge-abc1234 is available" {
+		t.Fatalf("notices %q", got)
+	}
+	if _, err := r.submit(t, "display.notice", `{"text":""}`, sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("empty notice: %v", err)
+	}
+}

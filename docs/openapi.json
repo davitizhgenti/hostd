@@ -318,6 +318,42 @@
         ]
       }
     },
+    "/v1/actions/running": {
+      "get": {
+        "operationId": "core.actions.running",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Running actions"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "The actions being handled now, oldest first",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/apps": {
       "get": {
         "operationId": "apps.apps",
@@ -1750,6 +1786,92 @@
         ],
         "x-hostd-action": "display.menu",
         "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/display/notice": {
+      "post": {
+        "description": "Show a short notice on the screen, above any app",
+        "operationId": "display.notice",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "maxLength": 300,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Show a short notice on the screen, above any app",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "display.notice",
+        "x-hostd-scope": "display"
       }
     },
     "/v1/display/outputs/{output}/enable": {

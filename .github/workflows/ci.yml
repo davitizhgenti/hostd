@@ -68,6 +68,23 @@ jobs:
           go-version-file: go.mod
       - name: Build
         run: make deb VERSION=edge-${GITHUB_SHA::7}
+      # SHA256SUMS lists every file; its signature is what the installer
+      # checks (with the key in deploy/release-key.pem, also in install.sh).
+      - name: Sign
+        env:
+          HOSTD_SIGNING_KEY: ${{ secrets.HOSTD_SIGNING_KEY }}
+        run: |
+          if [ -z "$HOSTD_SIGNING_KEY" ]; then
+            echo "::error title=No signing key::the HOSTD_SIGNING_KEY secret is not set; machines refuse unsigned builds"
+            exit 1
+          fi
+          grep -qF "$(sed -n 2p deploy/release-key.pem)" deploy/install.sh ||
+            { echo "::error::deploy/install.sh does not carry the key in deploy/release-key.pem"; exit 1; }
+          key="$RUNNER_TEMP/key.pem"
+          (umask 077; printf '%s\n' "$HOSTD_SIGNING_KEY" > "$key")
+          openssl pkeyutl -sign -inkey "$key" -rawin -in dist/SHA256SUMS -out dist/SHA256SUMS.sig
+          rm -f "$key"
+          openssl pkeyutl -verify -pubin -inkey deploy/release-key.pem -rawin -in dist/SHA256SUMS -sigfile dist/SHA256SUMS.sig
       - name: Publish the edge release
         env:
           GH_TOKEN: ${{ github.token }}
