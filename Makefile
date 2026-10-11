@@ -28,13 +28,15 @@ dist:
 
 # .deb packages of the dist binaries (nfpm). A Debian version starts with a
 # digit: edge-abc1234 becomes 0.0.0~edge-abc1234, v0.1.0 becomes 0.1.0.
+# File names use - for ~, which GitHub release assets cannot carry.
 DEB_VERSION ?= $(shell echo '$(VERSION)' | sed -e 's/^v\([0-9]\)/\1/' -e '/^[0-9]/!s/^/0.0.0~/')
 deb: dist
 	for arch in $(DIST_ARCHES); do \
 		rm -rf dist/pkg && mkdir -p dist/pkg && \
 		cp dist/hostd-linux-$$arch dist/pkg/hostd && cp dist/hostctl-linux-$$arch dist/pkg/hostctl && \
 		ARCH=$$arch DEB_VERSION='$(DEB_VERSION)' $(GO) tool -modfile=tools/go.mod nfpm package \
-			--config packaging/nfpm.yaml --packager deb --target dist/ || exit 1; \
+			--config packaging/nfpm.yaml --packager deb \
+			--target "dist/hostd_$(subst ~,-,$(DEB_VERSION))_$$arch.deb" || exit 1; \
 	done
 	rm -rf dist/pkg
 	cd dist && sha256sum hostd-* hostctl-* *.deb > SHA256SUMS
