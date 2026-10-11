@@ -56,22 +56,27 @@ jobs:
   # After the tests pass on main, publish the binaries as the rolling
   # "edge" pre-release. deploy/install.sh downloads them from there and
   # checks them against SHA256SUMS.
+  # A push to main publishes the rolling "edge" pre-release; a tag v*
+  # publishes that release (the "stable" update channel takes the latest
+  # one; a tag with a suffix, v0.2.0-rc1, is a pre-release).
   edge:
     needs: [test, scripts]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: edge-release
-      cancel-in-progress: true
+      group: release-${{ github.ref }}
+      cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: Build
-        run: make deb VERSION=edge-${GITHUB_SHA::7}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=$GITHUB_REF_NAME; else version=edge-${GITHUB_SHA::7}; fi
+          make deb VERSION="$version"
       # SHA256SUMS lists every file; its signature is what the installer
       # checks (with the key in deploy/release-key.pem, also in install.sh).
       - name: Sign
@@ -89,7 +94,16 @@ jobs:
           openssl pkeyutl -sign -inkey "$key" -rawin -in dist/SHA256SUMS -out dist/SHA256SUMS.sig
           rm -f "$key"
           openssl pkeyutl -verify -pubin -inkey deploy/release-key.pem -rawin -in dist/SHA256SUMS -sigfile dist/SHA256SUMS.sig
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* $pre --verify-tag --title "hostd $GITHUB_REF_NAME" --generate-notes
       - name: Publish the edge release
+        if: github.ref_type != 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
