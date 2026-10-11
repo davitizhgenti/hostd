@@ -1,0 +1,48 @@
+# The hostd .deb: make deb (VERSION and ARCH from the Makefile).
+name: hostd
+arch: ${ARCH}
+platform: linux
+version: ${DEB_VERSION}
+version_schema: none
+section: admin
+priority: optional
+maintainer: Davit Zhgenti <davit.zhgenti2006@gmail.com>
+description: |
+  The display and services daemon for a home machine.
+  hostd runs apps on the screen and services in the background, with one
+  API for phones, scripts and the on-screen menu: every change is an
+  action, ordered per resource, held by priority and audited.
+vendor: hostd
+homepage: https://github.com/davitizhgenti/hostd
+license: Apache-2.0
+recommends:
+  - podman
+  - git
+suggests:
+  - sway
+  - wireplumber
+contents:
+  - src: dist/pkg/hostd
+    dst: /usr/bin/hostd
+    file_info: {mode: 0755}
+  - src: dist/pkg/hostctl
+    dst: /usr/bin/hostctl
+    file_info: {mode: 0755}
+  - src: packaging/hostd.service
+    dst: /usr/lib/systemd/user/hostd.service
+    file_info: {mode: 0644}
+  - src: README.md
+    dst: /usr/share/doc/hostd/README.md
+    file_info: {mode: 0644}
+  - src: LICENSE
+    dst: /usr/share/doc/hostd/copyright
+    file_info: {mode: 0644}
+  - src: sdk/PROTOCOL.md
+    dst: /usr/share/doc/hostd/PROTOCOL.md
+    file_info: {mode: 0644}
+  - src: docs/openapi.json
+    dst: /usr/share/doc/hostd/openapi.json
+    file_info: {mode: 0644}
+  - src: examples/python-module/lights.py
+    dst: /usr/share/doc/hostd/examples/lights.py
+    file_info: {mode: 0644}

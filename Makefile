@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
-.PHONY: all build dist test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
+.PHONY: all build dist deb test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
 	check-server test-install m1-gate m1-gate-server
 
@@ -25,6 +25,19 @@ dist:
 			-o dist/$$cmd-linux-$$arch ./cmd/$$cmd || exit 1; \
 	done; done
 	cd dist && sha256sum hostd-* hostctl-* > SHA256SUMS
+
+# .deb packages of the dist binaries (nfpm). A Debian version starts with a
+# digit: edge-abc1234 becomes 0.0.0~edge-abc1234, v0.1.0 becomes 0.1.0.
+DEB_VERSION ?= $(shell echo '$(VERSION)' | sed -e 's/^v\([0-9]\)/\1/' -e '/^[0-9]/!s/^/0.0.0~/')
+deb: dist
+	for arch in $(DIST_ARCHES); do \
+		rm -rf dist/pkg && mkdir -p dist/pkg && \
+		cp dist/hostd-linux-$$arch dist/pkg/hostd && cp dist/hostctl-linux-$$arch dist/pkg/hostctl && \
+		ARCH=$$arch DEB_VERSION='$(DEB_VERSION)' $(GO) tool -modfile=tools/go.mod nfpm package \
+			--config packaging/nfpm.yaml --packager deb --target dist/ || exit 1; \
+	done
+	rm -rf dist/pkg
+	cd dist && sha256sum hostd-* hostctl-* *.deb > SHA256SUMS
 
 test:
 	$(GO) test -race -shuffle=on ./...

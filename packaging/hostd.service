@@ -1,0 +1,22 @@
+# hostd from the .deb package: a user service. Enable it for the user that
+# runs hostd: systemctl --user enable --now hostd (and, to start at boot
+# without a login: loginctl enable-linger <user>).
+#
+# Updates come from apt: hostctl update is off in this layout. The full
+# machine setup (Sway, greetd, add-ons, updates with rollback) is
+# deploy/install.sh instead.
+[Unit]
+Description=hostd, the display and services daemon
+Documentation=https://github.com/davitizhgenti/hostd /usr/share/doc/hostd/README.md
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/hostd
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=30
+# Apps run in their own units, so stopping hostd never stops them.
+KillMode=mixed
+
+[Install]
+WantedBy=default.target
