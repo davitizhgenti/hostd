@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 CORE_COVER_MIN := 85
 
-.PHONY: all build dist deb test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
+.PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
 	check-server test-install m1-gate m1-gate-server
 
@@ -40,6 +40,18 @@ deb: dist
 			--target "dist/hostd_$(subst ~,-,$(DEB_VERSION))_$$arch.deb" || exit 1; \
 	done
 	rm -rf dist/pkg
+	cd dist && sha256sum hostd-* hostctl-* *.deb > SHA256SUMS
+
+# The docs site as an archive (needs mkdocs): hostd serves it at /docs/.
+docs-site:
+	rm -rf dist/site
+	mkdocs build --strict -d dist/site
+	tar czf dist/hostd-docs.tar.gz -C dist/site .
+	rm -rf dist/site
+
+# What CI publishes: binaries, packages, the installer and the docs, with
+# their checksums (CI signs SHA256SUMS).
+release: deb docs-site
 	cd dist && sha256sum hostd-* hostctl-* *.deb > SHA256SUMS
 
 test:
@@ -163,7 +175,9 @@ check-server:
 INSTALL_TEST := hostd-install-test
 
 test-install: dist
-	@mkdir -p bin/e2e
+	@mkdir -p bin/e2e bin/docs
+	echo '<h1>hostd test docs</h1>' > bin/docs/index.html
+	[ -f dist/hostd-docs.tar.gz ] || tar czf dist/hostd-docs.tar.gz -C bin/docs .
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath \
 		-ldflags '-X github.com/davitizhgenti/hostd/internal/version.Version=e2e-next' -o bin/e2e/hostd-next ./cmd/hostd
 	printf '#!/bin/sh\n# Passes the version check, then cannot start.\n[ "$$1" = -version ] && { echo "hostd e2e-bad" >&2; exit 0; }\nexit 1\n' > bin/e2e/hostd-bad

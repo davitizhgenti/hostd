@@ -76,7 +76,8 @@ jobs:
       - name: Build
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then version=$GITHUB_REF_NAME; else version=edge-${GITHUB_SHA::7}; fi
-          make deb VERSION="$version"
+          pipx install mkdocs==1.6.1
+          make release VERSION="$version"
       # SHA256SUMS lists every file; its signature is what the installer
       # checks (with the key in deploy/release-key.pem, also in install.sh).
       - name: Sign

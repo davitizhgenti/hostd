@@ -842,3 +842,37 @@ func TestOpenAPI(t *testing.T) {
 		}
 	}
 }
+
+func TestDocs(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>hostd</h1>"), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, "install"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "install", "index.html"), []byte("install"), 0o644)
+	e := setup(t, Options{DocsDir: dir})
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	get := func(path string) (int, string, string) {
+		res, err := noRedirect.Get(e.http.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b), res.Header.Get("Location")
+	}
+	if code, body, _ := get("/docs/"); code != 200 || body != "<h1>hostd</h1>" {
+		t.Fatalf("/docs/: %d %q", code, body)
+	}
+	if code, body, _ := get("/docs/install/"); code != 200 || body != "install" {
+		t.Fatalf("/docs/install/: %d %q", code, body)
+	}
+	if code, _, loc := get("/"); code != http.StatusFound || loc != "/docs/" {
+		t.Fatalf("/: %d %q", code, loc)
+	}
+	if code, body, _ := get("/docs/../../../etc/passwd"); code == 200 && strings.Contains(body, "root:") {
+		t.Fatal("served a file outside the docs")
+	}
+	// The API still needs a token.
+	if code, _, _ := get("/v1/version"); code != 401 {
+		t.Fatalf("/v1/version without a token: %d", code)
+	}
+}

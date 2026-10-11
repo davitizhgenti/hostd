@@ -46,6 +46,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		listen     = fs.String("listen", ":7300", "TCP address for the home network; empty to disable (overrides the config)")
 		showVer    = fs.Bool("version", false, "print the version and exit")
 		withDemo   = fs.Bool("demo", false, "load the demo module (a pretend lamp), for trying hostctl")
+		docs       = fs.String("docs", defaultDocsDir(), "serve this folder (the docs site) at /docs/, without a token; empty to disable")
 		install    = fs.String("install", "", "install this hostd binary next to the running one and restart into it")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -151,14 +152,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			}}
 		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, mods, coreOpts, newUpdater, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, *docs, mods, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen string, mods []sdk.Module,
+func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen, docs string, mods []sdk.Module,
 	coreOpts core.Options, newUpdater func(*store.Store) api.Updater, stderr io.Writer) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -218,7 +219,7 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 			log.Warn("telling systemd hostd is ready", "err", err)
 		}
 	}
-	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening}
+	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs}
 	if newUpdater != nil {
 		apiOpts.Updater = newUpdater(st)
 	}
@@ -234,6 +235,15 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 	log.Info("hostd stopping")
 	_ = sdnotify.Stopping()
 	return err
+}
+
+// defaultDocsDir is where the installer puts the docs site, if it did.
+func defaultDocsDir() string {
+	const dir = "/usr/local/share/hostd/docs"
+	if fi, err := os.Stat(filepath.Join(dir, "index.html")); err == nil && fi.Mode().IsRegular() {
+		return dir
+	}
+	return ""
 }
 
 func defaultStateDir() string {

@@ -44,6 +44,9 @@ type Options struct {
 	OnListening func()
 	// Updater installs uploaded hostd binaries; nil disables updates.
 	Updater Updater
+	// DocsDir, if set, is served at /docs/ without a token (the docs site,
+	// static files); / then leads there.
+	DocsDir string
 }
 
 // Updater installs a new hostd and restarts into it.
@@ -129,6 +132,13 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 				return nil, fmt.Errorf("module %q, hook %q: %w", m.Name, hk.Name, err)
 			}
 		}
+	}
+	if opts.DocsDir != "" {
+		// Public pages: no token, but on TCP still the home network only.
+		srv.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir(opts.DocsDir))))
+		srv.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/docs/", http.StatusFound)
+		})
 	}
 	srv.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, sdk.CodeNotFound, "no route "+r.Method+" "+r.URL.Path)

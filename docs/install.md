@@ -20,6 +20,8 @@ The installer is safe to run again; it changes only what is missing. It sets up:
 - `hostd-setup`, to update, add and remove add-ons, and uninstall;
 - the update timer (see below).
 
+These docs come with every build. The machine serves them at `http://<machine>:7300/docs/`, on the home network and without a token.
+
 After the reboot the screen shows a dark background, and hostd is running:
 
 ```sh

@@ -10,7 +10,7 @@ background services with zero-downtime deploys, automation (scenes, rules,
 scripts), external modules and signed automatic updates all run on a real
 machine.
 
-- Documentation: [docs/](docs/index.md) (an MkDocs site: `mkdocs serve`)
+- Documentation: [docs/](docs/index.md). Every installed machine serves it at `http://<machine>:7300/docs/`.
 
 - Design: [design/hostd Display and Services Daemon Design.md](design/hostd%20Display%20and%20Services%20Daemon%20Design.md)
 - Build and test plan: [design/plan.md](design/plan.md)

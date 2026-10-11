@@ -431,7 +431,7 @@ if [ "$CMD" = uninstall ]; then
 	systemctl daemon-reload 2>/dev/null || true
 	if [ $ALL -eq 1 ]; then rm -f "$UPDATE_CONF"; fi
 	rm -f /usr/local/bin/hostctl /usr/local/sbin/hostd-setup /usr/local/bin/hostd-switch
-	rm -rf "$SETUP_DIR" /usr/local/lib/hostd
+	rm -rf "$SETUP_DIR" /usr/local/lib/hostd /usr/local/share/hostd
 	rm -f "$SCREEN_HOME/.config/hostd/apps/hostd-menu.toml" "$SCREEN_HOME/.config/hostd/apps/hostd-overlay.toml"
 	info "removed hostctl, the menu and hostd-setup"
 	log "Done"
@@ -663,10 +663,16 @@ if [ -n "$FROM" ]; then
 			die "$FROM has no $cmd or $cmd-linux-$ARCH"
 		fi
 	done
+	[ -f "$FROM/hostd-docs.tar.gz" ] && cp "$FROM/hostd-docs.tar.gz" "$work/"
 	info "using the binaries in $FROM"
 else
 	fetch_release "$work" "hostd-linux-$ARCH" "hostctl-linux-$ARCH" SHA256SUMS SHA256SUMS.sig
 	verify_release "$work" "hostd-linux-$ARCH" "hostctl-linux-$ARCH"
+	# The docs site of the same build, if it has one.
+	if grep -q "  hostd-docs.tar.gz\$" "$work/SHA256SUMS"; then
+		fetch_release "$work" hostd-docs.tar.gz
+		verify_release "$work" hostd-docs.tar.gz
+	fi
 	cp "$work/SHA256SUMS" "$work/applied.sha256" # recorded once the install succeeds
 	mv "$work/hostd-linux-$ARCH" "$work/hostd"
 	mv "$work/hostctl-linux-$ARCH" "$work/hostctl"
@@ -705,6 +711,26 @@ install_file "$FILES/rollback.sh" "$lib/rollback.sh" 755 "$SCREEN_USER" || info 
 install_file "$FILES/systemd/hostd-rollback.service" "$SCREEN_HOME/.config/systemd/user/hostd-rollback.service" 644 "$SCREEN_USER" ||
 	info "rollback service up to date"
 install_file "$work/hostctl" /usr/local/bin/hostctl 755 root || info "hostctl up to date"
+# The docs site, served by hostd at http://<machine>:7300/docs/.
+docs=/usr/local/share/hostd/docs
+if [ -f "$work/hostd-docs.tar.gz" ]; then
+	sum=$(sha256sum "$work/hostd-docs.tar.gz" | cut -d' ' -f1)
+	if [ "$(cat "$docs/.build" 2>/dev/null)" = "$sum" ]; then
+		info "docs up to date"
+	else
+		[ -d "$docs" ] || hostd_changed=1 # hostd looks for them when it starts
+		rm -rf "$docs.new"
+		install -d "$docs.new"
+		tar xzf "$work/hostd-docs.tar.gz" -C "$docs.new" || die "cannot unpack the docs"
+		echo "$sum" >"$docs.new/.build"
+		chmod -R a+rX "$docs.new"
+		rm -rf "$docs.old"
+		[ -d "$docs" ] && mv "$docs" "$docs.old"
+		mv "$docs.new" "$docs"
+		rm -rf "$docs.old"
+		changed "installed the docs (http://<machine>:7300/docs/)"
+	fi
+fi
 # hostd's on-screen menu: a hidden app in the catalog, opened by hostd's
 # display.menu action (Super, or a controller's Guide button). The files
 # of its old name (the "switcher", hostd-overlay) go.
