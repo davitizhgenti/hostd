@@ -1,0 +1,8 @@
+# Managed by hostd's pterodactyl add-on; changes here are overwritten.
+# The panel as an app: a page in the kiosk browser, on the screen.
+id = "pterodactyl"
+name = "Pterodactyl"
+
+[runner]
+type = "url"
+url = "http://127.0.0.1/"

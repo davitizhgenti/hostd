@@ -14,7 +14,7 @@
 # servers only need an allocation (a port) and an egg (a game).
 # shellcheck disable=SC2034
 ADDON_DESCRIPTION="Pterodactyl game server panel (http://<machine>/) and its Wings daemon (Docker)"
-ADDON_REQUIRES=""
+ADDON_REQUIRES="chromium" # the panel is an app of hostd: a page in its browser
 
 PTERO_PANEL_VERSION=1.15.1
 PTERO_PANEL_SHA256=62c88c035b3e0f3c3ddd06bc3ef12249d087af0e765f49878b6327a066ed860b
@@ -94,11 +94,20 @@ EOF
 	printf '%s' "$pw"
 }
 
+# ptero_unattended: whether this run is the update timer's. It never
+# upgrades the panel or Wings (migrations change data): sudo hostd-setup
+# update does.
+ptero_unattended() { [ "${HOSTD_AUTO:-}" = 1 ]; }
+
 # ptero_panel_files: the panel's files and dependencies, for the pinned
 # version (a first install, or an upgrade).
 ptero_panel_files() {
 	local tmp upgrade=0
 	[ "$(cat "$PTERO_DIR/.hostd-version" 2>/dev/null)" = "$PTERO_PANEL_VERSION" ] && return 1
+	if [ -f "$PTERO_DIR/.hostd-bootstrapped" ] && ptero_unattended; then
+		info "panel $PTERO_PANEL_VERSION is available: sudo hostd-setup update upgrades it (not done unattended)"
+		return 1
+	fi
 	tmp=$(mktemp -d)
 	ptero_fetch "https://github.com/pterodactyl/panel/releases/download/v$PTERO_PANEL_VERSION/panel.tar.gz" "$tmp/panel.tar.gz" "$PTERO_PANEL_SHA256"
 	ptero_fetch "https://getcomposer.org/download/$PTERO_COMPOSER_VERSION/composer.phar" "$tmp/composer.phar" "$PTERO_COMPOSER_SHA256"
@@ -206,7 +215,9 @@ ptero_wings() {
 	want=PTERO_WINGS_SHA256_$arch
 	want=${!want}
 	sum=$(sha256sum /usr/local/bin/wings 2>/dev/null | cut -d' ' -f1 || true)
-	if [ "$sum" != "$want" ]; then
+	if [ "$sum" != "$want" ] && [ -n "$sum" ] && ptero_unattended; then
+		info "Wings $PTERO_WINGS_VERSION is available: sudo hostd-setup update upgrades it (not done unattended)"
+	elif [ "$sum" != "$want" ]; then
 		tmp=$(mktemp)
 		ptero_fetch "https://github.com/pterodactyl/wings/releases/download/v$PTERO_WINGS_VERSION/wings_linux_$arch" "$tmp" "$want"
 		install -m 755 "$tmp" /usr/local/bin/wings
@@ -217,6 +228,33 @@ ptero_wings() {
 		info "Wings $PTERO_WINGS_VERSION is installed"
 	fi
 	install -d -m 755 /etc/pterodactyl /var/lib/pterodactyl /var/log/pterodactyl
+}
+
+# ptero_podman: Docker sets up its own firewall rules next to Podman's.
+# Hostd's container apps are rootless Podman (networking through passt, not
+# the host's forwarding), so they should not notice; this checks that.
+ptero_podman() {
+	[ -S "/run/user/$SCREEN_UID/podman/podman.sock" ] || return 0
+	if as_screen curl -fsS --unix-socket "/run/user/$SCREEN_UID/podman/podman.sock" http://d/_ping 2>/dev/null | grep -q OK; then
+		info "hostd's Podman still answers next to Docker"
+	else
+		info "WARNING: the screen user's Podman socket does not answer; hostd's container apps may be affected by Docker"
+	fi
+}
+
+# ptero_node_address: the node is registered with this machine's address
+# (browsers talk to Wings directly). If DHCP gave the machine another one,
+# follow it, unless the node was given a name of the admin's own.
+ptero_node_address() {
+	local now cur
+	now=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1)
+	[ -n "$now" ] || return 0
+	cur=$(mariadb -N -e "SELECT fqdn FROM panel.nodes WHERE id = 1" 2>/dev/null || true)
+	[[ $cur =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+	if [ "$cur" != "$now" ]; then
+		mariadb -e "UPDATE panel.nodes SET fqdn = '$now' WHERE id = 1"
+		changed "the machine's address changed ($cur -> $now): the panel's node follows. A fixed address (a DHCP reservation) avoids this"
+	fi
 }
 
 # ptero_wings_config: Wings' config from the panel's node, once.
@@ -277,6 +315,12 @@ addon_install() {
 	ptero_units
 	ptero_wings
 	ptero_wings_config
+	ptero_podman
+	ptero_node_address
+	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
+	install_file "$ADDON_HERE/pterodactyl.toml" "$SCREEN_HOME/.config/hostd/apps/pterodactyl.toml" 644 "$SCREEN_USER" ||
+		info "panel app file up to date"
+	addon_rescan
 	systemctl enable --now pteroq.service pterodactyl-schedule.timer >/dev/null 2>&1 || die "the panel's queue worker did not start"
 	systemctl enable wings.service >/dev/null 2>&1
 	if [ $WINGS_NEW -eq 1 ] || ! systemctl is-active --quiet wings; then
@@ -298,6 +342,8 @@ addon_install() {
 }
 
 addon_remove() {
+	rm -f "$SCREEN_HOME/.config/hostd/apps/pterodactyl.toml"
+	addon_rescan
 	systemctl disable --now wings.service pteroq.service pterodactyl-schedule.timer >/dev/null 2>&1 || true
 	rm -f /etc/systemd/system/wings.service /etc/systemd/system/pteroq.service \
 		/etc/systemd/system/pterodactyl-schedule.service /etc/systemd/system/pterodactyl-schedule.timer \

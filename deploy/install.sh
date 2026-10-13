@@ -314,7 +314,8 @@ if [ "$CMD" = auto-update ]; then
 		exit 0
 	fi
 	log "Updating to ${ver:-the newest build} ($CHANNEL)"
-	exec bash "$0" update "${PASS_ARGS[@]}"
+	# HOSTD_AUTO: add-ons that change data (pterodactyl) do not upgrade it unattended.
+	HOSTD_AUTO=1 exec bash "$0" update "${PASS_ARGS[@]}"
 fi
 
 # ---------------------------------------------------------------------------
