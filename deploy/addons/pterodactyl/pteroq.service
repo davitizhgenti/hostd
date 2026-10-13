@@ -1,0 +1,19 @@
+# Managed by hostd's pterodactyl add-on; changes here are overwritten.
+#
+# The panel's queue worker: emails, server installs, backups.
+[Unit]
+Description=Pterodactyl queue worker
+After=redis-server.service mariadb.service
+Requires=redis-server.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+ExecStart=/usr/bin/php8.3 /var/www/pterodactyl/artisan queue:work --queue=high,standard,low --sleep=3 --tries=3
+StartLimitInterval=180
+StartLimitBurst=30
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

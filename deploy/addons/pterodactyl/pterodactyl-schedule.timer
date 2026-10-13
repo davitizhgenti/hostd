@@ -1,0 +1,10 @@
+# Managed by hostd's pterodactyl add-on; changes here are overwritten.
+[Unit]
+Description=Run the Pterodactyl scheduler every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

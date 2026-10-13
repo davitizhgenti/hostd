@@ -15,7 +15,7 @@ t() {
 	fi
 }
 
-t "the add-ons are listed" 'sudo hostd-setup addons | grep -q "controllers" && sudo hostd-setup addons | grep -q "steam" && sudo hostd-setup addons | grep -q "dolphin"'
+t "the add-ons are listed" 'sudo hostd-setup addons | grep -q "controllers" && sudo hostd-setup addons | grep -q "steam" && sudo hostd-setup addons | grep -q "dolphin" && sudo hostd-setup addons | grep -q "pterodactyl"'
 t "an unknown add-on is refused" '! sudo hostd-setup add nope --source /opt/hostd-src && ! grep -qx nope /etc/hostd/addons'
 # add is an update: from this checkout and build, not GitHub.
 local_src="--source /opt/hostd-src --from /opt/hostd-dist --gpu other"

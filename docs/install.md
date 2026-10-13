@@ -64,7 +64,7 @@ With `auto`, the update starts once no deploy or scene is in progress and nobody
 
 ```sh
 sudo hostd-setup update                       # the newest signed build, now
-sudo hostd-setup addons                       # optional extras: Steam, Dolphin, compose...
+sudo hostd-setup addons                       # optional extras: Steam, Dolphin, compose, pterodactyl...
 sudo hostd-setup add steam
 sudo hostd-setup uninstall                    # removes hostd; keeps its data
 sudo hostd-setup uninstall --purge --all      # ...and its data, and the base setup

@@ -1,0 +1,12 @@
+# Managed by hostd's pterodactyl add-on; changes here are overwritten.
+#
+# The panel's scheduler (server tasks, cleanups): run every minute by the
+# timer of the same name.
+[Unit]
+Description=Pterodactyl scheduler
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/php8.3 /var/www/pterodactyl/artisan schedule:run
