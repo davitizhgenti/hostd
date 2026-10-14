@@ -42,6 +42,8 @@ type WirePlumber struct {
 	// Env is added to the commands' environment (XDG_RUNTIME_DIR, so they
 	// find the user's PipeWire).
 	Env []string
+
+	graph graphCache // the outputs and streams, kept up to date by Watch
 }
 
 const defaultSink = "@DEFAULT_AUDIO_SINK@"
@@ -120,7 +122,8 @@ func (w *WirePlumber) Watch(ctx context.Context, fn func()) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	err = watchDump(out, fn)
+	err = followDump(out, &w.graph, fn)
+	w.graph.reset() // nothing keeps it current now
 	_ = out.Close()
 	werr := cmd.Wait()
 	select {
@@ -145,17 +148,28 @@ type pwObject struct {
 	Info json.RawMessage `json:"info"`
 }
 
-// watchDump reads pw-dump batches and calls fn for each one that matters.
-func watchDump(r io.Reader, fn func()) error {
+// followDump reads pw-dump batches, keeps cache (if any) up to date, and
+// calls fn for each batch that matters. The cache learns of a batch before
+// fn does, so a read after the cue sees it.
+func followDump(r io.Reader, cache *graphCache, fn func()) error {
 	dec := json.NewDecoder(r)
 	types := map[int]string{} // object ID -> type, to judge removals
 	for {
-		var batch []pwObject
-		if err := dec.Decode(&batch); err != nil {
+		var raw []json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
+		}
+		batch := make([]pwObject, len(raw))
+		for i, r := range raw {
+			if err := json.Unmarshal(r, &batch[i]); err != nil {
+				return err
+			}
+		}
+		if cache != nil {
+			cache.apply(raw, batch)
 		}
 		if relevant(batch, types) {
 			fn()

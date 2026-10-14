@@ -31,7 +31,12 @@ type GraphBackend interface {
 	SetNodeMute(ctx context.Context, id int, muted bool) error
 }
 
+// Graph answers from what the monitor has kept when it is running, and
+// asks pw-dump otherwise (before its first dump, or while it restarts).
 func (w *WirePlumber) Graph(ctx context.Context) (Graph, error) {
+	if g, ok := w.graph.read(); ok {
+		return g, nil
+	}
 	cmd := exec.CommandContext(ctx, "pw-dump", "--no-colors")
 	cmd.Env = append(cmd.Environ(), w.Env...)
 	out, err := cmd.Output()

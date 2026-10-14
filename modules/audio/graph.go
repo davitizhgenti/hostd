@@ -122,6 +122,9 @@ func parseGraph(data []byte) (Graph, error) {
 		}
 	}
 	uniqueNames(g.Outputs)
+	// pw-dump lists objects in no set order; a graph that is the same
+	// should read the same.
+	sort.SliceStable(g.Streams, func(i, j int) bool { return g.Streams[i].ID < g.Streams[j].ID })
 	return g, nil
 }
 
