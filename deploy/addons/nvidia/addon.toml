@@ -1,0 +1,5 @@
+# NVIDIA's own driver in place of Debian's; its steps (NVIDIA's installer,
+# holding Debian's packages back, stopping the screen meanwhile) are in
+# addon.sh.
+description = "NVIDIA's 580 driver instead of Debian's 550 (fixes flicker; stops the screen while it installs)"
+hook = "addon.sh"

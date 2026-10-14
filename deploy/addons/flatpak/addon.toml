@@ -1,0 +1,9 @@
+# Flatpak with Flathub, system-wide: how the app add-ons install their apps.
+# hostd finds Flatpak apps by itself (their exported desktop entries).
+# Running it updates every Flatpak app and runtime, which keeps the NVIDIA
+# graphics runtime in step with the host's driver.
+description = "Flatpak and Flathub, for apps that come as Flatpaks (updated with hostd)"
+packages = ["flatpak"]
+flathub = true
+flatpak_update = true
+keeps = "Flatpak itself stays: other apps may come as Flatpaks (apt remove flatpak to drop it)"

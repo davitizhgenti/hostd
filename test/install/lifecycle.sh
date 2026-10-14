@@ -11,18 +11,17 @@ hostd_up() {
 	for _ in $(seq 1 30); do as_screen hostctl version 2>/dev/null | grep -q "^hostd " && return 0; sleep 1; done
 	return 1
 }
-src=/opt/hostd-src
 dist=/opt/hostd-dist
 
 echo "update"
 t "hostd-setup is on the PATH" 'command -v hostd-setup'
-t "sudo hostd-setup update" "sudo hostd-setup update --source $src --from $dist --gpu other"
+t "sudo hostd-setup update" "sudo hostd-setup update --source $dist --from $dist --gpu other"
 # update.sh left e2e-next running: this update switches away from it, so the
 # installer (through hostd -install) keeps e2e-next's data for a rollback,
 # as an upload through the API does.
 t "the installer's update keeps the data for a rollback" 'l=/home/screen/.local/lib/hostd; cur=$(sudo readlink $l/current) && [ "$(sudo cat $l/versions/e2e-next/backup-for)" = "$cur" ] && sudo test -s $l/versions/e2e-next/state.db.bak'
 t "hostd runs the updated build" 'hostd_up && [ "$(as_screen hostctl version | awk "/^hostd /{print \$2}" | tr -d ,)" = "$(sudo runuser -u screen -- /home/screen/.local/lib/hostd/current/hostd -version 2>&1 | awk "{print \$2}")" ]'
-t "a second update changes nothing" "sudo hostd-setup update --source $src --from $dist --gpu other | grep -q 'No changes needed'"
+t "a second update changes nothing" "sudo hostd-setup update --source $dist --from $dist --gpu other | grep -q 'No changes needed'"
 
 echo "signed updates"
 # A build like CI's, signed with a key of the test's own.
@@ -30,10 +29,9 @@ rel=$(mktemp -d)
 chmod 755 "$rel"
 openssl genpkey -algorithm ed25519 -out "$rel.key" 2>/dev/null
 openssl pkey -in "$rel.key" -pubout -out "$rel.pub"
-cp "$dist/hostd-linux-amd64" "$dist/hostctl-linux-amd64" "$rel/"
-(cd "$src" && tar czf "$rel/hostd-setup.tar.gz" deploy)
+cp "$dist/hostd-linux-amd64" "$dist/hostctl-linux-amd64" "$dist/hostd-setup-linux-amd64" "$rel/"
 sign() { (cd "$rel" && openssl pkeyutl -sign -inkey "$1" -rawin -in SHA256SUMS -out SHA256SUMS.sig); }
-(cd "$rel" && sha256sum hostd-linux-amd64 hostctl-linux-amd64 hostd-setup.tar.gz >SHA256SUMS)
+(cd "$rel" && sha256sum hostd-linux-amd64 hostctl-linux-amd64 hostd-setup-linux-amd64 >SHA256SUMS)
 sign "$rel.key"
 signed="sudo env HOSTD_RELEASE_KEY=\"\$(cat $rel.pub)\" HOSTD_RELEASE_URL=file://$rel"
 t "update from a signed build" "$signed hostd-setup update --gpu other"

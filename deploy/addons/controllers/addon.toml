@@ -1,0 +1,16 @@
+# Game controllers: the device permissions games and emulators need, for
+# the person logged in at the screen. The kernel already drives Xbox (xpad),
+# PlayStation (hid-playstation), Switch (hid-nintendo) and Wii (hid-wiimote)
+# pads as input devices; what games also want is raw HID (Steam Input,
+# Dolphin's real Wii Remotes, rumble, gyro) and uinput (the virtual pads
+# Steam Input makes), which are root-only by default. hostd's own controller
+# profiles are separate (~/.config/hostd/controllers).
+description = "Game controllers: raw HID and uinput access for Xbox, PlayStation, Nintendo (DolphinBar, GameCube adapter), 8BitDo, Valve pads"
+kernel_modules = ["uinput"]
+files = [{ src = "60-hostd-controllers.rules", dest = "/etc/udev/rules.d/60-hostd-controllers.rules" }]
+# Apply the rules to connected devices (a container may have no udev: then
+# they apply at the next boot).
+on_change = [
+  ["udevadm", "control", "--reload"],
+  ["udevadm", "trigger", "--subsystem-match=hidraw", "--subsystem-match=misc", "--subsystem-match=usb", "--action=change"],
+]

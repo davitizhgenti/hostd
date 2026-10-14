@@ -1,0 +1,9 @@
+# Chromium, the web browser (Debian's package): an app (its app file adds an
+# incognito-window action), and the browser hostd's web-page apps (runner
+# url) open in.
+description = "Chromium web browser (also opens hostd's web-page apps)"
+packages = ["chromium"]
+purge = true
+files = [{ src = "chromium.toml", dest = "~/.config/hostd/apps/chromium.toml", owner = "screen" }]
+rescan = true
+keeps = "Chromium's own data (profile, history) stays in ~/.config/chromium"

@@ -20,11 +20,11 @@ build:
 DIST_ARCHES ?= amd64 arm64
 dist:
 	rm -rf dist && mkdir -p dist
-	for arch in $(DIST_ARCHES); do for cmd in hostd hostctl; do \
+	for arch in $(DIST_ARCHES); do for cmd in hostd hostctl hostd-setup; do \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
 			-o dist/$$cmd-linux-$$arch ./cmd/$$cmd || exit 1; \
 	done; done
-	tar czf dist/hostd-setup.tar.gz deploy # the installer of this build (hostd-setup update)
+	tar czf dist/hostd-setup.tar.gz deploy # what installers of earlier versions fetch to update (its install.sh runs hostd-setup)
 	cd dist && sha256sum hostd-* hostctl-* > SHA256SUMS
 
 # .deb packages of the dist binaries (nfpm). A Debian version starts with a
@@ -99,7 +99,8 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/files/start-sway
+	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/addons/*/hook.sh \
+	deploy/addons/lib.sh deploy/files/start-sway
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py

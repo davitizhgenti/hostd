@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034 # variables for the helpers, and the platform not built here
+# The hook of this add-on (addon.toml names it), run by hostd-setup with the
+# helpers of ../lib.sh.
 # NVIDIA's own driver, 580 (a long-term branch, and the last one for
 # Maxwell, Pascal and Volta cards), in place of Debian's 550. From 555 on
 # the driver supports explicit sync; without it Sway, gamescope and
@@ -13,9 +16,6 @@
 #
 # A plain update never swaps drivers (it stops the screen): a newer
 # version here is only reported, and installed by: hostd-setup add nvidia.
-# shellcheck disable=SC2034
-ADDON_DESCRIPTION="NVIDIA's 580 driver instead of Debian's 550 (fixes flicker; stops the screen while it installs)"
-ADDON_REQUIRES=""
 
 NV_VERSION=580.178.04
 NV_SHA256=5975a86ee45bffcb626f51ae33d1169b108186a2ea47ad651e72f13fa4b6d6f9

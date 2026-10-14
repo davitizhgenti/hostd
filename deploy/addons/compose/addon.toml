@@ -1,0 +1,6 @@
+# Compose: podman-compose, which runs hostd's compose apps (runner compose)
+# through "podman compose".
+description = "Compose tool for multi-container apps (podman-compose)"
+packages = ["podman-compose"]
+purge = true
+keeps = "compose apps' containers and volumes stay; hostd stops them when their app stops"

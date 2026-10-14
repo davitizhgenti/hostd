@@ -196,8 +196,9 @@ t "no unit failed" ga '! systemctl --failed --no-legend | grep -q .'
 echo "update through the installer"
 gs 'hostctl start e2e-sleep >/dev/null'
 PID=$(gs 'systemctl --user show -p MainPID --value hostd-e2e-sleep.service')
+# shellcheck disable=SC2088 # ~ is the VM's home: it expands there
 RELEASE=$(ga '~/dist/hostd-linux-amd64 -version 2>&1' | awk '{print $2}')
-t "sudo hostd-setup update" ga 'sudo hostd-setup update --source ~ --from ~/dist --gpu other'
+t "sudo hostd-setup update" ga 'sudo hostd-setup update --source ~/dist --from ~/dist --gpu other'
 t "hostd runs the release build" wait_for 60 version_is "$RELEASE"
 t "the app kept running through it" app_runs
 t "the old version's state is kept for a rollback" gs 'L=~/.local/lib/hostd; [ "$(cat $L/versions/e2e-next/backup-for)" = "versions/'"$RELEASE"'" ] && test -s $L/versions/e2e-next/state.db.bak'

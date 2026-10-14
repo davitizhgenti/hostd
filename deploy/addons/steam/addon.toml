@@ -1,0 +1,21 @@
+# Steam (Flatpak) in Big Picture for the TV, with its installed games listed
+# under it. Steam is an app like any other: hostd has no Steam code. Games
+# are app files that hostd-steam-games writes from Steam's library (a
+# handoff to Steam, followed by SteamAppId, under = "steam"), kept current
+# by a user path unit when the library changes.
+description = "Steam (Flatpak) in Big Picture, with its games listed under it"
+requires = ["flatpak", "controllers"]
+flatpaks = ["com.valvesoftware.Steam"]
+files = [
+  { src = "steam.toml", dest = "~/.config/hostd/apps/steam.toml", owner = "screen" },
+  { src = "hostd-steam-games", dest = "/usr/local/lib/hostd/addons/hostd-steam-games", mode = "755" },
+  { src = "hostd-steam-games.service", dest = "~/.config/systemd/user/hostd-steam-games.service", owner = "screen" },
+  { src = "hostd-steam-games.path", dest = "~/.config/systemd/user/hostd-steam-games.path", owner = "screen" },
+  { src = "hostd-steam-games.timer", dest = "~/.config/systemd/user/hostd-steam-games.timer", owner = "screen" },
+]
+user_units = ["hostd-steam-games.path", "hostd-steam-games.timer"]
+user_start = ["hostd-steam-games.service"]
+rescan = true
+keeps = "Steam's own data (logins, saves, games) stays in ~/.var/app/com.valvesoftware.Steam"
+# Games' video memory limit, and clearing up an earlier gamescope session.
+hook = "hook.sh"

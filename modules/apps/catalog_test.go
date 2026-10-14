@@ -460,7 +460,13 @@ func (m *Module) seenChanges() int {
 func TestShippedAppFiles(t *testing.T) {
 	// The app files the installer and its add-ons write: each must load
 	// without a problem (over the desktop entries they extend).
-	paths, _ := filepath.Glob("../../deploy/addons/*/*.toml")
+	all, _ := filepath.Glob("../../deploy/addons/*/*.toml")
+	var paths []string
+	for _, p := range all {
+		if filepath.Base(p) != "addon.toml" { // an add-on's own manifest, not an app file
+			paths = append(paths, p)
+		}
+	}
 	paths = append(paths, "../../deploy/files/menu/hostd-menu.toml")
 	desktop := []App{{ID: "chromium", Name: "Chromium Web Browser", Runner: Runner{Type: RunnerExec, Command: []string{"chromium"}}},
 		{ID: "steam", Name: "Steam", Runner: Runner{Type: RunnerFlatpak, AppID: "com.valvesoftware.Steam"},

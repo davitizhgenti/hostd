@@ -7,11 +7,11 @@ A module owns a namespace (`lights.*`). It declares its actions, events, reads a
 | You want | Use | Code |
 | --- | --- | --- |
 | A program on the screen or a service in the background | An [app file](apps.md) | None: a TOML file in `~/.config/hostd/apps/` |
-| Something set up on the machine: packages, drivers, system services | An add-on (`deploy/addons/NAME/addon.sh`, `sudo hostd-setup add NAME`) | Bash, run as root by the installer |
+| Something set up on the machine: packages, drivers, system services | An add-on (`deploy/addons/NAME/addon.toml`, `sudo hostd-setup add NAME`; see [deploy/addons/README.md](../deploy/addons/README.md)) | None for most: a TOML file of packages, Flatpaks and files; a bash hook for the rest |
 | New actions, events or reads: lights, a thermostat, anything with an API | An external module | Any language; configured in a file of its own in `hostd.d/` |
 | The same, inside hostd | A built-in module | Go, one entry in `internal/daemon/modules.go` |
 
-They combine: an add-on can install what an external module needs and write its `hostd.d/` file (and remove it again in `addon_remove`), so `sudo hostd-setup add NAME` gives the machine a new module without anyone editing `hostd.toml`.
+They combine: an add-on can install what an external module needs and write its `hostd.d/` file (listed under `files`, so `remove` takes it away again), so `sudo hostd-setup add NAME` gives the machine a new module without anyone editing `hostd.toml`.
 
 ## In any language: an external module
 

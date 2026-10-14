@@ -1,4 +1,7 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034 # variables for the helpers, and the platform not built here
+# The hook of this add-on (addon.toml names it), run by hostd-setup with the
+# helpers of ../lib.sh.
 # Pterodactyl (https://pterodactyl.io): a panel for hosting game servers,
 # and Wings, the daemon that runs them in Docker containers. Installed the
 # way Pterodactyl's own Debian guide does, on one machine:
@@ -12,9 +15,6 @@
 # this add-on is how the versions change. The panel gets an admin user, a
 # location and a node for this machine, and Wings its config, so game
 # servers only need an allocation (a port) and an egg (a game).
-# shellcheck disable=SC2034
-ADDON_DESCRIPTION="Pterodactyl game server panel (http://<machine>/) and its Wings daemon (Docker)"
-ADDON_REQUIRES="chromium" # the panel is an app of hostd: a page in its browser
 
 PTERO_PANEL_VERSION=1.15.1
 PTERO_PANEL_SHA256=62c88c035b3e0f3c3ddd06bc3ef12249d087af0e765f49878b6327a066ed860b
