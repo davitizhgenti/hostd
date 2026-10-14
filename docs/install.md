@@ -30,6 +30,8 @@ ssh screen@<machine> hostctl apps --all
 
 ## A headless machine (the .deb)
 
+The two are different layers, not two ways to do the same thing. `install.sh` (and `hostd-setup`) turns a fresh Debian into a whole hostd machine: the driver, Sway, PipeWire, the `screen` user, and hostd with its updates. The `.deb` is only hostd: the two programs and the user service, for a machine you set up yourself. Use one or the other on a machine, not both.
+
 For a server without a screen, or to manage hostd with apt, install the package from a release:
 
 ```sh

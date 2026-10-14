@@ -27,7 +27,7 @@ import (
 // looked up in the server's manifests.
 var builtins = map[string]bool{
 	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "windows": true, "controllers": true,
+	"action": true, "apps": true, "start": true, "stop": true, "ps": true, "focus": true, "controllers": true,
 	"volume": true, "mute": true, "update": true, "git-shell": true, "rules": true, "scenes": true, "wait-quiet": true,
 	"help": true, "completion": true,
 }
@@ -48,7 +48,7 @@ see them all.`,
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
 		a.eventsCommand(), a.actionCommand(), a.appsCommand(), a.startCommand(), a.stopCommand(), a.psCommand(),
-		a.focusCommand(), a.windowsCommand(), a.controllersCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand(), a.gitShellCommand(), a.rulesCommand(), a.scenesCommand(), a.waitQuietCommand())
+		a.focusCommand(), a.controllersCommand(), a.volumeCommand(), a.muteCommand(), a.updateCommand(), a.gitShellCommand(), a.rulesCommand(), a.scenesCommand(), a.waitQuietCommand())
 	return root
 }
 
@@ -226,11 +226,11 @@ func (a *app) tokenCommand() *cobra.Command {
 				case t.Expires != nil && !time.Now().Before(*t.Expires):
 					state = "expired"
 				case t.Expires != nil:
-					state = "expires " + t.Expires.Local().Format("2006-01-02 15:04")
+					state = "expires " + t.Expires.In(displayZone).Format("2006-01-02 15:04")
 				}
 				used := "never"
 				if t.LastUsed != nil {
-					used = t.LastUsed.Local().Format("2006-01-02 15:04")
+					used = t.LastUsed.In(displayZone).Format("2006-01-02 15:04")
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Name, t.Kind, strings.Join(t.Scopes, ","), used, state, t.ID)
 			}
@@ -309,7 +309,7 @@ func (a *app) logCommand() *cobra.Command {
 			for i := len(recs) - 1; i >= 0; i-- {
 				r := recs[i]
 				what := strings.TrimSpace(r.Type + " " + shorten(argSummary(r.Args), 40))
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Time.Local().Format("15:04:05"), what, r.Source, outcome(r))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Time.In(displayZone).Format("15:04:05"), what, r.Source, outcome(r))
 			}
 			return tw.Flush()
 		},
@@ -359,7 +359,7 @@ func outcome(r client.AuditRecord) string {
 	switch r.Status {
 	case "skipped":
 		if r.Until != nil {
-			return fmt.Sprintf("skipped\theld by %s until %s", r.HeldBy, r.Until.Local().Format("15:04:05"))
+			return fmt.Sprintf("skipped\theld by %s until %s", r.HeldBy, r.Until.In(displayZone).Format("15:04:05"))
 		}
 		return "skipped\t" + r.Reason
 	case "failed":
@@ -422,7 +422,7 @@ func (a *app) printEvent(ev sdk.Event) error {
 		_, err := fmt.Fprintln(a.stdout, string(b))
 		return err
 	}
-	line := ev.Time.Local().Format("15:04:05") + " " + ev.Type
+	line := ev.Time.In(displayZone).Format("15:04:05") + " " + ev.Type
 	if len(ev.Data) > 0 && string(ev.Data) != "null" {
 		line += " " + string(ev.Data)
 	}
@@ -481,7 +481,7 @@ func (a *app) submit(cmd *cobra.Command, req client.ActionRequest) error {
 	case sdk.StatusSkipped:
 		until := ""
 		if res.Until != nil {
-			until = " until " + res.Until.Local().Format("15:04:05")
+			until = " until " + res.Until.In(displayZone).Format("15:04:05")
 		}
 		fmt.Fprintf(a.stdout, "skipped: held by %s%s\n", res.HeldBy, until)
 	case sdk.StatusAccepted:
@@ -703,7 +703,7 @@ func (a *app) psCommand() *cobra.Command {
 				if in.PID > 0 && in.Ended == nil {
 					pid = strconv.Itoa(in.PID)
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", in.ID, in.App, in.Runner, state, pid, since.Local().Format("15:04:05"))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", in.ID, in.App, in.Runner, state, pid, since.In(displayZone).Format("15:04:05"))
 			}
 			return tw.Flush()
 		},
@@ -809,50 +809,6 @@ A raw device (a DolphinBar) is read only by its app.`,
 					buttons = "(read by " + x.App + ")"
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s:%s\t%s\t%s\n", x.Device, x.Kind, x.Profile, x.Vendor, x.Product, buttons, x.Name)
-			}
-			return tw.Flush()
-		},
-	}
-}
-
-func (a *app) windowsCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "windows",
-		Short: "List all windows on the screen, including ones hostd did not start",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, err := a.client()
-			if err != nil {
-				return err
-			}
-			var list []struct {
-				ID         int64  `json:"id"`
-				Instance   string `json:"instance"`
-				AppID      string `json:"app_id"`
-				Class      string `json:"class"`
-				Title      string `json:"title"`
-				Workspace  string `json:"workspace"`
-				Focused    bool   `json:"focused"`
-				Fullscreen bool   `json:"fullscreen"`
-			}
-			if err := c.Get(cmd.Context(), "/v1/windows", &list); err != nil {
-				return err
-			}
-			if a.jsonOut {
-				return a.printJSON(list)
-			}
-			tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "INSTANCE\tAPP ID\tWORKSPACE\tFOCUSED\tFULLSCREEN\tTITLE")
-			for _, w := range list {
-				inst := w.Instance
-				if inst == "" {
-					inst = "-"
-				}
-				app := w.AppID
-				if app == "" {
-					app = w.Class
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%v\t%s\n", inst, app, w.Workspace, w.Focused, w.Fullscreen, shorten(w.Title, 40))
 			}
 			return tw.Flush()
 		},

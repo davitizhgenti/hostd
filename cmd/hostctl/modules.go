@@ -45,6 +45,7 @@ func (a *app) addModuleCommands(ctx context.Context, root *cobra.Command) error 
 			a.makeActionCommand(leaf, spec, m.Name)
 		}
 	}
+	a.addReadCommands(root, manifests)
 	return nil
 }
 

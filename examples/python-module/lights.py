@@ -59,7 +59,10 @@ MANIFEST = {
         },
     ],
     "events": [{"type": "lights.changed", "description": "A light's brightness changed"}],
-    "reads": [{"name": "lights", "description": "Every light and its brightness", "path": "/v1/lights"}],
+    # "cli" is optional: it only tells hostctl how to print the read as a table
+    # (hostctl get lights lights); without it hostctl prints the JSON.
+    "reads": [{"name": "lights", "description": "Every light and its brightness", "path": "/v1/lights",
+               "cli": {"columns": [{"title": "LIGHT", "path": "id"}, {"title": "BRIGHTNESS", "path": "brightness"}]}}],
 }
 
 

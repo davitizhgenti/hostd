@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/davitizhgenti/hostd/internal/client"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -53,6 +54,11 @@ func exitCode(err error) int {
 		return exitError
 	}
 }
+
+// displayZone is the time zone times are printed in: the machine's. A test
+// sets it once, before anything runs, so expected output does not depend on
+// where the test runs.
+var displayZone = time.Local
 
 // usageError marks mistakes in how hostctl was called.
 type usageError struct{ error }

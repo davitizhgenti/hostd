@@ -20,6 +20,9 @@ import (
 // against each other over a unix socket. They double as documentation of
 // how hostctl is used.
 func TestMain(m *testing.M) {
+	// Times print in local time; the expected output must not depend on the
+	// machine.
+	displayZone = time.UTC
 	testscript.Main(m, map[string]func(){
 		"hostctl": func() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) },
 		"hostd":   func() { os.Exit(daemon.Run(context.Background(), os.Args[1:], os.Stderr)) },

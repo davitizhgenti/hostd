@@ -91,6 +91,27 @@ func TestManifestInvalid(t *testing.T) {
 			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/same"}, {Name: "y", Path: "/v1/same"}}
 		}, "already used"},
 		{"read bad param", func(m *Manifest) { m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x/{ID}"}} }, "path parameter {ID}"},
+		{"alias with capitals", func(m *Manifest) { m.Actions[0].CLI = &CLI{Alias: []string{"Vol"}} }, `alias "Vol"`},
+		{"alias twice", func(m *Manifest) {
+			m.Actions[0].CLI = &CLI{Alias: []string{"v"}}
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Alias: []string{"v"}}}}
+		}, "already used"},
+		{"columns on an action", func(m *Manifest) { m.Actions[0].CLI = &CLI{Columns: []Column{{Title: "A", Path: "a"}}} }, "apply to reads"},
+		{"column without title", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Path: "a"}}}}}
+		}, "no title"},
+		{"column without path", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Title: "A"}}}}}
+		}, "no path"},
+		{"column bad format", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Title: "A", Path: "a", Format: "hex"}}}}}
+		}, `format "hex"`},
+		{"column bad path", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Title: "A", Path: "a|b c"}}}}}
+		}, `path "b c"`},
+		{"column negative max", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Title: "A", Path: "a", Max: -1}}}}}
+		}, "negative max"},
 		{"event outside namespace", func(m *Manifest) { m.Events[0].Type = "display.idle" }, "outside the namespaces"},
 		{"duplicate event", func(m *Manifest) { m.Events[1] = m.Events[0] }, "declared twice"},
 	} {
@@ -137,5 +158,30 @@ func TestDurationJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(bad), &d); err == nil {
 			t.Errorf("unmarshal(%s) accepted", bad)
 		}
+	}
+}
+
+func TestManifestCLIHintsAreValid(t *testing.T) {
+	m := validManifest()
+	m.Actions[0].CLI = &CLI{Alias: []string{"volume"}}
+	m.Reads = []ReadSpec{{Name: "streams", Path: "/v1/audio/streams", CLI: &CLI{
+		Alias:   []string{"streams"},
+		Empty:   "nothing is playing",
+		Columns: []Column{{Title: "APP", Path: "app_id|class", Max: 20}, {Title: "SINCE", Path: "state.since", Format: "time"}, {Title: "TAGS", Path: "tags", Format: "list"}}}}}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	// It crosses the wire as JSON, and a manifest without it is unchanged.
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Manifest
+	if err := json.Unmarshal(b, &back); err != nil || back.Reads[0].CLI.Columns[1].Format != "time" || back.Actions[0].CLI.Alias[0] != "volume" {
+		t.Fatalf("%s: %+v %v", b, back, err)
+	}
+	plain, _ := json.Marshal(validManifest().Reads)
+	if strings.Contains(string(plain), "cli") {
+		t.Fatalf("a read without hints carries cli: %s", plain)
 	}
 }

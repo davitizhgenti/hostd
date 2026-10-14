@@ -59,6 +59,41 @@ type ReadSpec struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Path        string `json:"path"` // e.g. /v1/apps/{id}
+
+	// CLI says how hostctl shows the read (optional).
+	CLI *CLI `json:"cli,omitempty"`
+}
+
+// CLI says how hostctl presents an action or a read. Every part is
+// optional: without it hostctl still has a command (hostctl <namespace>
+// <action>, hostctl get <module> <read>), and prints the JSON. It is
+// presentation only: the core ignores it, and an older hostctl ignores
+// what it does not know.
+type CLI struct {
+	// Alias are extra top-level command names for this one, such as
+	// "windows" for "hostctl get display windows". An alias that a built-in
+	// command or another module already has is not used.
+	Alias []string `json:"alias,omitempty"`
+	// Columns turn a read that returns a list of objects into a table
+	// (reads only).
+	Columns []Column `json:"columns,omitempty"`
+	// Empty is printed instead of a table with no rows (reads only).
+	Empty string `json:"empty,omitempty"`
+}
+
+// A Column is one column of a read's table.
+type Column struct {
+	Title string `json:"title"` // the heading, e.g. "INSTANCE"
+	// Path is the field of each row: "state", or "a.b" for a nested one.
+	// "app_id|class" is the first of the two that is not empty.
+	Path string `json:"path"`
+	// Format is how the value is written: "" (a string as it is, a number,
+	// true or false, a list joined by commas, "-" when there is none),
+	// "list" (the same, for lists) or "time" (an RFC 3339 time as the
+	// local time of day, HH:MM:SS).
+	Format string `json:"format,omitempty"`
+	// Max cuts a longer value to this many characters, ending in "…".
+	Max int `json:"max,omitempty"`
 }
 
 // ScopeSpec is a token scope a module defines.
@@ -99,6 +134,9 @@ type ActionSpec struct {
 	// Route is the friendly API route for this action, if any. Path
 	// parameters are merged into the arguments.
 	Route *Route `json:"route,omitempty"`
+
+	// CLI says how hostctl shows the action (optional; only Alias applies).
+	CLI *CLI `json:"cli,omitempty"`
 }
 
 // Route is an HTTP route such as POST /v1/apps/{id}/start.
@@ -139,6 +177,8 @@ var (
 	reType    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 	rePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*(\.\*)?$`)
 	reParam   = regexp.MustCompile(`\{([^}]*)\}`)
+	reAlias   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	reField   = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
 )
 
 var methods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
@@ -314,6 +354,51 @@ func (m *Manifest) Validate() error {
 				bad("%s: path parameter {%s}: use lowercase letters, digits and _", where, p[1])
 			}
 		}
+	}
+
+	aliases := map[string]string{}
+	checkCLI := func(where string, c *CLI, read bool) {
+		if c == nil {
+			return
+		}
+		for _, a := range c.Alias {
+			switch {
+			case !reAlias.MatchString(a):
+				bad("%s: alias %q: use lowercase letters, digits and '-'", where, a)
+			case aliases[a] != "":
+				bad("%s: alias %q is already used by %s", where, a, aliases[a])
+			}
+			aliases[a] = where
+		}
+		if !read && (len(c.Columns) > 0 || c.Empty != "") {
+			bad("%s: columns and empty apply to reads, not actions", where)
+		}
+		if len(c.Columns) > 12 {
+			bad("%s: %d columns; at most 12", where, len(c.Columns))
+		}
+		for i, col := range c.Columns {
+			switch {
+			case col.Title == "":
+				bad("%s: column %d has no title", where, i+1)
+			case col.Path == "":
+				bad("%s: column %q has no path", where, col.Title)
+			case col.Format != "" && col.Format != "list" && col.Format != "time":
+				bad("%s: column %q: format %q is not list or time", where, col.Title, col.Format)
+			case col.Max < 0:
+				bad("%s: column %q: negative max", where, col.Title)
+			}
+			for _, alt := range strings.Split(col.Path, "|") {
+				if !reField.MatchString(alt) {
+					bad("%s: column %q: path %q is not a field name such as a or a.b", where, col.Title, alt)
+				}
+			}
+		}
+	}
+	for _, a := range m.Actions {
+		checkCLI(fmt.Sprintf("action %q", a.Type), a.CLI, false)
+	}
+	for _, rd := range m.Reads {
+		checkCLI(fmt.Sprintf("read %q", rd.Name), rd.CLI, true)
 	}
 
 	seen = map[string]bool{}

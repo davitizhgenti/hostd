@@ -42,7 +42,7 @@ func (a *app) waitQuietCommand() *cobra.Command {
 				for _, r := range running {
 					for _, p := range patterns {
 						if sdk.MatchType(strings.TrimSpace(p), r.Type) {
-							busy = append(busy, fmt.Sprintf("%s (%s, since %s)", r.Type, r.ID, r.Started.Local().Format("15:04:05")))
+							busy = append(busy, fmt.Sprintf("%s (%s, since %s)", r.Type, r.ID, r.Started.In(displayZone).Format("15:04:05")))
 							break
 						}
 					}

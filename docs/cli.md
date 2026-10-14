@@ -6,6 +6,8 @@ hostctl talks to a hostd machine: over its unix socket on the machine itself, or
 
 **Module commands** come from the machine: every action becomes `hostctl <namespace> <action> [args]`, such as `hostctl audio volume set 40`, `hostctl deploy run blog` or `hostctl scene apply movie`. An action's required arguments are positional, in order, and every argument also has a `--flag`. Arguments marked secret (`hostctl secret set <name>`) are read from standard input. `hostctl --help` on a connected machine lists them all, including those of external modules.
 
+**Reads** (what a module reports) come from the machine too: `hostctl get <module> <read>`, such as `hostctl get display windows`. A read that returns a list prints as a table when its module says how, and as JSON otherwise, or with `--json`. A read with `{parameters}` in its path takes them as arguments (`hostctl get apps app firefox`), and query parameters are given as `--param key=value`. A module can also ask for a short top-level name for one of its commands: `hostctl windows` is `hostctl get display windows`. A name that a built-in command or another module has is not taken.
+
 Global flags:
 
 | Flag | Default | Meaning |
@@ -287,11 +289,3 @@ hostctl wait-quiet [flags]
 | `--idle` |  | also wait until nobody is using the screen |
 | `--max` | `5m0s` | give up after this long |
 | `--types` | `deploy.*,scene.*` | action types to wait for (comma-separated; a namespace with .*) |
-
-## hostctl windows
-
-List all windows on the screen, including ones hostd did not start
-
-```
-hostctl windows
-```

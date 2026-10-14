@@ -294,7 +294,10 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},
 		},
 		Reads: []sdk.ReadSpec{
-			{Name: "windows", Description: "All windows, including ones hostd did not start", Path: "/v1/windows"},
+			{Name: "windows", Description: "All windows, including ones hostd did not start", Path: "/v1/windows",
+				CLI: &sdk.CLI{Alias: []string{"windows"}, Columns: []sdk.Column{
+					{Title: "INSTANCE", Path: "instance"}, {Title: "APP ID", Path: "app_id|class"}, {Title: "WORKSPACE", Path: "workspace"},
+					{Title: "FOCUSED", Path: "focused"}, {Title: "FULLSCREEN", Path: "fullscreen"}, {Title: "TITLE", Path: "title", Max: 40}}}},
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
 			{Name: "controllers", Description: "Connected game controllers, with their profile and bindable buttons", Path: "/v1/controllers"},
 		},

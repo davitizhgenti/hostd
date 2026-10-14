@@ -1,0 +1,4 @@
+INSTANCE  APP ID   WORKSPACE      FOCUSED  FULLSCREEN  TITLE
+firefox   firefox  hostd:firefox  true     true        Mozilla Firefox
+-         Steam    1              false    false       A very long window title that goes on w…
+-         -        2              false    false       -

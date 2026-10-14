@@ -54,3 +54,14 @@ A built-in module implements `sdk.Module` (`Manifest`, `Start`, `Validate`, `Han
 - `secret` names arguments whose values are never recorded. hostctl reads them from standard input.
 - `slow` actions answer `202` at once. Their result follows as an event.
 - `hooks` are POST routes under `/v1/hooks/` with no token. The module checks each request itself, by its signature.
+- `cli` on an action or a read (optional) says how hostctl shows it. Without it hostctl still has a command for every action (`hostctl lights set porch 40`) and for every read (`hostctl get lights lights`, which prints the JSON). With it:
+
+  ```json
+  "reads": [{"name": "lights", "path": "/v1/lights",
+             "cli": {"alias": ["lights-list"], "empty": "no lights",
+                     "columns": [{"title": "LIGHT", "path": "id"},
+                                 {"title": "BRIGHTNESS", "path": "brightness"},
+                                 {"title": "SINCE", "path": "changed", "format": "time"}]}}]
+  ```
+
+  `columns` turn a read that returns a list of objects into a table: each has a `title` and a `path` to the field of every row (`a.b` for a nested one, `a|b` for the first of two that is not empty), an optional `format` (`list` joins a list with commas, `time` prints an RFC 3339 time as the local time of day) and an optional `max` length. A missing or empty value is shown as `-`. `empty` is printed instead of a table with no rows. `alias` gives the command a short top-level name (`hostctl lights-list`); a name that a built-in command or an earlier module has is not used. Only `alias` applies to an action. A read with `{parameters}` in its path takes them as arguments (`hostctl get lights light porch`). hostctl ignores `cli` entries it does not know, and the core ignores `cli` altogether, so a module can add hints without caring which hostctl runs.

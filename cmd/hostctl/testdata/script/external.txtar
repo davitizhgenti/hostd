@@ -15,6 +15,13 @@ exec hostctl log --limit 5
 stdout 'lights.set .*manual'
 exits 4 hostctl lights set garage --brightness 1
 
+# Its read is a command too, as a table because the manifest says how.
+exec hostctl get lights lights
+stdout 'LIGHT +BRIGHTNESS'
+stdout 'porch +10'
+exec hostctl get lights lights --json
+stdout '"brightness": 10'
+
 -- hostd.toml --
 modules = ["apps"]
 [external.lights]

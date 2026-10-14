@@ -57,13 +57,13 @@ func (a *app) rulesCommand() *cobra.Command {
 				}
 				last := "-"
 				if r.LastFired != nil {
-					last = r.LastFired.Local().Format("15:04:05") + " " + r.LastResult
+					last = r.LastFired.In(displayZone).Format("15:04:05") + " " + r.LastResult
 				}
 				state := "active"
 				if r.PausedUntil != nil {
 					state = "paused: " + r.PausedWhy
 					if r.PausedUntil.Year() < 9999 {
-						state += " (until " + r.PausedUntil.Local().Format("15:04") + ")"
+						state += " (until " + r.PausedUntil.In(displayZone).Format("15:04") + ")"
 					}
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n", r.Name, r.On, do, r.Fired, last, state)
