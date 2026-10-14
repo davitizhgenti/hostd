@@ -9,7 +9,10 @@
 #   3. an update while an app runs: the app keeps running
 #   4. a build that cannot start: rolled back, the app still runs
 #   5. reboot: the installed version, tokens and app files are still there
-#   6. the API and the docs from outside the VM
+#   6. an update through the installer (hostd-setup update, what the timer
+#      runs): the app keeps running, and the old version's data is kept for
+#      a rollback
+#   7. the API and the docs from outside the VM
 #
 # Runs inside the hostd-e2e container, with these mounted:
 #   /repo (the checkout), /dist (make dist), /bins (e2e-next, e2e-bad),
@@ -71,7 +74,7 @@ running_version() { gs 'hostctl version' 2>/dev/null | awk '/^hostd /{print $2}'
 version_is() { [ "$(running_version)" = "$1" ]; }
 second_install() { ga 'sudo ~/deploy/install.sh --gpu other --from ~/dist' | grep -q 'No changes needed'; }
 app_runs() { gs "kill -0 $PID && hostctl ps | grep -q '^e2e-sleep .*running'"; }
-api_version() { curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7300/v1/version | grep -q e2e-next; }
+api_version() { curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7300/v1/version | grep -q '"version"'; }
 api_without_token() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7300/v1/version)" = 401 ]; }
 docs_served() { curl -fsS http://127.0.0.1:7300/docs/ | grep -qi 'hostd'; }
 
@@ -185,6 +188,21 @@ t "the token and the app file survived" gs 'hostctl token list | grep -q e2e-kee
 t "the app did not come back by itself (its unit was transient)" gs '! systemctl --user is-active --quiet hostd-e2e-sleep.service'
 t "the update timer is scheduled" ga 'systemctl is-active --quiet hostd-update.timer'
 t "no unit failed" ga '! systemctl --failed --no-legend | grep -q .'
+
+# --- an update through the installer --------------------------------------
+# What the update timer runs: hostd-setup update, here from the checkout
+# and the release build in the VM. hostd switches itself (hostd -install),
+# keeping the state of the version it replaces.
+echo "update through the installer"
+gs 'hostctl start e2e-sleep >/dev/null'
+PID=$(gs 'systemctl --user show -p MainPID --value hostd-e2e-sleep.service')
+RELEASE=$(ga '~/dist/hostd-linux-amd64 -version 2>&1' | awk '{print $2}')
+t "sudo hostd-setup update" ga 'sudo hostd-setup update --source ~ --from ~/dist --gpu other'
+t "hostd runs the release build" wait_for 60 version_is "$RELEASE"
+t "the app kept running through it" app_runs
+t "the old version's state is kept for a rollback" gs 'L=~/.local/lib/hostd; [ "$(cat $L/versions/e2e-next/backup-for)" = "versions/'"$RELEASE"'" ] && test -s $L/versions/e2e-next/state.db.bak'
+t "no more than 3 versions are kept" gs '[ "$(ls ~/.local/lib/hostd/versions | wc -l)" -le 3 ]'
+t "no unit failed after it" ga '! systemctl --failed --no-legend | grep -q .'
 
 # --- from outside the VM ---------------------------------------------------
 echo "the network API"
