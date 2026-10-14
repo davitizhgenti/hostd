@@ -105,8 +105,7 @@ func setup(t *testing.T, opts Options) *env {
 		t.Fatal(err)
 	}
 	runCtx, stopRun := context.WithCancel(ctx)
-	ran := make(chan struct{})
-	go func() { srv.Run(runCtx); close(ran) }()
+	ran := srv.Collect(runCtx)
 	hs := httptest.NewServer(srv.Handler())
 	admin, _, err := st.EnsureAdminToken(ctx)
 	if err != nil {

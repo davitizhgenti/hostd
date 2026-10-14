@@ -180,11 +180,19 @@ func (s *Server) withBasics(next http.Handler) http.Handler {
 	})
 }
 
-// Run collects events for replay until ctx ends. Start it before serving.
-func (s *Server) Run(ctx context.Context) {
-	for ev := range s.engine.Subscribe(ctx, "*") {
-		s.ring.add(ev)
-	}
+// Collect keeps events for replay (GET /v1/events?since=) until ctx ends;
+// the returned channel closes when it has stopped. It subscribes before it
+// returns, so no event emitted after the call is missed.
+func (s *Server) Collect(ctx context.Context) <-chan struct{} {
+	events := s.engine.Subscribe(ctx, "*")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ev := range events {
+			s.ring.add(ev)
+		}
+	}()
+	return done
 }
 
 // Serve starts the ring collector and serves on a unix socket (mode 0600)
@@ -193,7 +201,7 @@ func (s *Server) Run(ctx context.Context) {
 func (s *Server) Serve(ctx context.Context, unixPath, tcpAddr string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go s.Run(ctx)
+	s.Collect(ctx)
 
 	var lc net.ListenConfig
 	var listeners []net.Listener
