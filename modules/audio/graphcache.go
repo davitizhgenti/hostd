@@ -18,12 +18,13 @@ import (
 // exception is a metadata object, which carries only the keys that
 // changed, so those are merged by key.
 //
-// Only what parseGraph reads is kept: nodes, devices and the default sink.
+// Only what parseGraph reads is kept: nodes, devices, clients (a native
+// PipeWire stream names its process only there) and the default sink.
 type graphCache struct {
 	mu      sync.Mutex
 	ready   bool                    // the first full dump has arrived
 	types   map[int]string          // object ID -> type, to judge removals
-	objs    map[int]json.RawMessage // nodes and devices, as pw-dump printed them
+	objs    map[int]json.RawMessage // nodes, devices and clients, as pw-dump printed them
 	defSink map[int]json.RawMessage // metadata ID -> value of default.audio.sink
 	graph   *Graph                  // parsed objs, until the next change
 }
@@ -58,7 +59,7 @@ func (c *graphCache) apply(raw []json.RawMessage, batch []pwObject) {
 			continue
 		}
 		switch {
-		case strings.HasSuffix(typ, ":Node"), strings.HasSuffix(typ, ":Device"):
+		case strings.HasSuffix(typ, ":Node"), strings.HasSuffix(typ, ":Device"), strings.HasSuffix(typ, ":Client"):
 			c.objs[o.ID] = slices.Clone(raw[i])
 		case strings.HasSuffix(typ, ":Metadata"):
 			c.mergeMetadata(o.ID, raw[i])

@@ -76,11 +76,14 @@ func parseGraph(data []byte) (Graph, error) {
 		return Graph{}, err
 	}
 	devices := map[int]map[string]any{}
+	clients := map[int]map[string]any{}
 	defaultSink := ""
 	for _, o := range objs {
 		switch {
 		case strings.HasSuffix(o.Type, ":Device") && o.Info != nil:
 			devices[o.ID] = o.Info.Props
+		case strings.HasSuffix(o.Type, ":Client") && o.Info != nil:
+			clients[o.ID] = o.Info.Props
 		case strings.HasSuffix(o.Type, ":Metadata"):
 			for _, m := range o.Metadata {
 				if m.Key == "default.audio.sink" {
@@ -113,10 +116,7 @@ func parseGraph(data []byte) (Graph, error) {
 			// pipewire.sec.pid is what PipeWire saw of the client's socket:
 			// the real process. application.process.id is what the app
 			// says, which inside a sandbox (Steam's) is its own namespace's.
-			pid := num(p, "pipewire.sec.pid")
-			if pid == 0 {
-				pid = num(p, "application.process.id")
-			}
+			pid := streamPID(p, clients[num(p, "client.id")])
 			g.Streams = append(g.Streams, Stream{ID: o.ID, PID: pid,
 				App: str(p, "application.name"), Percent: percent, Muted: muted})
 		}
@@ -126,6 +126,24 @@ func parseGraph(data []byte) (Graph, error) {
 	// should read the same.
 	sort.SliceStable(g.Streams, func(i, j int) bool { return g.Streams[i].ID < g.Streams[j].ID })
 	return g, nil
+}
+
+// streamPID is the process playing a stream. pipewire.sec.pid is what
+// PipeWire saw of the client's socket: the real process.
+// application.process.id is what the app says, which inside a sandbox
+// (Steam's) is its own namespace's. Streams that come through the
+// PulseAudio layer (browsers) carry them on the node; native PipeWire
+// clients (pw-cat, SDL games) only on their client object.
+func streamPID(node, client map[string]any) int {
+	for _, props := range []map[string]any{node, client} {
+		if pid := num(props, "pipewire.sec.pid"); pid != 0 {
+			return pid
+		}
+		if pid := num(props, "application.process.id"); pid != 0 {
+			return pid
+		}
+	}
+	return 0
 }
 
 // cubicPercent turns PipeWire's channel volumes (cubic) into the percent

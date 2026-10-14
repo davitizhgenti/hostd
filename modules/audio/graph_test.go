@@ -77,3 +77,23 @@ func TestGraphNames(t *testing.T) {
 		}
 	}
 }
+
+// A native PipeWire client (pw-cat, an SDL game) names its process only on
+// its client object; the stream node points there with client.id. A node
+// that carries a process itself (through the PulseAudio layer) keeps it.
+func TestStreamPIDFromItsClient(t *testing.T) {
+	g, err := parseGraph([]byte(`[
+ {"id": 55, "type": "PipeWire:Interface:Client", "info": {"props": {"pipewire.sec.pid": 23828, "application.process.id": 23828, "application.name": "pw-cat"}}},
+ {"id": 56, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 55, "application.name": "pw-cat"}}},
+ {"id": 57, "type": "PipeWire:Interface:Client", "info": {"props": {"pipewire.sec.pid": 1}}},
+ {"id": 58, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 57, "pipewire.sec.pid": 4242, "application.name": "Chromium"}}},
+ {"id": 59, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 99, "application.name": "orphan"}}}
+]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Stream{{ID: 56, PID: 23828, App: "pw-cat"}, {ID: 58, PID: 4242, App: "Chromium"}, {ID: 59, App: "orphan"}}
+	if !reflect.DeepEqual(g.Streams, want) {
+		t.Fatalf("streams %+v", g.Streams)
+	}
+}

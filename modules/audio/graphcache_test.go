@@ -181,3 +181,18 @@ fi
 		t.Fatalf("after the monitor: %d forks, %v", forks(), err)
 	}
 }
+
+// The cache keeps client objects too: a native stream finds its process
+// through one, and a client that goes away takes that with it.
+func TestGraphCacheKeepsClients(t *testing.T) {
+	var c graphCache
+	feed(t, &c, `[{"id": 55, "type": "PipeWire:Interface:Client", "info": {"props": {"pipewire.sec.pid": 23828}}},
+	  {"id": 56, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 55}}}]`)
+	if s := readGraph(t, &c).Streams; len(s) != 1 || s[0].PID != 23828 {
+		t.Fatalf("streams %+v", s)
+	}
+	feed(t, &c, `[{"id": 55, "info": null}]`)
+	if s := readGraph(t, &c).Streams; len(s) != 1 || s[0].PID != 0 {
+		t.Fatalf("after the client left: %+v", s)
+	}
+}
