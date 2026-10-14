@@ -1,0 +1,5 @@
+NAME   KIND        SCOPES     LAST USED         STATE                     ID
+admin  manual      admin      2026-10-14 09:30  active                    tok_1
+phone  manual      read,apps  never             expires 2099-01-01 00:00  tok_2
+old    automation  read       never             expired                   tok_3
+gone   local       read       never             revoked                   tok_4

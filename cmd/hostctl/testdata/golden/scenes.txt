@@ -1,0 +1,3 @@
+SCENE   NAME         SETS
+movie   Movie night  apps, audio
+lights  Lights only  do

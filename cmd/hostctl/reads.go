@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -169,20 +168,11 @@ func (a *app) printTable(cli *sdk.CLI, raw json.RawMessage) error {
 		_, err := fmt.Fprintln(a.stdout, cli.Empty)
 		return err
 	}
-	tw := tabwriter.NewWriter(a.stdout, 0, 0, 2, ' ', 0)
-	titles := make([]string, len(cli.Columns))
+	cols := make([]column[map[string]any], len(cli.Columns))
 	for i, c := range cli.Columns {
-		titles[i] = c.Title
+		cols[i] = column[map[string]any]{c.Title, func(row map[string]any) string { return cell(row, c) }}
 	}
-	fmt.Fprintln(tw, strings.Join(titles, "\t"))
-	for _, row := range rows {
-		cells := make([]string, len(cli.Columns))
-		for i, c := range cli.Columns {
-			cells[i] = cell(row, c)
-		}
-		fmt.Fprintln(tw, strings.Join(cells, "\t"))
-	}
-	return tw.Flush()
+	return writeTable(a.stdout, tableStyle{}, cols, rows)
 }
 
 // cell is one value of a row, written as its column says. A value that is

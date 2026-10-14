@@ -1,0 +1,3 @@
+10:00:00   audio.volume.set 40   manual (admin)         applied   v3
+10:01:00   app.start nope        manual (phone)         failed    not_found: no app "nope"
+10:02:00   audio.volume.set 70   automation (evening)   skipped   held by manual until 10:05:00

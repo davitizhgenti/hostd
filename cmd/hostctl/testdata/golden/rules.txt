@@ -1,0 +1,5 @@
+RULE     ON                DO                     FIRED  LAST              STATE
+evening  display.idle      scene dim              2      10:00:00 applied  active
+quiet    instance.started  action audio.mute.set  0      -                 paused: paused by hand
+--- stderr
+rules.toml: rule 3: needs on (the rules before it stay in use)

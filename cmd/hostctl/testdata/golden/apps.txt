@@ -1,0 +1,7 @@
+ID       NAME      RUNNER  SURFACE     FROM
+firefox  Firefox   exec    window      desktop
+jelly    Jellyfin  docker  background  file
+--- stderr
+
+1 app file(s) could not be used:
+  bad.toml: runner.type "vm" is not known
