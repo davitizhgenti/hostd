@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -19,7 +20,7 @@ import (
 //
 // Keys reach hostd through the compositor (Backend.Bind installs them,
 // Watch reports them back), so they work with any keyboard, VNC included.
-// Controller buttons come from the evdev reader.
+// evdev.Controller buttons come from the evdev reader.
 
 // DefaultKeys is the shortcut model: Super is the system key. Super alone
 // opens the menu; Super+key acts on the app in front.
@@ -101,7 +102,7 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 	if err != nil {
 		return nil, nil, fmt.Errorf("input.keys: %w", err)
 	}
-	knownButtons := ButtonNames
+	knownButtons := evdev.ButtonNames
 	b, err := merge(DefaultButtons, buttons, func(name string) error {
 		if !slices.Contains(knownButtons, name) {
 			return fmt.Errorf("button %q: use one of %s", name, strings.Join(knownButtons, ", "))
@@ -115,8 +116,8 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 }
 
 // onInput is called for every input from every device.
-func (m *Module) onInput(ev InputEvent) {
-	m.presence.touch()
+func (m *Module) onInput(ev evdev.InputEvent) {
+	m.presence.Touch()
 	if len(ev.Released) > 0 || len(ev.Buttons) > 0 {
 		m.mu.Lock()
 		for _, b := range ev.Released {
@@ -167,7 +168,7 @@ func (m *Module) takeControllers(menuFront bool) {
 // menu) go down and must see it come up, or it stays down for the app.
 // Once taken, they stay taken while the menu is in front.
 func (m *Module) syncGrab() {
-	g, ok := m.opts.Input.(Grabber)
+	g, ok := m.opts.Input.(evdev.Grabber)
 	if !ok {
 		return
 	}

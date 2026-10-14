@@ -301,7 +301,7 @@ func (m *Module) inUse(a sdk.Action) bool {
 		Front bool `json:"front"`
 	}
 	_ = a.DecodeArgs(&args)
-	return a.Source.Kind != sdk.SourceLocal && !args.Front && m.presence.present()
+	return a.Source.Kind != sdk.SourceLocal && !args.Front && m.presence.Present()
 }
 
 // skippedInUse answers an action refused for inUse, telling the person.

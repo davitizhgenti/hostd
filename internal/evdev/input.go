@@ -1,4 +1,6 @@
-package display
+// Package evdev reads keyboards, mice and game controllers from
+// /dev/input, and knows what controllers are (profiles, sysfs).
+package evdev
 
 import (
 	"context"

@@ -14,6 +14,10 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/evdev"
+	"github.com/davitizhgenti/hostd/internal/gpu"
+	"github.com/davitizhgenti/hostd/internal/notify"
+	"github.com/davitizhgenti/hostd/internal/presence"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -46,24 +50,24 @@ type Options struct {
 
 	// Input reports keyboard, mouse and controller activity. Without it
 	// nobody is ever "at the screen" and every launch comes to the front.
-	Input     Input
+	Input     evdev.Input
 	IdleAfter time.Duration // no input this long = nobody there (default 5m)
 	// Notifier shows notices such as "Firefox is ready" (optional).
-	Notifier Notifier
+	Notifier notify.Notifier
 	// Menu is the app display.menu opens: hostd's on-screen menu
 	// (default hostd-menu).
 	Menu string
 	// Profiles describe controllers (nil: the built-in ones), and
 	// SysRoot is where sysfs and /dev are ("/" outside tests): for the
 	// controller list.
-	Profiles *Profiles
+	Profiles *evdev.Profiles
 	SysRoot  string
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
 	// GPU reads video memory, watched every GPUEvery (default 15s) so the
 	// person is told before it is full (nil: not watched).
-	GPU      GPUMemory
+	GPU      gpu.Reader
 	GPUEvery time.Duration
 	// HoldFor is how long a controller button is held before its action
 	// runs; a shorter press is left to the app (default 600ms; negative:
@@ -120,14 +124,14 @@ type Module struct {
 	pressing  map[string]bool          // inputs whose action is being handled
 	holds     map[string]chan struct{} // controller buttons held down; closed on release
 	menuFront bool                     // hostd's menu has the focus: controllers are taken for it
-	grabbed   bool                     // the controllers are taken (Grabber)
+	grabbed   bool                     // the controllers are taken (evdev.Grabber)
 	down      map[string]bool          // controller buttons held down
 	gpuUsed   int64                    // video memory in use, bytes (GPU)
 	gpuTotal  int64
 	life      context.Context      // ends when the module stops
 	failed    int                  // compositor commands that failed
 	warned    map[string]time.Time // when each kind of failure was last logged as a warning
-	presence  *presence
+	presence  *presence.Tracker
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -176,12 +180,12 @@ func New(opts Options) *Module {
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
 	if m.opts.Profiles == nil {
-		m.opts.Profiles, _ = LoadProfiles("") // the built-in ones always load (a test checks)
+		m.opts.Profiles, _ = evdev.LoadProfiles("") // the built-in ones always load (a test checks)
 	}
 	if m.opts.SysRoot == "" {
 		m.opts.SysRoot = "/"
 	}
-	m.presence = newPresence(opts.Clock, opts.IdleAfter, m.presenceChanged)
+	m.presence = presence.New(opts.Clock, opts.IdleAfter, m.presenceChanged)
 	return m
 }
 
@@ -284,7 +288,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 			{Type: EventGPUFull, Description: "Video memory is nearly full (90%); a notice asks to lower the game's settings"},
 			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
-			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
+			{Type: EventNav, Description: "evdev.Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
 			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},
@@ -308,7 +312,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.stop = cancel
 	if m.opts.Input != nil {
 		m.done.Add(2)
-		go func() { defer m.done.Done(); m.presence.run(ctx) }()
+		go func() { defer m.done.Done(); m.presence.Run(ctx) }()
 		go func() {
 			defer m.done.Done()
 			if err := m.opts.Input.Watch(ctx, m.onInput); err != nil {
@@ -448,18 +452,18 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	case "windows":
 		return wins, nil
 	case "controllers":
-		return scanControllers(sysfs{root: m.opts.SysRoot}, m.opts.Profiles), nil
+		return evdev.Scan(m.opts.SysRoot, m.opts.Profiles), nil
 	case "display":
 		m.mu.Lock()
 		failed := m.failed
 		gpuUsed, gpuTotal := m.gpuUsed, m.gpuTotal
 		m.mu.Unlock()
 		st := map[string]any{"attached": b != nil, "focused_instance": focused, "outputs": []Output{},
-			"present": m.presence.present(), "failed_commands": failed}
+			"present": m.presence.Present(), "failed_commands": failed}
 		if gpuTotal > 0 {
 			st["gpu_memory"] = map[string]int64{"used": gpuUsed, "total": gpuTotal}
 		}
-		if last := m.presence.lastInput(); !last.IsZero() {
+		if last := m.presence.LastInput(); !last.IsZero() {
 			st["last_input"] = last.UTC()
 		}
 		if b != nil {

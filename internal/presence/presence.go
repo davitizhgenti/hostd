@@ -1,4 +1,5 @@
-package display
+// Package presence tracks whether someone is using the screen.
+package presence
 
 import (
 	"context"
@@ -8,9 +9,9 @@ import (
 	"github.com/davitizhgenti/hostd/internal/clock"
 )
 
-// presence tracks whether someone is using the screen: any keyboard, mouse
+// Tracker tracks whether someone is using the screen: any keyboard, mouse
 // or controller input in the last idleAfter makes them present.
-type presence struct {
+type Tracker struct {
 	clock     clock.Clock
 	idleAfter time.Duration
 	changed   func(present bool) // called on every change, from run's goroutine
@@ -21,13 +22,14 @@ type presence struct {
 	wake   chan struct{} // signalled by touch while idle
 }
 
-func newPresence(c clock.Clock, idleAfter time.Duration, changed func(bool)) *presence {
-	return &presence{clock: c, idleAfter: idleAfter, changed: changed, wake: make(chan struct{}, 1)}
+// New returns a Tracker: changed is called on every change.
+func New(c clock.Clock, idleAfter time.Duration, changed func(bool)) *Tracker {
+	return &Tracker{clock: c, idleAfter: idleAfter, changed: changed, wake: make(chan struct{}, 1)}
 }
 
-// touch records input. It is called for every read from every device, so
+// Touch records input. It is called for every read from every device, so
 // it stays cheap: the run loop only hears about the first one after idle.
-func (p *presence) touch() {
+func (p *Tracker) Touch() {
 	p.mu.Lock()
 	p.last = p.clock.Now()
 	idle := !p.active
@@ -40,21 +42,21 @@ func (p *presence) touch() {
 	}
 }
 
-// present reports whether someone used the screen recently.
-func (p *presence) present() bool {
+// Present reports whether someone used the screen recently.
+func (p *Tracker) Present() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.active
 }
 
-// since returns when the last input was (zero if never).
-func (p *presence) lastInput() time.Time {
+// LastInput returns when the last input was (zero if never).
+func (p *Tracker) LastInput() time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.last
 }
 
-func (p *presence) run(ctx context.Context) {
+func (p *Tracker) Run(ctx context.Context) {
 	var timer clock.Timer
 	defer func() {
 		if timer != nil {

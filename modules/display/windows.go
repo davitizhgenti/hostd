@@ -24,7 +24,7 @@ func (m *Module) onEvent(ev Event) {
 	w := ev.Window
 	switch ev.Change {
 	case "binding":
-		m.presence.touch() // a key in the session: someone is there (VNC too)
+		m.presence.Touch() // a key in the session: someone is there (VNC too)
 		m.press("keyboard", ev.Binding)
 	case "reload": // the compositor dropped hostd's bindings
 		m.mu.Lock()
@@ -98,7 +98,7 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 				inUse = true
 			}
 		}
-		inUse = inUse && m.presence.present()
+		inUse = inUse && m.presence.Present()
 		m.mu.Unlock()
 		if inUse {
 			name := w.Title

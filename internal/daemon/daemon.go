@@ -20,8 +20,12 @@ import (
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/internal/extmod"
+	"github.com/davitizhgenti/hostd/internal/gpu"
+	"github.com/davitizhgenti/hostd/internal/notify"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
+	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
@@ -93,7 +97,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		case "apps":
 			engine := &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}
 			mods = append(mods, apps.New(apps.Options{
-				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: apps.DefaultSecretsDir(), Logger: log,
+				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: secrets.DefaultDir(), Logger: log,
 				Backends: map[string]apps.Backend{
 					apps.RunnerExec: &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home,
 						StateDir: *stateDir, Browser: cfg.Browser, Gamescope: cfg.Gamescope},
@@ -102,20 +106,20 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 				},
 			}))
 		case "display":
-			profiles, err := display.LoadProfiles(filepath.Join(filepath.Dir(*configPath), "controllers"))
+			profiles, err := evdev.LoadProfiles(filepath.Join(filepath.Dir(*configPath), "controllers"))
 			if err != nil {
 				fmt.Fprintf(stderr, "hostd: %v\n", err)
 				return 2
 			}
 			mods = append(mods, display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log,
-				Input: &display.Evdev{Profiles: profiles}, Profiles: profiles, IdleAfter: time.Duration(cfg.IdleAfter),
-				Notifier: &display.DesktopNotifier{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons,
-				HoldFor: time.Duration(cfg.Input.Hold), GPU: display.SystemGPU{}}))
+				Input: &evdev.Evdev{Profiles: profiles}, Profiles: profiles, IdleAfter: time.Duration(cfg.IdleAfter),
+				Notifier: &notify.Desktop{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons,
+				HoldFor: time.Duration(cfg.Input.Hold), GPU: gpu.System{}}))
 		case "audio":
 			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log,
 				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
 		case "deploy":
-			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: apps.DefaultSecretsDir(), AppsDir: apps.DefaultAppsDir()}))
+			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: secrets.DefaultDir(), AppsDir: apps.DefaultAppsDir()}))
 		case "automation":
 			mods = append(mods, automation.New(automation.Options{Logger: log, URL: "unix://" + *socket}))
 		case "demo":

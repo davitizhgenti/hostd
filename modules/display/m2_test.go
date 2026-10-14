@@ -14,6 +14,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -23,7 +24,7 @@ import (
 // has acted on it.
 func (r *displayRig) holdButton(t *testing.T, name string) {
 	t.Helper()
-	r.input.send(t, InputEvent{Buttons: []string{name}})
+	r.input.send(t, evdev.InputEvent{Buttons: []string{name}})
 	waitFor(t, name+" held", func() bool {
 		r.clock.Advance(100 * time.Millisecond)
 		r.m.mu.Lock()
@@ -44,16 +45,16 @@ func TestGuideButtonOpensMenu(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Guide button did nothing")
 	}
-	if !r.m.presence.present() {
-		waitFor(t, "present", r.m.presence.present)
+	if !r.m.presence.Present() {
+		waitFor(t, "present", r.m.presence.Present)
 	}
 }
 
 func TestGuideTapIsTheApps(t *testing.T) {
 	// A tap opens the app's own menu (Steam's); hostd waits for a hold.
 	r := newDisplayRig(t, true)
-	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
-	r.input.send(t, InputEvent{Released: []string{"guide"}})
+	r.input.send(t, evdev.InputEvent{Buttons: []string{"guide"}})
+	r.input.send(t, evdev.InputEvent{Released: []string{"guide"}})
 	r.clock.Advance(time.Second)
 	time.Sleep(50 * time.Millisecond)
 	select {
@@ -91,20 +92,6 @@ func TestGuideButtonTogglesBack(t *testing.T) {
 	case a := <-r.started:
 		t.Fatalf("started the menu again: %+v", a)
 	default:
-	}
-}
-
-func TestReadEventsGuide(t *testing.T) {
-	var got []InputEvent
-	var stream []byte
-	stream = append(stream, inputEvent(evKey, btnMode, 1)...) // press
-	stream = append(stream, inputEvent(0, 0, 0)...)
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
-	stream = append(inputEvent(evKey, btnMode, 0), inputEvent(0, 0, 0)...) // release
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
-	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 ||
-		!reflect.DeepEqual(got[1].Released, []string{"guide"}) {
-		t.Fatalf("events %+v", got)
 	}
 }
 
@@ -208,7 +195,7 @@ func TestPlace(t *testing.T) {
 	}
 	// Someone at the screen keeps their layout.
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	if res, err := r.submit(t, "window.place", `{"instance":"browser","beside":"tv"}`, sdk.SourceManual); err != nil || res.Status != sdk.StatusSkipped {
 		t.Fatalf("while in use: %+v %v", res, err)
 	}
@@ -248,7 +235,7 @@ func TestScreens(t *testing.T) {
 
 	// While someone watches, a phone may turn the screen on, not off.
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.b.commands()
 	if res, err := r.submit(t, "display.power", `{"on":false}`, sdk.SourceManual); err != nil || res.Status != sdk.StatusSkipped {
 		t.Fatalf("off while in use: %+v %v", res, err)
@@ -357,7 +344,7 @@ func TestShownByAnotherApp(t *testing.T) {
 	// stops the game only.
 	r := newDisplayRig(t, true)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.procEnv(t, 910, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-steam.service`)
 	steam := contract.Instance{ID: "steam", App: "steam", State: "running", Match: &contract.Match{AppID: "gamescope"}}
 	r.setLive(steam)
@@ -399,26 +386,6 @@ func TestShownByAnotherApp(t *testing.T) {
 	}
 }
 
-func TestReadEventsNav(t *testing.T) {
-	var stream []byte
-	for _, e := range [][3]int{{evKey, btnSouth, 1}, {evKey, btnSouth, 0}, {evAbs, absHat0Y, -1}, {evAbs, absHat0Y, 0},
-		{evKey, btnEast, 1}, {evKey, btnWest, 1}, {evKey, 0x223, 1}} {
-		stream = append(stream, inputEvent(uint16(e[0]), uint16(e[1]), int32(e[2]))...)
-	}
-	stream = append(stream, inputEvent(0, 0, 0)...)
-	var got []string
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e.Nav...) })
-	if want := []string{"choose", "up", "back", "actions", "right"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("nav %q, want %q", got, want)
-	}
-	// A keyboard (no controller profile) never navigates.
-	got = nil
-	readEvents(&chunked{data: stream, n: 1000}, nil, func(e InputEvent) { got = append(got, e.Nav...) })
-	if len(got) != 0 {
-		t.Fatalf("keyboard nav %q", got)
-	}
-}
-
 func TestMenuTakesTheControllers(t *testing.T) {
 	// While the menu is in front, apps must not see the controllers: hostd
 	// takes them and sends the menu their navigation.
@@ -429,7 +396,7 @@ func TestMenuTakesTheControllers(t *testing.T) {
 	r.event(t)
 	r.b.focus(1)
 	r.event(t)
-	r.input.send(t, InputEvent{Nav: []string{"down"}})
+	r.input.send(t, evdev.InputEvent{Nav: []string{"down"}})
 	r.b.open(5, 500) // the menu
 	r.event(t)
 	r.b.focus(5)
@@ -437,7 +404,7 @@ func TestMenuTakesTheControllers(t *testing.T) {
 	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
 		t.Fatalf("grabs %v, want [true]", got)
 	}
-	r.input.send(t, InputEvent{Nav: []string{"choose"}})
+	r.input.send(t, evdev.InputEvent{Nav: []string{"choose"}})
 	select {
 	case ev := <-nav:
 		if string(ev.Data) != `{"what":"choose"}` || ev.Source == nil || ev.Source.Kind != sdk.SourceLocal {
@@ -451,7 +418,7 @@ func TestMenuTakesTheControllers(t *testing.T) {
 	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true, false}) {
 		t.Fatalf("grabs %v, want [true false]", got)
 	}
-	r.input.send(t, InputEvent{Nav: []string{"up"}})
+	r.input.send(t, evdev.InputEvent{Nav: []string{"up"}})
 	r.b.focus(5)
 	r.event(t)
 	r.b.closeWin(5) // the menu closes while in front
@@ -471,7 +438,7 @@ func TestMenuWaitsForGuideReleaseBeforeTakingControllers(t *testing.T) {
 	// it come up before hostd takes the controllers.
 	r := newDisplayRig(t, true)
 	r.procEnv(t, 500, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`)
-	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.input.send(t, evdev.InputEvent{Buttons: []string{"guide"}})
 	r.b.open(5, 500) // the menu, while Guide is still held
 	r.event(t)
 	r.b.focus(5)
@@ -479,12 +446,12 @@ func TestMenuWaitsForGuideReleaseBeforeTakingControllers(t *testing.T) {
 	if got := r.input.grabbed(); len(got) != 0 {
 		t.Fatalf("taken while Guide was held: %v", got)
 	}
-	r.input.send(t, InputEvent{Released: []string{"guide"}})
+	r.input.send(t, evdev.InputEvent{Released: []string{"guide"}})
 	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
 		t.Fatalf("grabs %v after the release, want [true]", got)
 	}
 	// Pressing Guide again in the menu keeps them taken.
-	r.input.send(t, InputEvent{Buttons: []string{"guide"}})
+	r.input.send(t, evdev.InputEvent{Buttons: []string{"guide"}})
 	if got := r.input.grabbed(); !reflect.DeepEqual(got, []bool{true}) {
 		t.Fatalf("grabs %v after a press in the menu", got)
 	}

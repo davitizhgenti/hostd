@@ -7,13 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -22,8 +19,6 @@ import (
 // (HMAC-SHA256 of the body). The request carries no token, so the
 // signature is the only proof it comes from the host. The commit is then
 // fetched from the source's url, as for a remote source.
-
-var secretName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
 
 // seenDeliveries is how many delivery IDs are remembered, to ignore a
 // request sent again (a replay).
@@ -125,11 +120,11 @@ func (m *Module) seen(id string) bool {
 }
 
 func (m *Module) readSecret(name string) ([]byte, error) {
-	if !secretName.MatchString(name) || m.opts.SecretsDir == "" {
+	if !secrets.ValidName(name) || m.opts.SecretsDir == "" {
 		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "the webhook secret %q cannot be read", name)
 	}
-	b, err := os.ReadFile(filepath.Join(m.opts.SecretsDir, name))
-	if errors.Is(err, fs.ErrNotExist) {
+	b, err := secrets.Store{Dir: m.opts.SecretsDir}.Read(name)
+	if errors.Is(err, secrets.ErrNotExist) {
 		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "the webhook secret %q is not set: hostctl secret set %s", name, name)
 	}
 	if err != nil {

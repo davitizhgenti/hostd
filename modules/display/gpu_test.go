@@ -2,9 +2,6 @@ package display
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +13,7 @@ type fakeGPU struct {
 }
 
 func (f *fakeGPU) set(usedMiB int64) { f.mu.Lock(); f.used = usedMiB << 20; f.mu.Unlock() }
+
 func (f *fakeGPU) Memory(context.Context) (int64, int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -61,20 +59,5 @@ func TestVideoMemoryWarning(t *testing.T) {
 	})
 	if n := r.notes.all(); len(n) != 1 {
 		t.Fatalf("notices %q", n)
-	}
-}
-
-func TestSystemGPUFromAMDSysfs(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "sys/class/drm/card0/device")
-	_ = os.MkdirAll(dir, 0o755)
-	_ = os.WriteFile(filepath.Join(dir, "mem_info_vram_total"), []byte("4294967296\n"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "mem_info_vram_used"), []byte("1073741824\n"), 0o644)
-	used, total, err := SystemGPU{SysRoot: root, NvidiaSMI: "-"}.Memory(context.Background())
-	if err != nil || used != 1<<30 || total != 4<<30 {
-		t.Fatalf("%d %d %v", used, total, err)
-	}
-	if _, _, err := (SystemGPU{SysRoot: t.TempDir(), NvidiaSMI: "-"}).Memory(context.Background()); !errors.Is(err, errNoGPUInfo) {
-		t.Fatalf("no card: %v", err)
 	}
 }

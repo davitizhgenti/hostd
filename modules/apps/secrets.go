@@ -3,30 +3,17 @@ package apps
 import (
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
+	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// Secrets are values an app's environment names as {secret:<name>}, kept
-// out of app files (and any config repository). Each is a 0600 file in
-// the secrets directory, unencrypted: this protects against other local
-// users and against committing them, not against anything running as the
-// screen user or someone holding the disk.
-
-var secretName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
+// Secrets are values an app's environment names as {secret:<name>}; the
+// store itself is internal/secrets, shared with the deploy module.
 
 var secretRef = regexp.MustCompile(`\{secret:([^}]*)\}`)
-
-// DefaultSecretsDir is $XDG_CONFIG_HOME/hostd/secrets.
-func DefaultSecretsDir() string {
-	return filepath.Join(filepath.Dir(DefaultAppsDir()), "secrets")
-}
 
 // SecretList is the secrets' names (never their values).
 type SecretList struct {
@@ -46,14 +33,15 @@ func secretActions() []sdk.ActionSpec {
 	}
 }
 
-func (m *Module) secretPath(name string) (string, error) {
-	if !secretName.MatchString(name) {
-		return "", sdk.Errorf(sdk.CodeInvalidArgs, "secret name %q: use lowercase letters, digits, '.', '_' and '-'", name)
+// secretName checks a secret's name, or says why it is not one.
+func (m *Module) secretName(name string) error {
+	if !secrets.ValidName(name) {
+		return sdk.Errorf(sdk.CodeInvalidArgs, "secret name %q: use lowercase letters, digits, '.', '_' and '-'", name)
 	}
 	if m.opts.SecretsDir == "" {
-		return "", sdk.Errorf(sdk.CodeModuleUnavailable, "no secrets directory")
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "no secrets directory")
 	}
-	return filepath.Join(m.opts.SecretsDir, name), nil
+	return nil
 }
 
 func (m *Module) handleSecret(a sdk.Action) (sdk.Result, error) {
@@ -61,55 +49,27 @@ func (m *Module) handleSecret(a sdk.Action) (sdk.Result, error) {
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
 	}
-	path, err := m.secretPath(args.Name)
-	if err != nil {
+	if err := m.secretName(args.Name); err != nil {
 		return sdk.Result{}, err
 	}
+	store := secrets.Store{Dir: m.opts.SecretsDir}
 	if a.Type == "secret.remove" {
-		if err := os.Remove(path); errors.Is(err, fs.ErrNotExist) {
+		if err := store.Remove(args.Name); errors.Is(err, secrets.ErrNotExist) {
 			return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no secret %q", args.Name)
 		} else if err != nil {
 			return sdk.Result{}, err
 		}
 		return sdk.Result{}, nil
 	}
-	if err := os.MkdirAll(m.opts.SecretsDir, 0o700); err != nil {
-		return sdk.Result{}, err
-	}
-	tmp, err := os.CreateTemp(m.opts.SecretsDir, ".tmp-*") // 0600
-	if err != nil {
-		return sdk.Result{}, err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(args.Value); err != nil {
-		tmp.Close()
-		return sdk.Result{}, err
-	}
-	if err := tmp.Close(); err != nil {
-		return sdk.Result{}, err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := store.Write(args.Name, []byte(args.Value)); err != nil {
 		return sdk.Result{}, err
 	}
 	return sdk.Result{Data: sdk.MustJSON(map[string]string{"name": args.Name})}, nil
 }
 
 func (m *Module) readSecrets() (SecretList, error) {
-	list := SecretList{Secrets: []string{}}
-	entries, err := os.ReadDir(m.opts.SecretsDir)
-	if errors.Is(err, fs.ErrNotExist) || m.opts.SecretsDir == "" {
-		return list, nil
-	}
-	if err != nil {
-		return list, err
-	}
-	for _, e := range entries {
-		if e.Type().IsRegular() && secretName.MatchString(e.Name()) {
-			list.Secrets = append(list.Secrets, e.Name())
-		}
-	}
-	sort.Strings(list.Secrets)
-	return list, nil
+	names, err := secrets.Store{Dir: m.opts.SecretsDir}.Names()
+	return SecretList{Secrets: names}, err
 }
 
 // withSecrets returns app with {secret:<name>} in its environment
@@ -130,13 +90,13 @@ func (m *Module) withSecrets(app *App) (*App, error) {
 		var missing error
 		cp.Env[k] = secretRef.ReplaceAllStringFunc(v, func(ref string) string {
 			name := secretRef.FindStringSubmatch(ref)[1]
-			path, err := m.secretPath(name)
+			err := m.secretName(name)
 			if err == nil {
 				var b []byte
-				if b, err = os.ReadFile(path); err == nil {
+				if b, err = (secrets.Store{Dir: m.opts.SecretsDir}).Read(name); err == nil {
 					return string(b)
 				}
-				if errors.Is(err, fs.ErrNotExist) {
+				if errors.Is(err, secrets.ErrNotExist) {
 					err = sdk.Errorf(sdk.CodeNotFound, "%s needs the secret %q (%s): hostctl secret set %s", app.ID, name, k, name)
 				}
 			}

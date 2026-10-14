@@ -23,6 +23,7 @@ import (
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/evdev/evdevtest"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -457,7 +458,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		400: `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-notes.service`,
 	})
 	r := &displayRig{b: newFakeBackend(), clock: clock.NewFake(time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)),
-		stopped: make(chan string, 4), started: make(chan sdk.Action, 4), input: newFakeInput(), notes: &fakeNotifier{}, proc: proc, sys: fakeSys(t)}
+		stopped: make(chan string, 4), started: make(chan sdk.Action, 4), input: newFakeInput(), notes: &fakeNotifier{}, proc: proc, sys: evdevtest.FakeSys(t)}
 	var mu sync.Mutex
 	canConnect := connectable
 	r.m = New(Options{ProcRoot: proc, SysRoot: r.sys, Clock: r.clock, Input: r.input, Notifier: r.notes, Connect: func(context.Context) (Backend, error) {
@@ -894,7 +895,7 @@ func TestUnownedWindowDoesNotTakeAnAppInUse(t *testing.T) {
 	r.b.focus(1)
 	r.event(t)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.b.commands()
 	r.b.openWindow(Window{ID: 9, PID: 300, AppID: "chromium", Title: "New Tab"})
 	r.event(t)

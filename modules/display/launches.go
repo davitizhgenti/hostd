@@ -194,7 +194,7 @@ func (m *Module) launchKnown(instance string) bool {
 // forward now if it should have.
 func (m *Module) learnLaunch(ctx context.Context, instance, name string, src *sdk.Source, front bool) {
 	local := src != nil && src.Kind == sdk.SourceLocal
-	l := &launch{name: name, front: local || front || !m.presence.present()}
+	l := &launch{name: name, front: local || front || !m.presence.Present()}
 	m.mu.Lock()
 	old, placed := m.launches[instance]
 	if placed {
@@ -231,13 +231,13 @@ func (m *Module) placement(instance string) (front bool, announce string) {
 	if !ok {
 		// Its start is not known yet (the window beat the event) or it
 		// was adopted: front only if nobody is using the screen.
-		if !m.presence.present() {
+		if !m.presence.Present() {
 			return true, ""
 		}
 		l = &launch{name: instance}
 		m.launches[instance] = l
 	}
-	if l.front || !m.presence.present() {
+	if l.front || !m.presence.Present() {
 		return true, ""
 	}
 	if l.noticed {

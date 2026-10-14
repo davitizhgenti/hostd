@@ -1,22 +1,18 @@
 package display
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -25,7 +21,7 @@ import (
 // fakeInput lets a test press keys: press() calls the module's callback.
 type fakeInput struct {
 	mu    sync.Mutex
-	fn    func(InputEvent)
+	fn    func(evdev.InputEvent)
 	grabs []bool // Grab calls
 }
 
@@ -44,7 +40,7 @@ func (f *fakeInput) grabbed() []bool {
 
 func newFakeInput() *fakeInput { return &fakeInput{} }
 
-func (f *fakeInput) Watch(ctx context.Context, fn func(InputEvent)) error {
+func (f *fakeInput) Watch(ctx context.Context, fn func(evdev.InputEvent)) error {
 	f.mu.Lock()
 	f.fn = fn
 	f.mu.Unlock()
@@ -52,9 +48,9 @@ func (f *fakeInput) Watch(ctx context.Context, fn func(InputEvent)) error {
 	return nil
 }
 
-func (f *fakeInput) press(t *testing.T) { f.send(t, InputEvent{}) }
+func (f *fakeInput) press(t *testing.T) { f.send(t, evdev.InputEvent{}) }
 
-func (f *fakeInput) send(t *testing.T, ev InputEvent) {
+func (f *fakeInput) send(t *testing.T, ev evdev.InputEvent) {
 	t.Helper()
 	waitFor(t, "input watcher", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.fn != nil })
 	f.mu.Lock()
@@ -83,107 +79,6 @@ func (f *fakeNotifier) all() []string {
 
 // --- evdev parsing -------------------------------------------------------------
 
-func inputEvent(typ, code uint16, value int32) []byte {
-	b := make([]byte, eventSize)
-	binary.LittleEndian.PutUint16(b[16:], typ)
-	binary.LittleEndian.PutUint16(b[18:], code)
-	binary.LittleEndian.PutUint32(b[20:], uint32(value))
-	return b
-}
-
-func TestReadEvents(t *testing.T) {
-	const evSyn, evMsc, evLed = 0, 4, 0x11
-	var stream bytes.Buffer
-	// A key press with its scan code and sync, then an LED change (the
-	// system, not a person), then a gamepad stick move.
-	stream.Write(inputEvent(evMsc, 4, 30))
-	stream.Write(inputEvent(evKey, 30, 1))
-	stream.Write(inputEvent(evSyn, 0, 0))
-	stream.Write(inputEvent(evLed, 0, 1))
-	stream.Write(inputEvent(evAbs, 0, -12000))
-	stream.Write(inputEvent(evSyn, 0, 0))
-
-	for _, chunk := range []int{1, 7, eventSize, 1000} { // however the reads split it
-		calls := 0
-		readEvents(&chunked{data: stream.Bytes(), n: chunk}, nil, func(InputEvent) { calls++ })
-		if calls == 0 {
-			t.Fatalf("chunk %d: no activity seen", chunk)
-		}
-	}
-	calls := 0
-	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), nil, func(InputEvent) { calls++ })
-	if calls != 0 {
-		t.Fatalf("LED and sync events counted as a person: %d", calls)
-	}
-}
-
-type chunked struct {
-	data []byte
-	n    int
-}
-
-func (c *chunked) Read(p []byte) (int, error) {
-	if len(c.data) == 0 {
-		return 0, fmt.Errorf("EOF")
-	}
-	n := min(c.n, len(p), len(c.data))
-	copy(p, c.data[:n])
-	c.data = c.data[n:]
-	return n, nil
-}
-
-func TestEvdevHotplug(t *testing.T) {
-	// Devices are FIFOs here: a plugged-in "controller" is a new
-	// event* node that the watcher must pick up.
-	dir := t.TempDir()
-	mk := func(name string) string {
-		p := filepath.Join(dir, name)
-		if err := mkfifo(p); err != nil {
-			t.Skipf("mkfifo: %v", err)
-		}
-		return p
-	}
-	kbd := mk("event0")
-	_ = os.WriteFile(filepath.Join(dir, "mice"), nil, 0o644) // not an event device
-
-	touched := make(chan struct{}, 16)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- (&Evdev{Dir: dir, SysRoot: t.TempDir()}).Watch(ctx, func(InputEvent) { touched <- struct{}{} })
-	}()
-
-	write := func(path string) {
-		t.Helper()
-		f, err := os.OpenFile(path, os.O_WRONLY, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = f.Write(inputEvent(evKey, 304, 1)) // BTN_SOUTH
-		f.Close()
-	}
-	wait := func(what string) {
-		t.Helper()
-		select {
-		case <-touched:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("no activity from %s", what)
-		}
-	}
-	write(kbd)
-	wait("the first device")
-	pad := mk("event7")
-	write(pad)
-	wait("a device plugged in later")
-
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
-// --- presence --------------------------------------------------------------------
-
 func TestPresenceGoesIdleAndBack(t *testing.T) {
 	r := newDisplayRig(t, true)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -199,7 +94,7 @@ func TestPresenceGoesIdleAndBack(t *testing.T) {
 			return ""
 		}
 	}
-	if r.m.presence.present() {
+	if r.m.presence.Present() {
 		t.Fatal("present before any input")
 	}
 	r.input.press(t)
@@ -215,7 +110,7 @@ func TestPresenceGoesIdleAndBack(t *testing.T) {
 	}
 	r.clock.Advance(time.Minute)
 	r.clock.BlockUntil(1) // the timer re-armed for the remaining time
-	if !r.m.presence.present() {
+	if !r.m.presence.Present() {
 		t.Fatal("idle although input came 1 minute ago")
 	}
 	r.clock.Advance(4 * time.Minute)
@@ -260,7 +155,7 @@ func TestFocusProtection(t *testing.T) {
 			r := newDisplayRig(t, true)
 			if c.present {
 				r.input.press(t)
-				waitFor(t, "present", r.m.presence.present)
+				waitFor(t, "present", r.m.presence.Present)
 			}
 			r.start(t, "tv", "TV", c.src, c.front)
 			r.b.open(1, 100)
@@ -286,7 +181,7 @@ func TestWindowBeforeLaunchIsKnown(t *testing.T) {
 	// comes forward once the start turns out to be theirs.
 	r := newDisplayRig(t, true)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.b.open(1, 100)
 	r.event(t)
 	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 1 hostd:tv", "fullscreen 1 true"}) {
@@ -305,7 +200,7 @@ func TestBackgroundAppDoesNotStealFocusLater(t *testing.T) {
 	// first app's next window (a dialog) stays on its workspace.
 	r := newDisplayRig(t, true)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.start(t, "browser", "Browser", sdk.SourceLocal, false)
 	r.b.open(2, 200)
 	r.event(t)
@@ -331,7 +226,7 @@ func TestRemoteFocusWhileSomeoneIsThere(t *testing.T) {
 	r.b.focus(2)
 	r.event(t)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.b.commands()
 
 	focus := func(src sdk.SourceKind, args string, scopes ...string) (sdk.Result, error) {
@@ -364,15 +259,13 @@ func TestRemoteFocusWhileSomeoneIsThere(t *testing.T) {
 	}
 }
 
-func mkfifo(path string) error { return syscall.Mkfifo(path, 0o600) }
-
 func TestFocusAndCloseWhileStarting(t *testing.T) {
 	// Started by a phone while someone is there; it has no window yet
 	// (Steam updates itself first). The person picks it in the menu: its
 	// window comes to the front once it opens.
 	r := newDisplayRig(t, true)
 	r.input.press(t)
-	waitFor(t, "present", r.m.presence.present)
+	waitFor(t, "present", r.m.presence.Present)
 	r.start(t, "tv", "TV", sdk.SourceManual, false)
 	r.setLive(contract.Instance{ID: "tv", State: "running"})
 	act := func(typ, instance string) (sdk.Result, error) {

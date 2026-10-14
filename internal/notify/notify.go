@@ -1,4 +1,5 @@
-package display
+// Package notify shows short notices on the screen.
+package notify
 
 import (
 	"context"
@@ -15,16 +16,16 @@ type Notifier interface {
 	Notify(ctx context.Context, summary, body string) error
 }
 
-// DesktopNotifier sends notices to the session's notification daemon
+// Desktop sends notices to the session's notification daemon
 // (mako, drawn above fullscreen windows) over org.freedesktop.Notifications.
-type DesktopNotifier struct {
+type Desktop struct {
 	RuntimeDir string // where the user bus is: <RuntimeDir>/bus
 
 	mu   sync.Mutex
 	conn *dbus.Conn
 }
 
-func (n *DesktopNotifier) connect(ctx context.Context) (*dbus.Conn, error) {
+func (n *Desktop) connect(ctx context.Context) (*dbus.Conn, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.conn != nil && n.conn.Connected() {
@@ -48,7 +49,7 @@ func (n *DesktopNotifier) connect(ctx context.Context) (*dbus.Conn, error) {
 	return conn, nil
 }
 
-func (n *DesktopNotifier) Notify(ctx context.Context, summary, body string) error {
+func (n *Desktop) Notify(ctx context.Context, summary, body string) error {
 	conn, err := n.connect(ctx)
 	if err != nil {
 		return err
@@ -59,7 +60,7 @@ func (n *DesktopNotifier) Notify(ctx context.Context, summary, body string) erro
 }
 
 // Close drops the bus connection.
-func (n *DesktopNotifier) Close() error {
+func (n *Desktop) Close() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.conn == nil {
