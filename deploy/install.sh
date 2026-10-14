@@ -30,7 +30,7 @@
 #
 # Usage, as root on the machine:
 #   sudo ./deploy/install.sh [install] [options]
-#   sudo hostd-setup update [options]
+#   sudo hostd-setup update [options] [ADDON...]
 #   sudo hostd-setup uninstall [--purge] [--all]
 #   sudo hostd-setup addons | add NAME... | remove NAME...
 #   sudo hostd-setup auto-update     what hostd-update.timer runs
@@ -44,7 +44,20 @@
 #   CHANNEL=edge    edge: every build of main that passed CI; stable: releases
 #   APPLY=auto      auto, notify or manual
 #
+# update checks the whole machine setup, but prints only what changed, and
+# runs the add-ons again only when this build changed the installer or the
+# add-ons themselves (the add-ons' own upgrades, such as Flatpak apps or the
+# Pterodactyl panel, are then left alone):
+#   sudo hostd-setup update               what changed; add-ons only if needed
+#   sudo hostd-setup update steam         also run that add-on now (any number)
+#   sudo hostd-setup update --all         run every installed add-on now (this
+#                                         is what the timer does)
+#   sudo hostd-setup update --verbose     print every step, changed or not
+#
 # Options:
+#   --all                     update: run every installed add-on; uninstall:
+#                             also undo the base setup (see below)
+#   -v, --verbose             update: print every step
 #   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
 #   --user NAME               screen user name (default: screen)
 #   --from DIR                install hostd and hostctl from DIR instead of
@@ -53,8 +66,8 @@
 #                             checkout) instead of downloading the latest one
 #   --purge                   uninstall: also delete hostd's data (tokens,
 #                             audit trail, app files, hostd.toml)
-#   --all                     uninstall: also undo the base setup (autologin
-#                             to Sway, managed configs, lingering)
+#                             (uninstall --all: autologin to Sway, managed
+#                             configs, lingering)
 #   -h, --help                show this help
 #
 # Uninstall never removes system packages, the NVIDIA driver, or the screen
@@ -100,13 +113,21 @@ NEED_REBOOT=0   # set when a change only takes effect after a reboot
 log()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-changed() { info "$*"; CHANGED=1; }
+# A quiet update (see quiet_filter) shows a step only if it changed something
+# or needs attention: those lines carry a marker (\001) the filter looks for.
+mark() { if [ -n "${HOSTD_FILTERED:-}" ]; then printf '\001'; fi; }
+changed() { mark; info "$*"; CHANGED=1; }
+warn() { mark; info "$*"; }
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; }
 
+ORIG_ARGS=("$@") # what was asked, for the quiet re-run of update
+VERBOSE=0
+UPDATE_ADDONS=() # update NAME...: add-ons to run now
 case ${1:-} in
 install | update | auto-update | uninstall | addons | add | remove) CMD=$1; shift ;;
 esac
+ORIG_CMD=$CMD
 PASS_ARGS=() # options handed to the latest installer by update
 while [ $# -gt 0 ]; do
 	case $1 in
@@ -116,10 +137,15 @@ while [ $# -gt 0 ]; do
 	--source) SOURCE=${2:?--source needs a directory}; shift 2 ;;
 	--purge) PURGE=1; shift ;;
 	--all) ALL=1; shift ;;
+	-v | --verbose) VERBOSE=1; shift ;;
 	-h | --help) usage; exit 0 ;;
 	-*) die "unknown option: $1 (see --help)" ;;
 	*)
-		case $CMD in add | remove) ADDON_NAMES+=("$1"); shift ;; *) die "unexpected argument: $1 (see --help)" ;; esac
+		case $CMD in
+		add | remove) ADDON_NAMES+=("$1"); shift ;;
+		update) UPDATE_ADDONS+=("$1"); shift ;;
+		*) die "unexpected argument: $1 (see --help)" ;;
+		esac
 		;;
 	esac
 done
@@ -128,8 +154,11 @@ done
 if [ "$CMD" = install ] && [ -n "${HOSTD_ADDING:-}" ]; then
 	read -ra ADDON_NAMES <<<"$HOSTD_ADDING"
 fi
-if [ "$CMD" != uninstall ] && { [ $PURGE -eq 1 ] || [ $ALL -eq 1 ]; }; then
-	die "--purge and --all go with uninstall"
+if [ "$CMD" != uninstall ] && [ $PURGE -eq 1 ]; then
+	die "--purge goes with uninstall"
+fi
+if [ "$CMD" != uninstall ] && [ "$CMD" != update ] && [ $ALL -eq 1 ]; then
+	die "--all goes with update or uninstall"
 fi
 case $GPU in auto | nvidia | other) ;; *) die "--gpu must be auto, nvidia or other" ;; esac
 
@@ -155,6 +184,50 @@ install_file() {
 }
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $CMD"
+
+# quiet_filter prints the steps of an update that changed something, printed
+# something else (a command's output, an error) or asked for attention, and
+# counts the rest. A step is a "==> heading" and the indented lines under it.
+quiet_filter() {
+	awk '
+	function show(   i) {
+		if (shown) return
+		if (head != "") { print ""; print head }
+		for (i = 1; i <= nbuf; i++) print buf[i]
+		nbuf = 0; shown = 1; fflush()
+	}
+	function finish() {
+		if (head != "" && !shown && !always) hidden++
+		if (always) show()
+		head = ""; nbuf = 0; shown = 0; always = 0
+	}
+	{
+		c = substr($0, 1, 1)
+		if (substr($0, 1, 4) == "\033[1m") {
+			finish(); head = $0
+			if (index($0, "==> Done") || index($0, "==> Updating to")) always = 1
+			next
+		}
+		if ($0 == "") next
+		if (c == "\001") { $0 = substr($0, 2); if (head != "") show(); print; fflush(); next }
+		if (head == "") { print; fflush(); next }
+		if (substr($0, 1, 4) == "    " && !shown) { buf[++nbuf] = $0; next }
+		show(); print; fflush()
+	}
+	END {
+		finish()
+		if (hidden > 0) printf "\n(%d steps already up to date; hostd-setup update --verbose lists them)\n", hidden
+	}'
+}
+
+# An update shows only what changed, unless -v: run again with the output
+# through the filter. The latest installer, which update runs next, sees
+# HOSTD_FILTERED and marks its changes.
+if [ "$ORIG_CMD" = update ] && [ $VERBOSE -eq 0 ] && [ -z "${HOSTD_FILTERED:-}" ]; then
+	export HOSTD_FILTERED=1
+	bash "${BASH_SOURCE[0]}" "${ORIG_ARGS[@]}" 2>&1 | quiet_filter
+	exit "${PIPESTATUS[0]}"
+fi
 
 # --- add-ons ----------------------------------------------------------------
 # An add-on is deploy/addons/NAME/addon.sh, which sets ADDON_DESCRIPTION and
@@ -315,13 +388,20 @@ if [ "$CMD" = auto-update ]; then
 	fi
 	log "Updating to ${ver:-the newest build} ($CHANNEL)"
 	# HOSTD_AUTO: add-ons that change data (pterodactyl) do not upgrade it unattended.
-	HOSTD_AUTO=1 exec bash "$0" update "${PASS_ARGS[@]}"
+	HOSTD_AUTO=1 exec bash "$0" update --all "${PASS_ARGS[@]}"
 fi
 
 # ---------------------------------------------------------------------------
 # update: run the latest installer. It updates hostd, hostctl and whatever
 # else changed (unit files, configs), and changes nothing that is current.
 if [ "$CMD" = update ]; then
+	# What the installer that does the work is asked to do about add-ons.
+	export HOSTD_UPDATE_MODE=quick
+	[ $ALL -eq 1 ] && HOSTD_UPDATE_MODE=all
+	export HOSTD_FORCE_ADDONS="${UPDATE_ADDONS[*]:-}"
+	for n in "${UPDATE_ADDONS[@]}"; do
+		addons_installed | grep -qx "$n" || die "add-on \"$n\" is not installed (see: hostd-setup addons)"
+	done
 	if [ -n "$SOURCE" ]; then
 		next="$SOURCE/deploy/install.sh"
 		[ -x "$next" ] || die "$next not found"
@@ -349,7 +429,7 @@ if [ "$CMD" = update ]; then
 	fi
 	# Not exec: the trap must remove the download afterwards. The add-ons
 	# just asked for (add) go along: some act only when asked for by name.
-	HOSTD_ADDING="${ADDON_NAMES[*]}" bash "$next" install "${PASS_ARGS[@]}"
+	HOSTD_ADDING="${ADDON_NAMES[*]:-}" bash "$next" install "${PASS_ARGS[@]}"
 	exit $?
 fi
 
@@ -588,7 +668,7 @@ if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
 		chmod 600 "$keys"
 		if [ $added -gt 0 ]; then changed "copied $added SSH key(s) from $SUDO_USER"; else info "SSH keys in place"; fi
 	else
-		info "no SSH keys for $SUDO_USER to copy (add yours with ssh-copy-id first)"
+		warn "no SSH keys for $SUDO_USER to copy (add yours with ssh-copy-id first)"
 	fi
 fi
 
@@ -849,15 +929,38 @@ if [ "$(readlink /usr/local/sbin/hostd-setup 2>/dev/null)" != "$SETUP_DIR/instal
 fi
 
 # ---------------------------------------------------------------------------
-# Add-ons: each installed one again, which also updates it.
-if [ -n "$(addons_installed)" ]; then
-	mapfile -t recorded < <(addons_installed)
-	addon_order "${recorded[@]}"
+# Add-ons: each installed one again, which also updates it. An update does
+# that only when the installer or the add-ons changed since the last time
+# they ran (a stamp of everything in this directory), or when asked: --all
+# for every one, or by name. Their own upgrades (Flatpak apps, the panel)
+# are not worth a check on every build of hostd.
+ADDONS_STAMP=/etc/hostd/addons.applied
+addons_pass() { # run the add-ons in ORDER
 	for n in "${ORDER[@]}"; do
 		log "Add-on: $n"
 		addon_load "$n"
 		addon_install
 	done
+}
+if [ -n "$(addons_installed)" ]; then
+	mapfile -t recorded < <(addons_installed)
+	mode=${HOSTD_UPDATE_MODE:-all} # install runs them all, as update --all does
+	bundle=$(cd "$HERE" && find . -type f ! -name '*.pyc' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+	forced="${HOSTD_FORCE_ADDONS:-} ${HOSTD_ADDING:-}"
+	if [ "$mode" = quick ] && [ "$(cat "$ADDONS_STAMP" 2>/dev/null)" = "$bundle" ]; then
+		if [ -n "${forced// /}" ]; then
+			# shellcheck disable=SC2086 # the names are words
+			addon_order $forced
+			addons_pass
+		else
+			ADDONS_SKIPPED=${#recorded[@]}
+		fi
+	else
+		addon_order "${recorded[@]}"
+		addons_pass
+		mkdir -p "$(dirname "$ADDONS_STAMP")"
+		printf '%s\n' "$bundle" >"$ADDONS_STAMP"
+	fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -883,7 +986,7 @@ if ! systemctl is-enabled --quiet hostd-update.timer 2>/dev/null; then
 	if systemctl enable --now hostd-update.timer >/dev/null 2>&1; then
 		changed "enabled hostd-update.timer"
 	else
-		info "could not enable hostd-update.timer (no systemd?)"
+		warn "could not enable hostd-update.timer (no systemd?)"
 	fi
 fi
 info "channel $CHANNEL, updates $APPLY ($UPDATE_CONF)"
@@ -897,9 +1000,17 @@ log "Done"
 if [ $CHANGED -eq 0 ]; then
 	info "No changes needed; the system was already set up."
 fi
+if [ "${ADDONS_SKIPPED:-0}" -gt 0 ]; then
+	info "${ADDONS_SKIPPED} add-on(s) not run again: nothing in them changed (hostd-setup update --all runs them, or update NAME)"
+fi
 if [ $NEED_REBOOT -eq 1 ]; then
 	info "Reboot to finish: sudo reboot"
 	info "After the reboot the screen shows a plain dark background, with no login prompt."
+fi
+if [ -n "${HOSTD_UPDATE_MODE:-}" ]; then
+	# An update: what is running is all there is to say (install tells more).
+	info "hostd $VERSION is running."
+	exit 0
 fi
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 info "hostd $VERSION is running. hostctl works on this machine as $SCREEN_USER:"

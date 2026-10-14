@@ -65,12 +65,17 @@ APPLY=auto      # auto | notify (a notice on the screen) | manual
 With `auto`, the update starts once no deploy or scene is in progress and nobody is using the screen. If the machine is busy, the next check tries again. Updates restart hostd and the menu, but never the apps.
 
 ```sh
-sudo hostd-setup update                       # the newest signed build, now
+sudo hostd-setup update                       # the newest signed build, now; prints only what changed
+sudo hostd-setup update --verbose             # ...every step, changed or not
+sudo hostd-setup update steam                 # ...and run that add-on again now
+sudo hostd-setup update --all                 # ...and run every installed add-on again now
 sudo hostd-setup addons                       # optional extras: Steam, Dolphin, compose, pterodactyl...
 sudo hostd-setup add steam
 sudo hostd-setup uninstall                    # removes hostd; keeps its data
 sudo hostd-setup uninstall --purge --all      # ...and its data, and the base setup
 ```
+
+An update checks the whole machine setup (packages, the screen user, the Sway and mako configs, hostd, the menu, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes, the Pterodactyl panel) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on, except that it never upgrades the Pterodactyl panel (its migrations change data).
 
 If a new hostd fails to start three times, systemd rolls back to the previous version. The rollback also restores the state and the config from before the update.
 
