@@ -1,4 +1,6 @@
-package apps
+// Package systemd talks to the systemd user manager over D-Bus: transient
+// units for apps, unit state and its changes, restarting hostd itself.
+package systemd
 
 import (
 	"context"
@@ -35,7 +37,7 @@ func (s *UserSystemd) address() (string, error) {
 	}
 	path := filepath.Join(s.RuntimeDir, "bus")
 	if fi, err := os.Stat(path); err != nil || fi.Mode()&os.ModeSocket == 0 {
-		return "", fmt.Errorf("%w: no user bus at %s", errNoSystemd, path)
+		return "", fmt.Errorf("%w: no user bus at %s", errNoManager, path)
 	}
 	return "unix:path=" + path, nil
 }
@@ -52,7 +54,7 @@ func (s *UserSystemd) connect(ctx context.Context) (*sdbus.Conn, error) {
 	}
 	conn, err := sdbus.NewConnection(func() (*dbus.Conn, error) { return dbus.Connect(addr, dbus.WithContext(ctx)) })
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errNoSystemd, err)
+		return nil, fmt.Errorf("%w: %w", errNoManager, err)
 	}
 	s.conn = conn
 	return conn, nil
@@ -200,7 +202,7 @@ func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string))
 	}
 	conn, err := dbus.Connect(addr, dbus.WithContext(ctx))
 	if err != nil {
-		return fmt.Errorf("%w: %w", errNoSystemd, err)
+		return fmt.Errorf("%w: %w", errNoManager, err)
 	}
 	defer conn.Close()
 	if err := conn.AddMatchSignalContext(ctx, dbus.WithMatchInterface("org.freedesktop.DBus.Properties"),
@@ -315,4 +317,32 @@ func (s *UserSystemd) RestartUnit(ctx context.Context, name string) error {
 	}
 	_, err = conn.RestartUnitContext(ctx, name, "replace", nil)
 	return err
+}
+
+var errNoManager = errors.New("not connected to the systemd user manager")
+
+// UnitSpec is what the exec runner asks systemd to run.
+type UnitSpec struct {
+	Description string
+	Argv        []string
+	Env         []string // KEY=value
+	Dir         string
+	// Restart is systemd's Restart= for services (on-failure, always);
+	// "" for apps that are not restarted.
+	Restart string
+	// Service: a background service, run with NoNewPrivileges and a
+	// private /tmp.
+	Service bool
+}
+
+// UnitInfo is what the exec runner reads back about a unit.
+type UnitInfo struct {
+	Name        string
+	Description string
+	ActiveState string // active, inactive, failed...
+	SubState    string // running, exited, failed, dead...
+	MainPID     int
+	ExitStatus  int    // ExecMainStatus
+	ExitCode    int    // ExecMainCode: 1 exited, 2 killed, 3 dumped core
+	Result      string // success, exit-code, signal, core-dump...
 }

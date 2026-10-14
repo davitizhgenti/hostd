@@ -18,6 +18,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -205,7 +206,7 @@ func TestExecRunnerAdopt(t *testing.T) {
 		}
 	}
 	sd.exit(unitName("kodi"), 3, 1) // ended with status 3 while hostd was away
-	_ = sd.StartTransient(ctx, "hostd-check.service", UnitSpec{Description: "[systemd-run] /usr/bin/foot", Argv: []string{"foot"}})
+	_ = sd.StartTransient(ctx, "hostd-check.service", systemd.UnitSpec{Description: "[systemd-run] /usr/bin/foot", Argv: []string{"foot"}})
 
 	got, err := r.Adopt(ctx)
 	if err != nil {
@@ -857,22 +858,6 @@ func (f *failingStop) Stop(context.Context, Instance) error {
 func (f *failingStop) Adopt(context.Context) ([]Instance, error)      { return nil, nil }
 func (f *failingStop) Watch(ctx context.Context, _ func(Ended)) error { <-ctx.Done(); return nil }
 
-func TestUserSystemdNeverAutolaunchesABus(t *testing.T) {
-	// With no bus address and no user bus, connecting fails at once: it
-	// must not fall back to dbus-launch and a stray bus.
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
-	t.Setenv("PATH", t.TempDir()) // and if it tried, there is no dbus-launch to run
-	s := &UserSystemd{RuntimeDir: t.TempDir()}
-	start := time.Now()
-	_, err := s.List(context.Background(), "hostd-*.service")
-	if err == nil || !strings.Contains(err.Error(), "no user bus") {
-		t.Fatalf("err = %v", err)
-	}
-	if time.Since(start) > time.Second {
-		t.Fatalf("took %v to give up", time.Since(start))
-	}
-}
-
 func TestWatchIgnoresStopsOfReplacedUnits(t *testing.T) {
 	// Starting over a unit that ended earlier stops it first; that stop
 	// must not be taken for the new instance ending.
@@ -891,7 +876,7 @@ func TestWatchIgnoresStopsOfReplacedUnits(t *testing.T) {
 	sd.exit(unitName("foot"), 0, 1)
 	<-ended // the first one ended on its own
 	sd.mu.Lock()
-	sd.units[unitName("foot")] = &fakeUnit{info: UnitInfo{Name: unitName("foot"), Description: "hostd instance foot of app foot",
+	sd.units[unitName("foot")] = &fakeUnit{info: systemd.UnitInfo{Name: unitName("foot"), Description: "hostd instance foot of app foot",
 		ActiveState: "active", SubState: "exited"}} // left over: not cleaned up yet
 	sd.mu.Unlock()
 	if _, err := r.Start(ctx, inst, execApp("foot", "foot")); err != nil {

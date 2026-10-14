@@ -1,7 +1,10 @@
-package apps
+package systemd
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -34,5 +37,21 @@ func TestSubStateChange(t *testing.T) {
 		if ok != c.reported || name != c.name || sub != c.sub {
 			t.Errorf("%s: got %q %q %v, want %q %q %v", c.sig.Path, name, sub, ok, c.name, c.sub, c.reported)
 		}
+	}
+}
+
+func TestNeverAutolaunchesABus(t *testing.T) {
+	// With no bus address and no user bus, connecting fails at once: it
+	// must not fall back to dbus-launch and a stray bus.
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+	t.Setenv("PATH", t.TempDir()) // and if it tried, there is no dbus-launch to run
+	s := &UserSystemd{RuntimeDir: t.TempDir()}
+	start := time.Now()
+	_, err := s.List(context.Background(), "hostd-*.service")
+	if err == nil || !strings.Contains(err.Error(), "no user bus") {
+		t.Fatalf("err = %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("took %v to give up", time.Since(start))
 	}
 }

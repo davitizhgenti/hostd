@@ -259,3 +259,23 @@ Reported when each item lands, not forecast here:
 | W7 | `commands.go` 1,089 to 1,045 lines (not the goal any more); external modules get reads and tables with no hostctl change; golden tests pass |
 | W8 | `lights` example works on both transports |
 | W10 | Decision recorded; `.deb` note in docs; `addon.toml` spike result (optional) |
+
+## Second round: how the pieces fit (2026-10-14)
+
+An architecture review one level up from W1–W10, at `9a9a81e`. Grade: **B+**.
+
+| Area | Grade | Finding |
+| - | - | - |
+| Core pipeline | A | One path for every change: per-resource order, holds, cause chains, audit. |
+| Module contract (sdk, contract, extmod) | A- | Manifest-driven routes, scopes, OpenAPI, CLI. External modules over socket or stdio. Four extension mechanisms with no shared story. |
+| Module internals | B | apps was 4.4k lines with the runners inside. |
+| Composition and config | C+ | The daemon built every module in one switch; `config.go` imported display; module settings were top-level keys; only `hostd.toml` could add modules. |
+| Updates | C | Three ways to switch versions, and only the API upload kept the state for a rollback. `hostd-setup update` and the timer did not. |
+| Efficiency | B+ | No forks or polls in steady state after W2, except the measured handoff scan. |
+
+What was done:
+
+- **A. One way to switch versions** (`a30fb09`): `installVersion` stages, copies the state database (`store.BackupFile`, `VACUUM INTO` from the installing process, no migration) and `hostd.toml`, writes `backup-for` and switches, for the API upload and for `hostd -install`. The installer runs `hostd -install -lib DIR -no-restart` instead of switching symlinks in bash. Checked by unit tests and `make test-install` (new check: the installer's update leaves the rollback data).
+- **B. Modules own their settings** (`4a44889`): a table of built-in modules (`internal/daemon/modules.go`), with `apps.Config` (`[apps]`) and `display.Config` (`[display]`) decoded and checked by their modules. `config.go` no longer imports a module. The old `idle_after`, `browser`, `gamescope` and `[input]` work for one release, with a log line. Core has no `hostd.toml`, so nothing there needs moving.
+- **C. Drop-ins** (`0813421`): `~/.config/hostd/hostd.d/*.toml` merged into `hostd.toml`, holding module sections and `[external.NAME]`. A setting in two files is an error naming both. The module docs open with the four ways to extend hostd and how an add-on ships an external module as a drop-in.
+- **D. Narrowed.** The plan was to move the app runners (`exec`, `handoff`, `docker`, `compose`) out of `modules/apps`. Measured first: all four use the apps types (`Instance`, `App`, `Ended`, `State`), so new packages would import `apps`. The apps test rig (about 2,300 lines in 4 files) drives the real runners against fake systemd and Docker, so the move means an import cycle and a rewrite of those tests, for no change in behaviour. Only the part that is infrastructure moved: the systemd user-manager client (`UserSystemd`, `UnitSpec`, `UnitInfo`) is now `internal/systemd`, used by apps' exec runner (through its narrow `Systemd` interface) and by the daemon to restart hostd. The daemon no longer gets an infrastructure client from a module. apps went from 4,410 to 4,079 lines; all tests kept (one renamed).

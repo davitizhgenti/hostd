@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/systemd"
 )
 
 // fakeSystemd is an in-memory systemd user manager that behaves like the
@@ -18,20 +20,20 @@ type fakeSystemd struct {
 	nextPID  int
 	watchers map[int]func(name, sub string)
 	nextW    int
-	started  []UnitSpec    // every spec StartTransient got
-	broken   chan struct{} // closed by breakWatch
+	started  []systemd.UnitSpec // every spec StartTransient got
+	broken   chan struct{}      // closed by breakWatch
 }
 
 type fakeUnit struct {
-	info UnitInfo
-	spec UnitSpec
+	info systemd.UnitInfo
+	spec systemd.UnitSpec
 }
 
 func newFakeSystemd() *fakeSystemd {
 	return &fakeSystemd{units: map[string]*fakeUnit{}, nextPID: 1000, watchers: map[int]func(string, string){}}
 }
 
-func (f *fakeSystemd) StartTransient(_ context.Context, name string, spec UnitSpec) error {
+func (f *fakeSystemd) StartTransient(_ context.Context, name string, spec systemd.UnitSpec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if u, ok := f.units[name]; ok && u.info.SubState != "dead" {
@@ -39,12 +41,12 @@ func (f *fakeSystemd) StartTransient(_ context.Context, name string, spec UnitSp
 	}
 	f.started = append(f.started, spec)
 	if filepath.Base(spec.Argv[0]) == "missing" { // Type=exec: the exec itself fails
-		f.units[name] = &fakeUnit{info: UnitInfo{Name: name, Description: spec.Description,
+		f.units[name] = &fakeUnit{info: systemd.UnitInfo{Name: name, Description: spec.Description,
 			ActiveState: "failed", SubState: "failed", ExitStatus: 203, ExitCode: 1, Result: "exit-code"}, spec: spec}
 		return errors.New("start: systemd job failed")
 	}
 	f.nextPID++
-	f.units[name] = &fakeUnit{info: UnitInfo{Name: name, Description: spec.Description,
+	f.units[name] = &fakeUnit{info: systemd.UnitInfo{Name: name, Description: spec.Description,
 		ActiveState: "active", SubState: "running", MainPID: f.nextPID}, spec: spec}
 	return nil
 }
@@ -74,20 +76,20 @@ func (f *fakeSystemd) ResetFailed(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *fakeSystemd) Unit(_ context.Context, name string) (UnitInfo, bool, error) {
+func (f *fakeSystemd) Unit(_ context.Context, name string) (systemd.UnitInfo, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	u, ok := f.units[name]
 	if !ok {
-		return UnitInfo{}, false, nil
+		return systemd.UnitInfo{}, false, nil
 	}
 	return u.info, true, nil
 }
 
-func (f *fakeSystemd) List(_ context.Context, pattern string) ([]UnitInfo, error) {
+func (f *fakeSystemd) List(_ context.Context, pattern string) ([]systemd.UnitInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []UnitInfo
+	var out []systemd.UnitInfo
 	for name, u := range f.units {
 		if u.info.SubState == "dead" {
 			continue // inactive units are not listed as loaded

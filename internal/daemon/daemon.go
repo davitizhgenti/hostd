@@ -22,9 +22,9 @@ import (
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/extmod"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
+	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
-	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -92,7 +92,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	home, _ := os.UserHomeDir()
 	e := &env{runtimeDir: *runtimeDir, stateDir: *stateDir, configDir: filepath.Dir(*configPath), socket: *socket,
-		home: home, log: log, systemd: &apps.UserSystemd{RuntimeDir: *runtimeDir}}
+		home: home, log: log, systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}}
 	defer e.systemd.Close()
 	var mods []sdk.Module
 	for _, name := range cfg.Modules {

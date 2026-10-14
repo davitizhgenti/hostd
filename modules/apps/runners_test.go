@@ -18,6 +18,7 @@ import (
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -355,14 +356,14 @@ func TestHandoffAdopt(t *testing.T) {
 	ctx := context.Background()
 	desc := description(Instance{ID: "portal2", App: "portal2"}, "SteamAppId=620")
 	// Before hostd restarted: the command exited, the game still runs.
-	_ = h.sd.StartTransient(ctx, unitName("portal2"), UnitSpec{Description: desc, Argv: []string{"steam"}})
+	_ = h.sd.StartTransient(ctx, unitName("portal2"), systemd.UnitSpec{Description: desc, Argv: []string{"steam"}})
 	h.exitedWhileAway(unitName("portal2"))
 	h.procs.spawn(501, "SteamAppId=620")
 	// Another one whose game ended while hostd was away.
-	_ = h.sd.StartTransient(ctx, unitName("hl"), UnitSpec{Description: description(Instance{ID: "hl", App: "hl"}, "SteamAppId=70"), Argv: []string{"steam"}})
+	_ = h.sd.StartTransient(ctx, unitName("hl"), systemd.UnitSpec{Description: description(Instance{ID: "hl", App: "hl"}, "SteamAppId=70"), Argv: []string{"steam"}})
 	h.exitedWhileAway(unitName("hl"))
 	// And a unit that hosts Steam, with no game running.
-	_ = h.sd.StartTransient(ctx, unitName("tf2"), UnitSpec{Description: description(Instance{ID: "tf2", App: "tf2"}, "SteamAppId=440"), Argv: []string{"steam"}})
+	_ = h.sd.StartTransient(ctx, unitName("tf2"), systemd.UnitSpec{Description: description(Instance{ID: "tf2", App: "tf2"}, "SteamAppId=440"), Argv: []string{"steam"}})
 
 	found, err := h.r.Adopt(ctx)
 	if err != nil {

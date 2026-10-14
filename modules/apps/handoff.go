@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/systemd"
 )
 
 // A handoff app's command passes the app to another program and exits
@@ -54,7 +56,7 @@ func (r *ExecRunner) handedOff(id string) bool {
 
 // handoffOf returns an instance's handoff variable, from what hostd
 // follows or from its unit's description.
-func (r *ExecRunner) handoffOf(id string, u UnitInfo) string {
+func (r *ExecRunner) handoffOf(id string, u systemd.UnitInfo) string {
 	r.mu.Lock()
 	h, ok := r.handoffs[id]
 	r.mu.Unlock()

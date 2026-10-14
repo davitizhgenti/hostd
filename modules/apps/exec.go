@@ -2,7 +2,6 @@ package apps
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,50 +15,25 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/systemd"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// UnitSpec is what the exec runner asks systemd to run.
-type UnitSpec struct {
-	Description string
-	Argv        []string
-	Env         []string // KEY=value
-	Dir         string
-	// Restart is systemd's Restart= for services (on-failure, always);
-	// "" for apps that are not restarted.
-	Restart string
-	// Service: a background service, run with NoNewPrivileges and a
-	// private /tmp.
-	Service bool
-}
-
-// UnitInfo is what the exec runner reads back about a unit.
-type UnitInfo struct {
-	Name        string
-	Description string
-	ActiveState string // active, inactive, failed...
-	SubState    string // running, exited, failed, dead...
-	MainPID     int
-	ExitStatus  int    // ExecMainStatus
-	ExitCode    int    // ExecMainCode: 1 exited, 2 killed, 3 dumped core
-	Result      string // success, exit-code, signal, core-dump...
-}
-
 // Systemd is the part of the systemd user manager the exec runner uses.
-// The real one talks D-Bus (systemd.go); tests use a fake.
+// The real one talks D-Bus (internal/systemd); tests use a fake.
 type Systemd interface {
 	// StartTransient starts a transient service and returns once its job
 	// is done (for Type=exec: the binary was executed).
-	StartTransient(ctx context.Context, name string, spec UnitSpec) error
+	StartTransient(ctx context.Context, name string, spec systemd.UnitSpec) error
 	// Stop stops a unit and waits; a unit that is not loaded is fine.
 	Stop(ctx context.Context, name string) error
 	// ResetFailed forgets a failed unit, so its name can be reused.
 	ResetFailed(ctx context.Context, name string) error
 	// Unit reads a unit; ok is false if it is not loaded.
-	Unit(ctx context.Context, name string) (info UnitInfo, ok bool, err error)
+	Unit(ctx context.Context, name string) (info systemd.UnitInfo, ok bool, err error)
 	// List returns the loaded units whose names match a glob.
-	List(ctx context.Context, pattern string) ([]UnitInfo, error)
+	List(ctx context.Context, pattern string) ([]systemd.UnitInfo, error)
 	// Watch calls fn with every unit's sub-state change until ctx ends.
 	Watch(ctx context.Context, fn func(name, subState string)) error
 }
@@ -288,7 +262,7 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	if inst.Dir != "" {
 		dir = inst.Dir // a release
 	}
-	spec := UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: dir}
+	spec := systemd.UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: dir}
 	if app.Runner.Type == RunnerProcess {
 		spec.Service = true
 		if app.Restart != "never" {
@@ -423,7 +397,7 @@ func (r *ExecRunner) Watch(ctx context.Context, fn func(Ended)) error {
 
 // endedState reads whether a unit's app has ended, its exit code (128+n
 // for signal n, as shells do) and a readable reason.
-func endedState(u UnitInfo) (ended bool, code int, reason string) {
+func endedState(u systemd.UnitInfo) (ended bool, code int, reason string) {
 	switch {
 	case u.SubState == "exited" || u.SubState == "dead" || u.ActiveState == "failed" || u.SubState == "failed":
 	default:
@@ -440,7 +414,7 @@ func endedState(u UnitInfo) (ended bool, code int, reason string) {
 	}
 }
 
-func (r *ExecRunner) cleanup(ctx context.Context, u UnitInfo) {
+func (r *ExecRunner) cleanup(ctx context.Context, u systemd.UnitInfo) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if u.ActiveState == "failed" {
@@ -449,5 +423,3 @@ func (r *ExecRunner) cleanup(ctx context.Context, u UnitInfo) {
 	}
 	_ = r.Systemd.Stop(ctx, u.Name)
 }
-
-var errNoSystemd = errors.New("not connected to the systemd user manager")

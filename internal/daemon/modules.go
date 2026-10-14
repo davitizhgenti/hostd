@@ -14,6 +14,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/gpu"
 	"github.com/davitizhgenti/hostd/internal/notify"
 	"github.com/davitizhgenti/hostd/internal/secrets"
+	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/automation"
@@ -47,7 +48,7 @@ type legacyKey struct {
 type env struct {
 	runtimeDir, stateDir, configDir, socket, home string
 	log                                           *slog.Logger
-	systemd                                       *apps.UserSystemd // shared; Run closes it
+	systemd                                       *systemd.UserSystemd // shared; Run closes it
 }
 
 var builtins = []builtin{
