@@ -55,7 +55,7 @@ func checkHealth(ctx context.Context, h Health) error {
 // watchHealth holds an instance's start until its health check passes,
 // then keeps checking it until it ends.
 func (m *Module) watchHealth(ctx context.Context, id string, h Health) {
-	start, every := h.durations()
+	start, every := healthDurations(h)
 	deadline := m.opts.Clock.Now().Add(start)
 	tick := m.opts.Clock.NewTicker(time.Second)
 	defer tick.Stop()
@@ -182,9 +182,9 @@ func (m *Module) emitHealth(typ, id string, err error) {
 	}
 }
 
-// forInstance fills in {port} from the instance's PORT: each release of a
+// healthFor fills in {port} from the instance's PORT: each release of a
 // service checks its own port.
-func (h Health) forInstance(in Instance) Health {
+func healthFor(h Health, in Instance) Health {
 	if p := in.Env["PORT"]; p != "" {
 		h.HTTP = strings.ReplaceAll(h.HTTP, "{port}", p)
 		h.TCP = strings.ReplaceAll(h.TCP, "{port}", p)

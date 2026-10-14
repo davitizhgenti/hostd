@@ -1,4 +1,8 @@
-package apps
+// Package units runs apps as transient systemd user units: native
+// programs, Flatpak apps, web apps in a browser and background processes
+// (the exec runner), and follows apps that hand themselves off to another
+// program (handoff.go). It implements spec.Backend for the apps module.
+package units
 
 import (
 	"context"
@@ -16,6 +20,7 @@ import (
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/systemd"
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -101,9 +106,9 @@ func (r *ExecRunner) command(app *App) ([]string, error) {
 	}
 	var argv []string
 	switch app.Runner.Type {
-	case RunnerFlatpak:
+	case spec.RunnerFlatpak:
 		argv = []string{"flatpak", "run", app.Runner.AppID}
-	case RunnerURL:
+	case spec.RunnerURL:
 		tmpl := r.Browser
 		if len(tmpl) == 0 {
 			for _, b := range browsers {
@@ -197,7 +202,7 @@ func (r *ExecRunner) prepare(inst Instance, app *App) (argv, env []string, err e
 		return nil, nil, err
 	}
 	env = []string{"HOSTD_INSTANCE=" + inst.ID}
-	if inst.Surface == SurfaceWindow {
+	if inst.Surface == spec.SurfaceWindow {
 		session, ok := SessionEnv(r.RuntimeDir)
 		if !ok {
 			return nil, nil, sdk.Errorf(sdk.CodeModuleUnavailable, "no graphical session: Sway is not running")
@@ -262,14 +267,14 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	if inst.Dir != "" {
 		dir = inst.Dir // a release
 	}
-	spec := systemd.UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: dir}
-	if app.Runner.Type == RunnerProcess {
-		spec.Service = true
+	unit := systemd.UnitSpec{Description: description(inst, kv), Argv: argv, Env: env, Dir: dir}
+	if app.Runner.Type == spec.RunnerProcess {
+		unit.Service = true
 		if app.Restart != "never" {
-			spec.Restart = app.Restart
+			unit.Restart = app.Restart
 		}
 	}
-	err = r.Systemd.StartTransient(ctx, name, spec)
+	err = r.Systemd.StartTransient(ctx, name, unit)
 	if err != nil {
 		_ = r.Systemd.ResetFailed(ctx, name)
 		return inst, fmt.Errorf("starting %s: %w", strings.Join(argv, " "), err)
@@ -323,7 +328,7 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 		if m == nil || unitName(m[1]) != u.Name {
 			continue // not ours (e.g. started by hand with systemd-run)
 		}
-		inst := Instance{ID: m[1], App: m[2], Runner: RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning}
+		inst := Instance{ID: m[1], App: m[2], Runner: spec.RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning}
 		ended, code, _ := endedState(u)
 		if kv := m[3]; kv != "" {
 			alive := len(pidsWithEnv(r.procRoot(), kv)) > 0

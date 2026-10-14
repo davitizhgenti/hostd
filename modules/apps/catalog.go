@@ -1,6 +1,8 @@
 // Package apps is the apps module: the catalog of apps (discovered from
-// what is installed, merged with hand-written files) and, from M1 step 3.8,
-// their running instances.
+// what is installed, merged with hand-written files) and their running
+// instances. It runs them through Backends, one per runner type, which live
+// in packages of their own (runner/units, runner/podman) and share the
+// types in spec; the daemon chooses which runners a machine has.
 package apps
 
 import (
@@ -10,148 +12,10 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/davitizhgenti/hostd/contract"
 )
-
-// Surfaces: a window app shows on the screen; a background app is a
-// service with no window.
-const (
-	SurfaceWindow     = "window"
-	SurfaceBackground = "background"
-)
-
-// Runner types.
-const (
-	RunnerExec    = "exec"
-	RunnerFlatpak = "flatpak"
-	RunnerURL     = "url"
-	RunnerDocker  = "docker"
-	RunnerCompose = "compose"
-	RunnerProcess = "process"
-)
-
-var runnerTypes = map[string]string{ // runner type -> default surface
-	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerURL: SurfaceWindow,
-	RunnerDocker: SurfaceBackground, RunnerCompose: SurfaceBackground, RunnerProcess: SurfaceBackground,
-}
-
-// App is one entry of the catalog: a runner plus a surface, and options.
-type App struct {
-	ID      string   `json:"id"`
-	Aliases []string `json:"aliases,omitempty"` // other IDs that find this app, e.g. the discovered one it extends
-	Name    string   `json:"name"`
-	Icon    string   `json:"icon,omitempty"`
-
-	// Source is where the app came from: desktop (a .desktop file), or
-	// file (a hand-written TOML file). Files lists every file involved.
-	Source string   `json:"source"`
-	Files  []string `json:"files"`
-
-	Runner   Runner         `json:"runner"`
-	Surface  string         `json:"surface"`
-	Window   Window         `json:"window"`
-	Instance InstancePolicy `json:"instance"`
-	Audio    Audio          `json:"audio,omitzero"`
-	Requires []string       `json:"requires,omitempty"`
-	Hidden   bool           `json:"hidden"`
-	// Under is the app this one is listed under rather than on its own: a
-	// Steam game under Steam. Menus show it with that app's actions.
-	Under   string            `json:"under,omitempty"`
-	Match   Match             `json:"match,omitzero"`
-	Restart string            `json:"restart,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Health  Health            `json:"health,omitzero"`
-	// Actions are extra ways to start the app ("New private window"):
-	// from its desktop entry, and from app files.
-	Actions []AppAction `json:"actions,omitempty"`
-	// Deploy is how a service's new versions arrive ([source] in its
-	// file); the deploy module builds and switches to them.
-	Deploy *Deploy `json:"deploy,omitempty"`
-}
-
-// Deploy is a service's [source]: where new versions come from, how they
-// are built, and the public port hostd serves them on.
-type Deploy struct {
-	Type   string   `json:"type" toml:"type"`               // push: git push to the box; remote: hostd polls url
-	Build  []string `json:"build,omitempty" toml:"build"`   // run in the release's directory
-	Port   int      `json:"port,omitempty" toml:"port"`     // public port; each release gets PORT
-	Branch string   `json:"branch,omitempty" toml:"branch"` // default main
-	Keep   int      `json:"keep,omitempty" toml:"keep"`     // releases kept (default 5)
-	URL    string   `json:"url,omitempty" toml:"url"`       // remote: the repository
-	Poll   string   `json:"poll,omitempty" toml:"poll"`     // remote: how often to look (default 60s)
-	Secret string   `json:"secret,omitempty" toml:"secret"` // webhook: the secret's name (hostctl secret set)
-	// image: the image (ghcr.io/me/blog), its tag (default latest), the
-	// port the container listens on, and a secret with registry
-	// credentials (user:token) for a private image.
-	Image         string `json:"image,omitempty" toml:"image"`
-	Tag           string `json:"tag,omitempty" toml:"tag"`
-	ContainerPort int    `json:"container_port,omitempty" toml:"container_port"`
-	Auth          string `json:"auth,omitempty" toml:"auth"`
-}
-
-// AppAction is an extra way to start an app: app.start with action=<id>
-// runs Command as a new instance.
-type AppAction struct {
-	ID      string   `json:"id" toml:"id"`
-	Name    string   `json:"name" toml:"name"`
-	Command []string `json:"command" toml:"command"`
-}
-
-// Action finds one of the app's actions.
-func (a *App) Action(id string) (AppAction, bool) {
-	for _, x := range a.Actions {
-		if x.ID == id {
-			return x, true
-		}
-	}
-	return AppAction{}, false
-}
-
-// Runner says how to run the app. Which fields apply depends on Type.
-type Runner struct {
-	Type    string   `json:"type" toml:"type"`
-	Command []string `json:"command,omitempty" toml:"command"` // exec, process: the argv
-	URL     string   `json:"url,omitempty" toml:"url"`         // url
-	Image   string   `json:"image,omitempty" toml:"image"`     // docker
-	Build   string   `json:"build,omitempty" toml:"build"`     // docker: build context
-	Ports   []string `json:"ports,omitempty" toml:"ports"`     // docker
-	File    string   `json:"file,omitempty" toml:"file"`       // compose
-	AppID   string   `json:"app_id,omitempty" toml:"app_id"`   // flatpak ID
-
-	// Handoff is for commands that pass the app to another program and
-	// exit, such as "steam steam://rungameid/620": the instance runs while
-	// processes with this KEY=value in their environment exist.
-	Handoff string `json:"handoff,omitempty" toml:"handoff"`
-}
-
-// Window options for window apps.
-type Window struct {
-	Fullscreen bool   `json:"fullscreen"`
-	Wrap       string `json:"wrap,omitempty"` // "gamescope"
-	// ShownBy is the app whose window shows this one, when it has none of
-	// its own: a game drawn inside Steam's gamescope session.
-	ShownBy string `json:"shown_by,omitempty"`
-}
-
-// InstancePolicy decides what starting a running app does.
-type InstancePolicy struct {
-	Policy    string `json:"policy"`     // single | multiple
-	IfRunning string `json:"if_running"` // focus | new | restart
-}
-
-// Audio options.
-type Audio struct {
-	Volume *int `json:"volume,omitempty"` // per-app volume applied on start
-}
-
-// Match rules find an app's windows when cgroup matching cannot (see
-// contract.Match). An app with a handoff and no rules matches by its
-// handoff variable.
-type Match = contract.Match
 
 // matchRules returns the app's match rules for its instances, or nil.
-func (a *App) matchRules() *Match {
+func matchRules(a *App) *Match {
 	if a.Match.IsZero() {
 		return nil
 	}
@@ -159,20 +23,8 @@ func (a *App) matchRules() *Match {
 	return &m
 }
 
-// Health check for background apps: an app with one counts as running
-// once it passes, and as failed if it does not within Start.
-type Health struct {
-	HTTP  string `json:"http,omitempty" toml:"http"`   // a URL that answers 2xx
-	TCP   string `json:"tcp,omitempty" toml:"tcp"`     // host:port that accepts connections
-	Start string `json:"start,omitempty" toml:"start"` // how long the first pass may take (default 60s)
-	Every string `json:"every,omitempty" toml:"every"` // between checks afterwards (default 10s)
-}
-
-// Set reports whether the app has a health check.
-func (h Health) Set() bool { return h.HTTP != "" || h.TCP != "" }
-
 // durations returns Start and Every, defaulted.
-func (h Health) durations() (start, every time.Duration) {
+func healthDurations(h Health) (start, every time.Duration) {
 	start, every = 60*time.Second, 10*time.Second
 	if d, err := time.ParseDuration(h.Start); err == nil && d > 0 {
 		start = d
@@ -181,6 +33,11 @@ func (h Health) durations() (start, every time.Duration) {
 		every = d
 	}
 	return start, every
+}
+
+var runnerTypes = map[string]string{ // runner type -> default surface
+	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerURL: SurfaceWindow,
+	RunnerDocker: SurfaceBackground, RunnerCompose: SurfaceBackground, RunnerProcess: SurfaceBackground,
 }
 
 // Problem is a file the catalog could not use, and why.
@@ -198,7 +55,7 @@ var reID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 func ValidID(id string) bool { return len(id) <= 64 && reID.MatchString(id) }
 
 // applyDefaults fills what a source or file left unset.
-func (a *App) applyDefaults() {
+func applyDefaults(a *App) {
 	if a.Surface == "" {
 		a.Surface = runnerTypes[a.Runner.Type]
 		if a.Surface == "" {
@@ -241,7 +98,7 @@ func (a *App) applyDefaults() {
 }
 
 // validate checks a finished app on its own.
-func (a *App) validate() error {
+func validate(a *App) error {
 	var errs []string
 	bad := func(f string, args ...any) { errs = append(errs, fmt.Sprintf(f, args...)) }
 	if !ValidID(a.ID) {
@@ -450,7 +307,7 @@ func Build(discovered []App, files []AppFile, problems []Problem) *Catalog {
 	c := &Catalog{apps: map[string]*App{}, alias: map[string]string{}, Problems: problems}
 	for i := range discovered {
 		a := discovered[i]
-		a.applyDefaults()
+		applyDefaults(&a)
 		c.apps[a.ID] = &a
 		for _, al := range a.Aliases {
 			c.alias[al] = a.ID
@@ -523,8 +380,8 @@ func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error)
 		ids[x.ID] = true
 	}
 	f.applyTo(&app)
-	app.applyDefaults()
-	if err := app.validate(); err != nil {
+	applyDefaults(&app)
+	if err := validate(&app); err != nil {
 		return nil, err
 	}
 	if f.Extends != "" && id != f.Extends {

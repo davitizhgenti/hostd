@@ -233,7 +233,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return ok && !in.State.Ended()
 	})
 	inst := &Instance{ID: id, App: app.ID, Name: app.Name, Runner: app.Runner.Type, Surface: app.Surface,
-		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: app.matchRules(), ShownBy: app.Window.ShownBy, Volume: app.Audio.Volume,
+		Fullscreen: app.Surface == SurfaceWindow && app.Window.Fullscreen, Front: args.Front, Match: matchRules(app), ShownBy: app.Window.ShownBy, Volume: app.Audio.Volume,
 		Dir: args.Dir, Env: args.Env, Image: args.Image, Ports: args.Ports,
 		Action: args.Action,
 		State:  StateStarting, Started: m.opts.Clock.Now().UTC()}
@@ -291,7 +291,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if gated {
 		// Running once its health check passes (health.go).
 		m.watchersRun.Add(1)
-		h := app.Health.forInstance(*inst)
+		h := healthFor(app.Health, *inst)
 		go func() { defer m.watchersRun.Done(); m.watchHealth(life, id, h) }()
 	}
 	if emitStarted {
@@ -354,7 +354,7 @@ func (m *Module) handleClosing(a sdk.Action) (sdk.Result, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if in, ok := m.instances[args.ID]; ok {
-		in.closing = true
+		in.Closing = true
 	}
 	return sdk.Result{Data: sdk.MustJSON(map[string]string{"instance": args.ID})}, nil
 }
@@ -424,7 +424,7 @@ func (m *Module) onEnded(e Ended) {
 	}
 	code := e.ExitCode
 	status := code
-	if in.closing {
+	if in.Closing {
 		// Asked to close (instance.closing): whatever status an app ends
 		// with then (a terminal's shell reports 1), it ended as asked.
 		status = 0
@@ -503,7 +503,7 @@ func (m *Module) adopt(ctx context.Context) {
 			if app, ok := m.catalog().Get(in.App); ok {
 				in.Name, in.Surface = app.Name, app.Surface
 				in.Fullscreen = app.Surface == SurfaceWindow && app.Window.Fullscreen
-				in.Match = app.matchRules()
+				in.Match = matchRules(app)
 				in.ShownBy = app.Window.ShownBy
 				in.Volume = app.Audio.Volume
 			}

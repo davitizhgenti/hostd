@@ -16,6 +16,8 @@ import (
 	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/modules/apps"
+	"github.com/davitizhgenti/hostd/modules/apps/runner/podman"
+	"github.com/davitizhgenti/hostd/modules/apps/runner/units"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/modules/demo"
@@ -60,14 +62,14 @@ var builtins = []builtin{
 		},
 		build: func(e *env, conf any) (sdk.Module, error) {
 			c := conf.(*apps.Config)
-			engine := &apps.EngineAPI{Socket: apps.DefaultEngineSocket(e.runtimeDir)}
+			engine := &podman.EngineAPI{Socket: podman.DefaultEngineSocket(e.runtimeDir)}
 			return apps.New(apps.Options{
 				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: secrets.DefaultDir(), Logger: e.log,
 				Backends: map[string]apps.Backend{
-					apps.RunnerExec: &apps.ExecRunner{Systemd: e.systemd, RuntimeDir: e.runtimeDir, HomeDir: e.home,
+					apps.RunnerExec: &units.ExecRunner{Systemd: e.systemd, RuntimeDir: e.runtimeDir, HomeDir: e.home,
 						StateDir: e.stateDir, Browser: c.Browser, Gamescope: c.Gamescope},
-					apps.RunnerDocker:  &apps.DockerRunner{Docker: engine},
-					apps.RunnerCompose: &apps.ComposeRunner{Docker: engine, Socket: engine.Socket},
+					apps.RunnerDocker:  &podman.DockerRunner{Docker: engine},
+					apps.RunnerCompose: &podman.ComposeRunner{Docker: engine, Socket: engine.Socket},
 				},
 			}), nil
 		}},

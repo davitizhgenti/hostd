@@ -13,6 +13,8 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
+	"github.com/davitizhgenti/hostd/modules/apps/runner/units/unitstest"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -24,9 +26,9 @@ func TestServiceWaitsForItsHealthCheck(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	sd := newFakeSystemd()
+	sd := unitstest.NewFakeSystemd()
 	clk := clock.NewFake(time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC))
-	r := newRigClock(t, sd, newFakeDocker(), fakeSession(t), clk)
+	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), clk)
 	writeApps(t, r.m.opts.AppsDir, `
 -- site.toml --
 runner = { type = "process", command = ["site"] }
@@ -41,9 +43,9 @@ every = "5s"
 	if data["state"] != "starting" {
 		t.Fatalf("started %v: should wait for its health check", data)
 	}
-	sd.mu.Lock()
-	spec := sd.started[len(sd.started)-1]
-	sd.mu.Unlock()
+	sd.Mu.Lock()
+	spec := sd.Started[len(sd.Started)-1]
+	sd.Mu.Unlock()
 	if !spec.Service || spec.Restart != "always" {
 		t.Fatalf("unit %+v", spec)
 	}
@@ -97,9 +99,9 @@ every = "5s"
 }
 
 func TestServiceThatNeverBecomesHealthyFails(t *testing.T) {
-	sd := newFakeSystemd()
+	sd := unitstest.NewFakeSystemd()
 	clk := clock.NewFake(time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC))
-	r := newRigClock(t, sd, newFakeDocker(), fakeSession(t), clk)
+	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), clk)
 	writeApps(t, r.m.opts.AppsDir, `
 -- broken.toml --
 runner = { type = "process", command = ["broken"] }
@@ -124,11 +126,11 @@ start = "10s"
 	if !failed {
 		t.Fatal("not failed for its health check")
 	}
-	sd.mu.Lock()
-	u := sd.units[unitName("broken")]
-	sd.mu.Unlock()
-	if u != nil && u.info.SubState == "running" {
-		t.Fatalf("the unit still runs: %+v", u.info)
+	sd.Mu.Lock()
+	u := sd.Units[contract.UnitName("broken")]
+	sd.Mu.Unlock()
+	if u != nil && u.Info.SubState == "running" {
+		t.Fatalf("the unit still runs: %+v", u.Info)
 	}
 	if _, err := r.do(t, "instance.stop", "broken"); err == nil {
 		t.Fatal("the failed instance is still live")
@@ -141,9 +143,9 @@ func TestReleaseStart(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
 	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
-	sd := newFakeSystemd()
+	sd := unitstest.NewFakeSystemd()
 	clk := clock.NewFake(time.Date(2026, 10, 10, 15, 0, 0, 0, time.UTC))
-	r := newRigClock(t, sd, newFakeDocker(), fakeSession(t), clk)
+	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), clk)
 	writeApps(t, r.m.opts.AppsDir, `
 -- site.toml --
 runner = { type = "process", command = ["./site"] }
@@ -174,9 +176,9 @@ http = "http://127.0.0.1:{port}/"
 	if first["instance"] != "site" || second["instance"] != "site#2" {
 		t.Fatalf("instances %v %v", first, second)
 	}
-	sd.mu.Lock()
-	spec := sd.started[len(sd.started)-1]
-	sd.mu.Unlock()
+	sd.Mu.Lock()
+	spec := sd.Started[len(sd.Started)-1]
+	sd.Mu.Unlock()
 	if spec.Dir != "/releases/site/bbb" || !slices.Contains(spec.Env, "PORT="+port) {
 		t.Fatalf("release unit %+v", spec)
 	}

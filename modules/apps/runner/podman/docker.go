@@ -1,4 +1,7 @@
-package apps
+// Package podman runs container apps through the Podman (Docker-compatible)
+// API: single containers (DockerRunner) and compose projects
+// (ComposeRunner). It implements spec.Backend for the apps module.
+package podman
 
 import (
 	"bufio"
@@ -18,13 +21,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
 // Container labels that mark hostd's containers.
 const (
-	labelInstance = "hostd.instance"
-	labelApp      = "hostd.app"
+	LabelInstance = "hostd.instance"
+	LabelApp      = "hostd.app"
 )
 
 // ContainerSpec is what the docker runner asks the engine to create.
@@ -124,7 +128,7 @@ func (r *DockerRunner) Start(ctx context.Context, inst Instance, app *App) (Inst
 	sort.Strings(env)
 	id, err := r.Docker.Create(ctx, name, ContainerSpec{
 		Image: image, Env: env, Ports: ports, Restart: restartPolicy(app.Restart),
-		Labels: map[string]string{labelInstance: inst.ID, labelApp: inst.App},
+		Labels: map[string]string{LabelInstance: inst.ID, LabelApp: inst.App},
 	})
 	if err != nil {
 		return inst, err
@@ -163,13 +167,13 @@ func (r *DockerRunner) Stop(ctx context.Context, inst Instance) error {
 }
 
 func (r *DockerRunner) Adopt(ctx context.Context) ([]Instance, error) {
-	list, err := r.Docker.List(ctx, labelInstance)
+	list, err := r.Docker.List(ctx, LabelInstance)
 	if err != nil {
 		return nil, err
 	}
 	var out []Instance
 	for _, c := range list {
-		inst := Instance{ID: c.Labels[labelInstance], App: c.Labels[labelApp], Runner: RunnerDocker,
+		inst := Instance{ID: c.Labels[LabelInstance], App: c.Labels[LabelApp], Runner: spec.RunnerDocker,
 			Container: strings.TrimPrefix(c.Name, "/"), PID: c.PID, State: StateRunning}
 		if !c.Running && !c.Restarting {
 			code := c.ExitCode
@@ -188,13 +192,13 @@ func (r *DockerRunner) Adopt(ctx context.Context) ([]Instance, error) {
 // Watch reports containers that die and are not being restarted by the
 // engine (restart = "always" or "on-failure" keeps the instance alive).
 func (r *DockerRunner) Watch(ctx context.Context, fn func(Ended)) error {
-	return r.Docker.Events(ctx, labelInstance, func(id string) {
+	return r.Docker.Events(ctx, LabelInstance, func(id string) {
 		info, ok, err := r.Docker.Inspect(ctx, id)
 		if err != nil || !ok || info.Running || info.Restarting {
 			return // stopped and removed by hostd, or restarting
 		}
 		_ = r.Docker.Remove(ctx, id)
-		fn(Ended{Instance: info.Labels[labelInstance], ExitCode: info.ExitCode,
+		fn(Ended{Instance: info.Labels[LabelInstance], ExitCode: info.ExitCode,
 			Reason: fmt.Sprintf("container exited with status %d", info.ExitCode)})
 	})
 }
@@ -235,7 +239,7 @@ func (e *EngineAPI) client() *http.Client {
 
 const apiBase = "http://engine/v1.41"
 
-// do sends a request; status 404 is reported as errNotFound.
+// do sends a request; status 404 is reported as ErrNotFound.
 func (e *EngineAPI) do(ctx context.Context, method, path string, body any, out any) error {
 	var rd io.Reader
 	if body != nil {
@@ -260,7 +264,7 @@ func (e *EngineAPI) do(ctx context.Context, method, path string, body any, out a
 	data, _ := io.ReadAll(io.LimitReader(res.Body, 16<<20))
 	switch {
 	case res.StatusCode == http.StatusNotFound:
-		return errNotFound
+		return ErrNotFound
 	case res.StatusCode == http.StatusNotModified: // already started or stopped
 		return nil
 	case res.StatusCode >= 400:
@@ -279,11 +283,11 @@ func (e *EngineAPI) do(ctx context.Context, method, path string, body any, out a
 	return nil
 }
 
-var errNotFound = errors.New("not found")
+var ErrNotFound = errors.New("not found")
 
 func (e *EngineAPI) ImageExists(ctx context.Context, image string) (bool, error) {
 	err := e.do(ctx, http.MethodGet, "/images/"+url.PathEscape(image)+"/json", nil, nil)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		return false, nil
 	}
 	return err == nil, err
@@ -378,7 +382,7 @@ func (e *EngineAPI) Start(ctx context.Context, id string) error {
 func (e *EngineAPI) Stop(ctx context.Context, id string, timeout time.Duration) error {
 	q := "?t=" + strconv.Itoa(int(timeout.Seconds()))
 	err := e.do(ctx, http.MethodPost, "/containers/"+url.PathEscape(id)+"/stop"+q, nil, nil)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	return err
@@ -386,7 +390,7 @@ func (e *EngineAPI) Stop(ctx context.Context, id string, timeout time.Duration) 
 
 func (e *EngineAPI) Remove(ctx context.Context, id string) error {
 	err := e.do(ctx, http.MethodDelete, "/containers/"+url.PathEscape(id)+"?force=true", nil, nil)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	return err
@@ -416,7 +420,7 @@ func (j inspectJSON) info() ContainerInfo {
 func (e *EngineAPI) Inspect(ctx context.Context, id string) (ContainerInfo, bool, error) {
 	var j inspectJSON
 	err := e.do(ctx, http.MethodGet, "/containers/"+url.PathEscape(id)+"/json", nil, &j)
-	if errors.Is(err, errNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		return ContainerInfo{}, false, nil
 	}
 	if err != nil {

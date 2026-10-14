@@ -1,4 +1,4 @@
-package apps
+package podman
 
 import (
 	"bytes"
@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// labelProject is the label compose (Docker Compose, podman-compose) puts
+// LabelProject is the label compose (Docker Compose, podman-compose) puts
 // on a project's containers.
-const labelProject = "com.docker.compose.project"
+const LabelProject = "com.docker.compose.project"
 
 // ComposeRunner runs compose apps: each instance is a compose project,
 // hostd-<instance>, brought up with the app's file. Status, stops and
@@ -132,13 +133,13 @@ func (r *ComposeRunner) Start(ctx context.Context, inst Instance, app *App) (Ins
 
 // containers are a project's containers.
 func (r *ComposeRunner) containers(ctx context.Context, project string) ([]ContainerInfo, error) {
-	list, err := r.Docker.List(ctx, labelProject)
+	list, err := r.Docker.List(ctx, LabelProject)
 	if err != nil {
 		return nil, err
 	}
 	var out []ContainerInfo
 	for _, c := range list {
-		if c.Labels[labelProject] == project {
+		if c.Labels[LabelProject] == project {
 			out = append(out, c)
 		}
 	}
@@ -164,14 +165,14 @@ func (r *ComposeRunner) Stop(ctx context.Context, inst Instance) error {
 }
 
 func (r *ComposeRunner) Adopt(ctx context.Context) ([]Instance, error) {
-	list, err := r.Docker.List(ctx, labelProject)
+	list, err := r.Docker.List(ctx, LabelProject)
 	if err != nil {
 		return nil, err
 	}
 	byProject := map[string][]ContainerInfo{}
 	for _, c := range list {
-		if _, ok := instanceOfProject(c.Labels[labelProject]); ok {
-			byProject[c.Labels[labelProject]] = append(byProject[c.Labels[labelProject]], c)
+		if _, ok := instanceOfProject(c.Labels[LabelProject]); ok {
+			byProject[c.Labels[LabelProject]] = append(byProject[c.Labels[LabelProject]], c)
 		}
 	}
 	projects := make([]string, 0, len(byProject))
@@ -182,7 +183,7 @@ func (r *ComposeRunner) Adopt(ctx context.Context) ([]Instance, error) {
 	var out []Instance
 	for _, p := range projects {
 		id, _ := instanceOfProject(p)
-		inst := Instance{ID: id, App: appOf(id), Runner: RunnerCompose, Container: p, State: StateExited}
+		inst := Instance{ID: id, App: spec.AppOf(id), Runner: spec.RunnerCompose, Container: p, State: StateExited}
 		for _, c := range byProject[p] {
 			if c.Running || c.Restarting {
 				inst.State = StateRunning
@@ -201,12 +202,12 @@ func (r *ComposeRunner) Adopt(ctx context.Context) ([]Instance, error) {
 // Watch reports a project as ended once none of its containers runs (or
 // is being restarted by the engine).
 func (r *ComposeRunner) Watch(ctx context.Context, fn func(Ended)) error {
-	return r.Docker.Events(ctx, labelProject, func(id string) {
+	return r.Docker.Events(ctx, LabelProject, func(id string) {
 		info, ok, err := r.Docker.Inspect(ctx, id)
 		if err != nil || !ok {
 			return // removed by hostd
 		}
-		project := info.Labels[labelProject]
+		project := info.Labels[LabelProject]
 		inst, mine := instanceOfProject(project)
 		if !mine {
 			return
