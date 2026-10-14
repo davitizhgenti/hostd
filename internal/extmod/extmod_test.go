@@ -39,9 +39,11 @@ type rig struct {
 	apps  *testutil.Module
 }
 
-func newRig(t *testing.T) *rig {
+func newRig(t *testing.T) *rig { return newRigWith(t, TransportSocket) }
+
+func newRigWith(t *testing.T, transport string) *rig {
 	t.Helper()
-	m, err := Load(context.Background(), Options{Name: "lights", Command: example(t), SocketDir: t.TempDir(),
+	m, err := Load(context.Background(), Options{Name: "lights", Command: example(t), SocketDir: t.TempDir(), Transport: transport,
 		Backoff: 50 * time.Millisecond, ConnectWait: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
@@ -198,5 +200,91 @@ func TestLoadFailures(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", name, err, c.want)
 		}
+	}
+}
+
+// The same module over standard input and output: no socket, and what it
+// prints on standard error still reaches the log.
+func TestPythonModuleStdio(t *testing.T) {
+	sockets := t.TempDir()
+	m, err := Load(context.Background(), Options{Name: "lights", Command: example(t), SocketDir: sockets, Transport: TransportStdio,
+		Backoff: 50 * time.Millisecond, ConnectWait: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = m.Stop(context.Background())
+	if entries, _ := os.ReadDir(sockets); len(entries) != 0 {
+		t.Fatalf("the stdio transport made files: %v", entries)
+	}
+
+	r := newRigWith(t, TransportStdio)
+	res, err := r.do(t, "lights.set", `{"id":"porch","brightness":40}`)
+	if err != nil || res.Status != sdk.StatusApplied {
+		t.Fatalf("set: %+v %v", res, err)
+	}
+	if _, err := r.do(t, "lights.set", `{"id":"garage","brightness":4}`); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown light: %v", err)
+	}
+	// Child actions, a read, and a subscription: the calls the module makes.
+	if _, err := r.do(t, "lights.dim_all", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := r.e.ModuleRead(context.Background(), "lights", "lights", nil)
+	if err != nil || !strings.Contains(string(raw.(json.RawMessage)), `"brightness": 10`) {
+		t.Fatalf("read %s %v", raw, err)
+	}
+	r.apps.Core().Emit(sdk.Event{Type: "instance.started", Data: json.RawMessage(`{"id":"tv"}`)})
+	waitFor(t, "the module to see the event", func() bool {
+		st, err := r.m.State(context.Background())
+		return err == nil && strings.Contains(string(st.(json.RawMessage)), `"apps_started": 1`)
+	})
+
+	// It is started again after it dies, as with a socket.
+	r.m.mu.Lock()
+	pid := r.m.proc.Process.Pid
+	r.m.mu.Unlock()
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+	waitFor(t, "the module to come back", func() bool {
+		r.m.mu.Lock()
+		again := r.m.proc.Process.Pid
+		r.m.mu.Unlock()
+		_, err := r.do(t, "lights.set", `{"id":"porch","brightness":2}`)
+		return again != pid && err == nil
+	})
+}
+
+// Closing hostd's end ends a module that reads until end of file, with no
+// signal sent: that is what stdio adds.
+func TestStdioModuleEndsWhenHostdLetsGo(t *testing.T) {
+	py := python(t)
+	script := filepath.Join(t.TempDir(), "m.py")
+	body := "import sys\nfor line in sys.stdin:\n    pass\nsys.exit(0)\n"
+	if err := os.WriteFile(script, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(py, script)
+	in, _ := cmd.StdinPipe()
+	out, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	_ = (&stdioConn{r: out, w: in}).Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("the module ended with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the module did not end when its input closed")
+	}
+}
+
+func TestUnknownTransport(t *testing.T) {
+	_, err := Load(context.Background(), Options{Name: "x", Command: []string{"true"}, SocketDir: t.TempDir(), Transport: "pipe"})
+	if err == nil || !strings.Contains(err.Error(), `transport "pipe"`) {
+		t.Fatalf("%v", err)
 	}
 }

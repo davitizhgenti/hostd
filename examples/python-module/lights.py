@@ -2,7 +2,8 @@
 """A hostd module in Python, standard library only: pretend lights.
 
 hostd starts it with HOSTD_MODULE_SOCKET set and talks JSON-RPC 2.0 over
-that socket, one message per line (sdk/PROTOCOL.md). To hostd it is a
+that socket (or over standard input and output, with transport = "stdio"),
+one message per line (sdk/PROTOCOL.md). To hostd it is a
 module like the built-in ones: its actions go through the same pipeline
 (locks, priority holds, permissions, audit), so
 
@@ -71,23 +72,35 @@ class HostdError(Exception):
 
 
 class Connection:
-    """JSON-RPC 2.0 both ways over the module socket, one message per line."""
+    """JSON-RPC 2.0 both ways, one message per line: over the module socket,
+    or over standard input and output when hostd runs the module with
+    transport = "stdio" (then nothing else may be printed to standard output)."""
 
-    def __init__(self, path, handler):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(path)
-        self.reader = self.sock.makefile("r", encoding="utf-8")
+    def __init__(self, handler, path=None):
+        if path:
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.connect(path)
+            self.reader = self.sock.makefile("r", encoding="utf-8")
+            self.write = self.sock.sendall
+        else:
+            self.reader = sys.stdin
+            self.write = self._write_stdout
         self.wlock = threading.Lock()
         self.lock = threading.Lock()
         self.pending = {}
         self.next_id = 0
         self.handler = handler
 
+    @staticmethod
+    def _write_stdout(data):
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+
     def send(self, msg):
         msg["jsonrpc"] = "2.0"
         data = (json.dumps(msg) + "\n").encode()
         with self.wlock:
-            self.sock.sendall(data)
+            self.write(data)
 
     def call(self, method, params, timeout=30):
         """Calls hostd (emit, do, subscribe, read) and returns the result."""
@@ -196,13 +209,15 @@ class Lights:
 
 
 def main():
-    path = os.environ.get("HOSTD_MODULE_SOCKET")
-    if not path:
-        sys.exit("run by hostd: HOSTD_MODULE_SOCKET is not set")
+    path = None
+    if os.environ.get("HOSTD_MODULE_TRANSPORT") != "stdio":
+        path = os.environ.get("HOSTD_MODULE_SOCKET")
+        if not path:
+            sys.exit("run by hostd: HOSTD_MODULE_SOCKET is not set")
     lights = Lights()
-    lights.conn = Connection(path, lights.handle_request)
-    print("lights module connected", flush=True)
-    lights.conn.serve()  # until hostd closes the socket
+    lights.conn = Connection(lights.handle_request, path)
+    print("lights module connected", file=sys.stderr, flush=True)
+    lights.conn.serve()  # until hostd closes the socket (or the input)
 
 
 if __name__ == "__main__":

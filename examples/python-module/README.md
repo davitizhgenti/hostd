@@ -13,6 +13,7 @@ To try it, add this to `~/.config/hostd/hostd.toml` and restart hostd:
 ```toml
 [external.lights]
 command = ["python3", "/path/to/examples/python-module/lights.py"]
+# transport = "stdio"   # the same module over standard input and output, with no socket
 ```
 
 Then:

@@ -57,6 +57,7 @@ import (
 //	[external.lights]
 //	command = ["python3", "/home/screen/hostd/modules/lights.py"]
 //	env = { LIGHTS_BRIDGE = "192.168.1.20" }
+//	transport = "stdio"   # optional: talk over the program's stdin/stdout, not a socket
 type Config struct {
 	Modules     []string            `toml:"modules"`
 	Listen      *string             `toml:"listen"`
@@ -155,6 +156,8 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and _", path, name)
 		case len(x.Command) == 0:
 			return Config{}, fmt.Errorf("%s: external module %q needs a command", path, name)
+		case x.Transport != "" && x.Transport != "socket" && x.Transport != "stdio":
+			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
 		}
 	}
 	c.keys, c.buttons, err = display.Bindings(c.Input.Keys, c.Input.Buttons)
@@ -166,8 +169,9 @@ func LoadConfig(path string) (Config, error) {
 
 // External is an external module's settings.
 type External struct {
-	Command []string          `toml:"command"`
-	Env     map[string]string `toml:"env"`
+	Command   []string          `toml:"command"`
+	Env       map[string]string `toml:"env"`
+	Transport string            `toml:"transport"` // "socket" (default) or "stdio"
 }
 
 var externalName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)

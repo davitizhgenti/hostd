@@ -1,6 +1,6 @@
 # hostd module protocol, version 1
 
-An external module is a separate program that hostd starts and talks to over a unix socket. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 1.
+An external module is a separate program that hostd starts and talks to over a unix socket, or over the program's standard input and output. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 1.
 
 `examples/python-module` is a complete module that uses only Python's standard library.
 
@@ -12,17 +12,21 @@ A module is configured in `~/.config/hostd/hostd.toml`:
 [external.lights]
 command = ["python3", "/home/screen/hostd/modules/lights.py"]
 env     = { LIGHTS_BRIDGE = "192.168.1.20" }   # optional
+transport = "stdio"                            # optional: "socket" (default) or "stdio"
 ```
 
 hostd starts `command` with these environment variables:
 
 | Variable | Value |
 | --- | --- |
-| `HOSTD_MODULE_SOCKET` | The unix socket to connect to |
+| `HOSTD_MODULE_TRANSPORT` | `socket` or `stdio` |
+| `HOSTD_MODULE_SOCKET` | The unix socket to connect to (`socket` only) |
 | `HOSTD_MODULE_NAME` | The configured name; the manifest's `name` must equal it |
 | `HOSTD_PROTOCOL` | `1` |
 
-The module connects within 10 seconds. hostd writes what the module prints on standard output and standard error to its own log, tagged with the module's name.
+**`socket`** (the default): the module connects to `HOSTD_MODULE_SOCKET` within 10 seconds. hostd writes what the module prints on standard output and standard error to its own log, tagged with the module's name.
+
+**`stdio`**: there is no socket. The module reads hostd's messages on its standard input and writes its own on its standard output, one JSON message per line. Standard output is then the protocol and nothing else: anything else the module prints to it breaks the framing, so logs go to standard error, which hostd writes to its log as before. When hostd stops the module (or ends) it closes the module's input, so a module that reads until end of file ends by itself; one that does not is killed after 2 seconds. The messages, the handshake and the restart rules are the same in both.
 
 ## Framing
 

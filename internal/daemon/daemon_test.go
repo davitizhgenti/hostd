@@ -60,21 +60,22 @@ guide = "window.back"
 	}
 
 	for body, want := range map[string]string{
-		"[input.keys]\n\"F2\" = \"window.fly\"":    `input.keys: F2: "window.fly" cannot be bound`,
-		"[input.buttons]\nturbo = \"window.next\"": `input.buttons: button "turbo"`,
-		"[input]\nmice = {}":                       "unknown key(s): input.mice",
-		`modules = ["apps", "lights"]`:             `no module "lights"`,
-		`modules = ["apps", "apps"]`:               "listed twice",
-		`listn = ":7300"`:                          "unknown key(s): listn",
-		`hold_window = "three minutes"`:            "not a duration",
-		`hold_window = "-1m"`:                      "negative",
-		`modules = "apps"`:                         "",
-		"[hold_windows]\n\"audio.\" = 5":           "",
-		`this is not toml`:                         "",
-		"[external.apps]\ncommand = [\"x\"]":       "a built-in module's name",
-		"[external.Lights]\ncommand = [\"x\"]":     "use lowercase",
-		"[external.lights]\nenv = {}":              "needs a command",
-		"[external.lights]\ncommnd = [\"x\"]":      "unknown key(s): external.lights.commnd",
+		"[input.keys]\n\"F2\" = \"window.fly\"":                      `input.keys: F2: "window.fly" cannot be bound`,
+		"[input.buttons]\nturbo = \"window.next\"":                   `input.buttons: button "turbo"`,
+		"[input]\nmice = {}":                                         "unknown key(s): input.mice",
+		`modules = ["apps", "lights"]`:                               `no module "lights"`,
+		`modules = ["apps", "apps"]`:                                 "listed twice",
+		`listn = ":7300"`:                                            "unknown key(s): listn",
+		`hold_window = "three minutes"`:                              "not a duration",
+		`hold_window = "-1m"`:                                        "negative",
+		`modules = "apps"`:                                           "",
+		"[hold_windows]\n\"audio.\" = 5":                             "",
+		`this is not toml`:                                           "",
+		"[external.apps]\ncommand = [\"x\"]":                         "a built-in module's name",
+		"[external.Lights]\ncommand = [\"x\"]":                       "use lowercase",
+		"[external.lights]\nenv = {}":                                "needs a command",
+		"[external.lights]\ncommand = [\"x\"]\ntransport = \"pipe\"": `transport "pipe"`,
+		"[external.lights]\ncommnd = [\"x\"]":                        "unknown key(s): external.lights.commnd",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) {

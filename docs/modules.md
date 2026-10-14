@@ -4,7 +4,7 @@ A module owns a namespace (`lights.*`). It declares its actions, events, reads a
 
 ## In any language: an external module
 
-An external module is a program that hostd starts and talks to over a unix socket, with JSON-RPC 2.0 and one message per line. It needs no library: [`examples/python-module/lights.py`](https://github.com/davitizhgenti/hostd/tree/main/examples/python-module) is a complete module in Python's standard library.
+An external module is a program that hostd starts and talks to over a unix socket (or, with `transport = "stdio"`, over its standard input and output), with JSON-RPC 2.0 and one message per line. It needs no library: [`examples/python-module/lights.py`](https://github.com/davitizhgenti/hostd/tree/main/examples/python-module) is a complete module in Python's standard library.
 
 Configure it in `hostd.toml`:
 

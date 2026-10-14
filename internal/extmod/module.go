@@ -1,6 +1,7 @@
 // Package extmod runs external modules: separate programs that speak the
-// module protocol (sdk/PROTOCOL.md) over a unix socket. To the core each
-// is an sdk.Module like the built-in ones.
+// module protocol (sdk/PROTOCOL.md) over a unix socket, or over the
+// program's standard input and output. To the core each is an sdk.Module
+// like the built-in ones.
 package extmod
 
 import (
@@ -27,11 +28,21 @@ import (
 // Protocol is the module protocol version.
 const Protocol = 1
 
+// The transports a module can be configured with.
+const (
+	TransportSocket = "socket"
+	TransportStdio  = "stdio"
+)
+
 // Options configure one external module.
 type Options struct {
 	Name    string
 	Command []string
 	Env     map[string]string
+	// Transport is how the program talks to hostd: "socket" (default; it
+	// connects to a unix socket) or "stdio" (hostd's side of its standard
+	// input and output; its stderr goes to the log).
+	Transport string
 	// SocketDir holds the modules' sockets (created 0700).
 	SocketDir string
 	Logger    *slog.Logger
@@ -79,6 +90,12 @@ func Load(ctx context.Context, opts Options) (*Module, error) {
 	if len(opts.Command) == 0 {
 		return nil, fmt.Errorf("external module %q: no command", opts.Name)
 	}
+	if opts.Transport == "" {
+		opts.Transport = TransportSocket
+	}
+	if opts.Transport != TransportSocket && opts.Transport != TransportStdio {
+		return nil, fmt.Errorf("external module %q: transport %q: use %q or %q", opts.Name, opts.Transport, TransportSocket, TransportStdio)
+	}
 	life, cancel := context.WithCancel(context.Background())
 	m := &Module{opts: opts, log: opts.Logger.With("module", opts.Name), handles: map[string]context.Context{},
 		subs: map[string]context.CancelFunc{}, life: life, stopLife: cancel}
@@ -94,34 +111,62 @@ func Load(ctx context.Context, opts Options) (*Module, error) {
 // launch starts the program and returns its manifest, with the connection
 // in place.
 func (m *Module) launch(ctx context.Context) (sdk.Manifest, []byte, error) {
-	if err := os.MkdirAll(m.opts.SocketDir, 0o700); err != nil {
-		return sdk.Manifest{}, nil, err
+	stdio := m.opts.Transport == TransportStdio
+	env := append(os.Environ(), "HOSTD_MODULE_NAME="+m.opts.Name, "HOSTD_PROTOCOL="+strconv.Itoa(Protocol),
+		"HOSTD_MODULE_TRANSPORT="+m.opts.Transport)
+	var ln net.Listener
+	var sock string
+	if !stdio {
+		if err := os.MkdirAll(m.opts.SocketDir, 0o700); err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		sock = filepath.Join(m.opts.SocketDir, m.opts.Name+".sock")
+		_ = os.Remove(sock)
+		var lc net.ListenConfig
+		var err error
+		ln, err = lc.Listen(ctx, "unix", sock)
+		if err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		defer ln.Close()
+		_ = os.Chmod(sock, 0o600)
+		env = append(env, "HOSTD_MODULE_SOCKET="+sock)
 	}
-	sock := filepath.Join(m.opts.SocketDir, m.opts.Name+".sock")
-	_ = os.Remove(sock)
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "unix", sock)
-	if err != nil {
-		return sdk.Manifest{}, nil, err
+	for k, v := range m.opts.Env {
+		env = append(env, k+"="+v)
 	}
-	defer ln.Close()
-	_ = os.Chmod(sock, 0o600)
 
 	cmd := exec.CommandContext(m.life, m.opts.Command[0], m.opts.Command[1:]...) // ends with the module, not with ctx
-	cmd.Env = append(os.Environ(), "HOSTD_MODULE_SOCKET="+sock, "HOSTD_MODULE_NAME="+m.opts.Name, "HOSTD_PROTOCOL="+strconv.Itoa(Protocol))
-	for k, v := range m.opts.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
+	cmd.Env = env
+	var logs io.Reader // what the program writes for the log
+	var wire io.ReadWriteCloser
+	if stdio {
+		in, err := cmd.StdinPipe()
+		if err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		errs, err := cmd.StderrPipe()
+		if err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		logs, wire = errs, &stdioConn{r: out, w: in}
+	} else {
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			return sdk.Manifest{}, nil, err
+		}
+		cmd.Stderr = cmd.Stdout // one stream into the log
+		logs = out
 	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return sdk.Manifest{}, nil, err
-	}
-	cmd.Stderr = cmd.Stdout // one stream into the log
 	if err := cmd.Start(); err != nil {
 		return sdk.Manifest{}, nil, err
 	}
 	exited := make(chan struct{})
-	go m.logOutput(out)
+	go m.logOutput(logs)
 	go func() { _ = cmd.Wait(); close(exited) }()
 	fail := func(err error) (sdk.Manifest, []byte, error) {
 		_ = cmd.Process.Kill()
@@ -129,21 +174,24 @@ func (m *Module) launch(ctx context.Context) (sdk.Manifest, []byte, error) {
 		return sdk.Manifest{}, nil, err
 	}
 
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		if c, err := ln.Accept(); err == nil {
-			accepted <- c
+	c := wire
+	if !stdio {
+		accepted := make(chan net.Conn, 1)
+		go func() {
+			if c, err := ln.Accept(); err == nil {
+				accepted <- c
+			}
+		}()
+		select {
+		case nc := <-accepted:
+			c = nc
+		case <-exited:
+			return fail(errors.New("the program ended before connecting"))
+		case <-time.After(m.opts.ConnectWait):
+			return fail(fmt.Errorf("the program did not connect to %s within %s", sock, m.opts.ConnectWait))
+		case <-ctx.Done():
+			return fail(ctx.Err())
 		}
-	}()
-	var c net.Conn
-	select {
-	case c = <-accepted:
-	case <-exited:
-		return fail(errors.New("the program ended before connecting"))
-	case <-time.After(m.opts.ConnectWait):
-		return fail(fmt.Errorf("the program did not connect to %s within %s", sock, m.opts.ConnectWait))
-	case <-ctx.Done():
-		return fail(ctx.Err())
 	}
 	k := newConn(c, m.serve)
 	hctx, cancel := context.WithTimeout(ctx, m.opts.ConnectWait)
@@ -474,4 +522,20 @@ func (m *Module) serve(method string, params json.RawMessage) (any, error) {
 		return map[string]bool{"handles": core.Handles(p.Type)}, nil
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "no method %q", method)
+}
+
+// stdioConn is hostd's end of a program's standard input and output. Closing
+// it closes the program's input: a module that reads until end of file ends
+// by itself.
+type stdioConn struct {
+	r io.ReadCloser
+	w io.WriteCloser
+}
+
+func (c *stdioConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c *stdioConn) Write(p []byte) (int, error) { return c.w.Write(p) }
+func (c *stdioConn) Close() error {
+	werr := c.w.Close()
+	_ = c.r.Close()
+	return werr
 }

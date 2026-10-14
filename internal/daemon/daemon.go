@@ -135,7 +135,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	sort.Strings(names)
 	for _, name := range names {
 		x := cfg.External[name]
-		em, err := extmod.Load(ctx, extmod.Options{Name: name, Command: x.Command, Env: x.Env,
+		em, err := extmod.Load(ctx, extmod.Options{Name: name, Command: x.Command, Env: x.Env, Transport: x.Transport,
 			SocketDir: filepath.Join(*runtimeDir, "hostd-modules"), Logger: log})
 		if err != nil {
 			log.Error("external module left out", "module", name, "err", err)

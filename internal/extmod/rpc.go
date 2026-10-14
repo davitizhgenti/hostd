@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"strconv"
 	"sync"
 
@@ -17,7 +16,7 @@ import (
 // conn is one JSON-RPC 2.0 connection with requests in both directions,
 // one message per line (sdk/PROTOCOL.md).
 type conn struct {
-	c net.Conn
+	c io.ReadWriteCloser
 
 	wmu sync.Mutex // one message at a time
 	w   *bufio.Writer
@@ -52,7 +51,7 @@ type rpcError struct {
 // errClosed: the module's connection is gone.
 var errClosed = errors.New("the module's connection closed")
 
-func newConn(c net.Conn, handle func(string, json.RawMessage) (any, error)) *conn {
+func newConn(c io.ReadWriteCloser, handle func(string, json.RawMessage) (any, error)) *conn {
 	k := &conn{c: c, w: bufio.NewWriter(c), pending: map[string]chan message{}, done: make(chan struct{}), handle: handle}
 	go k.readLoop()
 	return k
