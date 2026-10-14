@@ -1,0 +1,53 @@
+name: e2e
+
+# The whole system in a real Debian 13 VM (QEMU with KVM, in a container):
+# install, two reboots, an update while an app runs, a broken update that
+# rolls back, the API from outside: make test-e2e (test/e2e/run.sh). About
+# 20 minutes, so: every night, before a release (a v* tag), and on demand.
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Let the container use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: The Debian image (cached)
+        uses: actions/cache@v4
+        with:
+          path: test/e2e/.vm/cache
+          key: e2e-debian-13-generic-${{ github.run_id }}
+          restore-keys: e2e-debian-13-generic-
+      - name: End-to-end test
+        shell: bash
+        run: make test-e2e 2>&1 | tee e2e.log; exit ${PIPESTATUS[0]}
+      - name: Show failed checks
+        if: failure()
+        shell: bash
+        run: |
+          sed 's/\x1b\[[0-9;]*m//g' e2e.log | grep -E "FAIL|error" | head -30 | while read -r l; do echo "::error::$l"; done
+          for f in test/e2e/.vm/out/*.log; do echo "::group::$f"; tail -60 "$f"; echo "::endgroup::"; done
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: test/e2e/.vm/out/
+          if-no-files-found: ignore

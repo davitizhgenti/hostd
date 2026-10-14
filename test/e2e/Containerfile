@@ -1,0 +1,5 @@
+# Runs a Debian 13 VM under QEMU/KVM for the end-to-end tests (make test-e2e).
+FROM docker.io/library/debian:trixie-slim
+RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+    qemu-system-x86 qemu-utils cloud-image-utils openssh-client curl ca-certificates sshpass iproute2 procps >/dev/null \
+    && rm -rf /var/lib/apt/lists/*

@@ -8,7 +8,7 @@ CORE_COVER_MIN := 85
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
-	check-server test-install m1-gate m1-gate-server
+	check-server test-install e2e-bins docs-stub m1-gate m1-gate-server
 
 all: lint test build
 
@@ -64,11 +64,24 @@ test-integration:
 		$(GO) test -race -tags integration ./test/integration/...; \
 	else echo "no integration tests yet"; fi
 
-# End-to-end tests boot a VM and run the milestone gates (test/e2e).
-test-e2e:
-	@if [ -d test/e2e ]; then \
-		$(GO) test -tags e2e -timeout 60m ./test/e2e/...; \
-	else echo "no e2e tests yet"; fi
+# The end-to-end test boots a real Debian 13 machine in a VM (QEMU with KVM
+# in a container; nothing is installed on this machine) and runs the system
+# through install, reboots, updates and a rollback (test/e2e/run.sh). The
+# first run downloads the Debian cloud image into test/e2e/.vm.
+test-e2e: dist e2e-bins docs-stub
+	$(PODMAN) build -q -t localhost/hostd-e2e test/e2e >/dev/null
+	@mkdir -p test/e2e/.vm
+	$(PODMAN) run --rm --device /dev/kvm -v $(CURDIR):/repo:ro -v $(CURDIR)/dist:/dist:ro \
+		-v $(CURDIR)/bin/e2e:/bins:ro -v $(CURDIR)/test/e2e/.vm:/vm localhost/hostd-e2e bash /repo/test/e2e/run.sh
+
+# Two more builds for the update tests: a good one, and one that passes the
+# version check but cannot start.
+e2e-bins:
+	@mkdir -p bin/e2e
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath \
+		-ldflags '-X github.com/davitizhgenti/hostd/internal/version.Version=e2e-next' -o bin/e2e/hostd-next ./cmd/hostd
+	printf '#!/bin/sh\n# Passes the version check, then cannot start.\n[ "$$1" = -version ] && { echo "hostd e2e-bad" >&2; exit 0; }\nexit 1\n' > bin/e2e/hostd-bad
+	chmod +x bin/e2e/hostd-bad
 
 # Runs every Fuzz* target for FUZZTIME each.
 fuzz:
@@ -85,7 +98,7 @@ lint:
 
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
-SCRIPTS := deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
+SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
 	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/files/start-sway
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
@@ -174,14 +187,13 @@ check-server:
 # NVIDIA driver, greetd on a real console and the reboot.
 INSTALL_TEST := hostd-install-test
 
-test-install: dist
-	@mkdir -p bin/e2e bin/docs
+# A stand-in docs archive for the tests (the real one needs mkdocs).
+docs-stub: dist
+	@mkdir -p bin/docs
 	echo '<h1>hostd test docs</h1>' > bin/docs/index.html
 	[ -f dist/hostd-docs.tar.gz ] || tar czf dist/hostd-docs.tar.gz -C bin/docs .
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath \
-		-ldflags '-X github.com/davitizhgenti/hostd/internal/version.Version=e2e-next' -o bin/e2e/hostd-next ./cmd/hostd
-	printf '#!/bin/sh\n# Passes the version check, then cannot start.\n[ "$$1" = -version ] && { echo "hostd e2e-bad" >&2; exit 0; }\nexit 1\n' > bin/e2e/hostd-bad
-	chmod +x bin/e2e/hostd-bad
+
+test-install: dist e2e-bins docs-stub
 	$(PODMAN) build -q -t $(INSTALL_TEST) test/install >/dev/null
 	-@$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null 2>&1
 	$(PODMAN) run -d --name $(INSTALL_TEST) --systemd=always --privileged \

@@ -593,6 +593,7 @@ Gate: *a rule and a manual change on the same volume resolve as specified.*
 - Signature verification: valid, tampered binary, tampered checksum, wrong key.
 - Migrations: start the new version on every old schema; roll back; old version reads its backup.
 - **E2E in a VM** (see §9.4): every milestone gate, plus reboot behavior, update during a running instance, broken update rollback.
+  *Done (2026-10-14), `make test-e2e` (`test/e2e/run.sh`): a real Debian 13 machine under QEMU/KVM, run in a container so nothing is installed on the host. 29 checks, about 10 minutes: install.sh and a second run that changes nothing; a reboot into the Sway session (greetd, hostd by itself with nobody logged in, `deploy/check.sh`: Sway, an active output, VNC, notices, a window mapped to its unit, audio, Podman); an update while a background app runs (it keeps running); a build that cannot start (refused, rolled back, the app still runs); a second reboot (version, token and app file survive; the transient app does not come back; no failed unit); the API with and without a token and the docs, from outside the VM. Found: Debian\'s "genericcloud" image has no graphics drivers (no /dev/dri), so Sway cannot start and greetd loops: the test uses the "generic" image, a virtio GPU with software rendering, and a virtual sound card. Runs every night and on a `v*` tag (`.github/workflows/e2e.yml`), not on every push.*
 
 ---
 
