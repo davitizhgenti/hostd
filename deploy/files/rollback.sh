@@ -33,8 +33,9 @@ echo "hostd-rollback: $cur failed to start; back to $prev"
 
 # The data as it was before the update: the new version may have changed
 # the database (or the config) in a way the old one cannot read. Only the
-# backup made for this very update counts (an update through the installer
-# makes none). What the failed version left is kept beside it.
+# backup made for this very update counts (every update makes one: an
+# upload, hostd -install and the installer). What the failed version left
+# is kept beside it.
 if [ "$(cat "$lib/$prev/backup-for" 2>/dev/null)" = "$cur" ]; then
 	state=${HOSTD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/hostd}
 	config=${HOSTD_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hostd/hostd.toml}

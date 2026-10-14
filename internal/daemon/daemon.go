@@ -52,6 +52,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		withDemo   = fs.Bool("demo", false, "load the demo module (a pretend lamp), for trying hostctl")
 		docs       = fs.String("docs", defaultDocsDir(), "serve this folder (the docs site) at /docs/, without a token; empty to disable")
 		install    = fs.String("install", "", "install this hostd binary next to the running one and restart into it")
+		libDir     = fs.String("lib", "", "-install: the installation directory (default: the one this binary is in)")
+		noRestart  = fs.Bool("no-restart", false, "-install: switch to the new version, but leave restarting hostd to the caller")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -61,7 +63,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		return 0
 	}
 	if *install != "" {
-		return installFromFile(*install, stderr)
+		return installFromFile(*install, *libDir, *stateDir, *configPath, *noRestart, stderr)
 	}
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {

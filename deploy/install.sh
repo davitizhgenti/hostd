@@ -764,28 +764,20 @@ VERSION=$("$work/hostd" -version 2>&1 | awk '{print $2}')
 [ -n "$VERSION" ] || die "the hostd binary does not run on this machine"
 
 # Versions sit side by side; "current" points at the running one, which is
-# what updates and rollbacks switch.
+# what updates and rollbacks switch. hostd itself switches (hostd -install,
+# the same code an upload through the API runs): it keeps the state and the
+# config of the version that runs now, so a rollback brings them back too.
 lib=$SCREEN_HOME/.local/lib/hostd
 hostd_changed=0
-if [ -f "$lib/versions/$VERSION/hostd" ] && cmp -s "$work/hostd" "$lib/versions/$VERSION/hostd"; then
+if [ "$(readlink "$lib/current" 2>/dev/null)" = "versions/$VERSION" ] && cmp -s "$work/hostd" "$lib/versions/$VERSION/hostd"; then
 	info "hostd $VERSION already installed"
 else
-	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.local" "$SCREEN_HOME/.local/lib" \
-		"$lib" "$lib/versions" "$lib/versions/$VERSION"
-	install -m 755 -o "$SCREEN_USER" -g "$SCREEN_USER" "$work/hostd" "$lib/versions/$VERSION/hostd"
-	changed "installed hostd $VERSION"
-	hostd_changed=1
-fi
-old=$(readlink "$lib/current" 2>/dev/null || true)
-if [ "$old" != "versions/$VERSION" ]; then
-	if [ -n "$old" ]; then # what a rollback returns to
-		echo "$old" >"$lib/previous"
-		chown "$SCREEN_USER:$SCREEN_USER" "$lib/previous"
+	chmod 755 "$work" # the screen user runs the new binary from here
+	if ! out=$(as_screen "$work/hostd" -install "$work/hostd" -lib "$lib" -no-restart 2>&1); then
+		printf '%s\n' "$out" >&2
+		die "could not install hostd $VERSION"
 	fi
-	ln -sfn "versions/$VERSION" "$lib/current"
-	chown -h "$SCREEN_USER:$SCREEN_USER" "$lib/current"
-	rm -f "$lib/rolled-back-from"
-	changed "hostd $VERSION is now the current version"
+	changed "$out"
 	hostd_changed=1
 fi
 install_file "$FILES/rollback.sh" "$lib/rollback.sh" 755 "$SCREEN_USER" || info "rollback script up to date"

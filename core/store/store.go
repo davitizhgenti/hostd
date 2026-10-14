@@ -180,11 +180,32 @@ func fromNano(n sql.NullInt64) *time.Time {
 
 // Backup writes a consistent copy of the database to path, while hostd
 // keeps running (VACUUM INTO).
-func (s *Store) Backup(ctx context.Context, path string) error {
+func (s *Store) Backup(ctx context.Context, path string) error { return vacuumInto(ctx, s.db, path) }
+
+// BackupFile writes a consistent copy of the database at db to path, from a
+// process that is not the hostd using it (hostd -install): it opens the file
+// without migrating it, and reads it while that hostd goes on writing. A
+// database that does not exist yet is os.ErrNotExist.
+func BackupFile(ctx context.Context, db, path string) error {
+	if strings.ContainsAny(db, "?#") {
+		return fmt.Errorf("store: database path %q must not contain ? or #", db)
+	}
+	if _, err := os.Stat(db); err != nil {
+		return err
+	}
+	conn, err := sql.Open("sqlite", "file:"+db+"?mode=rw&_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return vacuumInto(ctx, conn, path)
+}
+
+func vacuumInto(ctx context.Context, db *sql.DB, path string) error {
 	if strings.ContainsAny(path, "'") {
 		return fmt.Errorf("store: backup path %q must not contain quotes", path)
 	}
 	_ = os.Remove(path)
-	_, err := s.db.ExecContext(ctx, "VACUUM INTO '"+path+"'")
+	_, err := db.ExecContext(ctx, "VACUUM INTO '"+path+"'")
 	return err
 }

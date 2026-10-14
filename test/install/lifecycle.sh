@@ -17,6 +17,10 @@ dist=/opt/hostd-dist
 echo "update"
 t "hostd-setup is on the PATH" 'command -v hostd-setup'
 t "sudo hostd-setup update" "sudo hostd-setup update --source $src --from $dist --gpu other"
+# update.sh left e2e-next running: this update switches away from it, so the
+# installer (through hostd -install) keeps e2e-next's data for a rollback,
+# as an upload through the API does.
+t "the installer's update keeps the data for a rollback" 'l=/home/screen/.local/lib/hostd; cur=$(sudo readlink $l/current) && [ "$(sudo cat $l/versions/e2e-next/backup-for)" = "$cur" ] && sudo test -s $l/versions/e2e-next/state.db.bak'
 t "hostd runs the updated build" 'hostd_up && [ "$(as_screen hostctl version | awk "/^hostd /{print \$2}" | tr -d ,)" = "$(sudo runuser -u screen -- /home/screen/.local/lib/hostd/current/hostd -version 2>&1 | awk "{print \$2}")" ]'
 t "a second update changes nothing" "sudo hostd-setup update --source $src --from $dist --gpu other | grep -q 'No changes needed'"
 

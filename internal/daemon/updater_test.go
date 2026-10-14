@@ -64,3 +64,84 @@ func TestUpdaterInstall(t *testing.T) {
 		t.Fatalf("a refused upload changed current to %q", cur)
 	}
 }
+
+// hostd -install is the installer's way in, and keeps the same backup as an
+// upload: the state database of the hostd that runs (still open), and its
+// config, next to the version it replaces.
+func TestInstallFromFile(t *testing.T) {
+	ctx := context.Background()
+	lib := t.TempDir()
+	state := t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "hostd.toml")
+	bin := func(ver string) string {
+		p := filepath.Join(t.TempDir(), "hostd")
+		if err := os.WriteFile(p, fakeHostd(ver), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	var out bytes.Buffer
+	run := func(path string) int {
+		out.Reset()
+		return installFromFile(path, lib, state, cfg, true, &out)
+	}
+
+	// The first install: nothing runs yet, so there is nothing to keep.
+	if code := run(bin("v1")); code != 0 {
+		t.Fatalf("first install: %d %s", code, out.String())
+	}
+	l := update.Lib{Dir: lib}
+	if cur, _ := l.Current(); cur != "versions/v1" || l.Previous() != "" {
+		t.Fatalf("current %q, previous %q", cur, l.Previous())
+	}
+	if _, err := os.Stat(filepath.Join(lib, "versions", "v1", "backup-for")); err == nil {
+		t.Fatal("a backup for a first install")
+	}
+
+	// v1 runs, with its database open; v2 is installed from outside.
+	st, err := store.Open(ctx, filepath.Join(state, "state.db"), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, _, err := st.CreateToken(ctx, "phone", sdk.SourceManual, []string{"read"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(cfg, []byte(`modules = ["apps"]`), 0o644)
+	if code := run(bin("v2")); code != 0 || !bytes.Contains(out.Bytes(), []byte("kept for a rollback")) {
+		t.Fatalf("update: %d %s", code, out.String())
+	}
+	old := filepath.Join(lib, "versions", "v1")
+	if b, _ := os.ReadFile(filepath.Join(old, "backup-for")); string(b) != "versions/v2\n" {
+		t.Fatalf("backup-for = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(old, "hostd.toml.bak")); string(b) != `modules = ["apps"]` {
+		t.Fatalf("config copy = %q", b)
+	}
+	copyDB, err := store.Open(ctx, filepath.Join(old, "state.db.bak"), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toks, _ := copyDB.ListTokens(ctx)
+	copyDB.Close()
+	if len(toks) != 1 || toks[0].Name != "phone" {
+		t.Fatalf("the copy has %+v", toks)
+	}
+	if cur, _ := l.Current(); cur != "versions/v2" || l.Previous() != "versions/v1" {
+		t.Fatalf("current %q, previous %q", cur, l.Previous())
+	}
+
+	// The same version again changes nothing and is not an error.
+	if code := run(bin("v2")); code != 0 || !bytes.Contains(out.Bytes(), []byte("already the current version")) {
+		t.Fatalf("same version: %d %s", code, out.String())
+	}
+	// Not a hostd: refused, nothing switched.
+	bad := filepath.Join(t.TempDir(), "x")
+	_ = os.WriteFile(bad, []byte("#!/bin/sh\necho nope\n"), 0o755)
+	if code := run(bad); code == 0 {
+		t.Fatalf("not a hostd accepted: %s", out.String())
+	}
+	if cur, _ := l.Current(); cur != "versions/v2" {
+		t.Fatalf("a refused binary changed current to %q", cur)
+	}
+}

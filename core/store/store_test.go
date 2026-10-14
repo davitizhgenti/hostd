@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -396,5 +397,43 @@ func TestBackup(t *testing.T) {
 	}
 	if err := s.Backup(ctx, "/tmp/it's.db"); err == nil {
 		t.Fatal("quote in path accepted")
+	}
+}
+
+// Another process backs up the database while its hostd keeps it open and
+// writes to it, and the copy is complete.
+func TestBackupFileWhileInUse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+	s, err := Open(ctx, path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, _, err := s.CreateToken(ctx, "phone", sdk.SourceManual, []string{"read"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy.db")
+	if err := BackupFile(ctx, path, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreateToken(ctx, "laptop", sdk.SourceManual, []string{"read"}, 0); err != nil {
+		t.Fatalf("the store cannot write after a backup from outside: %v", err)
+	}
+	b, err := Open(ctx, dst, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if toks, _ := b.ListTokens(ctx); len(toks) != 1 || toks[0].Name != "phone" {
+		t.Fatalf("backup has %+v", toks)
+	}
+	// No database yet: nothing to back up, and none is created.
+	missing := filepath.Join(dir, "none.db")
+	if err := BackupFile(ctx, missing, filepath.Join(dir, "x.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing database: %v", err)
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a backup created the database it was asked to copy")
 	}
 }
