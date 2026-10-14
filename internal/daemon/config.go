@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/davitizhgenti/hostd/modules/display"
 )
 
 // Config is ~/.config/hostd/hostd.toml. Every field is optional.
@@ -31,26 +29,16 @@ import (
 //	[hold_windows]
 //	"audio." = "1m"
 //
-//	# After this long without keyboard, mouse or controller input nobody
-//	# is at the screen, and remote launches come to the front again.
-//	idle_after = "5m"
-//
-//	# The browser for web apps ({url} and {profile} are replaced), and
-//	# the gamescope command for apps with window.wrap = "gamescope".
+//	# Each built-in module's settings are its own section, decoded and
+//	# checked by the module (internal/daemon/modules.go): apps.Config,
+//	# display.Config. The top-level idle_after, browser, gamescope and
+//	# [input] of earlier versions still work for one release.
+//	[apps]
 //	browser = ["chromium", "--kiosk", "--user-data-dir={profile}", "{url}"]
-//	gamescope = ["gamescope", "-W", "1920", "-H", "1080", "-f"]
-//
-//	# Keys and controller buttons, mapped to display actions. These add
-//	# to or change the defaults (Super: menu, Super+Tab / Super+Shift+Tab:
-//	# next / previous app, Super+Q: close the app, Guide: menu); ""
-//	# removes one. Apps see controller buttons too, so hostd acts on a
-//	# button only when it is held: hold is how long (a tap is the app's).
-//	[input]
-//	hold = "600ms"
-//	[input.keys]
+//	[display]
+//	idle_after = "5m"
+//	[display.keys]
 //	"F1" = "display.menu"
-//	[input.buttons]
-//	guide = "display.menu"
 //
 //	# External modules: programs that speak the module protocol
 //	# (sdk/PROTOCOL.md), in any language.
@@ -63,27 +51,22 @@ type Config struct {
 	Listen      *string             `toml:"listen"`
 	HoldWindow  duration            `toml:"hold_window"`
 	HoldWindows map[string]duration `toml:"hold_windows"`
-	IdleAfter   duration            `toml:"idle_after"`
-	Browser     []string            `toml:"browser"`
-	Gamescope   []string            `toml:"gamescope"`
-	Input       struct {
+	// Earlier versions' places for module settings (see builtin.legacy).
+	IdleAfter duration `toml:"idle_after"`
+	Browser   []string `toml:"browser"`
+	Gamescope []string `toml:"gamescope"`
+	Input     struct {
 		Keys    map[string]string `toml:"keys"`
 		Buttons map[string]string `toml:"buttons"`
 		Hold    duration          `toml:"hold"`
 	} `toml:"input"`
 	External map[string]External `toml:"external"`
 
-	// The key and button bindings in effect: the defaults with Input
-	// applied (filled in by LoadConfig).
-	keys, buttons map[string]string
+	path       string
+	md         toml.MetaData             // of the whole file, to find keys of earlier versions
+	sections   map[string]toml.Primitive // [apps], [display]...: each module's own settings
+	sectionsMD toml.MetaData
 }
-
-// builtinModules are the modules this hostd can load, in start order
-// preference; DefaultModules are loaded when the config names none.
-var (
-	builtinModules = []string{"apps", "display", "audio", "deploy", "automation", "demo"}
-	DefaultModules = []string{"apps", "display", "audio", "deploy", "automation"}
-)
 
 // laterModules are in the design but not in this version yet; naming one
 // gets a clear message rather than "unknown".
@@ -124,17 +107,25 @@ func LoadConfig(path string) (Config, error) {
 	case err != nil:
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	default:
-		if und := md.Undecoded(); len(und) > 0 {
-			keys := make([]string, len(und))
-			for i, k := range und {
-				keys[i] = k.String()
+		c.md = md
+		if c.sections, c.sectionsMD, err = decodeSections(path); err != nil {
+			return Config{}, fmt.Errorf("%s: %w", path, err)
+		}
+		// A module's section is the module's to check (moduleConfigs).
+		var keys []string
+		for _, k := range md.Undecoded() {
+			if builtinNamed(k[0]) == nil {
+				keys = append(keys, k.String())
 			}
+		}
+		if len(keys) > 0 {
 			sort.Strings(keys)
 			return Config{}, fmt.Errorf("%s: unknown key(s): %s", path, strings.Join(keys, ", "))
 		}
 	}
+	c.path = path
 	if c.Modules == nil {
-		c.Modules = DefaultModules
+		c.Modules = defaultModules()
 	}
 	seen := map[string]bool{}
 	for _, m := range c.Modules {
@@ -143,14 +134,14 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: module %q is listed twice", path, m)
 		case laterModules[m] != "":
 			return Config{}, fmt.Errorf("%s: module %q comes in a later version (%s); remove it for now", path, m, laterModules[m])
-		case !contains(builtinModules, m):
-			return Config{}, fmt.Errorf("%s: no module %q; available: %s", path, m, strings.Join(builtinModules, ", "))
+		case builtinNamed(m) == nil:
+			return Config{}, fmt.Errorf("%s: no module %q; available: %s", path, m, strings.Join(builtinNames(), ", "))
 		}
 		seen[m] = true
 	}
 	for name, x := range c.External {
 		switch {
-		case contains(builtinModules, name):
+		case builtinNamed(name) != nil:
 			return Config{}, fmt.Errorf("%s: external module %q has a built-in module's name", path, name)
 		case !externalName.MatchString(name):
 			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and _", path, name)
@@ -160,9 +151,8 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
 		}
 	}
-	c.keys, c.buttons, err = display.Bindings(c.Input.Keys, c.Input.Buttons)
-	if err != nil {
-		return Config{}, fmt.Errorf("%s: %w", path, err)
+	if _, _, err := moduleConfigs(c); err != nil {
+		return Config{}, err
 	}
 	return c, nil
 }

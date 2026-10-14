@@ -158,6 +158,16 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
 }
 
+// UnmarshalText reads "30s" from a config file (TOML).
+func (d *Duration) UnmarshalText(b []byte) error {
+	v, err := time.ParseDuration(string(b))
+	if err != nil {
+		return fmt.Errorf("%q is not a duration such as \"3m\" or \"90s\"", b)
+	}
+	*d = Duration(v)
+	return nil
+}
+
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {

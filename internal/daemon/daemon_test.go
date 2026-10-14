@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/client"
+	"github.com/davitizhgenti/hostd/modules/apps"
+	"github.com/davitizhgenti/hostd/modules/display"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -25,7 +27,7 @@ func writeConfig(t *testing.T, body string) string {
 
 func TestLoadConfig(t *testing.T) {
 	c, err := LoadConfig(filepath.Join(t.TempDir(), "missing.toml"))
-	if err != nil || !reflect.DeepEqual(c.Modules, DefaultModules) || c.Listen != nil {
+	if err != nil || !reflect.DeepEqual(c.Modules, defaultModules()) || c.Listen != nil {
 		t.Fatalf("missing file: %+v %v", c, err)
 	}
 
@@ -44,25 +46,68 @@ hold_window = "90s"
 		t.Fatalf("config = %+v", c)
 	}
 
+	// Each module's own section; display checks its key bindings.
 	c, err = LoadConfig(writeConfig(t, `
-[input.keys]
+[display]
+idle_after = "10m"
+hold = "1s"
+[display.keys]
 "F1" = "display.menu"
 "Super+Q" = ""
-[input.buttons]
+[display.buttons]
 guide = "window.back"
+[apps]
+browser = ["firefox", "{url}"]
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.keys["Super+Q"]; ok || c.keys["F1"] != "display.menu" || c.keys["Super+Tab"] != "window.next" ||
-		c.buttons["guide"] != "window.back" {
-		t.Fatalf("bindings: %v %v", c.keys, c.buttons)
+	confs, notes, err := moduleConfigs(c)
+	if err != nil || len(notes) != 0 {
+		t.Fatalf("module settings: %v %v", notes, err)
+	}
+	d := confs["display"].(*display.Config)
+	keys, buttons, _ := display.Bindings(d.Keys, d.Buttons)
+	if _, ok := keys["Super+Q"]; ok || keys["F1"] != "display.menu" || keys["Super+Tab"] != "window.next" ||
+		buttons["guide"] != "window.back" || time.Duration(d.IdleAfter) != 10*time.Minute || time.Duration(d.Hold) != time.Second {
+		t.Fatalf("display: %+v %v %v", d, keys, buttons)
+	}
+	if a := confs["apps"].(*apps.Config); !reflect.DeepEqual(a.Browser, []string{"firefox", "{url}"}) {
+		t.Fatalf("apps: %+v", a)
+	}
+
+	// The keys of earlier versions still work, for one release, with a note.
+	c, err = LoadConfig(writeConfig(t, `
+idle_after = "7m"
+gamescope = ["gamescope", "-f"]
+[input]
+hold = "2s"
+[input.keys]
+"F1" = "display.menu"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	confs, notes, _ = moduleConfigs(c)
+	d = confs["display"].(*display.Config)
+	if time.Duration(d.IdleAfter) != 7*time.Minute || time.Duration(d.Hold) != 2*time.Second || d.Keys["F1"] != "display.menu" ||
+		!reflect.DeepEqual(confs["apps"].(*apps.Config).Gamescope, []string{"gamescope", "-f"}) {
+		t.Fatalf("old keys: %+v %+v", d, confs["apps"])
+	}
+	if len(notes) != 4 || !strings.Contains(strings.Join(notes, "\n"), "idle_after is now [display] idle_after") {
+		t.Fatalf("notes: %q", notes)
 	}
 
 	for body, want := range map[string]string{
-		"[input.keys]\n\"F2\" = \"window.fly\"":                      `input.keys: F2: "window.fly" cannot be bound`,
-		"[input.buttons]\nturbo = \"window.next\"":                   `input.buttons: button "turbo"`,
+		"[input.keys]\n\"F2\" = \"window.fly\"":                      `[display] keys: F2: "window.fly" cannot be bound`,
+		"[display.keys]\n\"F2\" = \"window.fly\"":                    `[display] keys: F2: "window.fly" cannot be bound`,
+		"[display.buttons]\nturbo = \"window.next\"":                 `[display] buttons: button "turbo"`,
 		"[input]\nmice = {}":                                         "unknown key(s): input.mice",
+		"[display]\nmice = 1":                                        "unknown key(s): display.mice",
+		"[display]\nidle_after = \"-1m\"":                            "idle_after is negative",
+		"[display]\nidle_after = \"soon\"":                           "not a duration",
+		"idle_after = \"5m\"\n[display]\nidle_after = \"6m\"":        "same setting",
+		"[audio]\nvolume = 5":                                        "the audio module has no settings",
 		`modules = ["apps", "lights"]`:                               `no module "lights"`,
 		`modules = ["apps", "apps"]`:                                 "listed twice",
 		`listn = ":7300"`:                                            "unknown key(s): listn",

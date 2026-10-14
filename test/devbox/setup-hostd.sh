@@ -72,7 +72,7 @@ APP
 # too. (Written once; edit it freely.)
 if [ ! -f "$cfg/hostd/hostd.toml" ]; then
 	cat >"$cfg/hostd/hostd.toml" <<'TOML'
-[input.keys]
+[display.keys]
 "F1" = "display.menu"
 TOML
 fi

@@ -20,20 +20,12 @@ import (
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
-	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/internal/extmod"
-	"github.com/davitizhgenti/hostd/internal/gpu"
-	"github.com/davitizhgenti/hostd/internal/notify"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
-	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/apps"
-	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/automation"
-	"github.com/davitizhgenti/hostd/modules/demo"
-	"github.com/davitizhgenti/hostd/modules/deploy"
-	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -90,43 +82,26 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	confs, notes, err := moduleConfigs(cfg)
+	if err != nil {
+		fmt.Fprintln(stderr, "hostd:", err)
+		return 2
+	}
+	for _, n := range notes {
+		log.Warn(n)
+	}
 	home, _ := os.UserHomeDir()
-	systemd := &apps.UserSystemd{RuntimeDir: *runtimeDir}
-	defer systemd.Close()
+	e := &env{runtimeDir: *runtimeDir, stateDir: *stateDir, configDir: filepath.Dir(*configPath), socket: *socket,
+		home: home, log: log, systemd: &apps.UserSystemd{RuntimeDir: *runtimeDir}}
+	defer e.systemd.Close()
 	var mods []sdk.Module
 	for _, name := range cfg.Modules {
-		switch name {
-		case "apps":
-			engine := &apps.EngineAPI{Socket: apps.DefaultEngineSocket(*runtimeDir)}
-			mods = append(mods, apps.New(apps.Options{
-				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: secrets.DefaultDir(), Logger: log,
-				Backends: map[string]apps.Backend{
-					apps.RunnerExec: &apps.ExecRunner{Systemd: systemd, RuntimeDir: *runtimeDir, HomeDir: home,
-						StateDir: *stateDir, Browser: cfg.Browser, Gamescope: cfg.Gamescope},
-					apps.RunnerDocker:  &apps.DockerRunner{Docker: engine},
-					apps.RunnerCompose: &apps.ComposeRunner{Docker: engine, Socket: engine.Socket},
-				},
-			}))
-		case "display":
-			profiles, err := evdev.LoadProfiles(filepath.Join(filepath.Dir(*configPath), "controllers"))
-			if err != nil {
-				fmt.Fprintf(stderr, "hostd: %v\n", err)
-				return 2
-			}
-			mods = append(mods, display.New(display.Options{Connect: display.SwayConnector(*runtimeDir), Logger: log,
-				Input: &evdev.Evdev{Profiles: profiles}, Profiles: profiles, IdleAfter: time.Duration(cfg.IdleAfter),
-				Notifier: &notify.Desktop{RuntimeDir: *runtimeDir}, Keys: cfg.keys, Buttons: cfg.buttons,
-				HoldFor: time.Duration(cfg.Input.Hold), GPU: gpu.System{}}))
-		case "audio":
-			mods = append(mods, audio.New(audio.Options{Backend: &audio.WirePlumber{}, Logger: log,
-				Media: &audio.DBusMedia{RuntimeDir: *runtimeDir}}))
-		case "deploy":
-			mods = append(mods, deploy.New(deploy.Options{Logger: log, SecretsDir: secrets.DefaultDir(), AppsDir: apps.DefaultAppsDir()}))
-		case "automation":
-			mods = append(mods, automation.New(automation.Options{Logger: log, URL: "unix://" + *socket}))
-		case "demo":
-			mods = append(mods, demo.New())
+		m, err := builtinNamed(name).build(e, confs[name])
+		if err != nil {
+			fmt.Fprintf(stderr, "hostd: %s: %v\n", name, err)
+			return 2
 		}
+		mods = append(mods, m)
 	}
 	// External modules: one that fails to start or to describe itself is
 	// left out, and hostd runs without it.
@@ -154,7 +129,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			return &updater{lib: lib, store: st, configPath: *configPath, restart: func() error {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				return systemd.RestartUnit(ctx, "hostd.service")
+				return e.systemd.RestartUnit(ctx, "hostd.service")
 			}}
 		}
 	}

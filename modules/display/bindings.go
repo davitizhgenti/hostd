@@ -77,8 +77,9 @@ func validKey(name string) error {
 }
 
 // Bindings merges overrides onto the defaults: a binding to "" removes
-// one. It checks every name and action, so a typo in hostd.toml stops
-// hostd with a clear message instead of a key that silently does nothing.
+// one. It checks every name and action, so a typo in hostd.toml ([display]
+// keys and buttons) stops hostd with a clear message instead of a key that
+// silently does nothing.
 func Bindings(keys, buttons map[string]string) (map[string]string, map[string]string, error) {
 	bindable := Bindable()
 	merge := func(defaults, over map[string]string, check func(string) error) (map[string]string, error) {
@@ -100,7 +101,7 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 	}
 	k, err := merge(DefaultKeys, keys, validKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("input.keys: %w", err)
+		return nil, nil, fmt.Errorf("keys: %w", err)
 	}
 	knownButtons := evdev.ButtonNames
 	b, err := merge(DefaultButtons, buttons, func(name string) error {
@@ -110,7 +111,7 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 		return nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("input.buttons: %w", err)
+		return nil, nil, fmt.Errorf("buttons: %w", err)
 	}
 	return k, b, nil
 }

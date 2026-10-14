@@ -771,7 +771,7 @@ func (a *app) controllersCommand() *cobra.Command {
 		Use:   "controllers",
 		Short: "List connected game controllers and the buttons hostd knows on them",
 		Long: `List connected game controllers: their profile (which family hostd takes
-them for) and the buttons that can be bound in hostd.toml ([input.buttons]).
+them for) and the buttons that can be bound in hostd.toml ([display.buttons]).
 Profiles are built in, and ~/.config/hostd/controllers/*.toml adds more.
 A raw device (a DolphinBar) is read only by its app.`,
 		Args: cobra.NoArgs,
