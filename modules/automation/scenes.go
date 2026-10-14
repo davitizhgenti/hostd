@@ -26,6 +26,17 @@ type Scene struct {
 	Audio   *SceneAudio   `json:"audio,omitempty" toml:"audio"`
 	Apps    *SceneApps    `json:"apps,omitempty" toml:"apps"`
 	Display *SceneDisplay `json:"display,omitempty" toml:"display"`
+	// Do are actions of any module, sent last and in file order. Unlike the
+	// parts above they are not compared with the current state first: the
+	// scene cannot know what an action of another module changes, so each
+	// is sent every time the scene is applied.
+	Do []SceneDo `json:"do,omitempty" toml:"do"`
+}
+
+// SceneDo is one action a scene sends as it stands.
+type SceneDo struct {
+	Action string         `json:"action" toml:"action"`
+	Args   map[string]any `json:"args,omitempty" toml:"args"`
 }
 
 // SceneAudio is where sound goes and how loud.
@@ -94,6 +105,14 @@ func ParseScene(path string, data []byte) (Scene, error) {
 			return Scene{}, fmt.Errorf("apps.focus %q is in stop", a.Focus)
 		}
 	}
+	for i, d := range s.Do {
+		switch {
+		case !reActionType.MatchString(d.Action):
+			return Scene{}, fmt.Errorf("do %d: action %q: an action type such as lights.scene.set", i+1, d.Action)
+		case strings.HasPrefix(d.Action, "scene."):
+			return Scene{}, fmt.Errorf("do %d: a scene does not apply scenes (%s); name the other scene's parts here, or use a rule", i+1, d.Action)
+		}
+	}
 	return s, nil
 }
 
@@ -128,7 +147,7 @@ func loadScenes(dir string) (map[string]Scene, []Problem) {
 
 // Step is one action a scene needed, and what became of it.
 type Step struct {
-	Step   string          `json:"step"` // stop, output, volume, mute, start, focus, power
+	Step   string          `json:"step"` // stop, output, volume, mute, start, focus, power, do
 	Action string          `json:"action"`
 	Args   json.RawMessage `json:"args"`
 	// Status: applied, skipped (a higher-priority source holds the
@@ -185,7 +204,7 @@ func (c *current) live(app string) []string {
 
 // apply reaches the scene: only the actions still needed, in a fixed
 // order (stop apps, audio output, volume, start apps, focus, display
-// power). A failed step does not stop the later ones, nor undo the earlier
+// power, then the scene's own do actions). A failed step does not stop the later ones, nor undo the earlier
 // ones. Reads of a module that is not there fail that module's steps.
 func (m *Module) apply(ctx context.Context, s Scene) Applied {
 	out := Applied{Scene: s.ID, Steps: []Step{}}
@@ -290,6 +309,15 @@ func (m *Module) apply(ctx context.Context, s Scene) Applied {
 				}
 			}
 		}
+	}
+
+	for _, d := range s.Do {
+		// The module may not be loaded: the core says so, and that step fails.
+		args := d.Args
+		if args == nil {
+			args = map[string]any{}
+		}
+		run("do", d.Action, args)
 	}
 	return out
 }

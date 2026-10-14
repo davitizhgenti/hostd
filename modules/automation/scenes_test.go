@@ -154,8 +154,15 @@ func (w *world) modules() []sdk.Module {
 		}
 		return nil
 	})
-	w.mods = map[string]*testutil.Module{"apps": apps, "audio": audio, "display": display}
-	return []sdk.Module{apps, audio, display}
+	// An external module's stand-in: scenes know nothing of it.
+	lights := testutil.NewModule("lights", nil, nil, nil)
+	lights.M.Scopes = []sdk.ScopeSpec{{Name: "lights"}}
+	lights.M.Actions = []sdk.ActionSpec{
+		{Type: "lights.scene.set", Scope: "lights", Schema: anyArgs, Keys: []sdk.KeyTemplate{"lights"}},
+	}
+	lights.HandleFunc = w.handle(func(sdk.Action, map[string]any) error { return nil })
+	w.mods = map[string]*testutil.Module{"apps": apps, "audio": audio, "display": display, "lights": lights}
+	return []sdk.Module{apps, audio, display, lights}
 }
 
 func (w *world) takeSent() []string {
@@ -342,5 +349,65 @@ func TestSceneFiles(t *testing.T) {
 	}
 	if _, err := r.apply(t, "nope", sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("missing scene: %v", err)
+	}
+}
+
+func TestSceneDoRunsActionsOfAnyModule(t *testing.T) {
+	w := &world{volume: 70, output: "speakers", outputs: []string{"speakers"}, power: true}
+	r := newRig(t, w)
+	r.scene(t, "movie", `
+[audio]
+volume = 40
+
+[[do]]
+action = "lights.scene.set"
+args   = { name = "movie_mode", fade = 3 }
+
+[[do]]
+action = "lights.scene.set"
+args   = { name = "porch_off" }
+
+[[do]]
+action = "nothing.here.set"
+`)
+	got, err := r.apply(t, "movie", sdk.SourceManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// After the scene's own parts, in file order; an action nobody handles
+	// fails its step and nothing else.
+	want := []string{
+		`audio.volume.set {"percent":40}`,
+		`lights.scene.set {"fade":3,"name":"movie_mode"}`,
+		`lights.scene.set {"name":"porch_off"}`,
+	}
+	if sent := w.takeSent(); fmt.Sprint(sent) != fmt.Sprint(want) {
+		t.Fatalf("sent\n%s\nwant\n%s", strings.Join(sent, "\n"), strings.Join(want, "\n"))
+	}
+	if summary(got) != "volume:applied do:applied do:applied do:failed" || got.Steps[3].Error == "" {
+		t.Fatalf("result %s %+v", summary(got), got.Steps)
+	}
+
+	// The scene's own parts are compared first; the actions are not.
+	got, _ = r.apply(t, "movie", sdk.SourceManual)
+	if summary(got) != "do:applied do:applied do:failed" || len(w.takeSent()) != 2 {
+		t.Fatalf("second apply: %s", summary(got))
+	}
+}
+
+func TestParseSceneDo(t *testing.T) {
+	s, err := ParseScene("m.toml", []byte("[[do]]\naction = \"lights.scene.set\"\nargs = { name = \"x\" }\n"))
+	if err != nil || len(s.Do) != 1 || s.Do[0].Args["name"] != "x" {
+		t.Fatalf("%+v %v", s, err)
+	}
+	for body, want := range map[string]string{
+		"[[do]]\nargs = { a = 1 }":           "an action type",
+		"[[do]]\naction = \"Lights\"":        "an action type",
+		"[[do]]\naction = \"scene.apply\"":   "does not apply scenes",
+		"[[do]]\naction = \"a.b\"\nwhen = 1": "unknown key",
+	} {
+		if _, err := ParseScene("m.toml", []byte(body)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", body, err, want)
+		}
 	}
 }

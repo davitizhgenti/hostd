@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,11 +25,25 @@ cooldown = "10m"
 	if err != nil || len(rules) != 1 || rules[0].cooldown != 10*time.Minute || rules[0].from != 18*60 || rules[0].to != 2*60 {
 		t.Fatalf("%+v %v", rules, err)
 	}
+	rules, err = ParseRules([]byte(`
+[[rule]]
+name = "mute when idle"
+on   = "display.idle"
+do   = { action = "audio.mute.set", args = { muted = true } }
+`))
+	if err != nil || len(rules) != 1 || rules[0].Do.Action != "audio.mute.set" || rules[0].Do.Args["muted"] != true {
+		t.Fatalf("an action rule: %+v %v", rules, err)
+	}
 	for body, want := range map[string]string{
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"audio.mute.set\", scene = \"s\" }":                                "one of them",
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"mute\" }":                                                         "an action type",
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"Audio.Mute\" }":                                                   "an action type",
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\", args = { a = 1 } }":                                           "goes with do.action",
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"audio.mute.set\", args = { m = true }, bogus = 1 }":               "unknown key",
 		"[[rule]]\non = \"x\"\ndo = { scene = \"s\" }":                                                                           "needs a name",
 		"[[rule]]\nname = \"a\"\ndo = { scene = \"s\" }":                                                                         "needs on",
-		"[[rule]]\nname = \"a\"\non = \"x\"":                                                                                     "a scene or a script",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\", script = \"x.sh\" }":                                          "a scene or a script",
+		"[[rule]]\nname = \"a\"\non = \"x\"":                                                                                     "one of them",
+		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\", script = \"x.sh\" }":                                          "one of them",
 		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\nif = { between = \"9-5\" }":                                 "HH:MM-HH:MM",
 		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\ncooldown = \"soon\"":                                        "cooldown",
 		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\nwhen = 1":                                                   "unknown key",
@@ -303,5 +318,71 @@ do   = { script = "../rules.toml" }
 		if res := r.state(t, name).LastResult; !strings.Contains(res, want) {
 			t.Errorf("%s: %q, want %q", name, res, want)
 		}
+	}
+}
+
+func TestRuleSendsAnAction(t *testing.T) {
+	w := &world{}
+	r := newRig(t, w)
+	r.rules(t, `
+[[rule]]
+name = "quiet"
+on   = "instance.started"
+if   = { app = "dota*" }
+do   = { action = "audio.volume.set", args = { percent = 33 } }
+
+[[rule]]
+name = "nobody home"
+on   = "instance.exited"
+do   = { action = "lamps.scene.set", args = { name = "off" } }
+`)
+	r.emit(t, contract.EventInstanceStarted, contract.Instance{ID: "firefox", App: "firefox"})
+	r.emit(t, contract.EventInstanceStarted, contract.Instance{ID: "dota2", App: "dota2"})
+	waitFor(t, "the rule", func() bool { return r.state(t, "quiet").LastResult == "applied" })
+	if sent := w.takeSent(); len(sent) != 1 || sent[0] != `audio.volume.set {"percent":33}` {
+		t.Fatalf("sent %v", sent)
+	}
+	// No scene in between: the action itself ran as automation, from the
+	// rule, caused by the event.
+	found := false
+	for _, e := range r.audit.Entries() {
+		if e.Type == "audio.volume.set" && e.Source.Kind == sdk.SourceAutomation && e.Source.Name == "quiet" && e.Cause != "" {
+			found = true
+		}
+		if e.Type == "scene.apply" {
+			t.Errorf("a scene ran: %+v", e)
+		}
+	}
+	if !found {
+		t.Fatalf("audit %+v", r.audit.Entries())
+	}
+
+	// An action nobody handles is the rule's failure, reported, not a crash.
+	r.emit(t, contract.EventInstanceExited, contract.Instance{ID: "dota2", App: "dota2"})
+	waitFor(t, "the failure", func() bool { return strings.HasPrefix(r.state(t, "nobody home").LastResult, "failed:") })
+}
+
+func TestActionRuleLoopIsPaused(t *testing.T) {
+	// A rule whose action makes the event that fires it: the core's chain
+	// depth stops it, and the rule is paused, as for a scene.
+	w := &world{}
+	r := newRig(t, w)
+	audio := r.w.mods["audio"]
+	handle := audio.HandleFunc
+	audio.HandleFunc = func(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+		res, err := handle(ctx, a)
+		audio.Core().Emit(sdk.Event{Type: "audio.volume.changed", Resource: "audio.master", Data: json.RawMessage(`{"percent":1}`)})
+		return res, err
+	}
+	r.rules(t, `
+[[rule]]
+name = "echo"
+on   = "audio.volume.changed"
+do   = { action = "audio.volume.set", args = { percent = 1 } }
+`)
+	audio.Core().Emit(sdk.Event{Type: "audio.volume.changed", Resource: "audio.master", Data: json.RawMessage(`{"percent":9}`)})
+	waitFor(t, "the pause", func() bool { return r.state(t, "echo").PausedUntil != nil })
+	if st := r.state(t, "echo"); st.Fired > 10 {
+		t.Fatalf("state %+v", st)
 	}
 }

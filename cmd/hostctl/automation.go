@@ -29,6 +29,7 @@ func (a *app) rulesCommand() *cobra.Command {
 					Do   struct {
 						Scene  string `json:"scene"`
 						Script string `json:"script"`
+						Action string `json:"action"`
 					} `json:"do"`
 					Fired       int        `json:"fired"`
 					LastFired   *time.Time `json:"last_fired"`
@@ -48,8 +49,11 @@ func (a *app) rulesCommand() *cobra.Command {
 			fmt.Fprintln(tw, "RULE\tON\tDO\tFIRED\tLAST\tSTATE")
 			for _, r := range list.Rules {
 				do := "scene " + r.Do.Scene
-				if r.Do.Script != "" {
+				switch {
+				case r.Do.Script != "":
 					do = "script " + r.Do.Script
+				case r.Do.Action != "":
+					do = "action " + r.Do.Action
 				}
 				last := "-"
 				if r.LastFired != nil {

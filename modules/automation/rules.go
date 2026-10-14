@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -47,10 +48,36 @@ type If struct {
 	Minutes int `json:"minutes,omitempty" toml:"minutes"`
 }
 
-// Do is what a rule does: one of them.
+// Do is what a rule does: one of them. An action is sent as it stands, with
+// Args as its arguments, so a rule that only needs one needs no scene file.
 type Do struct {
-	Scene  string `json:"scene,omitempty" toml:"scene"`
-	Script string `json:"script,omitempty" toml:"script"`
+	Scene  string         `json:"scene,omitempty" toml:"scene"`
+	Script string         `json:"script,omitempty" toml:"script"`
+	Action string         `json:"action,omitempty" toml:"action"`
+	Args   map[string]any `json:"args,omitempty" toml:"args"`
+}
+
+var reActionType = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
+
+// check says what is wrong with a rule's do, if anything. Whether the
+// action exists and takes these arguments is the core's to say when the
+// rule fires: its module may not be loaded yet when the file is read.
+func (d Do) check() error {
+	n := 0
+	for _, s := range []string{d.Scene, d.Script, d.Action} {
+		if s != "" {
+			n++
+		}
+	}
+	switch {
+	case n != 1:
+		return errors.New("do needs a scene, a script or an action (one of them)")
+	case d.Action != "" && !reActionType.MatchString(d.Action):
+		return fmt.Errorf("do.action %q: an action type such as audio.mute.set", d.Action)
+	case d.Action == "" && d.Args != nil:
+		return errors.New("do.args goes with do.action")
+	}
+	return nil
 }
 
 // RuleState is a rule as GET /v1/rules shows it.
@@ -105,8 +132,8 @@ func ParseRules(data []byte) ([]Rule, error) {
 			return nil, fmt.Errorf("%s is defined twice", where)
 		case r.On == "":
 			return nil, fmt.Errorf("%s: needs on (an event type, or a namespace such as instance.*)", where)
-		case (r.Do.Scene == "") == (r.Do.Script == ""):
-			return nil, fmt.Errorf("%s: do needs a scene or a script (one of them)", where)
+		case r.Do.check() != nil:
+			return nil, fmt.Errorf("%s: %w", where, r.Do.check())
 		case r.If.Minutes < 0:
 			return nil, fmt.Errorf("%s: if.minutes must be positive", where)
 		}
@@ -225,6 +252,13 @@ func (m *Module) loadRules() {
 	}
 	m.rulesProblem = nil
 	m.rules = rules
+	if m.core != nil {
+		for _, r := range rules {
+			if r.Do.Action != "" && !m.core.Handles(r.Do.Action) {
+				m.log.Warn("a rule's action is not handled by any loaded module (yet)", "rule", r.Name, "action", r.Do.Action)
+			}
+		}
+	}
 	for _, r := range rules {
 		if m.runs[r.Name] == nil {
 			m.runs[r.Name] = &ruleRun{}
@@ -345,9 +379,9 @@ func (m *Module) fire(ctx context.Context, r Rule, ev sdk.Event) {
 
 	src := sdk.Source{Kind: sdk.SourceAutomation, Name: r.Name}
 	var result string
-	if r.Do.Scene != "" {
-		res, err := m.core.Do(ctx, sdk.Action{Type: "scene.apply", Args: sdk.MustJSON(map[string]string{"id": r.Do.Scene}),
-			Source: src, Cause: ev.ID})
+	if a, ok := r.Do.action(); ok {
+		a.Source, a.Cause = src, ev.ID
+		res, err := m.core.Do(ctx, a)
 		result = describe(res, err)
 		if sdk.CodeOf(err) == sdk.CodeLoopDetected {
 			m.pause(r.Name, now.Add(10*time.Minute), "a loop: its work set off rules that set it off again")
@@ -358,6 +392,21 @@ func (m *Module) fire(ctx context.Context, r Rule, ev sdk.Event) {
 	m.mu.Lock()
 	run.lastResult = result
 	m.mu.Unlock()
+}
+
+// action is what the rule sends to the core, unless it runs a script.
+func (d Do) action() (sdk.Action, bool) {
+	switch {
+	case d.Scene != "":
+		return sdk.Action{Type: "scene.apply", Args: sdk.MustJSON(map[string]string{"id": d.Scene})}, true
+	case d.Action != "":
+		a := sdk.Action{Type: d.Action}
+		if len(d.Args) > 0 {
+			a.Args = sdk.MustJSON(d.Args)
+		}
+		return a, true
+	}
+	return sdk.Action{}, false
 }
 
 func describe(res sdk.Result, err error) string {

@@ -22,7 +22,14 @@ focus   = "jellyfin-tv"  # in front (started if needed)
 
 [display]
 power = "on"
+
+# Actions of any module, built-in or external, sent last, in this order
+[[do]]
+action = "lights.scene.set"
+args   = { name = "movie_mode" }
 ```
+
+The parts above (`audio`, `apps`, `display`) are compared with the current state, and only what differs is sent. A `[[do]]` action is sent every time the scene is applied: a scene cannot know what another module's action changes, so it does not try to tell whether it is needed. Use `[[do]]` for actions that are safe to repeat. An action that no loaded module handles fails its own step, and the rest still run. A scene cannot apply another scene.
 
 ```sh
 hostctl scenes
@@ -53,7 +60,14 @@ cooldown = "10m"
 name = "evening"
 on   = "display.active"
 do   = { script = "evening.sh" }
+
+[[rule]]
+name = "quiet when nobody is there"
+on   = "display.idle"
+do   = { action = "audio.mute.set", args = { muted = true } }
 ```
+
+A rule does one of three things: applies a `scene`, runs a `script`, or sends one `action` with its `args` (any action a loaded module handles, built-in or external; [the API description](api.md) lists them). An action needs no scene or script file. It runs as the rule, at automation priority, with the event as its cause, so loop limits, holds and the audit trail apply as they do to a scene. The core checks the action's name and arguments when the rule fires, so a rule for a module that starts later is fine: until then it fails, and `hostctl rules` shows the failure.
 
 | Condition | Holds when |
 | --- | --- |
