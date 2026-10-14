@@ -486,6 +486,8 @@ Gate: *a game and a browser have different volumes, and audio moves to a headset
 - [x] **MPRIS:** `playerctl` backend behind an interface (`godbus` later if needed); target the focused instance's player (match by PID via `org.freedesktop.DBus.GetConnectionUnixProcessID`) or a named player; `media.changed` events
   *Done (2026-10-10): `modules/audio/mpris.go` over godbus (no playerctl): players found by their `org.mpris.MediaPlayer2.*` names, matched to instances by process (unit or env rule); `media.play_pause` / `media.next` / `media.previous` go to the named player, else the focused instance's, else the one playing; `GET /v1/media`; `media.changed` from PropertiesChanged and players coming and going. Tested against a fake player on a private session bus.*
 
+*Gate, first half, passed on core (2026-10-14, edge-0d0dd20): two background apps playing silence through `pw-cat`, with `[audio] volume` 80 and 30 in their app files, played at 80% and 30%; `audio.app.volume.set` moved one to 45%, `audio.app.mute.set` muted the other, and the master volume stayed at 50%. The first run found a bug: a native PipeWire client (pw-cat, SDL games) carries its process only on its client object, not on the stream node, so its stream matched no app; fixed in 0d0dd20. Second half (moving audio to a headset) not run: core has one output (HDMI); it needs a Bluetooth headset or speakers on the Ryzen jack.*
+
 **Tests**
 - Naming: golden test over captured `pw-dump` from setups with HDMI, analog and Bluetooth.
 - Reconnect: in the PipeWire container, remove a null sink and re-create it with the same properties → same stable name, new numeric ID.
