@@ -1,0 +1,22 @@
+# An external module plugged in by a file of its own in hostd.d/, with
+# hostd.toml left as it is (what an add-on does).
+[!exec:python3] skip
+mkdir $XDG_CONFIG_HOME/hostd/hostd.d
+cp hostd.toml $XDG_CONFIG_HOME/hostd/hostd.toml
+cp lights.toml $XDG_CONFIG_HOME/hostd/hostd.d/lights.toml
+exec sed -i s|@REPO@|$REPO| $XDG_CONFIG_HOME/hostd/hostd.d/lights.toml
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl lights set porch --brightness 40
+stdout 'applied'
+exec hostctl get lights lights
+stdout 'porch +40'
+
+-- hostd.toml --
+modules = ["apps"]
+-- lights.toml --
+[external.lights]
+command = ["python3", "@REPO@/examples/python-module/lights.py"]
+transport = "stdio"

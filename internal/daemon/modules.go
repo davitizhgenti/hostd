@@ -187,9 +187,9 @@ func moduleConfigs(c Config) (map[string]any, []string, error) {
 
 // decodeSections reads the [module] sections of hostd.toml, for
 // moduleConfigs.
-func decodeSections(path string) (map[string]toml.Primitive, toml.MetaData, error) {
+func decodeSections(data []byte) (map[string]toml.Primitive, toml.MetaData, error) {
 	var raw map[string]toml.Primitive
-	md, err := toml.DecodeFile(path, &raw)
+	md, err := toml.Decode(string(data), &raw)
 	if err != nil {
 		return nil, md, err
 	}

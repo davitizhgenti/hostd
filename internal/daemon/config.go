@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,7 +15,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is ~/.config/hostd/hostd.toml. Every field is optional.
+// Config is ~/.config/hostd/hostd.toml, with the files in hostd.d/ beside
+// it merged in (see readConfig). Every field is optional.
 //
 //	# Which built-in modules to load. A headless machine leaves out
 //	# display and audio.
@@ -100,7 +102,11 @@ func DefaultConfigPath() string {
 // Unknown keys and modules are errors, so a typo never goes unnoticed.
 func LoadConfig(path string) (Config, error) {
 	var c Config
-	md, err := toml.DecodeFile(path, &c)
+	data, err := readConfig(path)
+	var md toml.MetaData
+	if err == nil {
+		md, err = toml.Decode(string(data), &c)
+	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		c = Config{}
@@ -108,7 +114,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	default:
 		c.md = md
-		if c.sections, c.sectionsMD, err = decodeSections(path); err != nil {
+		if c.sections, c.sectionsMD, err = decodeSections(data); err != nil {
 			return Config{}, fmt.Errorf("%s: %w", path, err)
 		}
 		// A module's section is the module's to check (moduleConfigs).
@@ -185,4 +191,102 @@ func (c Config) holdWindows() map[string]time.Duration {
 		out[k] = time.Duration(v)
 	}
 	return out
+}
+
+// DropInDir is where files that add to hostd.toml go: hostd.d/ beside it.
+// An add-on, or a person, puts an external module or a module's settings
+// there in a file of its own, without editing hostd.toml.
+func DropInDir(configPath string) string { return filepath.Join(filepath.Dir(configPath), "hostd.d") }
+
+// readConfig returns hostd.toml with the files in hostd.d/ (*.toml, in name
+// order) merged into it. A drop-in may hold module sections ([apps],
+// [display]...) and [external.NAME]; anything set in two files is an error
+// naming both. Without drop-ins it is hostd.toml as it is. Neither file
+// existing is fs.ErrNotExist.
+func readConfig(path string) ([]byte, error) {
+	main, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	drops, _ := filepath.Glob(filepath.Join(DropInDir(path), "*.toml"))
+	sort.Strings(drops)
+	if len(drops) == 0 {
+		return main, err
+	}
+	merged := map[string]any{}
+	owner := map[string]string{} // setting -> the file that set it
+	if main != nil {
+		if _, err := toml.Decode(string(main), &merged); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		mark(merged, "", path, owner)
+	}
+	for _, f := range drops {
+		var m map[string]any
+		b, err := os.ReadFile(f)
+		if err == nil {
+			_, err = toml.Decode(string(b), &m)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		for k := range m {
+			if k != "external" && builtinNamed(k) == nil {
+				return nil, fmt.Errorf("%s: %s belongs in %s; a drop-in holds module sections ([apps], [display]...) and [external.NAME]", f, k, path)
+			}
+		}
+		if err := mergeInto(merged, m, "", f, owner); err != nil {
+			return nil, err
+		}
+	}
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(merged); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// mark records file as the owner of every setting in m. An external module
+// counts as one setting: its command and env come from one file.
+func mark(m map[string]any, prefix, file string, owner map[string]string) {
+	for k, v := range m {
+		key := prefix + k
+		if sub, ok := v.(map[string]any); ok && prefix != "external." {
+			mark(sub, key+".", file, owner)
+			continue
+		}
+		owner[key] = file
+	}
+}
+
+func mergeInto(dst, src map[string]any, prefix, file string, owner map[string]string) error {
+	keys := make([]string, 0, len(src))
+	for k := range src {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		key, v := prefix+k, src[k]
+		sub, isTable := v.(map[string]any)
+		if isTable && prefix != "external." {
+			d, ok := dst[k].(map[string]any)
+			if !ok {
+				if _, taken := dst[k]; taken {
+					return fmt.Errorf("%s is set in both %s and %s", key, owner[key], file)
+				}
+				d = map[string]any{}
+				dst[k] = d
+			}
+			if err := mergeInto(d, sub, key+".", file, owner); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, taken := dst[k]; taken {
+			return fmt.Errorf("%s is set in both %s and %s", key, owner[key], file)
+		}
+		dst[k] = v
+		owner[key] = file
+	}
+	return nil
 }

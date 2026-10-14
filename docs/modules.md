@@ -2,11 +2,22 @@
 
 A module owns a namespace (`lights.*`). It declares its actions, events, reads and scopes in a manifest, and carries out its actions when the core hands them over. Everything else is the core's work: validation, permissions, ordering per resource, priority holds and the audit trail.
 
+## Extending hostd: which way
+
+| You want | Use | Code |
+| --- | --- | --- |
+| A program on the screen or a service in the background | An [app file](apps.md) | None: a TOML file in `~/.config/hostd/apps/` |
+| Something set up on the machine: packages, drivers, system services | An add-on (`deploy/addons/NAME/addon.sh`, `sudo hostd-setup add NAME`) | Bash, run as root by the installer |
+| New actions, events or reads: lights, a thermostat, anything with an API | An external module | Any language; configured in a file of its own in `hostd.d/` |
+| The same, inside hostd | A built-in module | Go, one entry in `internal/daemon/modules.go` |
+
+They combine: an add-on can install what an external module needs and write its `hostd.d/` file (and remove it again in `addon_remove`), so `sudo hostd-setup add NAME` gives the machine a new module without anyone editing `hostd.toml`.
+
 ## In any language: an external module
 
 An external module is a program that hostd starts and talks to over a unix socket (or, with `transport = "stdio"`, over its standard input and output), with JSON-RPC 2.0 and one message per line. It needs no library: [`examples/python-module/lights.py`](https://github.com/davitizhgenti/hostd/tree/main/examples/python-module) is a complete module in Python's standard library.
 
-Configure it in `hostd.toml`:
+Configure it in `hostd.toml`, or better, in a file of its own beside it, `~/.config/hostd/hostd.d/lights.toml` ([drop-ins](config.md#drop-in-files)):
 
 ```toml
 [external.lights]
@@ -26,7 +37,7 @@ The protocol, message by message: [the module protocol](protocol.md).
 
 ## In Go: a built-in module
 
-A built-in module implements `sdk.Module` (`Manifest`, `Start`, `Validate`, `Handle`, `Stop`), and optionally `sdk.Reader`, `sdk.StateReporter` and `sdk.Hooker`. It is compiled into hostd and listed in `internal/daemon`. Modules never import each other. When one uses another's actions, events or reads, it declares that in its manifest (`requires`), and both take the names and data shapes from the `contract` package.
+A built-in module implements `sdk.Module` (`Manifest`, `Start`, `Validate`, `Handle`, `Stop`), and optionally `sdk.Reader`, `sdk.StateReporter` and `sdk.Hooker`. It is compiled into hostd and has one entry in `internal/daemon/modules.go`: how to make it, and its settings, a `Config` type of its own decoded from its section of `hostd.toml` (`[display]`) and checked by its `Check` method. Modules never import each other. When one uses another's actions, events or reads, it declares that in its manifest (`requires`), and both take the names and data shapes from the `contract` package.
 
 ## The manifest
 

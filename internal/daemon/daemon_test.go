@@ -225,3 +225,73 @@ func TestLoadConfigExternal(t *testing.T) {
 		t.Fatalf("%+v %v", c.External, err)
 	}
 }
+
+// Files in hostd.d/ add to hostd.toml: an add-on, or a person, plugs in an
+// external module or a module's settings without editing hostd.toml.
+func TestDropIns(t *testing.T) {
+	setup := func(t *testing.T, main string, drops map[string]string) string {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "hostd.toml")
+		if main != "" {
+			_ = os.WriteFile(path, []byte(main), 0o644)
+		}
+		_ = os.MkdirAll(DropInDir(path), 0o755)
+		for name, body := range drops {
+			_ = os.WriteFile(filepath.Join(DropInDir(path), name), []byte(body), 0o644)
+		}
+		return path
+	}
+
+	// Settings from several files come together; other files are ignored.
+	path := setup(t, "modules = [\"apps\", \"display\"]\n[display]\nidle_after = \"9m\"\n", map[string]string{
+		"10-lights.toml": "[external.lights]\ncommand = [\"python3\", \"lights.py\"]\ntransport = \"stdio\"\n",
+		"20-keys.toml":   "[display.keys]\n\"F1\" = \"display.menu\"\n[apps]\nbrowser = [\"firefox\", \"{url}\"]\n",
+		"README":         "not a config file",
+		"old.toml~":      "not one either",
+	})
+	c, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.Modules, []string{"apps", "display"}) || c.External["lights"].Transport != "stdio" {
+		t.Fatalf("config %+v", c)
+	}
+	confs, _, err := moduleConfigs(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := confs["display"].(*display.Config)
+	if time.Duration(d.IdleAfter) != 9*time.Minute || d.Keys["F1"] != "display.menu" ||
+		!reflect.DeepEqual(confs["apps"].(*apps.Config).Browser, []string{"firefox", "{url}"}) {
+		t.Fatalf("merged: %+v %+v", d, confs["apps"])
+	}
+
+	// Drop-ins alone, with no hostd.toml.
+	if c, err := LoadConfig(setup(t, "", map[string]string{"x.toml": "[external.x]\ncommand = [\"x\"]\n"})); err != nil || len(c.External) != 1 {
+		t.Fatalf("no hostd.toml: %+v %v", c, err)
+	}
+
+	for name, tc := range map[string]struct {
+		main  string
+		drops map[string]string
+		want  []string
+	}{
+		"a setting in two files": {"[display]\nidle_after = \"1m\"\n", map[string]string{"a.toml": "[display]\nidle_after = \"2m\"\n"},
+			[]string{"display.idle_after is set in both", "hostd.toml", "a.toml"}},
+		"a module in two drop-ins": {"", map[string]string{"a.toml": "[external.x]\ncommand = [\"x\"]\n", "b.toml": "[external.x]\nenv = {A = \"1\"}\n"},
+			[]string{"external.x is set in both", "a.toml", "b.toml"}},
+		"a top-level key": {"", map[string]string{"a.toml": "listen = \"\"\n"},
+			[]string{"a.toml: listen belongs in", "hostd.toml"}},
+		"a mistake in a drop-in": {"", map[string]string{"a.toml": "[display.keys]\n\"F2\" = \"window.fly\"\n"},
+			[]string{"[display] keys: F2"}},
+		"not TOML": {"", map[string]string{"a.toml": "this is not toml"}, []string{"a.toml"}},
+	} {
+		_, err := LoadConfig(setup(t, tc.main, tc.drops))
+		for _, w := range tc.want {
+			if err == nil || !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %v, want %q", name, err, w)
+			}
+		}
+	}
+}

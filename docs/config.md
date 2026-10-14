@@ -47,11 +47,23 @@ Before this version `idle_after`, `browser` and `gamescope` were top-level keys,
 
 The default bindings are: Super for the menu, Super+Tab and Super+Shift+Tab for the next and previous app, and Super+Q to close the app in front. Holding a controller's Guide button opens the menu.
 
+## Drop-in files
+
+Files in `~/.config/hostd/hostd.d/` add to `hostd.toml`: every `*.toml` there, in name order. A drop-in holds module sections (`[apps]`, `[display]`...) and external modules (`[external.NAME]`), so an add-on or a person can plug in a module, or change one setting, without editing `hostd.toml`. Anything else (`modules`, `listen`...) belongs in `hostd.toml`. A setting given in two files stops hostd with a message naming both; an external module counts as one setting, so it lives in one file.
+
+```toml
+# ~/.config/hostd/hostd.d/lights.toml
+[external.lights]
+command   = ["python3", "/home/screen/hostd/modules/lights.py"]
+transport = "stdio"
+```
+
 ## Files and folders
 
 | Path | What |
 | --- | --- |
 | `~/.config/hostd/hostd.toml` | This file |
+| `~/.config/hostd/hostd.d/*.toml` | [Drop-ins](#drop-in-files): modules and settings in files of their own |
 | `~/.config/hostd/apps/` | [App files](apps.md) |
 | `~/.config/hostd/scenes/`, `rules.toml`, `scripts/` | [Automation](automation.md) |
 | `~/.config/hostd/secrets/` | [Secrets](services.md#secrets) (0600) |
