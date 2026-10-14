@@ -150,9 +150,11 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventConfigRejected, Description: "A commit of the followed config was refused; the previous config stays"},
 		},
 		Reads: []sdk.ReadSpec{
-			{Name: "deploys", Description: "Every service: its live release and recent ones", Path: "/v1/deploys"},
+			{Name: "deploys", Description: "Every service: its live release and recent ones", Path: "/v1/deploys",
+				CLI: &sdk.CLI{Empty: "no services", Columns: []sdk.Column{{Title: "SERVICE", Path: "app"}, {Title: "LIVE", Path: "current"}}}},
 			{Name: "deploy", Description: "One service's releases", Path: "/v1/deploys/{app}"},
-			{Name: "push_keys", Description: "SSH keys that may only git push", Path: "/v1/push-keys"},
+			{Name: "push_keys", Description: "SSH keys that may only git push", Path: "/v1/push-keys",
+				CLI: &sdk.CLI{Empty: "no push keys", Columns: []sdk.Column{{Title: "NAME", Path: "name"}, {Title: "TYPE", Path: "type"}}}},
 			{Name: "config_follow", Description: "The followed config repository and its last result", Path: "/v1/config/follow"},
 		},
 		Hooks: []sdk.HookSpec{

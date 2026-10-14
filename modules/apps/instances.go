@@ -70,7 +70,9 @@ func instanceEvents() []sdk.EventSpec {
 
 func instanceReads() []sdk.ReadSpec {
 	return []sdk.ReadSpec{
-		{Name: contract.ReadInstances, Description: "Running instances (?all=true adds recently ended ones)", Path: "/v1/instances"},
+		{Name: contract.ReadInstances, Description: "Running instances (?all=true adds recently ended ones)", Path: "/v1/instances",
+			CLI: &sdk.CLI{Empty: "nothing is running", Columns: []sdk.Column{{Title: "INSTANCE", Path: "id"}, {Title: "APP", Path: "app"},
+				{Title: "RUNNER", Path: "runner"}, {Title: "STATE", Path: "state"}, {Title: "PID", Path: "pid"}, {Title: "SINCE", Path: "started", Format: "time"}}}},
 		{Name: "instance", Description: "One instance", Path: "/v1/instances/{id}"},
 		{Name: "logs", Description: "An instance's latest log lines (?lines=200)", Path: "/v1/instances/{id}/logs"},
 	}

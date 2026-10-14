@@ -122,3 +122,30 @@ func TestAliasForAnAction(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 }
+
+// A read that wraps its list in an object names the field (rows); a null
+// answer is an empty list; a field that is not a list falls back to JSON.
+func TestGetRowsInAnObject(t *testing.T) {
+	m := sdk.Manifest{Name: "auto", Version: "1", Owns: []string{"auto.*"},
+		Reads: []sdk.ReadSpec{
+			{Name: "rules", Path: "/v1/rules", CLI: &sdk.CLI{Rows: "rules", Empty: "no rules",
+				Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "DO", Path: "do.scene|do.action"}}}},
+			{Name: "media", Path: "/v1/media", CLI: &sdk.CLI{Empty: "no media players", Columns: []sdk.Column{{Title: "PLAYER", Path: "name"}}}},
+			{Name: "odd", Path: "/v1/odd", CLI: &sdk.CLI{Rows: "rules", Columns: []sdk.Column{{Title: "A", Path: "a"}}}},
+		}}
+	fakeAPI(t, []sdk.Manifest{m}, map[string]string{
+		"/v1/rules": `{"rules": [{"name": "evening", "do": {"scene": "dim"}}, {"name": "quiet", "do": {"action": "audio.mute.set"}}], "problems": []}`,
+		"/v1/media": `null`,
+		"/v1/odd":   `{"rules": "not a list"}`,
+	})
+	out, _, code := hostctl(t, "get", "auto", "rules")
+	if want := "RULE     DO\nevening  dim\nquiet    audio.mute.set\n"; code != 0 || out != want {
+		t.Fatalf("rules: %q (exit %d)", out, code)
+	}
+	if out, _, code := hostctl(t, "get", "auto", "media"); code != 0 || out != "no media players\n" {
+		t.Fatalf("null: %q (exit %d)", out, code)
+	}
+	if out, _, code := hostctl(t, "get", "auto", "odd"); code != 0 || !strings.Contains(out, `"rules": "not a list"`) {
+		t.Fatalf("not a list: %q (exit %d)", out, code)
+	}
+}

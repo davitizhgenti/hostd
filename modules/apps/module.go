@@ -114,7 +114,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventFileRejected, Description: "An app file could not be used"},
 		}, instanceEvents()...),
 		Reads: append([]sdk.ReadSpec{
-			{Name: "apps", Description: "The catalog (?all=true includes hidden apps)", Path: "/v1/apps"},
+			{Name: "apps", Description: "The catalog (?all=true includes hidden apps)", Path: "/v1/apps",
+				CLI: &sdk.CLI{Rows: "apps", Empty: "no apps", Columns: []sdk.Column{{Title: "APP", Path: "id"}, {Title: "NAME", Path: "name", Max: 30},
+					{Title: "RUNNER", Path: "runner.type"}, {Title: "SURFACE", Path: "surface"}, {Title: "FROM", Path: "source"}}}},
 			{Name: "app", Description: "One app, by ID or alias", Path: "/v1/apps/{id}"},
 			{Name: "secrets", Description: "The secrets' names (never their values)", Path: "/v1/secrets"},
 		}, instanceReads()...),

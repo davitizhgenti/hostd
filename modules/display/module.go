@@ -299,7 +299,9 @@ func (m *Module) Manifest() sdk.Manifest {
 					{Title: "INSTANCE", Path: "instance"}, {Title: "APP ID", Path: "app_id|class"}, {Title: "WORKSPACE", Path: "workspace"},
 					{Title: "FOCUSED", Path: "focused"}, {Title: "FULLSCREEN", Path: "fullscreen"}, {Title: "TITLE", Path: "title", Max: 40}}}},
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
-			{Name: "controllers", Description: "Connected game controllers, with their profile and bindable buttons", Path: "/v1/controllers"},
+			{Name: "controllers", Description: "Connected game controllers, with their profile and bindable buttons", Path: "/v1/controllers",
+				CLI: &sdk.CLI{Empty: "no controllers connected", Columns: []sdk.Column{{Title: "DEVICE", Path: "device"}, {Title: "KIND", Path: "kind"},
+					{Title: "PROFILE", Path: "profile"}, {Title: "BUTTONS", Path: "buttons", Format: "list"}, {Title: "READ BY", Path: "app"}, {Title: "NAME", Path: "name"}}}},
 		},
 	}
 }

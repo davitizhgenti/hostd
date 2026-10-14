@@ -128,9 +128,13 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventSceneApplied, Description: "A scene was applied, with each step's result"},
 		},
 		Reads: []sdk.ReadSpec{
-			{Name: "scenes", Description: "The scenes, and scene files that cannot be used", Path: "/v1/scenes"},
+			{Name: "scenes", Description: "The scenes, and scene files that cannot be used", Path: "/v1/scenes",
+				CLI: &sdk.CLI{Rows: "scenes", Empty: "no scenes", Columns: []sdk.Column{{Title: "SCENE", Path: "id"}, {Title: "NAME", Path: "name"}}}},
 			{Name: "scene", Description: "One scene", Path: "/v1/scenes/{id}"},
-			{Name: "rules", Description: "The rules: when each fired, its last result, whether it is paused", Path: "/v1/rules"},
+			{Name: "rules", Description: "The rules: when each fired, its last result, whether it is paused", Path: "/v1/rules",
+				CLI: &sdk.CLI{Rows: "rules", Empty: "no rules", Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "ON", Path: "on"},
+					{Title: "DO", Path: "do.scene|do.script|do.action"}, {Title: "FIRED", Path: "fired"}, {Title: "LAST", Path: "last_fired", Format: "time"},
+					{Title: "RESULT", Path: "last_result", Max: 40}, {Title: "PAUSED", Path: "paused_why"}}}},
 		},
 	}
 }

@@ -77,6 +77,9 @@ type CLI struct {
 	// Columns turn a read that returns a list of objects into a table
 	// (reads only).
 	Columns []Column `json:"columns,omitempty"`
+	// Rows is the field that holds the list, when the read returns an
+	// object around it ({"rules": [...], "problems": [...]}: "rules").
+	Rows string `json:"rows,omitempty"`
 	// Empty is printed instead of a table with no rows (reads only).
 	Empty string `json:"empty,omitempty"`
 }
@@ -380,8 +383,11 @@ func (m *Manifest) Validate() error {
 			}
 			aliases[a] = where
 		}
-		if !read && (len(c.Columns) > 0 || c.Empty != "") {
-			bad("%s: columns and empty apply to reads, not actions", where)
+		if !read && (len(c.Columns) > 0 || c.Empty != "" || c.Rows != "") {
+			bad("%s: columns, rows and empty apply to reads, not actions", where)
+		}
+		if c.Rows != "" && !reField.MatchString(c.Rows) {
+			bad("%s: rows %q is not a field name such as a or a.b", where, c.Rows)
 		}
 		if len(c.Columns) > 12 {
 			bad("%s: %d columns; at most 12", where, len(c.Columns))

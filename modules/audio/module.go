@@ -106,7 +106,9 @@ func (m *Module) Manifest() sdk.Manifest {
 		},
 		Reads: []sdk.ReadSpec{
 			{Name: "audio", Description: "Volume, mute, the outputs and the sound each app plays", Path: "/v1/audio"},
-			{Name: "media", Description: "Media players: their app, status and track", Path: "/v1/media"},
+			{Name: "media", Description: "Media players: their app, status and track", Path: "/v1/media",
+				CLI: &sdk.CLI{Empty: "no media players", Columns: []sdk.Column{{Title: "PLAYER", Path: "name"}, {Title: "STATUS", Path: "status"},
+					{Title: "INSTANCE", Path: "instance"}, {Title: "TITLE", Path: "title", Max: 40}, {Title: "ARTIST", Path: "artist", Max: 30}}}},
 		},
 	}
 }

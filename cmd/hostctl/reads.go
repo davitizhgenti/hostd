@@ -139,10 +139,31 @@ func (a *app) makeReadCommand(cmd *cobra.Command, rd sdk.ReadSpec, module string
 // module described. Anything else is printed as JSON.
 func (a *app) printTable(cli *sdk.CLI, raw json.RawMessage) error {
 	var rows []map[string]any
+	var whole any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber() // 4242 stays 4242
-	if err := dec.Decode(&rows); err != nil {
+	if err := dec.Decode(&whole); err != nil {
 		return a.printJSON(raw)
+	}
+	list := whole
+	if cli.Rows != "" { // the list is a field of the answer
+		for _, key := range strings.Split(cli.Rows, ".") {
+			m, _ := list.(map[string]any)
+			list = m[key]
+		}
+	}
+	if list != nil {
+		items, ok := list.([]any)
+		if !ok {
+			return a.printJSON(raw)
+		}
+		for _, it := range items {
+			row, ok := it.(map[string]any)
+			if !ok {
+				return a.printJSON(raw)
+			}
+			rows = append(rows, row)
+		}
 	}
 	if len(rows) == 0 && cli.Empty != "" {
 		_, err := fmt.Fprintln(a.stdout, cli.Empty)

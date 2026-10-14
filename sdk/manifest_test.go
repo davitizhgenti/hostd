@@ -97,6 +97,10 @@ func TestManifestInvalid(t *testing.T) {
 			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Alias: []string{"v"}}}}
 		}, "already used"},
 		{"columns on an action", func(m *Manifest) { m.Actions[0].CLI = &CLI{Columns: []Column{{Title: "A", Path: "a"}}} }, "apply to reads"},
+		{"rows on an action", func(m *Manifest) { m.Actions[0].CLI = &CLI{Rows: "items"} }, "apply to reads"},
+		{"bad rows", func(m *Manifest) {
+			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Rows: "a b", Columns: []Column{{Title: "A", Path: "a"}}}}}
+		}, `rows "a b"`},
 		{"column without title", func(m *Manifest) {
 			m.Reads = []ReadSpec{{Name: "x", Path: "/v1/x", CLI: &CLI{Columns: []Column{{Path: "a"}}}}}
 		}, "no title"},
