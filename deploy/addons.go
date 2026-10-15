@@ -414,6 +414,9 @@ func (in *installer) runHook(ctx context.Context, a Addon, fn string) error {
 	if in.o.Auto {
 		env = append(env, "HOSTD_AUTO=1")
 	}
+	if r := filepath.Clean(in.Root); r != "/" && r != "." {
+		env = append(env, "HOSTD_ROOT="+r) // a test's machine, in a directory
+	}
 	var hookErr string
 	done := make(chan struct{})
 	go func() {

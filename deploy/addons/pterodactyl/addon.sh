@@ -25,7 +25,7 @@ PTERO_COMPOSER_VERSION=2.10.3
 PTERO_COMPOSER_SHA256=7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6
 # deb.sury.org's signing key (also the Signed-By of its Release files).
 PTERO_SURY_FPR=15058500A0235D97F5D10063B188E2B695BD4743
-PTERO_DIR=/var/www/pterodactyl
+PTERO_DIR=$ROOT/var/www/pterodactyl
 
 # ptero_fetch URL DEST SHA256: download, and refuse anything but the file
 # this add-on was written for.
@@ -42,13 +42,13 @@ ptero_artisan() {
 # ptero_sury: the PHP 8.3 repository, with its key checked against the
 # fingerprint above.
 ptero_sury() {
-	local list=/etc/apt/sources.list.d/hostd-sury-php.sources keyring=/usr/share/keyrings/deb.sury.org-php.gpg
+	local list=$ROOT/etc/apt/sources.list.d/hostd-sury-php.sources keyring=/usr/share/keyrings/deb.sury.org-php.gpg
 	local codename key
-	if [ -f "$list" ] && [ -f "$keyring" ]; then
+	if [ -f "$list" ] && [ -f "$ROOT$keyring" ]; then
 		info "the PHP 8.3 repository is set up"
 		return 0
 	fi
-	codename=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
+	codename=$(. "$ROOT/etc/os-release" && echo "${VERSION_CODENAME:-}")
 	case $codename in
 	bookworm | trixie) ;;
 	*) die "pterodactyl: PHP 8.3 comes from deb.sury.org, which has no packages for \"$codename\"" ;;
@@ -59,7 +59,7 @@ ptero_sury() {
 		die "cannot download deb.sury.org's key"
 	gpg --show-keys --with-colons "$key" | awk -F: '$1 == "fpr" {print $10}' | grep -qx "$PTERO_SURY_FPR" ||
 		die "the key from packages.sury.org is not the one this add-on pins ($PTERO_SURY_FPR)"
-	install -D -m 644 "$key" "$keyring"
+	install -D -m 644 "$key" "$ROOT$keyring"
 	rm -f "$key"
 	cat >"$list" <<EOF
 # Managed by hostd's pterodactyl add-on: PHP 8.3, which Pterodactyl needs.
@@ -119,8 +119,8 @@ ptero_panel_files() {
 	install -d "$PTERO_DIR"
 	tar xzf "$tmp/panel.tar.gz" -C "$PTERO_DIR" || die "cannot unpack the panel"
 	chmod -R 755 "$PTERO_DIR"/storage/* "$PTERO_DIR"/bootstrap/cache/
-	install -d /var/cache/hostd-composer
-	(cd "$PTERO_DIR" && COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_HOME=/var/cache/hostd-composer \
+	install -d "$ROOT/var/cache/hostd-composer"
+	(cd "$PTERO_DIR" && COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_HOME="$ROOT/var/cache/hostd-composer" \
 		php8.3 "$tmp/composer.phar" install --no-dev --optimize-autoloader --no-interaction --quiet) ||
 		die "composer could not install the panel's dependencies"
 	rm -rf "$tmp"
@@ -175,15 +175,16 @@ ptero_bootstrap() {
 }
 
 ptero_nginx() {
-	local changed_nginx=0
-	install_file "$ADDON_HERE/nginx.conf" /etc/nginx/sites-available/pterodactyl.conf 644 root && changed_nginx=1
-	if [ ! -L /etc/nginx/sites-enabled/pterodactyl.conf ]; then
-		ln -s /etc/nginx/sites-available/pterodactyl.conf /etc/nginx/sites-enabled/pterodactyl.conf
+	local changed_nginx=0 nx=$ROOT/etc/nginx
+	install_file "$ADDON_HERE/nginx.conf" "$nx/sites-available/pterodactyl.conf" 644 root && changed_nginx=1
+	if [ ! -L "$nx/sites-enabled/pterodactyl.conf" ]; then
+		mkdir -p "$nx/sites-enabled"
+		ln -s /etc/nginx/sites-available/pterodactyl.conf "$nx/sites-enabled/pterodactyl.conf"
 		changed_nginx=1
 	fi
 	# Debian's welcome site also claims port 80 as the default.
-	if [ -L /etc/nginx/sites-enabled/default ] && [ "$(readlink /etc/nginx/sites-enabled/default)" = /etc/nginx/sites-available/default ]; then
-		rm -f /etc/nginx/sites-enabled/default
+	if [ -L "$nx/sites-enabled/default" ] && [ "$(readlink "$nx/sites-enabled/default")" = /etc/nginx/sites-available/default ]; then
+		rm -f "$nx/sites-enabled/default"
 		changed_nginx=1
 	fi
 	if [ $changed_nginx -eq 1 ]; then
@@ -199,7 +200,7 @@ ptero_nginx() {
 ptero_units() {
 	local u units_changed=0
 	for u in pteroq.service pterodactyl-schedule.service pterodactyl-schedule.timer wings.service; do
-		install_file "$ADDON_HERE/$u" "/etc/systemd/system/$u" 644 root && units_changed=1
+		install_file "$ADDON_HERE/$u" "$ROOT/etc/systemd/system/$u" 644 root && units_changed=1
 	done
 	[ $units_changed -eq 1 ] && systemctl daemon-reload
 	return 0
@@ -214,27 +215,27 @@ ptero_wings() {
 	case $arch in amd64 | arm64) ;; *) die "pterodactyl: Wings has no build for $arch" ;; esac
 	want=PTERO_WINGS_SHA256_$arch
 	want=${!want}
-	sum=$(sha256sum /usr/local/bin/wings 2>/dev/null | cut -d' ' -f1 || true)
+	sum=$(sha256sum "$ROOT/usr/local/bin/wings" 2>/dev/null | cut -d' ' -f1 || true)
 	if [ "$sum" != "$want" ] && [ -n "$sum" ] && ptero_unattended; then
 		info "Wings $PTERO_WINGS_VERSION is available: sudo hostd-setup update upgrades it (not done unattended)"
 	elif [ "$sum" != "$want" ]; then
 		tmp=$(mktemp)
 		ptero_fetch "https://github.com/pterodactyl/wings/releases/download/v$PTERO_WINGS_VERSION/wings_linux_$arch" "$tmp" "$want"
-		install -m 755 "$tmp" /usr/local/bin/wings
+		install -D -m 755 "$tmp" "$ROOT/usr/local/bin/wings"
 		rm -f "$tmp"
 		WINGS_NEW=1
 		changed "installed Wings $PTERO_WINGS_VERSION"
 	else
 		info "Wings $PTERO_WINGS_VERSION is installed"
 	fi
-	install -d -m 755 /etc/pterodactyl /var/lib/pterodactyl /var/log/pterodactyl
+	install -d -m 755 "$ROOT/etc/pterodactyl" "$ROOT/var/lib/pterodactyl" "$ROOT/var/log/pterodactyl"
 }
 
 # ptero_podman: Docker sets up its own firewall rules next to Podman's.
 # Hostd's container apps are rootless Podman (networking through passt, not
 # the host's forwarding), so they should not notice; this checks that.
 ptero_podman() {
-	[ -S "/run/user/$SCREEN_UID/podman/podman.sock" ] || return 0
+	[ -S "$ROOT/run/user/$SCREEN_UID/podman/podman.sock" ] || return 0
 	if as_screen curl -fsS --unix-socket "/run/user/$SCREEN_UID/podman/podman.sock" http://d/_ping 2>/dev/null | grep -q OK; then
 		info "hostd's Podman still answers next to Docker"
 	else
@@ -259,7 +260,7 @@ ptero_node_address() {
 
 # ptero_wings_config: Wings' config from the panel's node, once.
 ptero_wings_config() {
-	local conf=/etc/pterodactyl/config.yml out
+	local conf=$ROOT/etc/pterodactyl/config.yml out
 	[ -f "$conf" ] && return 0
 	out=$(ptero_artisan p:node:configuration 1) || die "the panel cannot give Wings' configuration"
 	# Wings runs on the panel's machine: it reaches the panel directly
@@ -345,11 +346,10 @@ addon_remove() {
 	rm -f "$SCREEN_HOME/.config/hostd/apps/pterodactyl.toml"
 	addon_rescan
 	systemctl disable --now wings.service pteroq.service pterodactyl-schedule.timer >/dev/null 2>&1 || true
-	rm -f /etc/systemd/system/wings.service /etc/systemd/system/pteroq.service \
-		/etc/systemd/system/pterodactyl-schedule.service /etc/systemd/system/pterodactyl-schedule.timer \
-		/usr/local/bin/wings /etc/nginx/sites-enabled/pterodactyl.conf /etc/nginx/sites-available/pterodactyl.conf
-	if [ ! -e /etc/nginx/sites-enabled/default ] && [ -f /etc/nginx/sites-available/default ]; then
-		ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+	rm -f "$ROOT"/etc/systemd/system/{wings.service,pteroq.service,pterodactyl-schedule.service,pterodactyl-schedule.timer} \
+		"$ROOT/usr/local/bin/wings" "$ROOT"/etc/nginx/sites-{enabled,available}/pterodactyl.conf
+	if [ ! -e "$ROOT/etc/nginx/sites-enabled/default" ] && [ -f "$ROOT/etc/nginx/sites-available/default" ]; then
+		ln -s /etc/nginx/sites-available/default "$ROOT/etc/nginx/sites-enabled/default"
 	fi
 	systemctl daemon-reload
 	systemctl reload nginx >/dev/null 2>&1 || true

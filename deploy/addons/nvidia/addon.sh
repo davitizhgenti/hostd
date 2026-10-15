@@ -21,11 +21,11 @@ NV_VERSION=580.178.04
 NV_SHA256=5975a86ee45bffcb626f51ae33d1169b108186a2ea47ad651e72f13fa4b6d6f9
 NV_RUN=NVIDIA-Linux-x86_64-$NV_VERSION.run
 NV_URL=https://download.nvidia.com/XFree86/Linux-x86_64/$NV_VERSION/$NV_RUN
-NV_CACHE=/var/cache/hostd/nvidia
-NV_PIN=/etc/apt/preferences.d/hostd-nvidia
+NV_CACHE=$ROOT/var/cache/hostd/nvidia
+NV_PIN=$ROOT/etc/apt/preferences.d/hostd-nvidia
 # Debian's packages kept nouveau away; NVIDIA's installer only does when
 # nouveau is loaded while it runs (it is not: Debian's driver is).
-NV_NOUVEAU=/etc/modprobe.d/hostd-nvidia-nouveau.conf
+NV_NOUVEAU=$ROOT/etc/modprobe.d/hostd-nvidia-nouveau.conf
 # Steam's Flatpak brings its own GL; it needs the build for this driver.
 NV_FLATPAK=("org.freedesktop.Platform.GL.nvidia-${NV_VERSION//./-}//1.4" "org.freedesktop.Platform.GL32.nvidia-${NV_VERSION//./-}//1.4")
 # Debian's NVIDIA packages: removed, and held back while this is installed.
@@ -33,13 +33,13 @@ NV_DEBIAN='^(nvidia-|libnvidia-|libegl-nvidia|libgl1-nvidia|libgles-nvidia|libgl
 
 # nv_own: the version of NVIDIA's own driver installed, or nothing.
 nv_own() {
-	[ -x /usr/bin/nvidia-installer ] && [ -x /usr/bin/nvidia-uninstall ] || return 0
-	/usr/bin/nvidia-installer --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
+	[ -x "$ROOT/usr/bin/nvidia-installer" ] && [ -x "$ROOT/usr/bin/nvidia-uninstall" ] || return 0
+	"$ROOT/usr/bin/nvidia-installer" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1
 }
 
 nv_gpu() {
 	local dev
-	for dev in /sys/bus/pci/devices/*; do
+	for dev in "$ROOT"/sys/bus/pci/devices/*; do
 		case $(cat "$dev/class" 2>/dev/null) in 0x03*) ;; *) continue ;; esac
 		[ "$(cat "$dev/vendor")" = 0x10de ] && return 0
 	done
@@ -96,7 +96,7 @@ nv_stop_screen() {
 	systemctl stop nvidia-persistenced 2>/dev/null || true
 	sleep 2
 	modprobe -r nvidia_drm nvidia_modeset nvidia_uvm nvidia 2>/dev/null || true
-	if [ -d /sys/module/nvidia ]; then
+	if [ -d "$ROOT/sys/module/nvidia" ]; then
 		nv_start_screen
 		return 1
 	fi
@@ -176,7 +176,7 @@ addon_install() {
 	if ! sh "$NV_CACHE/$NV_RUN" --silent --dkms --kernel-module-type=proprietary --disable-nouveau \
 		--no-install-libglvnd --no-x-check --rebuild-initramfs; then
 		info "NVIDIA's installer failed (see /var/log/nvidia-installer.log); putting Debian's driver back"
-		[ -x /usr/bin/nvidia-uninstall ] && /usr/bin/nvidia-uninstall --silent >/dev/null 2>&1
+		[ -x "$ROOT/usr/bin/nvidia-uninstall" ] && "$ROOT/usr/bin/nvidia-uninstall" --silent >/dev/null 2>&1
 		nv_debian_back
 		nv_start_screen
 		sed -i '/^nvidia$/d' "$ADDONS_STATE"
@@ -197,7 +197,7 @@ addon_remove() {
 	fi
 	nv_stop_screen || die "the NVIDIA driver is still in use; reboot, then: sudo hostd-setup remove nvidia"
 	info "removing NVIDIA's driver"
-	/usr/bin/nvidia-uninstall --silent >/dev/null 2>&1 || info "warning: nvidia-uninstall reported a problem"
+	"$ROOT/usr/bin/nvidia-uninstall" --silent >/dev/null 2>&1 || info "warning: nvidia-uninstall reported a problem"
 	nv_debian_back
 	nv_start_screen
 	changed "Debian's NVIDIA driver is back"

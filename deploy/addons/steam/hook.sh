@@ -7,8 +7,8 @@ STEAM_ID=com.valvesoftware.Steam
 # Earlier versions ran Steam in gamescope: their session script and
 # Flatpak permissions go. (gamescope stays installed; it does no harm.)
 steam_drop_gamescope() {
-	if [ -e /usr/local/bin/hostd-steam-session ]; then
-		rm -f /usr/local/bin/hostd-steam-session
+	if [ -e "$ROOT/usr/local/bin/hostd-steam-session" ]; then
+		rm -f "$ROOT/usr/local/bin/hostd-steam-session"
 		changed "removed the gamescope Steam session"
 	fi
 	if flatpak override --system --show "$STEAM_ID" 2>/dev/null | grep -q "xdg-run/gamescope"; then
@@ -27,7 +27,7 @@ steam_vram_cap() {
 		total=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d " ")
 	else
 		local f
-		for f in /sys/class/drm/card[0-9]*/device/mem_info_vram_total; do
+		for f in "$ROOT"/sys/class/drm/card[0-9]*/device/mem_info_vram_total; do
 			[ -r "$f" ] && total=$(($(cat "$f") >> 20)) && break
 		done
 	fi

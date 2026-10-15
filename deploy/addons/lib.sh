@@ -6,6 +6,10 @@
 # I information, C a change, W a warning, E an error, R a reboot needed.
 set -euo pipefail
 
+# ROOT is put in front of the machine's paths: empty on a machine, a
+# directory in the hooks' tests (deploy/hooks_test.go).
+ROOT=${HOSTD_ROOT:-}
+
 info() { printf '\001I%s\n' "$*"; }
 log() { printf '\001I%s\n' "$*"; }
 changed() { printf '\001C%s\n' "$*"; }
@@ -18,7 +22,7 @@ die() {
 # hostd_owned FILE: whether hostd wrote FILE (it says so, or it is in
 # /usr/local, where the system's packages never put files).
 hostd_owned() {
-	case $1 in /usr/local/*) return 0 ;; esac
+	case ${1#"$ROOT"} in /usr/local/*) return 0 ;; esac
 	grep -qs "Managed by hostd" "$1"
 }
 
@@ -59,7 +63,7 @@ as_screen() {
 
 # addon_rescan has hostd read the app catalog again.
 addon_rescan() {
-	[ -S "/run/user/$SCREEN_UID/hostd.sock" ] && as_screen hostctl app rescan >/dev/null 2>&1 || true
+	[ -S "$ROOT/run/user/$SCREEN_UID/hostd.sock" ] && as_screen hostctl app rescan >/dev/null 2>&1 || true
 }
 
 # The add-ons asked for by name in this run (hostd-setup add, update NAME).
