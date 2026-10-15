@@ -62,9 +62,9 @@ browser = ["firefox", "{url}"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	confs, notes, err := moduleConfigs(c)
-	if err != nil || len(notes) != 0 {
-		t.Fatalf("module settings: %v %v", notes, err)
+	confs, err := moduleConfigs(c)
+	if err != nil {
+		t.Fatalf("module settings: %v", err)
 	}
 	d := confs["display"].(*display.Config)
 	keys, buttons, _ := display.Bindings(d.Keys, d.Buttons)
@@ -76,37 +76,15 @@ browser = ["firefox", "{url}"]
 		t.Fatalf("apps: %+v", a)
 	}
 
-	// The keys of earlier versions still work, for one release, with a note.
-	c, err = LoadConfig(writeConfig(t, `
-idle_after = "7m"
-gamescope = ["gamescope", "-f"]
-[input]
-hold = "2s"
-[input.keys]
-"F1" = "display.menu"
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	confs, notes, _ = moduleConfigs(c)
-	d = confs["display"].(*display.Config)
-	if time.Duration(d.IdleAfter) != 7*time.Minute || time.Duration(d.Hold) != 2*time.Second || d.Keys["F1"] != "display.menu" ||
-		!reflect.DeepEqual(confs["apps"].(*apps.Config).Gamescope, []string{"gamescope", "-f"}) {
-		t.Fatalf("old keys: %+v %+v", d, confs["apps"])
-	}
-	if len(notes) != 4 || !strings.Contains(strings.Join(notes, "\n"), "idle_after is now [display] idle_after") {
-		t.Fatalf("notes: %q", notes)
-	}
-
 	for body, want := range map[string]string{
-		"[input.keys]\n\"F2\" = \"window.fly\"":                      `[display] keys: F2: "window.fly" cannot be bound`,
+		"[input.keys]\n\"F2\" = \"display.menu\"":                    "input is now [display]: hold, [display.keys] and [display.buttons]",
+		"idle_after = \"7m\"":                                        "idle_after is now [display] idle_after",
+		`gamescope = ["gamescope"]`:                                  "gamescope is now [apps] gamescope",
 		"[display.keys]\n\"F2\" = \"window.fly\"":                    `[display] keys: F2: "window.fly" cannot be bound`,
 		"[display.buttons]\nturbo = \"window.next\"":                 `[display] buttons: button "turbo"`,
-		"[input]\nmice = {}":                                         "unknown key(s): input.mice",
 		"[display]\nmice = 1":                                        "unknown key(s): display.mice",
 		"[display]\nidle_after = \"-1m\"":                            "idle_after is negative",
 		"[display]\nidle_after = \"soon\"":                           "not a duration",
-		"idle_after = \"5m\"\n[display]\nidle_after = \"6m\"":        "same setting",
 		"[audio]\nvolume = 5":                                        "the audio module has no settings",
 		`modules = ["apps", "lights"]`:                               `no module "lights"`,
 		`modules = ["apps", "apps"]`:                                 "listed twice",
@@ -257,7 +235,7 @@ func TestDropIns(t *testing.T) {
 	if !reflect.DeepEqual(c.Modules, []string{"apps", "display"}) || c.External["lights"].Transport != "stdio" {
 		t.Fatalf("config %+v", c)
 	}
-	confs, _, err := moduleConfigs(c)
+	confs, err := moduleConfigs(c)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,8 +33,7 @@ import (
 //
 //	# Each built-in module's settings are its own section, decoded and
 //	# checked by the module (internal/daemon/modules.go): apps.Config,
-//	# display.Config. The top-level idle_after, browser, gamescope and
-//	# [input] of earlier versions still work for one release.
+//	# display.Config.
 //	[apps]
 //	browser = ["chromium", "--kiosk", "--user-data-dir={profile}", "{url}"]
 //	[display]
@@ -53,21 +52,19 @@ type Config struct {
 	Listen      *string             `toml:"listen"`
 	HoldWindow  duration            `toml:"hold_window"`
 	HoldWindows map[string]duration `toml:"hold_windows"`
-	// Earlier versions' places for module settings (see builtin.legacy).
-	IdleAfter duration `toml:"idle_after"`
-	Browser   []string `toml:"browser"`
-	Gamescope []string `toml:"gamescope"`
-	Input     struct {
-		Keys    map[string]string `toml:"keys"`
-		Buttons map[string]string `toml:"buttons"`
-		Hold    duration          `toml:"hold"`
-	} `toml:"input"`
-	External map[string]External `toml:"external"`
+	External    map[string]External `toml:"external"`
 
 	path       string
-	md         toml.MetaData             // of the whole file, to find keys of earlier versions
 	sections   map[string]toml.Primitive // [apps], [display]...: each module's own settings
 	sectionsMD toml.MetaData
+}
+
+// movedKeys are top-level keys of 0.1 that are now in a module's section.
+var movedKeys = map[string]string{
+	"idle_after": "[display] idle_after",
+	"input":      "[display]: hold, [display.keys] and [display.buttons]",
+	"browser":    "[apps] browser",
+	"gamescope":  "[apps] gamescope",
 }
 
 // laterModules are in the design but not in this version yet; naming one
@@ -113,13 +110,15 @@ func LoadConfig(path string) (Config, error) {
 	case err != nil:
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	default:
-		c.md = md
 		if c.sections, c.sectionsMD, err = decodeSections(data); err != nil {
 			return Config{}, fmt.Errorf("%s: %w", path, err)
 		}
 		// A module's section is the module's to check (moduleConfigs).
 		var keys []string
 		for _, k := range md.Undecoded() {
+			if to := movedKeys[k[0]]; to != "" {
+				return Config{}, fmt.Errorf("%s: %s is now %s (moved in 0.2)", path, k[0], to)
+			}
 			if builtinNamed(k[0]) == nil {
 				keys = append(keys, k.String())
 			}
@@ -157,7 +156,7 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
 		}
 	}
-	if _, _, err := moduleConfigs(c); err != nil {
+	if _, err := moduleConfigs(c); err != nil {
 		return Config{}, err
 	}
 	return c, nil

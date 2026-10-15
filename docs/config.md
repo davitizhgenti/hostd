@@ -43,7 +43,7 @@ command = ["python3", "/home/screen/hostd/modules/lights.py"]
 env     = { LIGHTS_BRIDGE = "192.168.1.20" }
 ```
 
-Before this version `idle_after`, `browser` and `gamescope` were top-level keys, and the bindings were `[input]`, `[input.keys]` and `[input.buttons]`. Those names still work for one release; hostd logs where each one moved. A setting given both ways stops hostd. The audio, deploy and automation modules have no settings yet, so a section for one of them is an error.
+In 0.1, `idle_after`, `browser` and `gamescope` were top-level keys, and the bindings were `[input]`, `[input.keys]` and `[input.buttons]`. hostd now refuses those names and says where each one moved. The audio, deploy and automation modules have no settings yet, so a section for one of them is an error.
 
 The default bindings are: Super for the menu, Super+Tab and Super+Shift+Tab for the next and previous app, and Super+Q to close the app in front. Holding a controller's Guide button opens the menu.
 

@@ -82,13 +82,10 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	confs, notes, err := moduleConfigs(cfg)
+	confs, err := moduleConfigs(cfg)
 	if err != nil {
 		fmt.Fprintln(stderr, "hostd:", err)
 		return 2
-	}
-	for _, n := range notes {
-		log.Warn(n)
 	}
 	home, _ := os.UserHomeDir()
 	e := &env{runtimeDir: *runtimeDir, stateDir: *stateDir, configDir: filepath.Dir(*configPath), socket: *socket,

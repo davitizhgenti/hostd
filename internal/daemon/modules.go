@@ -35,15 +35,6 @@ type builtin struct {
 	byDefault bool       // loaded when hostd.toml names no modules
 	config    func() any // a pointer to the module's settings, with defaults; nil: it has none
 	build     func(e *env, conf any) (sdk.Module, error)
-	// legacy maps hostd.toml keys of earlier versions to this module's
-	// settings ("idle_after" became [display] idle_after), for one release.
-	legacy []legacyKey
-}
-
-type legacyKey struct {
-	old  []string // e.g. {"input", "keys"}
-	new  string   // the key in the module's section
-	copy func(c *Config, conf any)
 }
 
 // env is what hostd gives the modules it builds.
@@ -56,10 +47,6 @@ type env struct {
 var builtins = []builtin{
 	{name: "apps", byDefault: true,
 		config: func() any { return &apps.Config{} },
-		legacy: []legacyKey{
-			{[]string{"browser"}, "browser", func(c *Config, conf any) { conf.(*apps.Config).Browser = c.Browser }},
-			{[]string{"gamescope"}, "gamescope", func(c *Config, conf any) { conf.(*apps.Config).Gamescope = c.Gamescope }},
-		},
 		build: func(e *env, conf any) (sdk.Module, error) {
 			c := conf.(*apps.Config)
 			engine := &podman.EngineAPI{Socket: podman.DefaultEngineSocket(e.runtimeDir)}
@@ -75,12 +62,6 @@ var builtins = []builtin{
 		}},
 	{name: "display", byDefault: true,
 		config: func() any { return &display.Config{} },
-		legacy: []legacyKey{
-			{[]string{"idle_after"}, "idle_after", func(c *Config, conf any) { conf.(*display.Config).IdleAfter = sdk.Duration(c.IdleAfter) }},
-			{[]string{"input", "hold"}, "hold", func(c *Config, conf any) { conf.(*display.Config).Hold = sdk.Duration(c.Input.Hold) }},
-			{[]string{"input", "keys"}, "keys", func(c *Config, conf any) { conf.(*display.Config).Keys = c.Input.Keys }},
-			{[]string{"input", "buttons"}, "buttons", func(c *Config, conf any) { conf.(*display.Config).Buttons = c.Input.Buttons }},
-		},
 		build: func(e *env, conf any) (sdk.Module, error) {
 			c := conf.(*display.Config)
 			profiles, err := evdev.LoadProfiles(filepath.Join(e.configDir, "controllers"))
@@ -138,34 +119,21 @@ func defaultModules() []string {
 
 // moduleConfigs decodes and checks the section of every built-in module, so
 // a mistake in any of them stops hostd before anything starts. It returns
-// the settings by module, and a note for each key of an earlier version
-// that was used.
-func moduleConfigs(c Config) (map[string]any, []string, error) {
+// the settings by module.
+func moduleConfigs(c Config) (map[string]any, error) {
 	confs := map[string]any{}
-	var notes []string
 	for _, b := range builtins {
 		_, has := c.sections[b.name]
 		if b.config == nil {
 			if has {
-				return nil, nil, fmt.Errorf("%s: [%s]: the %s module has no settings", c.path, b.name, b.name)
+				return nil, fmt.Errorf("%s: [%s]: the %s module has no settings", c.path, b.name, b.name)
 			}
 			continue
 		}
 		conf := b.config()
-		for _, l := range b.legacy {
-			if !c.md.IsDefined(l.old...) {
-				continue
-			}
-			oldName := strings.Join(l.old, ".")
-			if has && c.sectionsMD.IsDefined(b.name, l.new) {
-				return nil, nil, fmt.Errorf("%s: %s and [%s] %s are the same setting; keep [%s] %s", c.path, oldName, b.name, l.new, b.name, l.new)
-			}
-			l.copy(&c, conf)
-			notes = append(notes, fmt.Sprintf("%s: %s is now [%s] %s; the old name works until the next release", c.path, oldName, b.name, l.new))
-		}
 		if has {
 			if err := c.sectionsMD.PrimitiveDecode(c.sections[b.name], conf); err != nil {
-				return nil, nil, fmt.Errorf("%s: [%s]: %w", c.path, b.name, err)
+				return nil, fmt.Errorf("%s: [%s]: %w", c.path, b.name, err)
 			}
 			var unknown []string
 			for _, k := range c.sectionsMD.Undecoded() {
@@ -175,17 +143,17 @@ func moduleConfigs(c Config) (map[string]any, []string, error) {
 			}
 			if len(unknown) > 0 {
 				sort.Strings(unknown)
-				return nil, nil, fmt.Errorf("%s: unknown key(s): %s", c.path, strings.Join(unknown, ", "))
+				return nil, fmt.Errorf("%s: unknown key(s): %s", c.path, strings.Join(unknown, ", "))
 			}
 		}
 		if ch, ok := conf.(interface{ Check() error }); ok {
 			if err := ch.Check(); err != nil {
-				return nil, nil, fmt.Errorf("%s: [%s] %w", c.path, b.name, err)
+				return nil, fmt.Errorf("%s: [%s] %w", c.path, b.name, err)
 			}
 		}
 		confs[b.name] = conf
 	}
-	return confs, notes, nil
+	return confs, nil
 }
 
 // decodeSections reads the [module] sections of hostd.toml, for
