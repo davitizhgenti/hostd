@@ -307,6 +307,9 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 		_, _ = in.asScreen(ctx, "systemctl", "--user", "daemon-reload")
 	}
 	if len(a.UserUnits) > 0 {
+		// A unit that failed (a path unit whose service hit its start
+		// limit) stays failed until told otherwise: this run starts it again.
+		_, _ = in.asScreen(ctx, append([]string{"systemctl", "--user", "reset-failed"}, a.UserUnits...)...)
 		_, _ = in.asScreen(ctx, append([]string{"systemctl", "--user", "enable", "--now"}, a.UserUnits...)...)
 	}
 	for _, u := range a.UserStart {

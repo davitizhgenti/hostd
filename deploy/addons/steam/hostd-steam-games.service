@@ -1,7 +1,13 @@
 # Managed by hostd's steam add-on.
 [Unit]
 Description=hostd: an app for each installed Steam game
+# Steam writes its library many times in a row when it starts or installs
+# a game; each write triggers the path unit. No start limit, so the path
+# unit never gives up, and a pause first, so a burst is one run: triggers
+# while this is starting are merged into it.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
+ExecStartPre=/bin/sleep 5
 ExecStart=/usr/local/lib/hostd/addons/hostd-steam-games
