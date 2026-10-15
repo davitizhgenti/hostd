@@ -1,4 +1,4 @@
-package apps
+package catalog
 
 import (
 	"bufio"
@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
 
 // DesktopEntry is the part of a .desktop file the catalog uses: keys of the
@@ -298,7 +300,7 @@ func DefaultDesktopDirs() []string {
 // Scan reads every .desktop file. Files that are not applications, are
 // deleted (Hidden), or whose TryExec is missing are left out quietly;
 // broken files are reported as problems.
-func (s *DesktopSource) Scan() ([]App, []Problem) {
+func (s *DesktopSource) Scan() ([]spec.App, []Problem) {
 	desktop := s.Desktop
 	if desktop == "" {
 		desktop = "sway"
@@ -307,7 +309,7 @@ func (s *DesktopSource) Scan() ([]App, []Problem) {
 	if lookPath == nil {
 		lookPath = exec.LookPath
 	}
-	byFileID := map[string]App{} // desktop file ID -> app; later dirs win
+	byFileID := map[string]spec.App{} // desktop file ID -> app; later dirs win
 	var problems []Problem
 	for _, dir := range s.Dirs {
 		entries := map[string]string{} // desktop file ID -> path
@@ -352,21 +354,21 @@ func (s *DesktopSource) Scan() ([]App, []Problem) {
 				problems = append(problems, Problem{File: path, Error: err.Error()})
 				continue
 			}
-			app := App{
+			app := spec.App{
 				Name: e.Name, Icon: e.Icon, Source: "desktop", Files: []string{path},
-				Runner: Runner{Type: RunnerExec, Command: argv},
-				Window: Window{Fullscreen: true},
+				Runner: spec.Runner{Type: spec.RunnerExec, Command: argv},
+				Window: spec.Window{Fullscreen: true},
 				Hidden: e.NoDisplay || e.Terminal || !shownIn(e, desktop) || hiddenByCategory(e.Categories),
 			}
 			if e.Flatpak != "" {
-				app.Runner = Runner{Type: RunnerFlatpak, AppID: e.Flatpak}
+				app.Runner = spec.Runner{Type: spec.RunnerFlatpak, AppID: e.Flatpak}
 			}
 			for _, da := range e.Actions {
 				argv, err := ExecArgs(da.Exec)
 				if err != nil || !ValidID(sanitizeID(da.ID)) {
 					continue // a broken extra does not cost the app itself
 				}
-				app.Actions = append(app.Actions, AppAction{ID: sanitizeID(da.ID), Name: da.Name, Command: argv})
+				app.Actions = append(app.Actions, spec.AppAction{ID: sanitizeID(da.ID), Name: da.Name, Command: argv})
 			}
 
 			byFileID[fileID] = app
@@ -402,7 +404,7 @@ func hiddenByCategory(cats []string) bool {
 // assignIDs gives each app a readable ID: the desktop file ID lowercased
 // ("firefox-esr"), or for reverse-DNS names its last part
 // ("org.kde.kcalc" -> "kcalc") when that is unique.
-func assignIDs(byFileID map[string]App) []App {
+func assignIDs(byFileID map[string]spec.App) []spec.App {
 	fileIDs := make([]string, 0, len(byFileID))
 	for id := range byFileID {
 		fileIDs = append(fileIDs, id)
@@ -413,7 +415,7 @@ func assignIDs(byFileID map[string]App) []App {
 	for _, fid := range fileIDs {
 		short[shortID(fid)]++
 	}
-	var apps []App
+	var apps []spec.App
 	for _, fid := range fileIDs {
 		app := byFileID[fid]
 		id := shortID(fid)

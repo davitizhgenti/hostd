@@ -16,137 +16,9 @@ import (
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/units/unitstest"
 	"github.com/davitizhgenti/hostd/sdk"
+
+	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 )
-
-// --- Flatpak discovery ---------------------------------------------------------
-
-func TestFlatpakEntries(t *testing.T) {
-	dir := t.TempDir()
-	apps := filepath.Join(dir, "applications")
-	_ = os.MkdirAll(apps, 0o755)
-	_ = os.WriteFile(filepath.Join(apps, "tv.kodi.Kodi.desktop"), []byte(`[Desktop Entry]
-Type=Application
-Name=Kodi
-Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kodi --file-forwarding tv.kodi.Kodi @@ %F @@
-X-Flatpak=tv.kodi.Kodi
-`), 0o644)
-	found, problems := (&DesktopSource{Dirs: []string{apps}}).Scan()
-	if len(problems) != 0 || len(found) != 1 {
-		t.Fatalf("found %+v, problems %v", found, problems)
-	}
-	cat := Build(found, nil, nil)
-	kodi, ok := cat.Get("kodi")
-	if !ok {
-		t.Fatalf("no kodi: %+v", cat.List(true))
-	}
-	if kodi.Runner.Type != RunnerFlatpak || kodi.Runner.AppID != "tv.kodi.Kodi" {
-		t.Fatalf("runner %+v", kodi.Runner)
-	}
-	// Flatpak apps run in a scope of their own: windows match by app ID
-	// or by the sandbox's FLATPAK_ID.
-	if kodi.Match != (Match{AppID: "tv.kodi.Kodi", Env: "FLATPAK_ID=tv.kodi.Kodi"}) {
-		t.Fatalf("match %+v", kodi.Match)
-	}
-}
-
-func TestDefaultDesktopDirsIncludeFlatpak(t *testing.T) {
-	// A service has no XDG_DATA_DIRS: the default plus Flatpak's exports.
-	t.Setenv("XDG_DATA_DIRS", "")
-	t.Setenv("XDG_DATA_HOME", "/home/u/.local/share")
-	want := []string{
-		"/usr/share/applications", "/usr/local/share/applications",
-		"/var/lib/flatpak/exports/share/applications",
-		"/home/u/.local/share/flatpak/exports/share/applications",
-		"/home/u/.local/share/applications",
-	}
-	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("dirs\n%q\nwant\n%q", got, want)
-	}
-	// A session's own list is used as it is.
-	t.Setenv("XDG_DATA_DIRS", "/opt/share:/usr/share")
-	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, []string{"/usr/share/applications", "/opt/share/applications", "/home/u/.local/share/applications"}) {
-		t.Fatalf("dirs %q", got)
-	}
-}
-
-// --- commands: flatpak, url, gamescope ---------------------------------------------
-
-func TestDesktopActions(t *testing.T) {
-	e, err := ParseDesktopEntry([]byte(`[Desktop Entry]
-Type=Application
-Name=Chromium
-Exec=chromium %U
-Actions=new-window;new-private-window;missing;
-
-[Desktop Action new-window]
-Name=New Window
-Name[de]=Neues Fenster
-Exec=chromium
-
-[Desktop Action new-private-window]
-Name=New Incognito Window
-Exec=chromium --incognito
-
-[Desktop Action unlisted]
-Name=Not listed, so not offered
-Exec=chromium --secret
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []DesktopAction{{"new-window", "New Window", "chromium"}, {"new-private-window", "New Incognito Window", "chromium --incognito"}}
-	if !reflect.DeepEqual(e.Actions, want) || e.Exec != "chromium %U" {
-		t.Fatalf("entry %+v", e)
-	}
-
-	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "chromium.desktop"), []byte(`[Desktop Entry]
-Type=Application
-Name=Chromium
-Exec=chromium %U
-Actions=new-private-window;
-[Desktop Action new-private-window]
-Name=New Incognito Window
-Exec=chromium --incognito %U
-`), 0o644)
-	found, _ := (&DesktopSource{Dirs: []string{dir}}).Scan()
-	// An app file adds one and renames another.
-	files := []AppFile{{Path: "/x/chromium.toml", Extends: "chromium", Actions: []AppAction{
-		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
-		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
-	}}}
-	cat := Build(found, files, nil)
-	app, _ := cat.Get("chromium")
-	wantActions := []AppAction{
-		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
-		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
-	}
-	if len(cat.Problems) != 0 || !reflect.DeepEqual(app.Actions, wantActions) {
-		t.Fatalf("actions %+v, problems %v", app.Actions, cat.Problems)
-	}
-	// Or replaces them all (Steam's desktop actions run outside its session).
-	files[0].ReplaceActions = true
-	files[0].Actions = files[0].Actions[:1]
-	app, _ = Build(found, files, nil).Get("chromium")
-	if !reflect.DeepEqual(app.Actions, []AppAction{{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}}}) {
-		t.Fatalf("replaced actions %+v", app.Actions)
-	}
-
-	for body, want := range map[string]string{
-		`[[actions]]` + "\nid = \"x\"\nname = \"X\"":                                                                         "needs a name and a command",
-		`[[actions]]` + "\nid = \"Bad ID\"\nname = \"X\"\ncommand = [\"x\"]":                                                 "action id",
-		"[[actions]]\nid = \"a\"\nname = \"A\"\ncommand = [\"x\"]\n[[actions]]\nid = \"a\"\nname = \"B\"\ncommand = [\"y\"]": "defined twice",
-	} {
-		f, err := ParseAppFile("/x/a.toml", []byte("runner = { type = \"exec\", command = [\"a\"] }\n"+body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		c := Build(nil, []AppFile{f}, nil)
-		if len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
-			t.Errorf("%q: problems %v, want %q", body, c.Problems, want)
-		}
-	}
-}
 
 func TestStartAction(t *testing.T) {
 	sd := unitstest.NewFakeSystemd()
@@ -319,30 +191,6 @@ command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture
 	}
 }
 
-func TestFlatpakAppsFollowTheirSandbox(t *testing.T) {
-	c := Build(nil, []AppFile{
-		mustParse(t, "/x/kodi.toml", `runner = { type = "flatpak", app_id = "tv.kodi.Kodi" }`),
-		mustParse(t, "/x/many.toml", "runner = { type = \"flatpak\", app_id = \"org.x.Many\" }\n[instance]\npolicy = \"multiple\""),
-	}, nil)
-	if len(c.Problems) != 0 {
-		t.Fatal(c.Problems)
-	}
-	kodi, _ := c.Get("kodi")
-	many, _ := c.Get("many")
-	if kodi.Runner.Handoff != "FLATPAK_ID=tv.kodi.Kodi" || many.Runner.Handoff != "" {
-		t.Fatalf("handoffs %q %q", kodi.Runner.Handoff, many.Runner.Handoff)
-	}
-}
-
-func mustParse(t *testing.T, path, body string) AppFile {
-	t.Helper()
-	f, err := ParseAppFile(path, []byte(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
-
 func TestRequiredAppsStartFirst(t *testing.T) {
 	// A game requires Steam: starting the game starts Steam first, once.
 	sd := unitstest.NewFakeSystemd()
@@ -452,19 +300,19 @@ env = { DB = "postgres://app:{secret:db-pass}@db/app", MODE = "prod" }
 
 func TestSourceSettings(t *testing.T) {
 	head := "runner = { type = \"process\", command = [\"site\"] }\n[source]\n"
-	f, err := ParseAppFile("/x/site.toml", []byte(head+"type = \"remote\"\nurl = \"git@github.com:me/site.git\"\npoll = \"5m\"\n"))
+	f, err := catalog.ParseAppFile("/x/site.toml", []byte(head+"type = \"remote\"\nurl = \"git@github.com:me/site.git\"\npoll = \"5m\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := Build(nil, []AppFile{f}, nil)
+	c := catalog.Build(nil, []catalog.AppFile{f}, nil)
 	if app, _ := c.Get("site"); len(c.Problems) != 0 || app.Deploy.URL != "git@github.com:me/site.git" || app.Deploy.Poll != "5m" {
 		t.Fatalf("remote source %+v, problems %v", app.Deploy, c.Problems)
 	}
-	img, err := ParseAppFile("/x/blog.toml", []byte("runner = { type = \"docker\", image = \"ghcr.io/me/blog:main\" }\n[source]\ntype = \"image\"\nimage = \"ghcr.io/me/blog\"\ntag = \"main\"\ncontainer_port = 80\nauth = \"ghcr\"\n"))
+	img, err := catalog.ParseAppFile("/x/blog.toml", []byte("runner = { type = \"docker\", image = \"ghcr.io/me/blog:main\" }\n[source]\ntype = \"image\"\nimage = \"ghcr.io/me/blog\"\ntag = \"main\"\ncontainer_port = 80\nauth = \"ghcr\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c = Build(nil, []AppFile{img}, nil)
+	c = catalog.Build(nil, []catalog.AppFile{img}, nil)
 	if app, _ := c.Get("blog"); len(c.Problems) != 0 || app.Deploy.ContainerPort != 80 || app.Deploy.Auth != "ghcr" {
 		t.Fatalf("image source %+v, problems %v", app.Deploy, c.Problems)
 	}
@@ -477,11 +325,11 @@ func TestSourceSettings(t *testing.T) {
 		"type = \"push\"\nimage = \"x\"":                       "are for type image",
 		"type = \"webhook\"\nurl = \"x\"":                      "needs url (to fetch from) and secret",
 	} {
-		f, err := ParseAppFile("/x/site.toml", []byte(head+body))
+		f, err := catalog.ParseAppFile("/x/site.toml", []byte(head+body))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c := Build(nil, []AppFile{f}, nil); len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
+		if c := catalog.Build(nil, []catalog.AppFile{f}, nil); len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
 			t.Errorf("%q: problems %v, want %q", body, c.Problems, want)
 		}
 	}

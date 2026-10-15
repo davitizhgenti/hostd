@@ -191,3 +191,15 @@ func healthFor(h Health, in Instance) Health {
 	}
 	return h
 }
+
+// healthDurations returns Start and Every, defaulted.
+func healthDurations(h Health) (start, every time.Duration) {
+	start, every = 60*time.Second, 10*time.Second
+	if d, err := time.ParseDuration(h.Start); err == nil && d > 0 {
+		start = d
+	}
+	if d, err := time.ParseDuration(h.Every); err == nil && d > 0 {
+		every = d
+	}
+	return start, every
+}

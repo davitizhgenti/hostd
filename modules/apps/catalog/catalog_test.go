@@ -1,20 +1,16 @@
-package apps
+package catalog
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/davitizhgenti/hostd/internal/clock"
-	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -95,7 +91,7 @@ func buildFixture(t *testing.T) *Catalog {
 }
 
 // The whole merged catalog from the fixtures, pinned in a golden file.
-// Regenerate after an intended change: go test ./modules/apps -update
+// Regenerate after an intended change: go test ./modules/apps/catalog -update
 func TestCatalogGolden(t *testing.T) {
 	cat := buildFixture(t)
 	got, _ := json.MarshalIndent(map[string]any{"apps": cat.List(true), "problems": cat.Problems}, "", "  ")
@@ -117,7 +113,7 @@ func TestCatalogGolden(t *testing.T) {
 
 func TestCatalogDetails(t *testing.T) {
 	cat := buildFixture(t)
-	get := func(id string) *App {
+	get := func(id string) *spec.App {
 		t.Helper()
 		a, ok := cat.Get(id)
 		if !ok {
@@ -141,11 +137,11 @@ func TestCatalogDetails(t *testing.T) {
 	}
 
 	// Defaults by surface.
-	if b.Surface != SurfaceWindow || b.Restart != "never" || !b.Window.Fullscreen || b.Instance.IfRunning != "focus" {
+	if b.Surface != spec.SurfaceWindow || b.Restart != "never" || !b.Window.Fullscreen || b.Instance.IfRunning != "focus" {
 		t.Fatalf("window defaults: %+v", b)
 	}
 	j := get("jellyfin")
-	if j.Surface != SurfaceBackground || j.Restart != "always" || j.Instance.Policy != "single" || j.Source != "file" {
+	if j.Surface != spec.SurfaceBackground || j.Restart != "always" || j.Instance.Policy != "single" || j.Source != "file" {
 		t.Fatalf("background app: %+v", j)
 	}
 	if tv := get("jellyfin-tv"); tv.Audio.Volume == nil || *tv.Audio.Volume != 70 || tv.Runner.URL == "" {
@@ -213,7 +209,7 @@ func TestCatalogProblems(t *testing.T) {
 		t.Errorf("problems = %v", got)
 	}
 	// A rejected clash leaves the first definition intact.
-	if j, _ := cat.Get("jellyfin"); j.Runner.Type != RunnerDocker {
+	if j, _ := cat.Get("jellyfin"); j.Runner.Type != spec.RunnerDocker {
 		t.Fatal("clashing file replaced the first one")
 	}
 }
@@ -224,7 +220,7 @@ func TestAppFileDefaultsIDFromName(t *testing.T) {
 		t.Fatalf("%+v %v", f, err)
 	}
 	cat := Build(nil, []AppFile{f}, nil)
-	if a, ok := cat.Get("blog"); !ok || a.Surface != SurfaceBackground {
+	if a, ok := cat.Get("blog"); !ok || a.Surface != spec.SurfaceBackground {
 		t.Fatalf("blog = %+v", a)
 	}
 }
@@ -257,159 +253,6 @@ func TestValidation(t *testing.T) {
 }
 
 // --- the module -----------------------------------------------------------
-
-type fakeCore struct {
-	mu     sync.Mutex
-	events []sdk.Event
-}
-
-func (f *fakeCore) Emit(e sdk.Event) { f.mu.Lock(); f.events = append(f.events, e); f.mu.Unlock() }
-func (f *fakeCore) Do(context.Context, sdk.Action) (sdk.Result, error) {
-	return sdk.Result{}, nil
-}
-func (f *fakeCore) Subscribe(context.Context, string) <-chan sdk.Event { return nil }
-func (f *fakeCore) Handles(string) bool                                { return false }
-func (f *fakeCore) Read(context.Context, string, string, map[string]string) (json.RawMessage, error) {
-	return nil, sdk.Errorf(sdk.CodeNotFound, "no reads in this fake")
-}
-func (f *fakeCore) take() []sdk.Event {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	ev := f.events
-	f.events = nil
-	return ev
-}
-
-func TestModuleManifestIsValid(t *testing.T) {
-	m := New(Options{}).Manifest()
-	if err := m.Validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestModuleReadsAndRescan(t *testing.T) {
-	appsDir := t.TempDir()
-	m := New(Options{DesktopDirs: fixtureDirs, AppsDir: appsDir, LookPath: fakeLookPath, NoWatch: true})
-	core := &fakeCore{}
-	ctx := context.Background()
-	if err := m.Start(ctx, core); err != nil {
-		t.Fatal(err)
-	}
-	defer m.Stop(ctx)
-
-	first := core.take()
-	if len(first) == 0 || first[len(first)-1].Type != EventCatalogChanged {
-		t.Fatalf("start events = %+v", first)
-	}
-
-	v, err := m.Read(ctx, "apps", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	visible := v.(AppList).Apps
-	v, _ = m.Read(ctx, "apps", map[string]string{"all": "true"})
-	if len(v.(AppList).Apps) <= len(visible) {
-		t.Fatal("all=true does not add hidden apps")
-	}
-	if _, err := m.Read(ctx, "app", map[string]string{"id": "steam"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := m.Read(ctx, "app", map[string]string{"id": "nope"}); sdk.CodeOf(err) != sdk.CodeNotFound {
-		t.Fatalf("missing app: %v", err)
-	}
-
-	// Rescan with nothing changed: no events.
-	res, err := m.Handle(ctx, sdk.Action{Type: "app.rescan"})
-	if err != nil || !strings.Contains(string(res.Data), `"apps":`) {
-		t.Fatalf("%+v %v", res, err)
-	}
-	if ev := core.take(); len(ev) != 0 {
-		t.Fatalf("unchanged rescan emitted %+v", ev)
-	}
-
-	// Add a file and a bad file: one change event, one rejection, once.
-	_ = os.WriteFile(filepath.Join(appsDir, "kodi.toml"), []byte(`runner = { type = "flatpak", app_id = "tv.kodi.Kodi" }`), 0o644)
-	_ = os.WriteFile(filepath.Join(appsDir, "oops.toml"), []byte(`runner = { type = "nope" }`), 0o644)
-	_, _ = m.Handle(ctx, sdk.Action{Type: "app.rescan"})
-	ev := core.take()
-	types := map[string]int{}
-	for _, e := range ev {
-		types[e.Type]++
-	}
-	if types[EventCatalogChanged] != 1 || types[EventFileRejected] != 1 {
-		t.Fatalf("events = %v", types)
-	}
-	for _, e := range ev {
-		if e.Type == EventCatalogChanged && !strings.Contains(string(e.Data), `"added":["kodi"]`) {
-			t.Fatalf("change event = %s", e.Data)
-		}
-	}
-	_, _ = m.Handle(ctx, sdk.Action{Type: "app.rescan"})
-	if ev := core.take(); len(ev) != 0 {
-		t.Fatalf("problem reported twice: %+v", ev)
-	}
-	if st, _ := m.State(ctx); len(st.(map[string]any)["catalog"].(AppList).Problems) == 0 {
-		t.Fatal("State has no problems")
-	}
-}
-
-func TestWatchRescansAfterChangesSettle(t *testing.T) {
-	appsDir := t.TempDir()
-	fc := clock.NewFake(time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC))
-	m := New(Options{AppsDir: appsDir, Clock: fc, LookPath: fakeLookPath})
-	core := &fakeCore{}
-	ctx := context.Background()
-	if err := m.Start(ctx, core); err != nil {
-		t.Fatal(err)
-	}
-	defer m.Stop(ctx)
-	core.take()
-
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(appsDir, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("a.toml", `runner = { type = "exec", command = ["a"] }`)
-	fc.BlockUntil(1) // the watcher saw the change and armed the timer
-	fc.Advance(400 * time.Millisecond)
-	if m.Catalog().Len() != 0 {
-		t.Fatal("rescanned before the changes settled")
-	}
-	seen := m.seenChanges()
-	write("b.toml", `runner = { type = "exec", command = ["b"] }`) // re-arms the timer
-	waitUntil(t, func() bool { return m.seenChanges() > seen })
-	fc.Advance(499 * time.Millisecond)
-	if m.Catalog().Len() != 0 {
-		t.Fatal("timer was not reset by the second change")
-	}
-	waitUntil(t, func() bool {
-		fc.Advance(10 * time.Millisecond)
-		return m.Catalog().Len() == 2
-	})
-	changes := 0
-	for _, e := range core.take() {
-		if e.Type == EventCatalogChanged {
-			changes++
-		}
-	}
-	if changes != 1 {
-		t.Fatalf("%d change events for two quick edits, want 1", changes)
-	}
-}
-
-func waitUntil(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition not met")
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
-// --- fuzzing ----------------------------------------------------------------
 
 func FuzzParseDesktopEntry(f *testing.F) {
 	for _, file := range []string{"firefox-esr.desktop", "quoted.desktop", "broken.desktop"} {
@@ -451,26 +294,20 @@ func FuzzParseAppFile(f *testing.F) {
 	})
 }
 
-func (m *Module) seenChanges() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.changes
-}
-
 func TestShippedAppFiles(t *testing.T) {
 	// The app files the installer and its add-ons write: each must load
 	// without a problem (over the desktop entries they extend).
-	all, _ := filepath.Glob("../../deploy/addons/*/*.toml")
+	all, _ := filepath.Glob("../../../deploy/addons/*/*.toml")
 	var paths []string
 	for _, p := range all {
 		if filepath.Base(p) != "addon.toml" { // an add-on's own manifest, not an app file
 			paths = append(paths, p)
 		}
 	}
-	paths = append(paths, "../../deploy/files/menu/hostd-menu.toml")
-	desktop := []App{{ID: "chromium", Name: "Chromium Web Browser", Runner: Runner{Type: RunnerExec, Command: []string{"chromium"}}},
-		{ID: "steam", Name: "Steam", Runner: Runner{Type: RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
-			Actions: []AppAction{{ID: "bigpicture", Name: "Big Picture", Command: []string{"flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"}}}}}
+	paths = append(paths, "../../../deploy/files/menu/hostd-menu.toml")
+	desktop := []spec.App{{ID: "chromium", Name: "Chromium Web Browser", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"chromium"}}},
+		{ID: "steam", Name: "Steam", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
+			Actions: []spec.AppAction{{ID: "bigpicture", Name: "Big Picture", Command: []string{"flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"}}}}}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -486,7 +323,7 @@ func TestShippedAppFiles(t *testing.T) {
 			t.Errorf("%s: %v", p, c.Problems)
 		}
 	}
-	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../deploy/addons/steam/steam.toml"))))
+	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../../deploy/addons/steam/steam.toml"))))
 	app, _ := Build(desktop, []AppFile{steam}, nil).Get("steam")
 	for _, a := range app.Actions {
 		if a.Command[len(a.Command)-1][:8] != "steam://" {
@@ -517,4 +354,156 @@ func TestUnder(t *testing.T) {
 	if len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, "under") {
 		t.Fatalf("problems %v", c.Problems)
 	}
+}
+
+func TestFlatpakEntries(t *testing.T) {
+	dir := t.TempDir()
+	apps := filepath.Join(dir, "applications")
+	_ = os.MkdirAll(apps, 0o755)
+	_ = os.WriteFile(filepath.Join(apps, "tv.kodi.Kodi.desktop"), []byte(`[Desktop Entry]
+Type=Application
+Name=Kodi
+Exec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=kodi --file-forwarding tv.kodi.Kodi @@ %F @@
+X-Flatpak=tv.kodi.Kodi
+`), 0o644)
+	found, problems := (&DesktopSource{Dirs: []string{apps}}).Scan()
+	if len(problems) != 0 || len(found) != 1 {
+		t.Fatalf("found %+v, problems %v", found, problems)
+	}
+	cat := Build(found, nil, nil)
+	kodi, ok := cat.Get("kodi")
+	if !ok {
+		t.Fatalf("no kodi: %+v", cat.List(true))
+	}
+	if kodi.Runner.Type != spec.RunnerFlatpak || kodi.Runner.AppID != "tv.kodi.Kodi" {
+		t.Fatalf("runner %+v", kodi.Runner)
+	}
+	// Flatpak apps run in a scope of their own: windows match by app ID
+	// or by the sandbox's FLATPAK_ID.
+	if kodi.Match != (spec.Match{AppID: "tv.kodi.Kodi", Env: "FLATPAK_ID=tv.kodi.Kodi"}) {
+		t.Fatalf("match %+v", kodi.Match)
+	}
+}
+
+func TestDefaultDesktopDirsIncludeFlatpak(t *testing.T) {
+	// A service has no XDG_DATA_DIRS: the default plus Flatpak's exports.
+	t.Setenv("XDG_DATA_DIRS", "")
+	t.Setenv("XDG_DATA_HOME", "/home/u/.local/share")
+	want := []string{
+		"/usr/share/applications", "/usr/local/share/applications",
+		"/var/lib/flatpak/exports/share/applications",
+		"/home/u/.local/share/flatpak/exports/share/applications",
+		"/home/u/.local/share/applications",
+	}
+	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("dirs\n%q\nwant\n%q", got, want)
+	}
+	// A session's own list is used as it is.
+	t.Setenv("XDG_DATA_DIRS", "/opt/share:/usr/share")
+	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, []string{"/usr/share/applications", "/opt/share/applications", "/home/u/.local/share/applications"}) {
+		t.Fatalf("dirs %q", got)
+	}
+}
+
+// --- commands: flatpak, url, gamescope ---------------------------------------------
+
+func TestDesktopActions(t *testing.T) {
+	e, err := ParseDesktopEntry([]byte(`[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=chromium %U
+Actions=new-window;new-private-window;missing;
+
+[Desktop Action new-window]
+Name=New Window
+Name[de]=Neues Fenster
+Exec=chromium
+
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=chromium --incognito
+
+[Desktop Action unlisted]
+Name=Not listed, so not offered
+Exec=chromium --secret
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DesktopAction{{"new-window", "New Window", "chromium"}, {"new-private-window", "New Incognito Window", "chromium --incognito"}}
+	if !reflect.DeepEqual(e.Actions, want) || e.Exec != "chromium %U" {
+		t.Fatalf("entry %+v", e)
+	}
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "chromium.desktop"), []byte(`[Desktop Entry]
+Type=Application
+Name=Chromium
+Exec=chromium %U
+Actions=new-private-window;
+[Desktop Action new-private-window]
+Name=New Incognito Window
+Exec=chromium --incognito %U
+`), 0o644)
+	found, _ := (&DesktopSource{Dirs: []string{dir}}).Scan()
+	// An app file adds one and renames another.
+	files := []AppFile{{Path: "/x/chromium.toml", Extends: "chromium", Actions: []spec.AppAction{
+		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
+		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
+	}}}
+	cat := Build(found, files, nil)
+	app, _ := cat.Get("chromium")
+	wantActions := []spec.AppAction{
+		{ID: "new-private-window", Name: "Private", Command: []string{"chromium", "--incognito"}},
+		{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}},
+	}
+	if len(cat.Problems) != 0 || !reflect.DeepEqual(app.Actions, wantActions) {
+		t.Fatalf("actions %+v, problems %v", app.Actions, cat.Problems)
+	}
+	// Or replaces them all (Steam's desktop actions run outside its session).
+	files[0].ReplaceActions = true
+	files[0].Actions = files[0].Actions[:1]
+	app, _ = Build(found, files, nil).Get("chromium")
+	if !reflect.DeepEqual(app.Actions, []spec.AppAction{{ID: "kiosk", Name: "Kiosk", Command: []string{"chromium", "--kiosk"}}}) {
+		t.Fatalf("replaced actions %+v", app.Actions)
+	}
+
+	for body, want := range map[string]string{
+		`[[actions]]` + "\nid = \"x\"\nname = \"X\"":                                                                         "needs a name and a command",
+		`[[actions]]` + "\nid = \"Bad ID\"\nname = \"X\"\ncommand = [\"x\"]":                                                 "action id",
+		"[[actions]]\nid = \"a\"\nname = \"A\"\ncommand = [\"x\"]\n[[actions]]\nid = \"a\"\nname = \"B\"\ncommand = [\"y\"]": "defined twice",
+	} {
+		f, err := ParseAppFile("/x/a.toml", []byte("runner = { type = \"exec\", command = [\"a\"] }\n"+body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := Build(nil, []AppFile{f}, nil)
+		if len(c.Problems) != 1 || !strings.Contains(c.Problems[0].Error, want) {
+			t.Errorf("%q: problems %v, want %q", body, c.Problems, want)
+		}
+	}
+}
+
+func TestFlatpakAppsFollowTheirSandbox(t *testing.T) {
+	c := Build(nil, []AppFile{
+		mustParse(t, "/x/kodi.toml", `runner = { type = "flatpak", app_id = "tv.kodi.Kodi" }`),
+		mustParse(t, "/x/many.toml", "runner = { type = \"flatpak\", app_id = \"org.x.Many\" }\n[instance]\npolicy = \"multiple\""),
+	}, nil)
+	if len(c.Problems) != 0 {
+		t.Fatal(c.Problems)
+	}
+	kodi, _ := c.Get("kodi")
+	many, _ := c.Get("many")
+	if kodi.Runner.Handoff != "FLATPAK_ID=tv.kodi.Kodi" || many.Runner.Handoff != "" {
+		t.Fatalf("handoffs %q %q", kodi.Runner.Handoff, many.Runner.Handoff)
+	}
+}
+
+func mustParse(t *testing.T, path, body string) AppFile {
+	t.Helper()
+	f, err := ParseAppFile(path, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
 }

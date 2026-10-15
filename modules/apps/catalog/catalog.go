@@ -1,43 +1,24 @@
-// Package apps is the apps module: the catalog of apps (discovered from
-// what is installed, merged with hand-written files) and their running
-// instances. It runs them through Backends, one per runner type, which live
-// in packages of their own (runner/units, runner/podman) and share the
-// types in spec; the daemon chooses which runners a machine has.
-package apps
+// Package catalog builds the apps module's catalog: apps discovered from
+// installed desktop entries, merged with hand-written app files, given
+// their defaults and checked. It is pure: files in, apps and the problems
+// found out; the module holds the catalog and runs what is in it.
+package catalog
 
 import (
 	"fmt"
 	"net"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
 
-// matchRules returns the app's match rules for its instances, or nil.
-func matchRules(a *App) *Match {
-	if a.Match.IsZero() {
-		return nil
-	}
-	m := a.Match
-	return &m
-}
-
-// durations returns Start and Every, defaulted.
-func healthDurations(h Health) (start, every time.Duration) {
-	start, every = 60*time.Second, 10*time.Second
-	if d, err := time.ParseDuration(h.Start); err == nil && d > 0 {
-		start = d
-	}
-	if d, err := time.ParseDuration(h.Every); err == nil && d > 0 {
-		every = d
-	}
-	return start, every
-}
-
 var runnerTypes = map[string]string{ // runner type -> default surface
-	RunnerExec: SurfaceWindow, RunnerFlatpak: SurfaceWindow, RunnerURL: SurfaceWindow,
-	RunnerDocker: SurfaceBackground, RunnerCompose: SurfaceBackground, RunnerProcess: SurfaceBackground,
+	spec.RunnerExec: spec.SurfaceWindow, spec.RunnerFlatpak: spec.SurfaceWindow, spec.RunnerURL: spec.SurfaceWindow,
+	spec.RunnerDocker: spec.SurfaceBackground, spec.RunnerCompose: spec.SurfaceBackground, spec.RunnerProcess: spec.SurfaceBackground,
 }
 
 // Problem is a file the catalog could not use, and why.
@@ -54,18 +35,19 @@ var reID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 // "Firefox" and "firefox" are never two apps; '#' is kept for instances.
 func ValidID(id string) bool { return len(id) <= 64 && reID.MatchString(id) }
 
-// applyDefaults fills what a source or file left unset.
-func applyDefaults(a *App) {
+// Defaults fills what a source or file left unset: the surface, restart
+// policy, instance policy and Flatpak handoff that follow from the runner.
+func Defaults(a *spec.App) {
 	if a.Surface == "" {
 		a.Surface = runnerTypes[a.Runner.Type]
 		if a.Surface == "" {
-			a.Surface = SurfaceWindow
+			a.Surface = spec.SurfaceWindow
 		}
 	}
 	if a.Instance.Policy == "" {
 		a.Instance.Policy = "single"
 	}
-	if a.Runner.Type == RunnerFlatpak && a.Runner.Handoff == "" && a.Instance.Policy == "single" {
+	if a.Runner.Type == spec.RunnerFlatpak && a.Runner.Handoff == "" && a.Instance.Policy == "single" {
 		// Flatpak moves the app out of hostd's unit into a scope of its
 		// own: follow the sandbox's processes instead, which all have
 		// FLATPAK_ID. Stopping the instance then ends the app itself.
@@ -76,7 +58,7 @@ func applyDefaults(a *App) {
 		a.Instance.IfRunning = "focus"
 	}
 	if a.Restart == "" {
-		if a.Surface == SurfaceBackground {
+		if a.Surface == spec.SurfaceBackground {
 			a.Restart = "on-failure"
 		} else {
 			a.Restart = "never"
@@ -87,18 +69,18 @@ func applyDefaults(a *App) {
 	}
 	if a.Match.IsZero() {
 		switch a.Runner.Type {
-		case RunnerFlatpak:
-			a.Match = Match{AppID: a.Runner.AppID, Env: "FLATPAK_ID=" + a.Runner.AppID}
+		case spec.RunnerFlatpak:
+			a.Match = spec.Match{AppID: a.Runner.AppID, Env: "FLATPAK_ID=" + a.Runner.AppID}
 		default:
 			if a.Runner.Handoff != "" {
-				a.Match = Match{Env: a.Runner.Handoff}
+				a.Match = spec.Match{Env: a.Runner.Handoff}
 			}
 		}
 	}
 }
 
 // validate checks a finished app on its own.
-func validate(a *App) error {
+func validate(a *spec.App) error {
 	var errs []string
 	bad := func(f string, args ...any) { errs = append(errs, fmt.Sprintf(f, args...)) }
 	if !ValidID(a.ID) {
@@ -113,23 +95,23 @@ func validate(a *App) error {
 		bad("runner type %q: use one of %s", a.Runner.Type, strings.Join(names, ", "))
 	}
 	switch a.Runner.Type {
-	case RunnerExec, RunnerProcess:
+	case spec.RunnerExec, spec.RunnerProcess:
 		if len(a.Runner.Command) == 0 {
 			bad("runner %s needs a command", a.Runner.Type)
 		}
-	case RunnerURL:
+	case spec.RunnerURL:
 		if !strings.HasPrefix(a.Runner.URL, "http://") && !strings.HasPrefix(a.Runner.URL, "https://") {
 			bad("runner url needs an http:// or https:// url")
 		}
-	case RunnerDocker:
+	case spec.RunnerDocker:
 		if a.Runner.Image == "" && a.Runner.Build == "" {
 			bad("runner docker needs an image or a build context")
 		}
-	case RunnerCompose:
+	case spec.RunnerCompose:
 		if a.Runner.File == "" {
 			bad("runner compose needs a file")
 		}
-	case RunnerFlatpak:
+	case spec.RunnerFlatpak:
 		if a.Runner.AppID == "" {
 			bad("runner %s needs an app_id", a.Runner.Type)
 		}
@@ -138,11 +120,11 @@ func validate(a *App) error {
 		if k, _, ok := strings.Cut(h, "="); !ok || k == "" || strings.ContainsAny(h, " \t\n") {
 			bad("runner.handoff %q: use KEY=value, a variable the app's real processes have", h)
 		}
-		if a.Runner.Type != RunnerExec && a.Runner.Type != RunnerFlatpak && a.Runner.Type != RunnerURL {
+		if a.Runner.Type != spec.RunnerExec && a.Runner.Type != spec.RunnerFlatpak && a.Runner.Type != spec.RunnerURL {
 			bad("runner.handoff applies to exec, flatpak and url apps")
 		}
 	}
-	if a.Surface != SurfaceWindow && a.Surface != SurfaceBackground {
+	if a.Surface != spec.SurfaceWindow && a.Surface != spec.SurfaceBackground {
 		bad("surface %q: use window or background", a.Surface)
 	}
 	if a.Instance.Policy != "single" && a.Instance.Policy != "multiple" {
@@ -217,14 +199,14 @@ func validate(a *App) error {
 			bad("source.port %d: 1-65535", d.Port)
 		}
 		if d.Type == "image" {
-			if a.Runner.Type != RunnerDocker {
+			if a.Runner.Type != spec.RunnerDocker {
 				bad("source: type image needs runner type docker")
 			}
 			if d.Image == "" || d.ContainerPort < 1 || d.ContainerPort > 65535 {
 				bad("source: type image needs image and container_port (the port the container listens on)")
 			}
 		} else {
-			if a.Runner.Type != RunnerProcess {
+			if a.Runner.Type != spec.RunnerProcess {
 				bad("source: deploys need runner type process")
 			}
 			if d.Image != "" || d.Tag != "" || d.ContainerPort != 0 || d.Auth != "" {
@@ -253,7 +235,7 @@ func validate(a *App) error {
 		}
 		seen[x.ID] = true
 	}
-	if len(a.Actions) > 0 && a.Surface != SurfaceWindow {
+	if len(a.Actions) > 0 && a.Surface != spec.SurfaceWindow {
 		bad("actions are for window apps")
 	}
 	if v := a.Audio.Volume; v != nil && (*v < 0 || *v > 150) {
@@ -267,13 +249,13 @@ func validate(a *App) error {
 
 // Catalog is a built, immutable set of apps.
 type Catalog struct {
-	apps     map[string]*App
+	apps     map[string]*spec.App
 	alias    map[string]string // alias -> id
 	Problems []Problem
 }
 
 // Get finds an app by ID or alias.
-func (c *Catalog) Get(id string) (*App, bool) {
+func (c *Catalog) Get(id string) (*spec.App, bool) {
 	if a, ok := c.apps[id]; ok {
 		return a, true
 	}
@@ -284,8 +266,8 @@ func (c *Catalog) Get(id string) (*App, bool) {
 }
 
 // List returns the apps sorted by ID, without hidden ones unless all.
-func (c *Catalog) List(all bool) []*App {
-	out := make([]*App, 0, len(c.apps))
+func (c *Catalog) List(all bool) []*spec.App {
+	out := make([]*spec.App, 0, len(c.apps))
 	for _, a := range c.apps {
 		if all || !a.Hidden {
 			out = append(out, a)
@@ -303,11 +285,11 @@ func (c *Catalog) Len() int { return len(c.apps) }
 // directories should come last); files then extend them, rename them, or
 // add new apps. A file that cannot be used is reported in Problems and
 // skipped: one bad file never breaks the rest of the catalog.
-func Build(discovered []App, files []AppFile, problems []Problem) *Catalog {
-	c := &Catalog{apps: map[string]*App{}, alias: map[string]string{}, Problems: problems}
+func Build(discovered []spec.App, files []AppFile, problems []Problem) *Catalog {
+	c := &Catalog{apps: map[string]*spec.App{}, alias: map[string]string{}, Problems: problems}
 	for i := range discovered {
 		a := discovered[i]
-		applyDefaults(&a)
+		Defaults(&a)
 		c.apps[a.ID] = &a
 		for _, al := range a.Aliases {
 			c.alias[al] = a.ID
@@ -339,9 +321,9 @@ func Build(discovered []App, files []AppFile, problems []Problem) *Catalog {
 	return c
 }
 
-func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error) {
+func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*spec.App, error) {
 	id := f.ID
-	var app App
+	var app spec.App
 	if f.Extends != "" {
 		base, ok := c.Get(f.Extends)
 		if !ok {
@@ -363,7 +345,7 @@ func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error)
 		if prev, ok := c.apps[id]; ok && prev.Source != "file" {
 			return nil, fmt.Errorf("id %q is already a discovered app; use extends = %q to change it", id, id)
 		}
-		app = App{Source: "file", Files: []string{f.Path}}
+		app = spec.App{Source: "file", Files: []string{f.Path}}
 	}
 	if prev, ok := fromFile[id]; ok {
 		return nil, fmt.Errorf("id %q is already defined by %s", id, prev)
@@ -380,7 +362,7 @@ func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error)
 		ids[x.ID] = true
 	}
 	f.applyTo(&app)
-	applyDefaults(&app)
+	Defaults(&app)
 	if err := validate(&app); err != nil {
 		return nil, err
 	}
@@ -393,4 +375,27 @@ func (c *Catalog) applyFile(f AppFile, fromFile map[string]string) (*App, error)
 	}
 	c.apps[id] = &app
 	return &app, nil
+}
+
+// Diff lists the apps added, removed and changed from old to cur, by ID.
+func Diff(old, cur *Catalog) (added, removed, changed []string) {
+	added, removed, changed = []string{}, []string{}, []string{}
+	for id, a := range cur.apps {
+		prev, ok := old.apps[id]
+		switch {
+		case !ok:
+			added = append(added, id)
+		case !reflect.DeepEqual(prev, a):
+			changed = append(changed, id)
+		}
+	}
+	for id := range old.apps {
+		if _, ok := cur.apps[id]; !ok {
+			removed = append(removed, id)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	sort.Strings(changed)
+	return added, removed, changed
 }

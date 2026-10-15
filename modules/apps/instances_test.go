@@ -19,6 +19,8 @@ import (
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/units/unitstest"
 	"github.com/davitizhgenti/hostd/sdk"
+
+	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 )
 
 func TestNextState(t *testing.T) {
@@ -72,14 +74,14 @@ func TestNextID(t *testing.T) {
 
 func execApp(id string, argv ...string) *App {
 	a := &App{ID: id, Name: id, Runner: Runner{Type: RunnerExec, Command: argv}, Env: map[string]string{"LANG": "C.UTF-8"}}
-	applyDefaults(a)
+	catalog.Defaults(a)
 	return a
 }
 
 func dockerApp(id, image string, restart string) *App {
 	a := &App{ID: id, Name: id, Runner: Runner{Type: RunnerDocker, Image: image, Ports: []string{"8096:8096"}},
 		Restart: restart, Env: map[string]string{"TZ": "Europe/Tbilisi"}}
-	applyDefaults(a)
+	catalog.Defaults(a)
 	return a
 }
 
@@ -401,7 +403,7 @@ func TestStartRaceWithImmediateExit(t *testing.T) {
 	m := New(Options{NoWatch: true})
 	b := &quickExit{m: m}
 	m.opts.Backends = map[string]Backend{RunnerExec: b}
-	m.cat = Build(nil, []AppFile{{Path: "x.toml", ID: "blink", Runner: &Runner{Type: RunnerExec, Command: []string{"true"}}}}, nil)
+	m.cat = catalog.Build(nil, []catalog.AppFile{{Path: "x.toml", ID: "blink", Runner: &Runner{Type: RunnerExec, Command: []string{"true"}}}}, nil)
 	core := &fakeCore{}
 	m.core = core
 	res, err := m.handleStart(context.Background(), sdk.Action{ID: "act_1", Args: sdk.MustJSON(map[string]string{"id": "blink"})})
@@ -428,7 +430,7 @@ func TestFailedStopCanBeRetried(t *testing.T) {
 	m := New(Options{NoWatch: true})
 	b := &failingStop{}
 	m.opts.Backends = map[string]Backend{RunnerExec: b}
-	m.cat = Build(nil, []AppFile{{Path: "x.toml", ID: "job", Runner: &Runner{Type: RunnerExec, Command: []string{"job"}}}}, nil)
+	m.cat = catalog.Build(nil, []catalog.AppFile{{Path: "x.toml", ID: "job", Runner: &Runner{Type: RunnerExec, Command: []string{"job"}}}}, nil)
 	m.core = &fakeCore{}
 	ctx := context.Background()
 	if _, err := m.handleStart(ctx, sdk.Action{ID: "a1", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {

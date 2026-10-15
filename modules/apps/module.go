@@ -1,3 +1,9 @@
+// Package apps is the apps module: the catalog of apps (discovered from
+// what is installed, merged with hand-written files) and their running
+// instances. It runs them through Backends, one per runner type, which live
+// in packages of their own (runner/units, runner/podman) and share the
+// types in spec; the daemon chooses which runners a machine has.
+
 package apps
 
 import (
@@ -7,8 +13,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +22,8 @@ import (
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
+
+	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 )
 
 // Events the module emits.
@@ -63,7 +69,7 @@ type Module struct {
 
 	mu       sync.Mutex
 	core     sdk.Core
-	cat      *Catalog
+	cat      *catalog.Catalog
 	reported map[string]bool // problems already announced
 	timer    clock.Timer
 	changes  int // file changes seen by the watcher (for tests)
@@ -89,7 +95,7 @@ func New(opts Options) *Module {
 	if opts.Debounce == 0 {
 		opts.Debounce = 500 * time.Millisecond
 	}
-	return &Module{opts: opts, log: opts.Logger, cat: Build(nil, nil, nil), reported: map[string]bool{},
+	return &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), reported: map[string]bool{},
 		instances: map[string]*Instance{}}
 }
 
@@ -212,16 +218,16 @@ func (m *Module) watch() {
 
 // rescan rebuilds the catalog and announces what changed.
 func (m *Module) rescan() {
-	src := DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
+	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
 	discovered, problems := src.Scan()
-	files, fileProblems := LoadAppFiles(m.opts.AppsDir)
-	cat := Build(discovered, files, append(problems, fileProblems...))
+	files, fileProblems := catalog.LoadAppFiles(m.opts.AppsDir)
+	cat := catalog.Build(discovered, files, append(problems, fileProblems...))
 
 	m.mu.Lock()
 	old := m.cat
 	m.cat = cat
 	core := m.core
-	var fresh []Problem
+	var fresh []catalog.Problem
 	seen := map[string]bool{}
 	for _, p := range cat.Problems {
 		seen[p.String()] = true
@@ -238,34 +244,12 @@ func (m *Module) rescan() {
 			core.Emit(sdk.Event{Type: EventFileRejected, Data: sdk.MustJSON(p)})
 		}
 	}
-	added, removed, changed := diff(old, cat)
+	added, removed, changed := catalog.Diff(old, cat)
 	if core != nil && len(added)+len(removed)+len(changed) > 0 {
 		core.Emit(sdk.Event{Type: EventCatalogChanged, Data: sdk.MustJSON(map[string]any{
 			"apps": cat.Len(), "added": added, "removed": removed, "changed": changed,
 		})})
 	}
-}
-
-func diff(old, cur *Catalog) (added, removed, changed []string) {
-	added, removed, changed = []string{}, []string{}, []string{}
-	for id, a := range cur.apps {
-		prev, ok := old.apps[id]
-		switch {
-		case !ok:
-			added = append(added, id)
-		case !reflect.DeepEqual(prev, a):
-			changed = append(changed, id)
-		}
-	}
-	for id := range old.apps {
-		if _, ok := cur.apps[id]; !ok {
-			removed = append(removed, id)
-		}
-	}
-	sort.Strings(added)
-	sort.Strings(removed)
-	sort.Strings(changed)
-	return added, removed, changed
 }
 
 func (m *Module) Validate(_ context.Context, a sdk.Action) error {
@@ -310,11 +294,11 @@ func (m *Module) handleCheck(a sdk.Action) (sdk.Result, error) {
 	if fi, err := os.Stat(args.Dir); err != nil || !fi.IsDir() {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s is not a folder", args.Dir)
 	}
-	src := DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
+	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
 	discovered, _ := src.Scan()
-	files, problems := LoadAppFiles(args.Dir)
-	cat := Build(discovered, files, problems)
-	out := []Problem{}
+	files, problems := catalog.LoadAppFiles(args.Dir)
+	cat := catalog.Build(discovered, files, problems)
+	out := []catalog.Problem{}
 	for _, p := range cat.Problems {
 		if strings.HasPrefix(p.File, args.Dir+string(os.PathSeparator)) || p.File == args.Dir {
 			out = append(out, p)
@@ -323,19 +307,19 @@ func (m *Module) handleCheck(a sdk.Action) (sdk.Result, error) {
 	return sdk.Result{Data: sdk.MustJSON(map[string]any{"files": len(files), "problems": out})}, nil
 }
 
-func (m *Module) catalog() *Catalog {
+func (m *Module) catalog() *catalog.Catalog {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.cat
 }
 
 // Catalog returns the current catalog (for the instance code and tests).
-func (m *Module) Catalog() *Catalog { return m.catalog() }
+func (m *Module) Catalog() *catalog.Catalog { return m.catalog() }
 
 // AppList is the answer of GET /v1/apps.
 type AppList struct {
-	Apps     []*App    `json:"apps"`
-	Problems []Problem `json:"problems"`
+	Apps     []*App            `json:"apps"`
+	Problems []catalog.Problem `json:"problems"`
 }
 
 func (m *Module) Read(ctx context.Context, name string, params map[string]string) (any, error) {
@@ -345,7 +329,7 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 		all := params["all"] == "true" || params["all"] == "1"
 		problems := cat.Problems
 		if problems == nil {
-			problems = []Problem{}
+			problems = []catalog.Problem{}
 		}
 		return AppList{Apps: cat.List(all), Problems: problems}, nil
 	case "app":

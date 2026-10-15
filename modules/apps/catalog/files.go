@@ -1,4 +1,4 @@
-package apps
+package catalog
 
 import (
 	"errors"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
 
 // AppFile is a hand-written app definition, ~/.config/hostd/apps/*.toml.
@@ -23,7 +25,7 @@ type AppFile struct {
 	Extends  string            `toml:"extends"`
 	Name     *string           `toml:"name"`
 	Icon     *string           `toml:"icon"`
-	Runner   *Runner           `toml:"runner"`
+	Runner   *spec.Runner      `toml:"runner"`
 	Surface  *string           `toml:"surface"`
 	Window   *fileWindow       `toml:"window"`
 	Instance *fileInstance     `toml:"instance"`
@@ -31,18 +33,18 @@ type AppFile struct {
 	Requires []string          `toml:"requires"`
 	Hidden   *bool             `toml:"hidden"`
 	Under    *string           `toml:"under"`
-	Match    *Match            `toml:"match"`
+	Match    *spec.Match       `toml:"match"`
 	Restart  *string           `toml:"restart"`
 	Env      map[string]string `toml:"env"`
-	Health   *Health           `toml:"health"`
+	Health   *spec.Health      `toml:"health"`
 	// Actions add to the app's actions; one with the ID of an existing one
 	// replaces it.
-	Actions []AppAction `toml:"actions"`
+	Actions []spec.AppAction `toml:"actions"`
 	// ReplaceActions: the file's actions replace the inherited ones (a
 	// desktop entry's) instead of adding to them.
 	ReplaceActions bool `toml:"replace_actions"`
 	// Source is how a service's new versions arrive (the deploy module).
-	Source *Deploy `toml:"source"`
+	Source *spec.Deploy `toml:"source"`
 }
 
 type fileWindow struct {
@@ -61,7 +63,7 @@ type fileAudio struct {
 }
 
 // applyTo overlays the fields the file sets onto a.
-func (f AppFile) applyTo(a *App) {
+func (f AppFile) applyTo(a *spec.App) {
 	if f.Name != nil {
 		a.Name = *f.Name
 	}
@@ -124,11 +126,11 @@ func (f AppFile) applyTo(a *App) {
 		a.Deploy = &d
 	}
 	if f.ReplaceActions {
-		a.Actions = append([]AppAction(nil), f.Actions...)
+		a.Actions = append([]spec.AppAction(nil), f.Actions...)
 	} else if len(f.Actions) > 0 {
-		merged := append([]AppAction(nil), a.Actions...)
+		merged := append([]spec.AppAction(nil), a.Actions...)
 		for _, x := range f.Actions {
-			if i := slices.IndexFunc(merged, func(y AppAction) bool { return y.ID == x.ID }); i >= 0 {
+			if i := slices.IndexFunc(merged, func(y spec.AppAction) bool { return y.ID == x.ID }); i >= 0 {
 				merged[i] = x
 			} else {
 				merged = append(merged, x)

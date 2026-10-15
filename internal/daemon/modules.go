@@ -16,6 +16,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/modules/apps"
+	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/units"
 	"github.com/davitizhgenti/hostd/modules/audio"
@@ -51,7 +52,7 @@ var builtins = []builtin{
 			c := conf.(*apps.Config)
 			engine := &podman.EngineAPI{Socket: podman.DefaultEngineSocket(e.runtimeDir)}
 			return apps.New(apps.Options{
-				DesktopDirs: apps.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: secrets.DefaultDir(), Logger: e.log,
+				DesktopDirs: catalog.DefaultDesktopDirs(), AppsDir: apps.DefaultAppsDir(), SecretsDir: secrets.DefaultDir(), Logger: e.log,
 				Backends: map[string]apps.Backend{
 					apps.RunnerExec: &units.ExecRunner{Systemd: e.systemd, RuntimeDir: e.runtimeDir, HomeDir: e.home,
 						StateDir: e.stateDir, Browser: c.Browser, Gamescope: c.Gamescope},

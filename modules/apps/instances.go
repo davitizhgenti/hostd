@@ -624,3 +624,12 @@ func (m *Module) readInstance(id string) (Instance, error) {
 	}
 	return Instance{}, sdk.Errorf(sdk.CodeNotFound, "no instance %q", id)
 }
+
+// matchRules returns the app's match rules for its instances, or nil.
+func matchRules(a *App) *Match {
+	if a.Match.IsZero() {
+		return nil
+	}
+	m := a.Match
+	return &m
+}
