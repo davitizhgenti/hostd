@@ -46,7 +46,23 @@ func (a *app) addModuleCommands(ctx context.Context, root *cobra.Command) error 
 		}
 	}
 	a.addReadCommands(root, manifests)
+	describeGroups(root)
 	return nil
+}
+
+// describeGroups gives a group made from action names ("hostctl audio
+// output") the names of its commands as its description.
+func describeGroups(cmd *cobra.Command) {
+	var names []string
+	for _, c := range cmd.Commands() {
+		describeGroups(c)
+		if !c.Hidden && c.Name() != "help" && c.Name() != "completion" {
+			names = append(names, c.Name())
+		}
+	}
+	if cmd.Short == "" && len(names) > 0 {
+		cmd.Short = strings.Join(names, ", ")
+	}
 }
 
 func child(parent *cobra.Command, name, short string) *cobra.Command {

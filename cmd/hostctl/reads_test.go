@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -37,6 +38,14 @@ hall         -      -         -     -
 `
 	if code != 0 || out != want {
 		t.Fatalf("exit %d %s\n%s\nwant\n%s", code, errs, out, want)
+	}
+
+	// A read named as its module is also "hostctl get <module>".
+	if out2, _, code := hostctl(t, "get", "lights"); code != 0 || out2 != want {
+		t.Fatalf("get lights: exit %d\n%s", code, out2)
+	}
+	if _, _, code := hostctl(t, "get", "lights", "lamp"); code != 2 {
+		t.Fatalf("get lights lamp: exit %d, want a usage error", code)
 	}
 
 	// The alias is the same command; one that a built-in has is not used.
@@ -147,5 +156,15 @@ func TestGetRowsInAnObject(t *testing.T) {
 	}
 	if out, _, code := hostctl(t, "get", "auto", "odd"); code != 0 || !strings.Contains(out, `"rules": "not a list"`) {
 		t.Fatalf("not a list: %q (exit %d)", out, code)
+	}
+}
+
+func TestGroupsListTheirCommands(t *testing.T) {
+	m := lightsManifest()
+	m.Actions = []sdk.ActionSpec{{Type: "lights.scene.set", Scope: "lights"}, {Type: "lights.scene.clear", Scope: "lights"}}
+	fakeAPI(t, []sdk.Manifest{m}, nil)
+	out, errs, code := hostctl(t, "lights", "--help")
+	if code != 0 || !regexp.MustCompile(`scene +set, clear|scene +clear, set`).MatchString(out) {
+		t.Fatalf("exit %d %s\n%s", code, errs, out)
 	}
 }

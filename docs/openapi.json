@@ -669,7 +669,7 @@
             "bearer": []
           }
         ],
-        "summary": "Volume, mute, the outputs and the sound each app plays",
+        "summary": "Volume, mute, the outputs and the sound each app plays (a table of the outputs)",
         "tags": [
           "audio"
         ],
@@ -1050,6 +1050,46 @@
         ],
         "x-hostd-action": "audio.output.set",
         "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/audio/streams": {
+      "get": {
+        "operationId": "audio.streams",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The sound each app plays",
+        "tags": [
+          "audio"
+        ],
+        "x-hostd-scope": "read"
       }
     },
     "/v1/audio/volume": {

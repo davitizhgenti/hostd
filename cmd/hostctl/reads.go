@@ -62,6 +62,15 @@ takes them as arguments; ?query parameters are given as --param key=value.`,
 			}
 			leaf := child(group, rd.Name, "")
 			a.makeReadCommand(leaf, rd, m.Name)
+			if rd.Name == m.Name { // "hostctl get audio" is "hostctl get audio audio"
+				group.RunE = func(cmd *cobra.Command, args []string) error {
+					if len(args) > 0 || len(readParams(rd.Path)) > 0 {
+						return groupRun(cmd, args)
+					}
+					leaf.SetContext(cmd.Context())
+					return leaf.RunE(leaf, nil)
+				}
+			}
 			if rd.CLI != nil {
 				for _, name := range rd.CLI.Alias {
 					aliases = append(aliases, alias{name, func(c *cobra.Command) { a.makeReadCommand(c, rd, m.Name) }})
