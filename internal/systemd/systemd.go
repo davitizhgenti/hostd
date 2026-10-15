@@ -159,6 +159,7 @@ func (s *UserSystemd) Unit(ctx context.Context, name string) (UnitInfo, bool, er
 		Description: str(props["Description"]),
 		ActiveState: str(props["ActiveState"]),
 		SubState:    str(props["SubState"]),
+		Since:       usecTime(props["ActiveEnterTimestamp"]),
 	}
 	if svc, err := conn.GetUnitTypePropertiesContext(ctx, name, "Service"); err == nil {
 		info.MainPID = num(svc["MainPID"])
@@ -293,6 +294,15 @@ func str(v any) string {
 	return s
 }
 
+// usecTime reads a systemd timestamp: microseconds since the epoch, 0 for
+// never.
+func usecTime(v any) time.Time {
+	if us, ok := v.(uint64); ok && us > 0 {
+		return time.UnixMicro(int64(us)).UTC()
+	}
+	return time.Time{}
+}
+
 func num(v any) int {
 	switch n := v.(type) {
 	case int32:
@@ -342,7 +352,8 @@ type UnitInfo struct {
 	ActiveState string // active, inactive, failed...
 	SubState    string // running, exited, failed, dead...
 	MainPID     int
-	ExitStatus  int    // ExecMainStatus
-	ExitCode    int    // ExecMainCode: 1 exited, 2 killed, 3 dumped core
-	Result      string // success, exit-code, signal, core-dump...
+	ExitStatus  int       // ExecMainStatus
+	ExitCode    int       // ExecMainCode: 1 exited, 2 killed, 3 dumped core
+	Result      string    // success, exit-code, signal, core-dump...
+	Since       time.Time // when it last became active (ActiveEnterTimestamp); zero if never
 }

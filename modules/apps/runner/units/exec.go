@@ -328,7 +328,7 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 		if m == nil || unitName(m[1]) != u.Name {
 			continue // not ours (e.g. started by hand with systemd-run)
 		}
-		inst := Instance{ID: m[1], App: m[2], Runner: spec.RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning}
+		inst := Instance{ID: m[1], App: m[2], Runner: spec.RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning, Started: u.Since}
 		ended, code, _ := endedState(u)
 		if kv := m[3]; kv != "" {
 			alive := len(pidsWithEnv(r.procRoot(), kv)) > 0

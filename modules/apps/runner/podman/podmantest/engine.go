@@ -84,6 +84,7 @@ func (f *FakeEngine) Start(_ context.Context, id string) error {
 		return podman.ErrNotFound
 	}
 	c.Info.Running, c.Info.Status, c.Info.PID = true, "running", 4000+f.nextID
+	c.Info.Started = time.Date(2020, 1, 1, 0, 0, f.nextID, 0, time.UTC)
 	return nil
 }
 

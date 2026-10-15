@@ -188,6 +188,9 @@ func (r *ComposeRunner) Adopt(ctx context.Context) ([]Instance, error) {
 			if c.Running || c.Restarting {
 				inst.State = StateRunning
 			}
+			if !c.Started.IsZero() && (inst.Started.IsZero() || c.Started.Before(inst.Started)) {
+				inst.Started = c.Started // the project started with its first container
+			}
 		}
 		if inst.State != StateRunning {
 			for _, c := range byProject[p] {

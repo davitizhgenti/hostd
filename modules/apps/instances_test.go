@@ -388,6 +388,12 @@ func TestAdoptAfterRestart(t *testing.T) {
 	if !found {
 		t.Fatalf("instance that ended while hostd was away not reported: %+v", all)
 	}
+	// They keep the time they started, not the time hostd found them.
+	for _, in := range all {
+		if in.State == StateRunning && in.Started.Year() != 2020 {
+			t.Errorf("%s started %v: the time it was found, not its start", in.ID, in.Started)
+		}
+	}
 	// Adopted instances work like any other.
 	if _, err := second.do(t, "instance.stop", "tabs"); err != nil {
 		t.Fatal(err)

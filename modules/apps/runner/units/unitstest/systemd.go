@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/davitizhgenti/hostd/internal/systemd"
 )
@@ -49,7 +50,7 @@ func (f *FakeSystemd) StartTransient(_ context.Context, name string, spec system
 	}
 	f.nextPID++
 	f.Units[name] = &FakeUnit{Info: systemd.UnitInfo{Name: name, Description: spec.Description,
-		ActiveState: "active", SubState: "running", MainPID: f.nextPID}, Spec: spec}
+		ActiveState: "active", SubState: "running", MainPID: f.nextPID, Since: FakeSince(f.nextPID)}, Spec: spec}
 	return nil
 }
 
@@ -201,3 +202,7 @@ func (f *FakeSystemd) Watching() int {
 	defer f.Mu.Unlock()
 	return len(f.watchers)
 }
+
+// FakeSince is when the fake says the unit with this PID became active: a
+// fixed time, unlike any test clock's.
+func FakeSince(pid int) time.Time { return time.Date(2020, 1, 1, 0, 0, pid, 0, time.UTC) }

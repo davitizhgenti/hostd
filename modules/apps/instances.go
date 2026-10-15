@@ -507,7 +507,9 @@ func (m *Module) adopt(ctx context.Context) {
 				in.ShownBy = app.Window.ShownBy
 				in.Volume = app.Audio.Volume
 			}
-			in.Started = m.opts.Clock.Now().UTC()
+			if in.Started.IsZero() { // the runner does not know: from now on
+				in.Started = m.opts.Clock.Now().UTC()
+			}
 			m.mu.Lock()
 			if in.State.Ended() {
 				m.ended = append([]Instance{in}, m.ended...)

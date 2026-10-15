@@ -50,6 +50,7 @@ type ContainerInfo struct {
 	Status     string // created, running, exited...
 	ExitCode   int
 	PID        int
+	Started    time.Time // when it last started; zero if never
 }
 
 // Docker is the part of the Docker Engine API the docker runner uses.
@@ -174,7 +175,7 @@ func (r *DockerRunner) Adopt(ctx context.Context) ([]Instance, error) {
 	var out []Instance
 	for _, c := range list {
 		inst := Instance{ID: c.Labels[LabelInstance], App: c.Labels[LabelApp], Runner: spec.RunnerDocker,
-			Container: strings.TrimPrefix(c.Name, "/"), PID: c.PID, State: StateRunning}
+			Container: strings.TrimPrefix(c.Name, "/"), PID: c.PID, State: StateRunning, Started: c.Started}
 		if !c.Running && !c.Restarting {
 			code := c.ExitCode
 			inst.ExitCode = &code
@@ -408,13 +409,19 @@ type inspectJSON struct {
 		Restarting bool   `json:"Restarting"`
 		ExitCode   int    `json:"ExitCode"`
 		Pid        int    `json:"Pid"`
+		StartedAt  string `json:"StartedAt"`
 	} `json:"State"`
 }
 
 func (j inspectJSON) info() ContainerInfo {
-	return ContainerInfo{ID: j.ID, Name: strings.TrimPrefix(j.Name, "/"), Labels: j.Config.Labels,
+	info := ContainerInfo{ID: j.ID, Name: strings.TrimPrefix(j.Name, "/"), Labels: j.Config.Labels,
 		Running: j.State.Running, Restarting: j.State.Restarting, Status: j.State.Status,
 		ExitCode: j.State.ExitCode, PID: j.State.Pid}
+	// A container that never ran has the zero time, "0001-01-01T00:00:00Z".
+	if t, err := time.Parse(time.RFC3339Nano, j.State.StartedAt); err == nil && t.Year() > 1 {
+		info.Started = t.UTC()
+	}
+	return info
 }
 
 func (e *EngineAPI) Inspect(ctx context.Context, id string) (ContainerInfo, bool, error) {
