@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,9 +21,13 @@ type Output struct {
 	Description string `json:"description"`
 	Node        string `json:"node"` // node.name
 	ID          int    `json:"-"`    // PipeWire object ID: changes on reconnect
-	Default     bool   `json:"default"`
-	Percent     int    `json:"percent"`
-	Muted       bool   `json:"muted"`
+	// Port is the connector in use, as the card names it ("Headphones",
+	// "Line Out"), when the card has more than one: the name stays the
+	// same when the plug moves, the port does not.
+	Port    string `json:"port,omitempty"`
+	Default bool   `json:"default"`
+	Percent int    `json:"percent"`
+	Muted   bool   `json:"muted"`
 }
 
 // Stream is sound an app is playing.
@@ -31,6 +36,7 @@ type Stream struct {
 	PID      int    `json:"pid,omitempty"` // application.process.id
 	App      string `json:"app,omitempty"` // application.name
 	Instance string `json:"instance,omitempty"`
+	Output   string `json:"output,omitempty"` // the output it plays on, by name
 	Percent  int    `json:"percent"`
 	Muted    bool   `json:"muted"`
 }
@@ -61,12 +67,21 @@ type dumpObject struct {
 				ChannelVolumes []float64 `json:"channelVolumes"`
 				Mute           bool      `json:"mute"`
 			} `json:"Props"`
+			Route []route `json:"Route"` // a device's active routes
 		} `json:"params"`
+		OutputNode int `json:"output-node-id"` // a link's ends
+		InputNode  int `json:"input-node-id"`
 	} `json:"info"`
 	Metadata []struct {
 		Key   string          `json:"key"`
 		Value json.RawMessage `json:"value"`
 	} `json:"metadata"`
+}
+
+type route struct {
+	Direction   string `json:"direction"`
+	Description string `json:"description"`
+	Devices     []int  `json:"devices"` // card.profile.device of the nodes it serves
 }
 
 // parseGraph reads pw-dump's JSON.
@@ -76,12 +91,17 @@ func parseGraph(data []byte) (Graph, error) {
 		return Graph{}, err
 	}
 	devices := map[int]map[string]any{}
+	routes := map[int][]route{}
 	clients := map[int]map[string]any{}
+	linkedTo := map[int]int{} // node -> the node it plays into
 	defaultSink := ""
 	for _, o := range objs {
 		switch {
 		case strings.HasSuffix(o.Type, ":Device") && o.Info != nil:
 			devices[o.ID] = o.Info.Props
+			routes[o.ID] = o.Info.Params.Route
+		case strings.HasSuffix(o.Type, ":Link") && o.Info != nil:
+			linkedTo[o.Info.OutputNode] = o.Info.InputNode
 		case strings.HasSuffix(o.Type, ":Client") && o.Info != nil:
 			clients[o.ID] = o.Info.Props
 		case strings.HasSuffix(o.Type, ":Metadata"):
@@ -110,7 +130,8 @@ func parseGraph(data []byte) (Graph, error) {
 			dev := devices[num(p, "device.id")]
 			g.Outputs = append(g.Outputs, Output{
 				Name: outputName(p, dev), Description: str(p, "node.description"), Node: str(p, "node.name"),
-				ID: o.ID, Default: str(p, "node.name") == defaultSink, Percent: percent, Muted: muted,
+				Port: activePort(routes[num(p, "device.id")], num(p, "card.profile.device"), num(p, "device.routes")),
+				ID:   o.ID, Default: str(p, "node.name") == defaultSink, Percent: percent, Muted: muted,
 			})
 		case "Stream/Output/Audio":
 			// pipewire.sec.pid is what PipeWire saw of the client's socket:
@@ -122,10 +143,31 @@ func parseGraph(data []byte) (Graph, error) {
 		}
 	}
 	uniqueNames(g.Outputs)
+	for i, st := range g.Streams {
+		for _, out := range g.Outputs {
+			if to, ok := linkedTo[st.ID]; ok && to == out.ID {
+				g.Streams[i].Output = out.Name
+			}
+		}
+	}
 	// pw-dump lists objects in no set order; a graph that is the same
 	// should read the same.
 	sort.SliceStable(g.Streams, func(i, j int) bool { return g.Streams[i].ID < g.Streams[j].ID })
 	return g, nil
+}
+
+// activePort is the output route a card uses for one of its nodes, when
+// the node has more than one to choose from (device.routes).
+func activePort(rs []route, dev, count int) string {
+	if count < 2 {
+		return ""
+	}
+	for _, r := range rs {
+		if r.Direction == "Output" && slices.Contains(r.Devices, dev) {
+			return r.Description
+		}
+	}
+	return ""
 }
 
 // streamPID is the process playing a stream. pipewire.sec.pid is what

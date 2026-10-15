@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"encoding/json"
 	"os"
 	"reflect"
 	"testing"
@@ -95,5 +96,48 @@ func TestStreamPIDFromItsClient(t *testing.T) {
 	want := []Stream{{ID: 56, PID: 23828, App: "pw-cat"}, {ID: 58, PID: 4242, App: "Chromium"}, {ID: 59, App: "orphan"}}
 	if !reflect.DeepEqual(g.Streams, want) {
 		t.Fatalf("streams %+v", g.Streams)
+	}
+}
+
+// A stream names the output its link goes to. An output whose card has
+// more than one connector for it names the one in use; the name stays.
+func TestStreamOutputAndPort(t *testing.T) {
+	dump := `[
+ {"id": 48, "type": "PipeWire:Interface:Device", "info": {"props": {"device.description": "GP107GL"}}},
+ {"id": 49, "type": "PipeWire:Interface:Device", "info": {"props": {"device.description": "Ryzen HD Audio Controller"},
+  "params": {"Route": [{"direction": "Input", "description": "Front Microphone", "devices": [6]},
+                       {"direction": "Output", "description": "Headphones", "devices": [4]}]}}},
+ {"id": 54, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "device.id": 48,
+  "node.name": "alsa_output.pci-0000_01_00.1.hdmi-stereo", "device.profile.name": "hdmi-stereo", "card.profile.device": 4, "device.routes": 1}}},
+ {"id": 60, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Audio/Sink", "device.id": 49,
+  "node.name": "alsa_output.pci-0000_04_00.6.analog-stereo", "device.profile.name": "analog-stereo", "card.profile.device": 4, "device.routes": 2}}},
+ {"id": 70, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "application.name": "pw-cat"}}},
+ {"id": 71, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "application.name": "quiet"}}},
+ {"id": 80, "type": "PipeWire:Interface:Link", "info": {"output-node-id": 70, "input-node-id": 60}},
+ {"id": 81, "type": "PipeWire:Interface:Link", "info": {"output-node-id": 70, "input-node-id": 60}}
+]`
+	g, err := parseGraph([]byte(dump))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdmi, _ := g.Output("hdmi")
+	speakers, _ := g.Output("speakers")
+	if hdmi.Port != "" || speakers.Port != "Headphones" {
+		t.Fatalf("ports: hdmi %q, speakers %q", hdmi.Port, speakers.Port)
+	}
+	if len(g.Streams) != 2 || g.Streams[0].Output != "speakers" || g.Streams[1].Output != "" {
+		t.Fatalf("streams %+v", g.Streams)
+	}
+
+	// The cache that follows pw-dump --monitor keeps the links too.
+	var c graphCache
+	var raw []json.RawMessage
+	var objs []pwObject
+	_ = json.Unmarshal([]byte(dump), &raw)
+	_ = json.Unmarshal([]byte(dump), &objs)
+	c.apply(raw, objs)
+	cached, ok := c.read()
+	if !ok || cached.Streams[0].Output != "speakers" {
+		t.Fatalf("cached streams %+v", cached.Streams)
 	}
 }

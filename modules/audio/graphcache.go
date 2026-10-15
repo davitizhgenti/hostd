@@ -59,7 +59,8 @@ func (c *graphCache) apply(raw []json.RawMessage, batch []pwObject) {
 			continue
 		}
 		switch {
-		case strings.HasSuffix(typ, ":Node"), strings.HasSuffix(typ, ":Device"), strings.HasSuffix(typ, ":Client"):
+		case strings.HasSuffix(typ, ":Node"), strings.HasSuffix(typ, ":Device"), strings.HasSuffix(typ, ":Client"),
+			strings.HasSuffix(typ, ":Link"):
 			c.objs[o.ID] = slices.Clone(raw[i])
 		case strings.HasSuffix(typ, ":Metadata"):
 			c.mergeMetadata(o.ID, raw[i])

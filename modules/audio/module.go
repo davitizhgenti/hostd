@@ -109,7 +109,7 @@ func (m *Module) Manifest() sdk.Manifest {
 				CLI: &sdk.CLI{Rows: "outputs", Empty: "no audio outputs", Columns: outputColumns}},
 			{Name: "streams", Description: "The sound each app plays", Path: "/v1/audio/streams",
 				CLI: &sdk.CLI{Empty: "no app is playing sound", Columns: []sdk.Column{{Title: "STREAM", Path: "id"}, {Title: "APP", Path: "app"},
-					{Title: "INSTANCE", Path: "instance"}, {Title: "VOLUME", Path: "percent"}, {Title: "MUTED", Path: "muted"}}}},
+					{Title: "INSTANCE", Path: "instance"}, {Title: "OUTPUT", Path: "output"}, {Title: "VOLUME", Path: "percent"}, {Title: "MUTED", Path: "muted"}}}},
 			{Name: "media", Description: "Media players: their app, status and track", Path: "/v1/media",
 				CLI: &sdk.CLI{Empty: "no media players", Columns: []sdk.Column{{Title: "PLAYER", Path: "name"}, {Title: "STATUS", Path: "status"},
 					{Title: "INSTANCE", Path: "instance"}, {Title: "TITLE", Path: "title", Max: 40}, {Title: "ARTIST", Path: "artist", Max: 30}}}},
@@ -328,7 +328,7 @@ type Status struct {
 }
 
 var outputColumns = []sdk.Column{{Title: "OUTPUT", Path: "name"}, {Title: "DEFAULT", Path: "default"},
-	{Title: "VOLUME", Path: "percent"}, {Title: "MUTED", Path: "muted"}, {Title: "DEVICE", Path: "description", Max: 50}}
+	{Title: "PORT", Path: "port"}, {Title: "VOLUME", Path: "percent"}, {Title: "MUTED", Path: "muted"}, {Title: "DEVICE", Path: "description", Max: 50}}
 
 func (m *Module) Read(_ context.Context, name string, _ map[string]string) (any, error) {
 	if name == "streams" {
