@@ -7,7 +7,7 @@ A module owns a namespace (`lights.*`). It declares its actions, events, reads a
 | You want | Use | Code |
 | --- | --- | --- |
 | A program on the screen or a service in the background | An [app file](apps.md) | None: a TOML file in `~/.config/hostd/apps/` |
-| Something set up on the machine: packages, drivers, system services | An add-on (`deploy/addons/NAME/addon.toml`, `sudo hostd-setup add NAME`; see [deploy/addons/README.md](../deploy/addons/README.md)) | None for most: a TOML file of packages, Flatpaks and files; a bash hook for the rest |
+| Something set up on the machine: packages, drivers, system services | An add-on (`deploy/addons/NAME/addon.toml`, `sudo hostd-setup add NAME`; see [the add-on format](https://github.com/davitizhgenti/hostd/blob/main/deploy/addons/README.md)) | None for most: a TOML file of packages, Flatpaks and files; a bash hook for the rest |
 | New actions, events or reads: lights, a thermostat, anything with an API | An external module | Any language; configured in a file of its own in `hostd.d/` |
 | The same, inside hostd | A built-in module | Go, one entry in `internal/daemon/modules.go` |
 
