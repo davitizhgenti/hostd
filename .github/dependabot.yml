@@ -1,0 +1,23 @@
+# Updates for what CI and the build depend on, proposed as pull requests
+# that CI tests before anything is merged. Actions are pinned by commit in
+# the workflows; dependabot moves the pin and its version comment together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: monthly
