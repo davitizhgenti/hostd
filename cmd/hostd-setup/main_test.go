@@ -21,6 +21,7 @@ func TestParse(t *testing.T) {
 		{[]string{"uninstall", "--purge", "--all"}, args{cmd: "uninstall", purge: true, all: true}},
 		{[]string{"add", "controllers", "--user", "tv"}, args{cmd: "add", user: "tv", names: []string{"controllers"}, pass: []string{"--user", "tv"}}},
 		{[]string{"auto-update"}, args{cmd: "auto-update"}},
+		{[]string{"update", "--ssh-passwords", "keep"}, args{cmd: "update", sshPasswords: "keep", pass: []string{"--ssh-passwords", "keep"}}},
 		{[]string{"-h"}, args{cmd: "help"}},
 	} {
 		got, err := parse(c.argv)
@@ -29,12 +30,13 @@ func TestParse(t *testing.T) {
 		}
 	}
 	for argv, want := range map[string]string{
-		"--gpu amd":      "--gpu must be",
-		"--from":         "needs a value",
-		"install extra":  "unexpected argument",
-		"--purge":        "goes with uninstall",
-		"install --all":  "goes with update or uninstall",
-		"update --bogus": "unknown option",
+		"--gpu amd":             "--gpu must be",
+		"--from":                "needs a value",
+		"install extra":         "unexpected argument",
+		"--purge":               "goes with uninstall",
+		"install --all":         "goes with update or uninstall",
+		"update --bogus":        "unknown option",
+		"--ssh-passwords maybe": "keep or off",
 	} {
 		if _, err := parse(strings.Fields(argv)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", argv, err, want)

@@ -31,7 +31,10 @@ type Options struct {
 	Release    Release
 	ReleaseKey []byte // nil: hostd's
 	SudoUser   string // the admin who ran sudo: their SSH keys go to the screen user
-	Self       string // this hostd-setup binary, installed as /usr/local/sbin/hostd-setup
+	// SSHPasswords "keep" leaves SSH password login as it is; otherwise
+	// it is turned off once the admin has a key (sshKeysOnly).
+	SSHPasswords string
+	Self         string // this hostd-setup binary, installed as /usr/local/sbin/hostd-setup
 	// Update is set when this run is an update: its summary is short, and
 	// add-ons run only when needed (see addons.go).
 	Update *UpdateOptions
@@ -87,7 +90,7 @@ func (s *Setup) Install(ctx context.Context, o Options) error {
 	defer os.RemoveAll(work)
 	in.work = work
 	for _, step := range []func(context.Context) error{
-		in.checkSystem, in.enableNonFree, in.packages, in.nvidiaSway, in.screenUser,
+		in.checkSystem, in.enableNonFree, in.packages, in.nvidiaSway, in.screenUser, in.sshKeysOnly,
 		in.autologin, in.installHostd, in.installSelf, in.addons, in.updates,
 	} {
 		if err := step(ctx); err != nil {
@@ -467,6 +470,81 @@ func (s *Setup) homeOf(ctx context.Context, name string) (string, error) {
 
 // copySSHKeys gives the screen user the keys of the admin who ran sudo,
 // so whoever reaches the admin account reaches the screen user too.
+// sshdDropIn turns SSH password login off. Its name sorts before cloud
+// images' 50-cloud-init.conf: sshd takes the first value it reads.
+const sshdDropIn = "/etc/ssh/sshd_config.d/10-hostd.conf"
+
+const sshdKeysOnly = `# Managed by hostd: SSH logins with a key only (hostd-setup --ssh-passwords keep
+# leaves passwords on; hostd-setup uninstall --all removes this file).
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+`
+
+// sshKeysOnly turns SSH password login off: the admin has sudo, and a
+// password can be guessed from anywhere on the network. It never locks
+// the admin out: it waits until the admin who runs it has a key (an
+// unattended update has no admin, so it waits for a manual one), and
+// sshd must accept the result before it is used.
+func (in *installer) sshKeysOnly(ctx context.Context) error {
+	in.Out.Step("SSH: logins with a key only")
+	if !in.exists("/usr/sbin/sshd") {
+		in.Out.Info("no SSH server here")
+		return nil
+	}
+	if in.o.SSHPasswords == "keep" {
+		in.Out.Info("password logins left as they are (--ssh-passwords keep)")
+		return nil
+	}
+	if cur, err := os.ReadFile(in.path(sshdDropIn)); err == nil && string(cur) == sshdKeysOnly {
+		in.Out.Info("password logins are off")
+		return nil
+	}
+	admin := in.o.SudoUser
+	if admin == "" || admin == "root" {
+		in.Out.Info("password logins left on until sudo hostd-setup update is run by an admin with an SSH key")
+		return nil
+	}
+	home, err := in.homeOf(ctx, admin)
+	if err != nil {
+		return err
+	}
+	keys, _ := os.ReadFile(in.path(home + "/.ssh/authorized_keys"))
+	n := 0
+	for _, l := range strings.Split(string(keys), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			n++
+		}
+	}
+	if n == 0 {
+		in.Out.Warn("SSH password logins are still on: %s has no SSH key. From your laptop: ssh-copy-id %s@<machine>, then sudo hostd-setup update", admin, admin)
+		return nil
+	}
+	if _, err := in.installFile([]byte(sshdKeysOnly), sshdDropIn, 0o644, "root"); err != nil {
+		return err
+	}
+	if out, err := in.run(ctx, "sshd", "-t"); err != nil {
+		_ = os.Remove(in.path(sshdDropIn))
+		in.Out.Warn("sshd refused the change (%v %s): left as it was", err, strings.TrimSpace(string(out)))
+		return nil
+	}
+	if err := in.restartSSH(ctx); err != nil {
+		in.Out.Warn("could not reload sshd (%v): password logins end at the next reboot", err)
+		return nil
+	}
+	in.Out.Info("password logins are off; %s logs in with one of its %d key(s)", admin, n)
+	return nil
+}
+
+// restartSSH reloads sshd under the name the system gives it.
+func (in *installer) restartSSH(ctx context.Context) error {
+	if _, err := in.run(ctx, "systemctl", "reload", "ssh"); err == nil {
+		return nil
+	}
+	_, err := in.run(ctx, "systemctl", "reload", "sshd")
+	return err
+}
+
 func (in *installer) copySSHKeys(ctx context.Context) error {
 	admin := in.o.SudoUser
 	if admin == "" || admin == "root" {
@@ -709,7 +787,7 @@ func (in *installer) installDocs() error {
 		return err
 	}
 	_ = os.RemoveAll(in.path(docs + ".old"))
-	in.Out.Changed("installed the docs (http://<machine>:7300/docs/)")
+	in.Out.Changed("installed the docs (https://<machine>:7300/docs/)")
 	return nil
 }
 
@@ -960,7 +1038,7 @@ func (in *installer) summary(ctx context.Context) {
 	}
 	in.Out.Info("hostd %s is running. hostctl works on this machine as %s:", in.version, in.user.name)
 	in.Out.Info("  ssh %s@%s hostctl apps --all", in.user.name, ip)
-	in.Out.Info("Other devices (a phone, a script) use the API at http://%s:7300", ip)
+	in.Out.Info("Other devices (a laptop, a script) use the API at https://%s:7300: hostctl login %s", ip, ip)
 	in.Out.Info("with their own token, made with: hostctl token create <name> --scopes read,apps")
 	in.Out.Info("Later: sudo hostd-setup update (latest version), sudo hostd-setup uninstall")
 }

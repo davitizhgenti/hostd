@@ -38,6 +38,8 @@ Options:
   --user NAME               screen user name (default: screen)
   --from DIR                install hostd and hostctl from DIR (a build), not the release
   --source DIR              update, add: run DIR's hostd-setup instead of downloading the newest
+  --ssh-passwords keep      leave SSH password login on (by default it is turned off once
+                            the admin running sudo has an SSH key)
   --all                     update: run every installed add-on; uninstall: also undo the base
                             setup (autologin to Sway, managed configs, lingering)
   --purge                   uninstall: also delete hostd's data (tokens, audit trail, app files)
@@ -54,6 +56,7 @@ func main() {
 type args struct {
 	cmd                 string
 	gpu, user, from     string
+	sshPasswords        string
 	source              string
 	purge, all, verbose bool
 	names               []string
@@ -76,7 +79,7 @@ func parse(argv []string) (args, error) {
 	}
 	for i := 0; i < len(argv); i++ {
 		switch arg := argv[i]; arg {
-		case "--gpu", "--user", "--from", "--source":
+		case "--gpu", "--user", "--from", "--source", "--ssh-passwords":
 			v, err := value(i)
 			if err != nil {
 				return a, err
@@ -94,6 +97,11 @@ func parse(argv []string) (args, error) {
 				a.from = v
 			case "--source":
 				a.source = v
+			case "--ssh-passwords":
+				if v != "keep" && v != "off" {
+					return a, errors.New("--ssh-passwords must be keep or off")
+				}
+				a.sshPasswords = v
 			}
 			if arg != "--source" {
 				a.pass = append(a.pass, arg, v)
@@ -160,7 +168,7 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	if k := os.Getenv("HOSTD_RELEASE_KEY"); k != "" {
 		key = []byte(k)
 	}
-	opts := deploy.Options{ScreenUser: a.user, GPU: a.gpu, From: a.from, Release: release, ReleaseKey: key,
+	opts := deploy.Options{ScreenUser: a.user, GPU: a.gpu, From: a.from, Release: release, ReleaseKey: key, SSHPasswords: a.sshPasswords,
 		SudoUser: os.Getenv("SUDO_USER"), Self: self, Auto: os.Getenv("HOSTD_AUTO") == "1",
 		Adding: fields(os.Getenv("HOSTD_ADDING"))}
 	if mode := os.Getenv("HOSTD_UPDATE_MODE"); mode != "" {

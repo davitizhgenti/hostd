@@ -96,6 +96,11 @@ func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
 	_, _ = s.run(ctx, "systemctl", "daemon-reload")
 	if a.All {
 		rm("/etc/hostd/update.conf")
+		if _, err := os.Stat(s.path(sshdDropIn)); err == nil {
+			rm(sshdDropIn)
+			_ = (&installer{Setup: s}).restartSSH(ctx)
+			s.Out.Info("SSH password logins are back to the system's setting")
+		}
 	}
 	rm("/usr/local/bin/hostctl", "/usr/local/sbin/hostd-setup", "/usr/local/bin/hostd-switch",
 		"/usr/local/share/hostd-setup", "/usr/local/lib/hostd", "/usr/local/share/hostd")

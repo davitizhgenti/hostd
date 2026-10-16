@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ type fakeMachine struct {
 	hostdUp  bool
 	tokens   int
 	restarts int
+	sshdBad  bool // sshd -t refuses the config
 }
 
 func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
@@ -93,6 +95,8 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		return []byte(`[]`), nil
 	case line == "hostname -I":
 		return []byte("10.0.0.5 fd00::5\n"), nil
+	case line == "sshd -t" && f.sshdBad:
+		return []byte("/etc/ssh/sshd_config line 12: bad option"), fail
 	case line == "systemctl is-enabled --quiet greetd", line == "systemctl is-enabled --quiet hostd-update.timer":
 		return nil, nil
 	}
@@ -213,5 +217,60 @@ func TestNvidiaDetection(t *testing.T) {
 	}
 	if err := in.nvidiaSway(ctx); err != nil || in.swayCommand != "/usr/local/lib/hostd/start-sway" || !in.needReboot {
 		t.Fatalf("nvidia sway: %v %q %v", err, in.swayCommand, in.needReboot)
+	}
+}
+
+func TestSSHKeysOnly(t *testing.T) {
+	setup := func(t *testing.T, o Options) (*fakeMachine, *installer, *bytes.Buffer) {
+		m := newFakeMachine(t)
+		os.MkdirAll(filepath.Join(m.root, "usr/sbin"), 0o755)
+		os.WriteFile(filepath.Join(m.root, "usr/sbin/sshd"), nil, 0o755)
+		var out bytes.Buffer
+		s := &Setup{Root: m.root, Run: m, Out: NewOutput(&out, true), Chown: func(string, string) error { return nil }}
+		return m, &installer{Setup: s, o: o}, &out
+	}
+	dropIn := func(m *fakeMachine) string {
+		b, _ := os.ReadFile(filepath.Join(m.root, sshdDropIn))
+		return string(b)
+	}
+	ran := func(m *fakeMachine, line string) bool { return slices.Contains(m.ran, line) }
+
+	// The admin has a key: passwords go, after sshd has checked the result.
+	m, in, out := setup(t, Options{SudoUser: "admin"})
+	if err := in.sshKeysOnly(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dropIn(m), "PasswordAuthentication no") || !ran(m, "sshd -t") || !ran(m, "systemctl reload ssh") {
+		t.Fatalf("drop-in %q, ran %q", dropIn(m), m.ran)
+	}
+	if !strings.Contains(out.String(), "admin logs in with one of its 1 key(s)") {
+		t.Fatalf("output:\n%s", out)
+	}
+	m.ran = nil
+	if err := in.sshKeysOnly(context.Background()); err != nil || ran(m, "systemctl reload ssh") {
+		t.Fatalf("second run reloaded sshd: %v %q", err, m.ran)
+	}
+
+	// No key: nothing changes, and it says how to add one.
+	m, in, out = setup(t, Options{SudoUser: "admin"})
+	os.WriteFile(filepath.Join(m.root, "home/admin/.ssh/authorized_keys"), []byte("# none yet\n"), 0o600)
+	if err := in.sshKeysOnly(context.Background()); err != nil || dropIn(m) != "" || !strings.Contains(out.String(), "ssh-copy-id admin@") {
+		t.Fatalf("no key: %v %q\n%s", err, dropIn(m), out)
+	}
+
+	// The update timer (no admin), and --ssh-passwords keep: nothing changes.
+	for _, o := range []Options{{}, {SudoUser: "admin", SSHPasswords: "keep"}} {
+		m, in, _ = setup(t, o)
+		if err := in.sshKeysOnly(context.Background()); err != nil || dropIn(m) != "" {
+			t.Fatalf("%+v: %v %q", o, err, dropIn(m))
+		}
+	}
+
+	// sshd refuses the result: it is taken back, sshd is not reloaded.
+	m, in, out = setup(t, Options{SudoUser: "admin"})
+	m.sshdBad = true
+	if err := in.sshKeysOnly(context.Background()); err != nil || dropIn(m) != "" || ran(m, "systemctl reload ssh") ||
+		!strings.Contains(out.String(), "left as it was") {
+		t.Fatalf("refused: %v %q %q\n%s", err, dropIn(m), m.ran, out)
 	}
 }

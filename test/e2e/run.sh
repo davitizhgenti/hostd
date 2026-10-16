@@ -74,9 +74,13 @@ running_version() { gs 'hostctl version' 2>/dev/null | awk '/^hostd /{print $2}'
 version_is() { [ "$(running_version)" = "$1" ]; }
 second_install() { ga 'sudo ~/deploy/install.sh --gpu other --from ~/dist' | grep -q 'No changes needed'; }
 app_runs() { gs "kill -0 $PID && hostctl ps | grep -q '^e2e-sleep .*running'"; }
-api_version() { curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7300/v1/version | grep -q '"version"'; }
-api_without_token() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7300/v1/version)" = 401 ]; }
-docs_served() { curl -fsS http://127.0.0.1:7300/docs/ | grep -qi 'hostd'; }
+# The API is HTTPS with the machine's own CA, which the checks trust (its
+# leaf certificate names 127.0.0.1 among the machine's addresses).
+fetch_ca() { gs 'cat ~/.local/state/hostd/tls/ca.pem' >"$OUT/ca.pem" && grep -q 'BEGIN CERTIFICATE' "$OUT/ca.pem"; }
+api_version() { curl -fsS --cacert "$OUT/ca.pem" -H "Authorization: Bearer $TOKEN" https://127.0.0.1:7300/v1/version | grep -q '"version"'; }
+api_without_token() { [ "$(curl -s --cacert "$OUT/ca.pem" -o /dev/null -w '%{http_code}' https://127.0.0.1:7300/v1/version)" = 401 ]; }
+api_not_plain() { [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7300/v1/version)" = 400 ]; }
+docs_served() { curl -fsS --cacert "$OUT/ca.pem" https://127.0.0.1:7300/docs/ | grep -qi 'hostd'; }
 
 cleanup() {
 	if [ -f "$VM/qemu.pid" ]; then
@@ -138,6 +142,7 @@ else
 	exit 1
 fi
 t "a second run changes nothing" second_install
+t "SSH accepts keys only (the admin has one)" ga 'sudo sshd -T | grep -qx "passwordauthentication no"'
 t "hostd runs as the screen user's service" wait_for 60 hostd_up
 
 # --- the first boot into the session --------------------------------------
@@ -207,7 +212,9 @@ t "no unit failed after it" ga '! systemctl --failed --no-legend | grep -q .'
 
 # --- from outside the VM ---------------------------------------------------
 echo "the network API"
-t "the API answers with the token" api_version
+t "the machine's CA is in its state folder" fetch_ca
+t "the API answers over HTTPS with the token" api_version
+t "plain HTTP does not reach the API" api_not_plain
 t "the API refuses a request without a token" api_without_token
 t "the docs are served without a token" docs_served
 
