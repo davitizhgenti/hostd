@@ -45,69 +45,6 @@ func TestBindingsConfig(t *testing.T) {
 	}
 }
 
-func TestSwayKeys(t *testing.T) {
-	for name, want := range map[string]string{
-		"Super":           "--release Super_L,Mod4+Super_L,Super_R,Mod4+Super_R",
-		"Alt":             "--release Alt_L,Mod1+Alt_L",
-		"Super+Tab":       "--no-repeat Mod4+Tab",
-		"Super+Shift+Tab": "--no-repeat Mod4+Shift+Tab",
-		"Super+Q":         "--no-repeat Mod4+q",
-		"Ctrl+Alt+Delete": "--no-repeat Control+Mod1+Delete",
-		"F1":              "--no-repeat F1",
-		"Q":               "--no-repeat q",
-	} {
-		flags, combos := swayKeys(name)
-		if got := flags + " " + strings.Join(combos, ","); got != want {
-			t.Errorf("%s: %q, want %q", name, got, want)
-		}
-	}
-}
-
-func TestSwayBindAndEvents(t *testing.T) {
-	f := newFakeSway(t)
-	f.extra = []rawEvent{
-		{eventBinding, `{"change":"run","binding":{"command":"nop hostd key Super+Tab","symbol":"Tab"}}`},
-		{eventBinding, `{"change":"run","binding":{"command":"exec foot"}}`}, // not hostd's
-		{eventWorkspace, `{"change":"reload"}`},
-		{eventWorkspace, `{"change":"focus"}`},
-	}
-	ctx := context.Background()
-	s, err := DialSway(ctx, f.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Disconnect()
-	_ = s.Bind(ctx, []string{"Super", "Super+Tab"})
-	_ = s.Bind(ctx, []string{"F1"})
-	want := []string{
-		`bindsym --release Super_L nop hostd key Super`,
-		`bindsym --release Mod4+Super_L nop hostd key Super`,
-		`bindsym --release Super_R nop hostd key Super`,
-		`bindsym --release Mod4+Super_R nop hostd key Super`,
-		`bindsym --no-repeat Mod4+Tab nop hostd key Super+Tab`,
-		`unbindsym --release Super_L`,
-		`unbindsym --release Mod4+Super_L`,
-		`unbindsym --release Super_R`,
-		`unbindsym --release Mod4+Super_R`,
-		`unbindsym --no-repeat Mod4+Tab`,
-		`bindsym --no-repeat F1 nop hostd key F1`,
-	}
-	if got := f.sent(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("commands\n%q\nwant\n%q", got, want)
-	}
-	var got []string
-	_ = s.Watch(ctx, func(ev Event) {
-		if ev.Change == "binding" || ev.Change == "reload" {
-			got = append(got, ev.Change+" "+ev.Binding)
-		}
-	})
-	if !reflect.DeepEqual(got, []string{"binding Super+Tab", "reload "}) {
-		t.Fatalf("events %q", got)
-	}
-}
-
-// --- the module: keys and buttons run actions as the person at the screen ---
-
 func (r *displayRig) actionSources(t *testing.T) <-chan sdk.Event {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

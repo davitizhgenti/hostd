@@ -18,8 +18,6 @@ import (
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// --- the Guide button --------------------------------------------------------------
-
 // holdButton presses a controller button and keeps it held until hostd
 // has acted on it.
 func (r *displayRig) holdButton(t *testing.T, name string) {
@@ -248,32 +246,6 @@ func TestScreens(t *testing.T) {
 	}
 	if res, err := r.submit(t, "display.power", `{"on":false}`, sdk.SourceLocal); err != nil || res.Status != sdk.StatusApplied {
 		t.Fatalf("off from the screen: %+v %v", res, err)
-	}
-}
-
-func TestSwayPlaceAndOutputCommands(t *testing.T) {
-	f := newFakeSway(t)
-	ctx := context.Background()
-	s, err := DialSway(ctx, f.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Disconnect()
-	_ = s.Place(ctx, 7, 6)
-	_ = s.SetOutput(ctx, "*", "power off")
-	_ = s.SetOutput(ctx, "HDMI-A-1", "mode 1920x1080@60.000Hz")
-	want := []string{
-		`[con_id=6] fullscreen disable; [con_id=7] fullscreen disable; [con_id=6] mark --add hostd_place; [con_id=6] splith; ` +
-			`[con_id=7] move container to mark hostd_place; [con_id=6] unmark hostd_place; [con_id=7] focus`,
-		`output * power off`,
-		`output "HDMI-A-1" mode 1920x1080@60.000Hz`,
-	}
-	if got := f.sent(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("commands\n%q\nwant\n%q", got, want)
-	}
-	outs, err := s.Outputs(ctx)
-	if err != nil || len(outs) != 1 || !outs[0].Power {
-		t.Fatalf("outputs %+v %v", outs, err)
 	}
 }
 

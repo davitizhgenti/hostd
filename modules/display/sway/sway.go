@@ -1,4 +1,4 @@
-package display
+package sway
 
 import (
 	"context"
@@ -12,87 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/davitizhgenti/hostd/modules/display/wm"
 )
-
-// Window is an application window.
-type Window struct {
-	ID         int64  `json:"id"`
-	PID        int    `json:"pid"`
-	AppID      string `json:"app_id,omitempty"` // Wayland app_id
-	Class      string `json:"class,omitempty"`  // X11 class (Xwayland apps, Steam games)
-	Title      string `json:"title"`
-	Workspace  string `json:"workspace"`
-	Output     string `json:"output,omitempty"`
-	Focused    bool   `json:"focused"`
-	Fullscreen bool   `json:"fullscreen"`
-	// Dialog: a window that belongs to another (floating, or an X11
-	// transient or dialog); it stays with that window.
-	Dialog bool `json:"dialog,omitempty"`
-}
-
-// Output is a screen.
-type Output struct {
-	Name    string  `json:"name"`
-	Make    string  `json:"make,omitempty"`
-	Model   string  `json:"model,omitempty"`
-	Width   int     `json:"width"`
-	Height  int     `json:"height"`
-	Refresh float64 `json:"refresh"` // Hz
-	Active  bool    `json:"active"`
-	Focused bool    `json:"focused"`
-	Power   bool    `json:"power"`           // false: the screen is off (power saving)
-	Modes   []Mode  `json:"modes,omitempty"` // what the screen supports
-}
-
-// Mode is a resolution and refresh rate.
-type Mode struct {
-	Width   int     `json:"width"`
-	Height  int     `json:"height"`
-	Refresh float64 `json:"refresh"` // Hz
-}
-
-func (m Mode) String() string { return fmt.Sprintf("%dx%d@%.3fHz", m.Width, m.Height, m.Refresh) }
-
-// Event is something that happened in the session:
-//   - a window change (Change is new, close, focus, title, fullscreen_mode,
-//     move...; Window is set),
-//   - "binding": one of hostd's key bindings fired (Binding is its input
-//     name, e.g. "Super+Tab"),
-//   - "reload": the compositor reloaded its config, which drops runtime
-//     bindings.
-type Event struct {
-	Change  string
-	Window  Window
-	Binding string
-}
-
-// Backend is the compositor. The display module's logic only talks to this
-// interface; Sway is the first implementation.
-type Backend interface {
-	Windows(ctx context.Context) ([]Window, error)
-	Outputs(ctx context.Context) ([]Output, error)
-	// Show switches the screen to a workspace.
-	Show(ctx context.Context, workspace string) error
-	// Move puts a window on a workspace.
-	Move(ctx context.Context, window int64, workspace string) error
-	Focus(ctx context.Context, window int64) error
-	Fullscreen(ctx context.Context, window int64, on bool) error
-	// CloseWindow asks a window to close, as its close button would.
-	CloseWindow(ctx context.Context, window int64) error
-	// Bind replaces hostd's key bindings. A fired binding is reported by
-	// Watch as an Event with Change "binding".
-	Bind(ctx context.Context, keys []string) error
-	// Place puts a window next to another, both windowed, side by side.
-	Place(ctx context.Context, window, beside int64) error
-	// SetOutput changes a screen: output is a name or "*", setting one of
-	// "power on|off", "enable", "disable", "mode WxH@RHz".
-	SetOutput(ctx context.Context, output, setting string) error
-	// Watch calls fn with window events until ctx ends or the compositor
-	// goes away (then it returns an error).
-	Watch(ctx context.Context, fn func(Event)) error
-	// Disconnect drops the connection to the compositor.
-	Disconnect() error
-}
 
 // Sway talks to Sway over its IPC socket.
 type Sway struct {
@@ -102,9 +24,9 @@ type Sway struct {
 	bound []string // the keys hostd bound last
 }
 
-// FindSway returns the IPC socket of the running Sway: $SWAYSOCK if it
+// Find returns the IPC socket of the running Sway: $SWAYSOCK if it
 // answers, else the newest sway-ipc.*.sock in runtimeDir that does.
-func FindSway(ctx context.Context, runtimeDir string) (string, error) {
+func Find(ctx context.Context, runtimeDir string) (string, error) {
 	var candidates []string
 	if s := os.Getenv("SWAYSOCK"); s != "" {
 		candidates = append(candidates, s)
@@ -130,8 +52,8 @@ func mtime(path string) int64 {
 	return 0
 }
 
-// DialSway connects to Sway's socket.
-func DialSway(ctx context.Context, path string) (*Sway, error) {
+// Dial connects to Sway's socket.
+func Dial(ctx context.Context, path string) (*Sway, error) {
 	c, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
 	if err != nil {
 		return nil, err
@@ -209,8 +131,8 @@ func (n node) isWindow() bool {
 	return (n.Type == "con" || n.Type == "floating_con") && n.PID > 0 && (n.AppID != nil || n.WindowProperties != nil)
 }
 
-func (n node) window() Window {
-	w := Window{ID: n.ID, PID: n.PID, Focused: n.Focused, Fullscreen: n.FullscreenMode != 0}
+func (n node) window() wm.Window {
+	w := wm.Window{ID: n.ID, PID: n.PID, Focused: n.Focused, Fullscreen: n.FullscreenMode != 0}
 	if n.AppID != nil {
 		w.AppID = *n.AppID
 	}
@@ -226,8 +148,8 @@ func (n node) window() Window {
 }
 
 // windows walks the tree, noting each window's output and workspace.
-func windowsIn(root node) []Window {
-	var out []Window
+func windowsIn(root node) []wm.Window {
+	var out []wm.Window
 	var walk func(n node, output, workspace string)
 	walk = func(n node, output, workspace string) {
 		switch n.Type {
@@ -256,7 +178,7 @@ func windowsIn(root node) []Window {
 	return out
 }
 
-func (s *Sway) Windows(ctx context.Context) ([]Window, error) {
+func (s *Sway) Windows(ctx context.Context) ([]wm.Window, error) {
 	reply, err := s.request(ctx, ipcGetTree, nil)
 	if err != nil {
 		return nil, err
@@ -268,7 +190,7 @@ func (s *Sway) Windows(ctx context.Context) ([]Window, error) {
 	return windowsIn(root), nil
 }
 
-func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
+func (s *Sway) Outputs(ctx context.Context) ([]wm.Output, error) {
 	reply, err := s.request(ctx, ipcGetOutputs, nil)
 	if err != nil {
 		return nil, err
@@ -295,9 +217,9 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 	if err := json.Unmarshal(reply, &raw); err != nil {
 		return nil, err
 	}
-	out := make([]Output, len(raw))
+	out := make([]wm.Output, len(raw))
 	for i, o := range raw {
-		out[i] = Output{Name: o.Name, Make: o.Make, Model: o.Model, Active: o.Active, Focused: o.Focused,
+		out[i] = wm.Output{Name: o.Name, Make: o.Make, Model: o.Model, Active: o.Active, Focused: o.Focused,
 			Width: o.CurrentMode.Width, Height: o.CurrentMode.Height, Refresh: float64(o.CurrentMode.Refresh) / 1000,
 			Power: o.Active}
 		switch {
@@ -307,7 +229,7 @@ func (s *Sway) Outputs(ctx context.Context) ([]Output, error) {
 			out[i].Power = *o.DPMS
 		}
 		for _, md := range o.Modes {
-			out[i].Modes = append(out[i].Modes, Mode{Width: md.Width, Height: md.Height, Refresh: float64(md.Refresh) / 1000})
+			out[i].Modes = append(out[i].Modes, wm.Mode{Width: md.Width, Height: md.Height, Refresh: float64(md.Refresh) / 1000})
 		}
 	}
 	return out, nil
@@ -438,7 +360,7 @@ func (s *Sway) CloseWindow(ctx context.Context, window int64) error {
 
 // Watch subscribes on a second connection, since the first one carries
 // requests and replies.
-func (s *Sway) Watch(ctx context.Context, fn func(Event)) error {
+func (s *Sway) Watch(ctx context.Context, fn func(wm.Event)) error {
 	c, err := (&net.Dialer{}).DialContext(ctx, "unix", s.path)
 	if err != nil {
 		return err
@@ -478,7 +400,7 @@ func (s *Sway) Watch(ctx context.Context, fn func(Event)) error {
 				Container node   `json:"container"`
 			}
 			if json.Unmarshal(payload, &ev) == nil {
-				fn(Event{Change: ev.Change, Window: ev.Container.window()})
+				fn(wm.Event{Change: ev.Change, Window: ev.Container.window()})
 			}
 		case eventBinding:
 			var ev struct {
@@ -488,7 +410,7 @@ func (s *Sway) Watch(ctx context.Context, fn func(Event)) error {
 			}
 			if json.Unmarshal(payload, &ev) == nil {
 				if name, ok := strings.CutPrefix(ev.Binding.Command, bindPrefix); ok {
-					fn(Event{Change: "binding", Binding: name})
+					fn(wm.Event{Change: "binding", Binding: name})
 				}
 			}
 		case eventWorkspace:
@@ -496,7 +418,7 @@ func (s *Sway) Watch(ctx context.Context, fn func(Event)) error {
 				Change string `json:"change"`
 			}
 			if json.Unmarshal(payload, &ev) == nil && ev.Change == "reload" {
-				fn(Event{Change: "reload"})
+				fn(wm.Event{Change: "reload"})
 			}
 		}
 	}

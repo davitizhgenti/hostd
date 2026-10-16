@@ -18,6 +18,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/gpu"
 	"github.com/davitizhgenti/hostd/internal/notify"
 	"github.com/davitizhgenti/hostd/internal/presence"
+	"github.com/davitizhgenti/hostd/modules/display/sway"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -87,11 +88,11 @@ type Options struct {
 // SwayConnector connects to the Sway running in runtimeDir.
 func SwayConnector(runtimeDir string) func(context.Context) (Backend, error) {
 	return func(ctx context.Context) (Backend, error) {
-		path, err := FindSway(ctx, runtimeDir)
+		path, err := sway.Find(ctx, runtimeDir)
 		if err != nil {
 			return nil, err
 		}
-		return DialSway(ctx, path)
+		return sway.Dial(ctx, path)
 	}
 }
 

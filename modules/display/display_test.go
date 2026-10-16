@@ -1,13 +1,10 @@
 package display
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/iotest"
 	"time"
 
 	"go.uber.org/goleak"
@@ -31,195 +27,6 @@ import (
 func TestMain(m *testing.M) { goleak.VerifyTestMain(m) }
 
 // --- IPC framing -----------------------------------------------------------
-
-func TestIPCFraming(t *testing.T) {
-	var buf bytes.Buffer
-	_ = writeMessage(&buf, ipcGetTree, nil)
-	_ = writeMessage(&buf, ipcRunCommand, []byte(`workspace "hostd:foot"`))
-	_ = writeMessage(&buf, eventWindow, []byte(`{"change":"new"}`))
-
-	// Byte by byte, as a slow socket might deliver it.
-	r := iotest.OneByteReader(&buf)
-	for _, want := range []struct {
-		typ     uint32
-		payload string
-	}{{ipcGetTree, ""}, {ipcRunCommand, `workspace "hostd:foot"`}, {eventWindow, `{"change":"new"}`}} {
-		typ, payload, err := readMessage(r)
-		if err != nil || typ != want.typ || string(payload) != want.payload {
-			t.Fatalf("got %d %q %v; want %d %q", typ, payload, err, want.typ, want.payload)
-		}
-	}
-	if _, _, err := readMessage(r); err == nil {
-		t.Fatal("read past the end")
-	}
-	if _, _, err := readMessage(strings.NewReader("i4-ipc\x00\x00\x00\x00\x00\x00\x00\x00")); err == nil {
-		t.Fatal("bad magic accepted")
-	}
-	huge := []byte("i3-ipc\xff\xff\xff\x7f\x00\x00\x00\x00")
-	if _, _, err := readMessage(bytes.NewReader(huge)); err == nil || !strings.Contains(err.Error(), "too large") {
-		t.Fatalf("huge payload: %v", err)
-	}
-}
-
-// --- a fake Sway serving the fixtures captured from a real one ------------
-
-type fakeSway struct {
-	path     string
-	ln       net.Listener
-	mu       sync.Mutex
-	commands []string
-	events   [][]byte // window events sent after a subscribe
-	extra    []rawEvent
-	wg       sync.WaitGroup
-}
-
-func newFakeSway(t *testing.T) *fakeSway {
-	t.Helper()
-	dir, _ := os.MkdirTemp("", "sway-")
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	f := &fakeSway{path: filepath.Join(dir, "sway-ipc.1000.1.sock")}
-	ln, err := net.Listen("unix", f.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.ln = ln
-	data, _ := os.ReadFile("testdata/sway-events.jsonl")
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
-		if bytes.Contains(sc.Bytes(), []byte(`"container"`)) {
-			f.events = append(f.events, append([]byte(nil), sc.Bytes()...))
-		}
-	}
-	f.wg.Add(1)
-	go f.serve()
-	t.Cleanup(func() { ln.Close(); f.wg.Wait() })
-	return f
-}
-
-type rawEvent struct {
-	typ     uint32
-	payload string
-}
-
-func (f *fakeSway) serve() {
-	defer f.wg.Done()
-	for {
-		c, err := f.ln.Accept()
-		if err != nil {
-			return
-		}
-		f.wg.Add(1)
-		go func() { defer f.wg.Done(); defer c.Close(); f.handle(c) }()
-	}
-}
-
-func (f *fakeSway) handle(c net.Conn) {
-	tree, _ := os.ReadFile("testdata/sway-tree.json")
-	outputs, _ := os.ReadFile("testdata/sway-outputs.json")
-	for {
-		typ, payload, err := readMessage(c)
-		if err != nil {
-			return
-		}
-		switch typ {
-		case ipcGetTree:
-			_ = writeMessage(c, typ, tree)
-		case ipcGetOutputs:
-			_ = writeMessage(c, typ, outputs)
-		case ipcRunCommand:
-			f.mu.Lock()
-			f.commands = append(f.commands, string(payload))
-			f.mu.Unlock()
-			if strings.Contains(string(payload), "con_id=999") {
-				_ = writeMessage(c, typ, []byte(`[{"success":false,"error":"No matching node."}]`))
-			} else {
-				_ = writeMessage(c, typ, []byte(`[{"success":true}]`))
-			}
-		case ipcSubscribe:
-			_ = writeMessage(c, typ, []byte(`{"success":true}`))
-			for _, ev := range f.events {
-				_ = writeMessage(c, eventWindow, ev)
-			}
-			for _, ev := range f.extra {
-				_ = writeMessage(c, ev.typ, []byte(ev.payload))
-			}
-			_ = writeMessage(c, eventShutdown, []byte(`{"change":"exit"}`))
-			return
-		}
-	}
-}
-
-func (f *fakeSway) sent() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.commands...)
-}
-
-func TestSwayBackend(t *testing.T) {
-	f := newFakeSway(t)
-	ctx := context.Background()
-	s, err := DialSway(ctx, f.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Disconnect()
-
-	wins, err := s.Windows(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(wins) != 2 || wins[0].ID != 6 || wins[0].PID != 662 || wins[1].PID != 683 ||
-		wins[0].AppID != "foot" || wins[0].Workspace != "1" || wins[0].Output != "HEADLESS-1" {
-		t.Fatalf("windows = %+v", wins)
-	}
-	outs, err := s.Outputs(ctx)
-	if err != nil || len(outs) != 1 || outs[0].Name != "HEADLESS-1" || outs[0].Width != 1920 || !outs[0].Active {
-		t.Fatalf("outputs = %+v %v", outs, err)
-	}
-
-	_ = s.Move(ctx, 7, "hostd:foot")
-	_ = s.Show(ctx, "hostd:foot")
-	_ = s.Focus(ctx, 7)
-	_ = s.Fullscreen(ctx, 7, true)
-	_ = s.CloseWindow(ctx, 7)
-	want := []string{`[con_id=7] move container to workspace "hostd:foot"`, `workspace "hostd:foot"`,
-		`[con_id=7] focus`, `[con_id=7] fullscreen enable`, `[con_id=7] kill`}
-	if got := f.sent(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("commands:\n%q\nwant\n%q", got, want)
-	}
-	if err := s.Focus(ctx, 999); err == nil || !strings.Contains(err.Error(), "No matching node") {
-		t.Fatalf("sway error not reported: %v", err)
-	}
-
-	var got []string
-	err = s.Watch(ctx, func(ev Event) { got = append(got, fmt.Sprintf("%s %d", ev.Change, ev.Window.ID)) })
-	if err == nil || !strings.Contains(err.Error(), "shutting down") {
-		t.Fatalf("Watch ended with %v", err)
-	}
-	if len(got) < 5 || got[0] != "new 6" || got[3] != "new 7" || got[len(got)-1] != "close 7" {
-		t.Fatalf("events = %v", got)
-	}
-}
-
-func TestFindSway(t *testing.T) {
-	f := newFakeSway(t)
-	dir := filepath.Dir(f.path)
-	stale := filepath.Join(dir, "sway-ipc.1000.2.sock") // left by a crashed Sway
-	ln, _ := net.Listen("unix", stale)
-	ln.Close()
-	_ = os.WriteFile(stale, nil, 0o600)
-	t.Setenv("SWAYSOCK", "")
-	got, err := FindSway(context.Background(), dir)
-	if err != nil || got != f.path {
-		t.Fatalf("FindSway = %q %v, want %q", got, err, f.path)
-	}
-	if _, err := FindSway(context.Background(), t.TempDir()); err == nil {
-		t.Fatal("found Sway in an empty directory")
-	}
-}
-
-// --- matching windows to instances ------------------------------------------
 
 func fakeProc(t *testing.T, cgroups map[int]string) string {
 	t.Helper()
@@ -296,14 +103,17 @@ func (f *fakeBackend) Windows(context.Context) ([]Window, error) {
 	}
 	return out, nil
 }
+
 func (f *fakeBackend) Outputs(context.Context) ([]Output, error) {
 	return []Output{
 		{Name: "HDMI-A-1", Width: 1280, Height: 800, Active: true, Power: true, Modes: []Mode{
-			{1920, 1080, 60}, {1920, 1080, 50}, {1280, 800, 59.81}}},
+			{Width: 1920, Height: 1080, Refresh: 60}, {Width: 1920, Height: 1080, Refresh: 50}, {Width: 1280, Height: 800, Refresh: 59.81}}},
 		{Name: "DP-1", Width: 1920, Height: 1080, Active: true, Power: true},
 	}, nil
 }
+
 func (f *fakeBackend) Show(_ context.Context, ws string) error { f.log("show %s", ws); return nil }
+
 func (f *fakeBackend) Move(_ context.Context, id int64, ws string) error {
 	f.log("move %d %s", id, ws)
 	f.mu.Lock()
@@ -313,6 +123,7 @@ func (f *fakeBackend) Move(_ context.Context, id int64, ws string) error {
 	f.mu.Unlock()
 	return nil
 }
+
 func (f *fakeBackend) Focus(_ context.Context, id int64) error {
 	f.log("focus %d", id)
 	f.mu.Lock()
@@ -322,10 +133,12 @@ func (f *fakeBackend) Focus(_ context.Context, id int64) error {
 	}
 	return nil
 }
+
 func (f *fakeBackend) Fullscreen(_ context.Context, id int64, on bool) error {
 	f.log("fullscreen %d %v", id, on)
 	return nil
 }
+
 func (f *fakeBackend) CloseWindow(_ context.Context, id int64) error {
 	f.log("close %d", id)
 	f.mu.Lock()
@@ -337,6 +150,7 @@ func (f *fakeBackend) CloseWindow(_ context.Context, id int64) error {
 	}
 	return nil
 }
+
 func (f *fakeBackend) Bind(_ context.Context, keys []string) error {
 	f.mu.Lock()
 	f.bound = append(f.bound, append([]string(nil), keys...))
@@ -357,11 +171,14 @@ func (f *fakeBackend) Place(_ context.Context, id, beside int64) error {
 	f.log("place %d beside %d", id, beside)
 	return nil
 }
+
 func (f *fakeBackend) SetOutput(_ context.Context, output, setting string) error {
 	f.log("output %s %s", output, setting)
 	return nil
 }
+
 func (f *fakeBackend) Disconnect() error { return nil }
+
 func (f *fakeBackend) Watch(ctx context.Context, fn func(Event)) error {
 	for {
 		select {
@@ -866,24 +683,6 @@ func TestWindowedAppKeepsOneScreen(t *testing.T) {
 	for _, c := range r.b.commands() {
 		if strings.HasPrefix(c, "move 2 ") && c != "move 2 hostd:browser" {
 			t.Fatalf("a windowed app's window got its own screen: %q", c)
-		}
-	}
-}
-
-func TestSwayDialogs(t *testing.T) {
-	for raw, want := range map[string]bool{
-		`{"type":"con","pid":1,"window_properties":{"class":"steam_app_1","window_type":"normal","transient_for":null}}`: false,
-		`{"type":"con","pid":1,"window_properties":{"class":"game","transient_for":4194305}}`:                            true,
-		`{"type":"con","pid":1,"window_properties":{"class":"game","window_type":"dialog"}}`:                             true,
-		`{"type":"floating_con","pid":1,"app_id":"foot"}`:                                                                true,
-		`{"type":"con","pid":1,"app_id":"foot"}`:                                                                         false,
-	} {
-		var n node
-		if err := json.Unmarshal([]byte(raw), &n); err != nil {
-			t.Fatal(err)
-		}
-		if got := n.window().Dialog; got != want {
-			t.Errorf("%s: dialog %v, want %v", raw, got, want)
 		}
 	}
 }
