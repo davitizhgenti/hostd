@@ -36,7 +36,7 @@ on. --ca-fingerprint gives it instead, for scripts.
 The token is read from --token-file, or from standard input: paste the
 admin token that hostd printed on its first start, or one made with
 hostctl token create.`,
-		Example: `  hostctl login core
+		Example: `  hostctl login core.local
   hostctl login 192.168.18.33:7300 --ca-fingerprint 1f2e3d4c... --token-file token.txt`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -126,6 +126,10 @@ func (a *app) trustCA(cmd *cobra.Command, addr, want string, in *bufio.Reader, t
 	d := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // only to read the CA, which is then confirmed
 	conn, err := d.DialContext(cmd.Context(), "tcp", u.Host)
 	if err != nil {
+		if dnsErr := (*net.DNSError)(nil); errors.As(err, &dnsErr) && dnsErr.IsNotFound && !strings.Contains(u.Hostname(), ".") {
+			// Often an SSH alias, which only ssh knows.
+			return "", fmt.Errorf("cannot reach %s: the network does not know the name %q; try %s.local or the machine's address", u.Host, u.Hostname(), u.Hostname())
+		}
 		return "", fmt.Errorf("cannot reach %s over HTTPS: %w", u.Host, err)
 	}
 	cs := conn.(*tls.Conn).ConnectionState()
