@@ -363,8 +363,14 @@ func TestEngineAPIStopRemoveList(t *testing.T) {
 
 func TestDefaultEngineSocket(t *testing.T) {
 	rt := t.TempDir()
-	if got := podman.DefaultEngineSocket(rt); got != filepath.Join(rt, "podman", "podman.sock") {
-		t.Fatalf("none there: %s", got)
+	// With none in the runtime folder: the system's Docker (a CI machine has
+	// one), else where Podman's would be.
+	want := filepath.Join(rt, "podman", "podman.sock")
+	if fi, err := os.Stat("/var/run/docker.sock"); err == nil && fi.Mode()&os.ModeSocket != 0 {
+		want = "/var/run/docker.sock"
+	}
+	if got := podman.DefaultEngineSocket(rt); got != want {
+		t.Fatalf("none there: %s, want %s", got, want)
 	}
 	sock := filepath.Join(rt, "docker.sock")
 	ln, err := net.Listen("unix", sock)
