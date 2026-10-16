@@ -2,12 +2,17 @@
 
     from hostd import Hostd
 
-    core = Hostd("http://192.168.18.33:7300", token="hostd_...")   # or HOSTD_URL, HOSTD_TOKEN
+    core = Hostd("192.168.18.33", token="hostd_...", ca_fingerprint="1f2e...")
+    # or HOSTD_URL, HOSTD_TOKEN, HOSTD_CA_FINGERPRINT (hostctl tls on the machine shows it)
     core.notice("Tests are running")
     result = core.run(["pytest", "-q", "/home/screen/proj"], background=True, wait=True)
     print(result.exit_code, "\\n".join(result.lines))
     core.start("show", file="/home/screen/plot.png")    # an app that takes arguments
     core.run(["imv", "-f", "/home/screen/plot.png"])     # any command, full screen
+
+The machine serves its API over HTTPS with a certificate authority of its
+own: ca_fingerprint pins it (the client trusts that CA and nothing else,
+whatever name or address it uses), or ca_file names its ca.pem.
 
 A token needs the scopes of what it does: apps to start and stop apps,
 run to run commands and define apps, read to read (see docs/api.md).
@@ -15,8 +20,10 @@ Every call raises HostdError when hostd refuses it, with its code
 ("forbidden", "not_found", "invalid_args"...).
 """
 
+import hashlib
 import json
 import os
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -50,15 +57,52 @@ class Finished:
 
 
 class Hostd:
-    def __init__(self, url=None, token=None, timeout=60):
+    def __init__(self, url=None, token=None, ca_fingerprint=None, ca_file=None, timeout=60):
         url = url or os.environ.get("HOSTD_URL", "")
         if not url:
             raise ValueError("no hostd address: Hostd(url=...) or HOSTD_URL")
         if "://" not in url:
-            url = "http://" + url
-        self.url = url.rstrip("/")
+            url = "https://" + url
+        scheme, rest = url.split("://", 1)
+        host = rest.split("/", 1)[0]
+        if ":" not in host.rsplit("]", 1)[-1]:
+            rest = host + ":7300" + rest[len(host):]
+        self.url = (scheme + "://" + rest).rstrip("/")
         self.token = token or os.environ.get("HOSTD_TOKEN", "")
         self.timeout = timeout
+        fp = ca_fingerprint or os.environ.get("HOSTD_CA_FINGERPRINT", "")
+        self.ca_fingerprint = fp.replace(":", "").replace(" ", "").lower()
+        self.ca_file = ca_file
+        self._context = None
+
+    def _ssl(self):
+        """The SSL context: the pinned CA only, or the system's CAs."""
+        if self._context is not None or not self.url.startswith("https://"):
+            return self._context
+        if not self.ca_fingerprint and not self.ca_file:
+            self._context = ssl.create_default_context()
+            return self._context
+        if self.ca_file:
+            with open(self.ca_file) as f:
+                ca_pem = f.read()
+        else:
+            # The CA is public: fetch it over an unchecked connection, then
+            # accept it only if it is the one pinned.
+            loose = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            loose.check_hostname, loose.verify_mode = False, ssl.CERT_NONE
+            with urllib.request.urlopen(self.url + "/v1/tls/ca.pem", timeout=self.timeout, context=loose) as res:
+                ca_pem = res.read().decode()
+            got = hashlib.sha256(ssl.PEM_cert_to_DER_cert(ca_pem)).hexdigest()
+            if got != self.ca_fingerprint:
+                raise HostdError("ca_mismatch", f"the machine's CA is {got}, not the one pinned: another machine, "
+                                 "or someone in between")
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_verify_locations(cadata=ca_pem)
+        ctx.check_hostname = False  # the CA vouches for this machine only, by any name or address
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        self._context = ctx
+        return ctx
 
     # --- the API ---------------------------------------------------------------
 
@@ -71,7 +115,7 @@ class Hostd:
         if data is not None:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as res:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=self._ssl()) as res:
                 raw = res.read()
         except urllib.error.HTTPError as e:
             raw = e.read()

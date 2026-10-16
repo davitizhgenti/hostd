@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -458,12 +459,17 @@ func TestSourceCheck(t *testing.T) {
 		"[2a00:1450:4001:80b::200e]:443": false,
 		"garbage":                        false,
 	} {
-		if got := allowedPeer(addr); got != ok {
+		if got := allowedPeer(addr, nil); got != ok {
 			t.Errorf("allowedPeer(%s) = %v, want %v", addr, got, ok)
 		}
 	}
+	// A VPN's network, when allowed (Tailscale's).
+	tailnet := []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10")}
+	if allowedPeer("100.101.102.103:5000", nil) || !allowedPeer("100.101.102.103:5000", tailnet) || allowedPeer("8.8.8.8:1", tailnet) {
+		t.Error("allow list")
+	}
 	// The middleware answers 403 before authentication.
-	h := privateOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) }))
+	h := privateOnly(nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) }))
 	for addr, want := range map[string]int{"8.8.8.8:1": 403, "192.168.1.2:1": 299} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/v1/version", nil)

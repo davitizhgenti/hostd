@@ -86,6 +86,10 @@ browser = ["firefox", "{url}"]
 		"[display]\nidle_after = \"-1m\"":                            "idle_after is negative",
 		"[display]\nidle_after = \"soon\"":                           "not a duration",
 		"[audio]\nvolume = 5":                                        "the audio module has no settings",
+		"[api]\ntls = false":                                         "insecure_http",
+		"[api]\nallow = [\"tailscale\"]":                             "not a network",
+		"[api]\nnames = [\"my core\"]":                               "not a host name",
+		"[api]\nport = 1":                                            "unknown key(s): api.port",
 		`modules = ["apps", "lights"]`:                               `no module "lights"`,
 		`modules = ["apps", "apps"]`:                                 "listed twice",
 		`listn = ":7300"`:                                            "unknown key(s): listn",
@@ -243,6 +247,15 @@ func TestDropIns(t *testing.T) {
 	if time.Duration(d.IdleAfter) != 9*time.Minute || d.Keys["F1"] != "display.menu" ||
 		!reflect.DeepEqual(confs["apps"].(*apps.Config).Browser, []string{"firefox", "{url}"}) {
 		t.Fatalf("merged: %+v %+v", d, confs["apps"])
+	}
+
+	// [api] may come from a drop-in too (the Tailscale add-on's).
+	c, err = LoadConfig(setup(t, "", map[string]string{"tailscale.toml": "[api]\nallow = [\"100.64.0.0/10\"]\nnames = [\"core.tail1234.ts.net\"]\n"}))
+	if err != nil || !c.API.TLSOn() || len(c.API.AllowPrefixes()) != 1 || c.API.Names[0] != "core.tail1234.ts.net" {
+		t.Fatalf("[api] from a drop-in: %+v %v", c.API, err)
+	}
+	if c, err := LoadConfig(setup(t, "[api]\ntls = false\ninsecure_http = true\n", nil)); err != nil || c.API.TLSOn() {
+		t.Fatalf("plain HTTP, asked for: %+v %v", c.API, err)
 	}
 
 	// Drop-ins alone, with no hostd.toml.

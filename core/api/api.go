@@ -6,6 +6,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"runtime"
 	"sort"
@@ -47,6 +49,17 @@ type Options struct {
 	// DocsDir, if set, is served at /docs/ without a token (the docs site,
 	// static files); / then leads there.
 	DocsDir string
+	// TLS, if set, serves the TCP listener over HTTPS. Plain HTTP on the
+	// same port gets only the docs, and an error saying where the API is.
+	// The unix socket stays plain HTTP: it never leaves the machine.
+	TLS *tls.Config
+	// CA, if set, is served at GET /v1/tls/ca.pem without a token (the
+	// machine's CA, to pin or install), and TLSInfo at GET /v1/tls.
+	CA      []byte
+	TLSInfo func() any
+	// Allow are networks trusted on TCP beside the private ones: a VPN's,
+	// such as Tailscale's 100.64.0.0/10.
+	Allow []netip.Prefix
 }
 
 // Updater installs a new hostd and restarts into it.
@@ -132,6 +145,20 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 				return nil, fmt.Errorf("module %q, hook %q: %w", m.Name, hk.Name, err)
 			}
 		}
+	}
+	if len(opts.CA) > 0 {
+		// Public: what a client pins before it has a token.
+		srv.mux.HandleFunc("GET /v1/tls/ca.pem", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/x-pem-file")
+			_, _ = w.Write(opts.CA)
+		})
+		srv.mux.HandleFunc("GET /v1/tls", func(w http.ResponseWriter, _ *http.Request) {
+			var info any = map[string]any{}
+			if opts.TLSInfo != nil {
+				info = opts.TLSInfo()
+			}
+			writeJSON(w, http.StatusOK, info)
+		})
 	}
 	if opts.DocsDir != "" {
 		// Public pages: no token, but on TCP still the home network only.
@@ -227,8 +254,15 @@ func (s *Server) Serve(ctx context.Context, unixPath, tcpAddr string) error {
 			}
 			return err
 		}
-		listeners = append(listeners, ln)
-		servers = append(servers, &http.Server{Handler: s.withBasics(privateOnly(s.mux)), ReadHeaderTimeout: 10 * time.Second})
+		api := &http.Server{Handler: s.withBasics(privateOnly(s.opts.Allow, s.mux)), ReadHeaderTimeout: 10 * time.Second}
+		if s.opts.TLS == nil {
+			listeners = append(listeners, ln)
+			servers = append(servers, api)
+		} else {
+			secure, plain := splitTLS(ln, s.opts.TLS)
+			listeners = append(listeners, secure, plain)
+			servers = append(servers, api, &http.Server{Handler: s.withBasics(privateOnly(s.opts.Allow, s.plainHandler())), ReadHeaderTimeout: 10 * time.Second})
+		}
 	}
 
 	if s.opts.OnListening != nil {

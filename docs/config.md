@@ -41,7 +41,15 @@ guide = "display.menu"
 [external.lights]
 command = ["python3", "/home/screen/hostd/modules/lights.py"]
 env     = { LIGHTS_BRIDGE = "192.168.1.20" }
+
+# How the API is served on the network (listen). HTTPS with the machine's
+# own CA, always, unless tls = false and insecure_http = true.
+[api]
+allow = ["100.64.0.0/10"]          # networks trusted beside the private ones (a VPN's)
+names = ["core.tail1234.ts.net"]   # more names for the certificate
 ```
+
+The CA is made at the first start, for the host name, `<host>.local`, the names in `[api] names` and private addresses (Tailscale's included). It is kept in `~/.local/state/hostd/tls`; its certificate for the API is renewed by itself, before it expires and when the machine's addresses change. A name added to `names` later is left out of the certificate (`hostctl tls` says so), because the CA cannot vouch for names it was not made for: to remake it, stop hostd, remove that folder, start hostd, and log in again on every device. `[api]` may come from a drop-in file, as the Tailscale add-on's does.
 
 In 0.1, `idle_after`, `browser` and `gamescope` were top-level keys, and the bindings were `[input]`, `[input.keys]` and `[input.buttons]`. hostd now refuses those names and says where each one moved. The audio, deploy and automation modules have no settings yet, so a section for one of them is an error.
 

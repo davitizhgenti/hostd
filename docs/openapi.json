@@ -3640,6 +3640,65 @@
         ]
       }
     },
+    "/v1/tls": {
+      "get": {
+        "operationId": "core.tls",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "TLS"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "The machine's CA fingerprint and the certificate the API serves (no token: what a client pins)",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/v1/tls/ca.pem": {
+      "get": {
+        "operationId": "core.tls.ca",
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-pem-file": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "the CA"
+          }
+        },
+        "security": [],
+        "summary": "The machine's certificate authority, PEM (no token)",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/tokens": {
       "get": {
         "operationId": "core.tokens.list",

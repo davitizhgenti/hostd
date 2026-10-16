@@ -131,7 +131,11 @@ func (a *app) client() (*client.Client, error) {
 	if cfg.Token == "" {
 		return nil, usageError{errors.New("no token: run hostctl login <address>, or set HOSTD_TOKEN")}
 	}
-	c, err := client.New(cfg.URL, cfg.Token)
+	var opts []client.Option
+	if cfg.CAFingerprint != "" {
+		opts = append(opts, client.PinCA(cfg.CAFingerprint))
+	}
+	c, err := client.New(cfg.URL, cfg.Token, opts...)
 	if err != nil {
 		return nil, usageError{err}
 	}

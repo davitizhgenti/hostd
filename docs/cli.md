@@ -122,12 +122,19 @@ hostctl login <address> [flags]
 
 Save the address and token of a hostd machine in ~/.config/hostctl.
 
-The address is host:port (port 7300) or unix:///path/to/hostd.sock. The token
-is read from --token-file, or from standard input: paste the admin token
-that hostd printed on its first start, or one made with hostctl token create.
+The address is host or host:port (HTTPS, port 7300) or unix:///path/to/hostd.sock.
+Over HTTPS, the machine's certificate authority is shown first: compare its
+fingerprint with what hostctl tls prints on the machine (ssh <machine>
+hostctl tls), then confirm. hostctl trusts that CA, and only it, from then
+on. --ca-fingerprint gives it instead, for scripts.
+
+The token is read from --token-file, or from standard input: paste the
+admin token that hostd printed on its first start, or one made with
+hostctl token create.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
+| `--ca-fingerprint` |  | the machine's CA fingerprint (hostctl tls on the machine), instead of confirming it |
 | `--token-file` |  | read the token from this file |
 
 ## hostctl mute
@@ -220,6 +227,21 @@ Stop a running instance (see hostctl ps)
 ```
 hostctl stop <instance>
 ```
+
+## hostctl tls
+
+Show the machine's certificate authority (to pin or install) and its certificate
+
+```
+hostctl tls
+```
+
+Show the fingerprint of the machine's certificate authority, which
+hostctl login asks to confirm, and the certificate the API serves.
+
+Installing the CA (ca.pem) on a laptop or phone lets browsers open
+https://<machine>:7300/docs/ and the add-ons' sites without warnings. The
+CA can only vouch for this machine's names and private addresses.
 
 ## hostctl token
 

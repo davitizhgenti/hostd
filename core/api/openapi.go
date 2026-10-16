@@ -280,7 +280,17 @@ func coreRoutes() []coreRoute {
 		{"POST", "/v1/tokens", createToken},
 		{"DELETE", "/v1/tokens/{id}", op("core.tokens.revoke", "Revoke a token", withErrors(obj{"204": obj{"description": "revoked"}}))},
 		{"POST", "/v1/update", update},
+		{"GET", "/v1/tls", public(op("core.tls", "The machine's CA fingerprint and the certificate the API serves (no token: what a client pins)",
+			json200("TLS", obj{"type": "object"})))},
+		{"GET", "/v1/tls/ca.pem", public(op("core.tls.ca", "The machine's certificate authority, PEM (no token)",
+			obj{"200": obj{"description": "the CA", "content": obj{"application/x-pem-file": obj{"schema": obj{"type": "string"}}}}}))},
 	}
+}
+
+// public marks an operation that needs no token.
+func public(o obj) obj {
+	o["security"] = []obj{}
+	return o
 }
 
 func (s *Server) getOpenAPI(w http.ResponseWriter, _ *http.Request, _ store.Token) error {

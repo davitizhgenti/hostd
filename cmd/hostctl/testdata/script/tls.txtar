@@ -1,0 +1,39 @@
+# hostd serves its API over HTTPS on TCP, with its own CA; the unix socket
+# stays plain. A laptop pins the CA at login: by --ca-fingerprint here
+# (a script), by confirming it at a terminal otherwise.
+exec hostd -listen=127.0.0.1:47391 -demo &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+waitfile $XDG_RUNTIME_DIR/hostd-admin-token
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+# On the machine: the CA's fingerprint, and the certificate.
+exec hostctl tls
+stdout 'Certificate authority \(pin\):'
+stdout 'Certificate: .*127\.0\.0\.1'
+exists $XDG_STATE_HOME/hostd/tls/ca.pem
+exec hostctl --json tls
+envfrom FP '"fingerprint": "([0-9a-f]{64})"'
+exec hostctl token create laptop --scopes read
+envfrom TOKEN '(hostd_\S+)'
+exec sh -c 'echo $TOKEN > token.txt'
+
+# On the laptop.
+env XDG_CONFIG_HOME=$WORK/laptop
+env XDG_RUNTIME_DIR=
+exec hostctl login 127.0.0.1:47391 --ca-fingerprint $FP --token-file token.txt
+stdout 'Logged in to hostd .* at https://127\.0\.0\.1:47391'
+grep 'ca_fingerprint = "[0-9a-f]{64}"' $WORK/laptop/hostctl/config.toml
+exec hostctl version
+stdout '^hostd '
+
+# Another CA's fingerprint: refused before the token is sent.
+! exec hostctl login 127.0.0.1:47391 --ca-fingerprint 0000000000000000000000000000000000000000000000000000000000000000 --token-file token.txt
+stderr 'another machine, or someone in between'
+
+# No terminal to confirm at and no fingerprint: told how.
+exits 2 hostctl login 127.0.0.1:47391 --token-file token.txt
+stderr 'confirm it with --ca-fingerprint'
+
+# Plain HTTP on the same port: the docs only, never the API.
+exits 10 hostctl --url http://127.0.0.1:47391 version
+stderr 'this port speaks HTTPS'

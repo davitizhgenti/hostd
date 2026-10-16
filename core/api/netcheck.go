@@ -12,9 +12,11 @@ import (
 // network: loopback, RFC 1918, link-local, or IPv6 unique local. IPv4
 // clients on a dual-stack socket arrive as ::ffff:a.b.c.d and are unwrapped
 // first, so a public IPv4 address cannot slip through as "IPv6".
-func privateOnly(next http.Handler) http.Handler {
+//
+// allow adds networks beyond those (a VPN's).
+func privateOnly(allow []netip.Prefix, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !allowedPeer(r.RemoteAddr) {
+		if !allowedPeer(r.RemoteAddr, allow) {
 			writeError(w, r, http.StatusForbidden, sdk.CodeForbidden, "requests are only accepted from the local network")
 			return
 		}
@@ -22,7 +24,7 @@ func privateOnly(next http.Handler) http.Handler {
 	})
 }
 
-func allowedPeer(remote string) bool {
+func allowedPeer(remote string, allow []netip.Prefix) bool {
 	host, _, err := net.SplitHostPort(remote)
 	if err != nil {
 		host = remote
@@ -32,5 +34,10 @@ func allowedPeer(remote string) bool {
 		return false
 	}
 	addr = addr.Unmap().WithZone("")
+	for _, p := range allow {
+		if p.Contains(addr) {
+			return true
+		}
+	}
 	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
 }

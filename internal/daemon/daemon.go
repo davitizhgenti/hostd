@@ -130,14 +130,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			}}
 		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, *docs, mods, coreOpts, newUpdater, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen, docs string, mods []sdk.Module,
+func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen, docs string, apiCfg APIConfig, mods []sdk.Module,
 	coreOpts core.Options, newUpdater func(*store.Store) api.Updater, stderr io.Writer) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -197,7 +197,17 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 			log.Warn("telling systemd hostd is ready", "err", err)
 		}
 	}
-	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs}
+	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs, Allow: apiCfg.AllowPrefixes()}
+	if listen != "" && apiCfg.TLSOn() {
+		ca, err := openCA(ctx, log, filepath.Join(stateDir, "tls"), apiCfg.Names)
+		if err != nil {
+			return fmt.Errorf("the machine's certificate authority: %w", err)
+		}
+		apiOpts.TLS, apiOpts.CA = ca.TLSConfig(), ca.CAPEM()
+		apiOpts.TLSInfo = func() any { return map[string]any{"fingerprint": ca.Fingerprint(), "leaf": ca.Leaf()} }
+	} else if listen != "" {
+		log.Warn("the API on " + listen + " is plain HTTP ([api] tls = false): tokens cross the network unencrypted")
+	}
 	if newUpdater != nil {
 		apiOpts.Updater = newUpdater(st)
 	}

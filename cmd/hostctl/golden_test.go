@@ -33,7 +33,7 @@ func fakeAPI(t *testing.T, manifests []sdk.Manifest, reads map[string]string) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	t.Setenv("HOSTD_URL", strings.TrimPrefix(srv.URL, "http://"))
+	t.Setenv("HOSTD_URL", srv.URL)
 	t.Setenv("HOSTD_TOKEN", "hostd_test")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())

@@ -1,6 +1,6 @@
 # The API
 
-One HTTP API under `/v1`, with JSON bodies, on the unix socket `$XDG_RUNTIME_DIR/hostd.sock`. It is also served on `:7300`, which answers the home network only. Reads are plain `GET`s. Every change is a `POST` that becomes an action and answers with its result, or with `202` and the action's ID for slow actions such as deploys. Events stream over a WebSocket.
+One HTTP API under `/v1`, with JSON bodies, on the unix socket `$XDG_RUNTIME_DIR/hostd.sock`. It is also served on `:7300` over HTTPS, for the home network only (and networks in `[api] allow`), with the machine's own certificate authority: clients pin it (`hostctl login`, `GET /v1/tls/ca.pem`, see [Install](install.md#other-devices)). Plain HTTP on that port gets the docs and an error, never the API. Reads are plain `GET`s. Every change is a `POST` that becomes an action and answers with its result, or with `202` and the action's ID for slow actions such as deploys. Events stream over a WebSocket.
 
 **The full description**: [`openapi.json`](openapi.json), OpenAPI 3.1, generated from the modules' manifests, so it always matches the running modules. A running hostd serves its own at `GET /v1/openapi.json`, including any external modules.
 
@@ -65,7 +65,7 @@ A command runs as an instance: `hostctl ps` lists it, `hostctl stop` ends it, an
 ```python
 from hostd import Hostd
 
-core = Hostd("http://192.168.18.33:7300", token="hostd_...")
+core = Hostd("192.168.18.33", token="hostd_...", ca_fingerprint="1f2e3d...")  # hostctl tls shows it
 done = core.run(["pytest", "-q", "/home/screen/proj"], background=True, wait=True)
 core.notice(f"tests: exit {done.exit_code}")
 core.start("show", file="/home/screen/report.png")     # on the screen, replacing what it showed

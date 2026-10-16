@@ -14,6 +14,9 @@ import (
 type Config struct {
 	URL   string `toml:"url"`
 	Token string `toml:"token"`
+	// CAFingerprint pins the machine's CA (hostctl login saves it): over
+	// HTTPS, hostctl trusts that CA and nothing else.
+	CAFingerprint string `toml:"ca_fingerprint,omitempty"`
 }
 
 func configPath() (string, error) {
@@ -28,9 +31,9 @@ func configPath() (string, error) {
 	return filepath.Join(dir, "hostctl", "config.toml"), nil
 }
 
-// loadConfig reads the config file, then lets HOSTD_URL and HOSTD_TOKEN
-// override it (scripts run by hostd get those). Without either, it falls
-// back to the local socket.
+// loadConfig reads the config file, then lets HOSTD_URL, HOSTD_TOKEN and
+// HOSTD_CA_FINGERPRINT override it (scripts run by hostd get the first
+// two). Without an address, it falls back to the local socket.
 func loadConfig() (Config, error) {
 	var c Config
 	path, err := configPath()
@@ -45,6 +48,9 @@ func loadConfig() (Config, error) {
 	}
 	if v := os.Getenv("HOSTD_TOKEN"); v != "" {
 		c.Token = v
+	}
+	if v := os.Getenv("HOSTD_CA_FINGERPRINT"); v != "" {
+		c.CAFingerprint = v
 	}
 	if c.URL == "" {
 		if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {

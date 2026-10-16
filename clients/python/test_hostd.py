@@ -1,6 +1,12 @@
 """Tests for hostd.py against a fake API: python3 -m unittest (make lint-scripts)."""
 
+import hashlib
 import json
+import os
+import shutil
+import ssl
+import subprocess
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -50,7 +56,7 @@ class ClientTest(unittest.TestCase):
     def setUpClass(cls):
         cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), FakeAPI)
         threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-        cls.core = Hostd("127.0.0.1:%d" % cls.srv.server_address[1], token="hostd_test")
+        cls.core = Hostd("http://127.0.0.1:%d" % cls.srv.server_address[1], token="hostd_test")
 
     @classmethod
     def tearDownClass(cls):
@@ -86,6 +92,83 @@ class ClientTest(unittest.TestCase):
         self.core.define("show", 'runner = { type = "exec", command = ["imv", "{file}"] }')
         self.assertEqual(FakeAPI.sent[0][2]["type"], "app.define")
         self.assertEqual(FakeAPI.sent[0][2]["args"]["id"], "show")
+
+
+@unittest.skipUnless(shutil.which("openssl"), "needs openssl to make a CA")
+class PinnedTest(unittest.TestCase):
+    """Over HTTPS, the client trusts the pinned CA and nothing else."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp()
+        d = cls.dir
+
+        def run(*args):
+            subprocess.run(args, check=True, capture_output=True, cwd=d)
+
+        for name in ("ca", "other"):
+            run("openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                "-keyout", name + "-key.pem", "-out", name + ".pem", "-days", "1", "-subj", "/CN=hostd " + name,
+                "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign")
+        run("openssl", "req", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+            "-keyout", "key.pem", "-out", "leaf.csr", "-subj", "/CN=core")
+        with open(os.path.join(d, "ext"), "w") as f:
+            f.write("subjectAltName=DNS:core.local\nextendedKeyUsage=serverAuth\n")
+        run("openssl", "x509", "-req", "-in", "leaf.csr", "-CA", "ca.pem", "-CAkey", "ca-key.pem", "-CAcreateserial",
+            "-out", "leaf.pem", "-days", "1", "-extfile", "ext")
+        with open(os.path.join(d, "chain.pem"), "w") as f:
+            f.write(open(os.path.join(d, "leaf.pem")).read() + open(os.path.join(d, "ca.pem")).read())
+
+        ca_pem = open(os.path.join(d, "ca.pem")).read()
+
+        class TLSAPI(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = ca_pem.encode() if self.path == "/v1/tls/ca.pem" else b'{"version": "edge-test"}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), TLSAPI)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(os.path.join(d, "chain.pem"), os.path.join(d, "key.pem"))
+        cls.srv.socket = ctx.wrap_socket(cls.srv.socket, server_side=True)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.url = "https://127.0.0.1:%d" % cls.srv.server_address[1]
+
+        def fingerprint(name):
+            return hashlib.sha256(ssl.PEM_cert_to_DER_cert(open(os.path.join(d, name)).read())).hexdigest()
+
+        cls.pin, cls.other_pin = fingerprint("ca.pem"), fingerprint("other.pem")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        shutil.rmtree(cls.dir)
+
+    def test_pinned(self):
+        # By IP, though the certificate names core.local only.
+        self.assertEqual(Hostd(self.url, ca_fingerprint=self.pin).get("/v1/version"), {"version": "edge-test"})
+        self.assertEqual(Hostd(self.url, ca_file=os.path.join(self.dir, "ca.pem")).get("/v1/version")["version"], "edge-test")
+
+    def test_another_ca_is_refused(self):
+        with self.assertRaises(HostdError) as e:
+            Hostd(self.url, ca_fingerprint=self.other_pin).get("/v1/version")
+        self.assertEqual(e.exception.code, "ca_mismatch")
+        with self.assertRaises(OSError):  # urllib wraps the SSL error
+            Hostd(self.url, ca_file=os.path.join(self.dir, "other.pem")).get("/v1/version")
+
+    def test_unpinned_uses_the_system_cas(self):
+        with self.assertRaises(OSError):  # the CA is not one the system trusts
+            Hostd(self.url).get("/v1/version")
+
+    def test_address_defaults(self):
+        self.assertEqual(Hostd("core").url, "https://core:7300")
+        self.assertEqual(Hostd("192.168.18.33:8000").url, "https://192.168.18.33:8000")
+        self.assertEqual(Hostd("http://[fd00::1]").url, "http://[fd00::1]:7300")
 
 
 if __name__ == "__main__":

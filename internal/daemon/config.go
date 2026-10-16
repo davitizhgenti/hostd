@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,6 +54,7 @@ type Config struct {
 	HoldWindow  duration            `toml:"hold_window"`
 	HoldWindows map[string]duration `toml:"hold_windows"`
 	External    map[string]External `toml:"external"`
+	API         APIConfig           `toml:"api"`
 
 	path       string
 	sections   map[string]toml.Primitive // [apps], [display]...: each module's own settings
@@ -156,10 +158,58 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
 		}
 	}
+	if err := c.API.check(path); err != nil {
+		return Config{}, err
+	}
 	if _, err := moduleConfigs(c); err != nil {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+// APIConfig is [api]: how the API is served on the home network.
+type APIConfig struct {
+	// TLS serves the TCP listener over HTTPS with the machine's own CA
+	// (default true). Turning it off needs InsecureHTTP as well.
+	TLS          *bool `toml:"tls"`
+	InsecureHTTP bool  `toml:"insecure_http"`
+	// Allow are networks trusted beside the private ones (a VPN's).
+	Allow []string `toml:"allow"`
+	// Names are extra names for the certificate (a VPN's DNS name).
+	Names []string `toml:"names"`
+}
+
+// TLSOn reports whether the TCP listener uses HTTPS.
+func (c APIConfig) TLSOn() bool { return c.TLS == nil || *c.TLS }
+
+// AllowPrefixes are Allow, parsed (LoadConfig checked them).
+func (c APIConfig) AllowPrefixes() []netip.Prefix {
+	var out []netip.Prefix
+	for _, a := range c.Allow {
+		if p, err := netip.ParsePrefix(a); err == nil {
+			out = append(out, p.Masked())
+		}
+	}
+	return out
+}
+
+var reHostName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+
+func (c APIConfig) check(path string) error {
+	if !c.TLSOn() && !c.InsecureHTTP {
+		return fmt.Errorf("%s: [api] tls = false sends tokens unencrypted over the network; set insecure_http = true as well if that is meant", path)
+	}
+	for _, a := range c.Allow {
+		if _, err := netip.ParsePrefix(a); err != nil {
+			return fmt.Errorf("%s: [api] allow: %q is not a network such as \"100.64.0.0/10\"", path, a)
+		}
+	}
+	for _, n := range c.Names {
+		if !reHostName.MatchString(strings.ToLower(n)) {
+			return fmt.Errorf("%s: [api] names: %q is not a host name", path, n)
+		}
+	}
+	return nil
 }
 
 // External is an external module's settings.
@@ -230,8 +280,8 @@ func readConfig(path string) ([]byte, error) {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		for k := range m {
-			if k != "external" && builtinNamed(k) == nil {
-				return nil, fmt.Errorf("%s: %s belongs in %s; a drop-in holds module sections ([apps], [display]...) and [external.NAME]", f, k, path)
+			if k != "external" && k != "api" && builtinNamed(k) == nil {
+				return nil, fmt.Errorf("%s: %s belongs in %s; a drop-in holds module sections ([apps], [display]...), [api] and [external.NAME]", f, k, path)
 			}
 		}
 		if err := mergeInto(merged, m, "", f, owner); err != nil {

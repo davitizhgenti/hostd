@@ -5,6 +5,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -29,9 +31,25 @@ type Client struct {
 	dialer func(ctx context.Context) (net.Conn, error) // unix sockets only
 }
 
+// An Option changes how a client connects.
+type Option func(*options)
+
+type options struct{ caFingerprint string }
+
+// PinCA trusts exactly the machine's CA with this fingerprint (hostctl
+// tls on the machine shows it), and nothing else: not the system's CAs,
+// and no check of the name the address uses, so an IP, a .local name or
+// a VPN address all work.
+func PinCA(fingerprint string) Option { return func(o *options) { o.caFingerprint = fingerprint } }
+
 // New returns a client for addr, which is "unix:///path/to/hostd.sock",
-// "http://host:7300", or a bare "host:7300".
-func New(addr, token string) (*Client, error) {
+// "https://host:7300", or a bare "host:7300" (HTTPS). "http://" is for a
+// machine whose API is plain HTTP ([api] tls = false).
+func New(addr, token string, opt ...Option) (*Client, error) {
+	var o options
+	for _, f := range opt {
+		f(&o)
+	}
 	c := &Client{token: token}
 	switch {
 	case strings.HasPrefix(addr, "unix://"):
@@ -48,15 +66,23 @@ func New(addr, token string) (*Client, error) {
 		}}
 	default:
 		if !strings.Contains(addr, "://") {
-			addr = "http://" + addr
+			addr = "https://" + addr
 		}
 		u, err := url.Parse(addr)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			return nil, fmt.Errorf("address %q: use unix:///path, http://host:port or host:port", addr)
+			return nil, fmt.Errorf("address %q: use unix:///path, https://host:port or host:port", addr)
 		}
 		c.base = strings.TrimSuffix(u.Scheme+"://"+u.Host, "/")
 		c.wsBase = "ws" + strings.TrimPrefix(c.base, "http")
-		c.http = &http.Client{}
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		if o.caFingerprint != "" {
+			tr.TLSClientConfig = &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // replaced by VerifyConnection: the pinned CA, nothing else
+				VerifyConnection:   tlsca.VerifyPinned(o.caFingerprint),
+				MinVersion:         tls.VersionTLS12,
+			}
+		}
+		c.http = &http.Client{Transport: tr}
 	}
 	return c, nil
 }
