@@ -21,6 +21,7 @@ nav:
   - The CLI: cli.md
   - Writing a module: modules.md
   - The module protocol: protocol.md
+  - Security: security.md
 markdown_extensions:
   - tables
   - toc:
