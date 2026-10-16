@@ -1,7 +1,9 @@
 package deploy
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -25,7 +27,16 @@ type fakeMachine struct {
 	hostdUp  bool
 	tokens   int
 	restarts int
-	sshdBad  bool // sshd -t refuses the config
+	sshdBad  bool            // sshd -t refuses the config
+	missing  map[string]bool // packages not installed (until apt-get installs them)
+	busy     bool            // someone uses the screen: hostctl wait-quiet fails
+	flatpaks map[string]bool // Flatpak apps installed
+	// bare: a machine with no screen user yet, no render group, greetd
+	// not enabled; useradd makes the user.
+	bare, userMade bool
+	answers        map[string]string // output for a command line (as the screen user: what it runs)
+	hostdBroken    bool              // hostd does not start
+	aptFails       int               // apt-get install fails this many times (stale package lists)
 }
 
 func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
@@ -45,11 +56,57 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		}
 	}
 	fail := fmt.Errorf("exit status 1")
+	if out, ok := f.answers[strings.Join(argv, " ")]; ok {
+		return []byte(out), nil
+	}
+	if f.bare {
+		switch {
+		case line == "id screen" && !f.userMade:
+			return nil, fail
+		case strings.HasPrefix(line, "useradd "):
+			f.userMade = true
+			os.MkdirAll(filepath.Join(f.root, "home/screen"), 0o755)
+			return nil, nil
+		case line == "id -nG screen":
+			return []byte("screen\n"), nil
+		case line == "getent group render", line == "systemctl is-enabled --quiet greetd":
+			return nil, fail
+		}
+	}
 	switch {
 	case line == "dpkg --print-architecture":
 		return []byte("amd64\n"), nil
 	case argv[0] == "dpkg-query":
+		if f.missing[argv[len(argv)-1]] {
+			return []byte("unknown ok not-installed"), fail
+		}
 		return []byte("install ok installed"), nil
+	case len(argv) > 3 && argv[0] == "apt-get" && argv[1] == "install" && f.aptFails > 0:
+		f.aptFails--
+		return nil, fail
+	case f.hostdBroken && strings.Join(argv, " ") == "systemctl --user restart hostd":
+		return nil, fail
+	case len(argv) > 3 && argv[0] == "apt-get" && argv[1] == "install":
+		for _, p := range argv[4:] {
+			delete(f.missing, p)
+		}
+		return nil, nil
+	case argv[0] == "hostctl" && len(argv) > 1 && argv[1] == "wait-quiet" && f.busy:
+		return nil, fail
+	case strings.HasPrefix(line, "flatpak info --system "):
+		if !f.flatpaks[argv[3]] {
+			return nil, fail
+		}
+		return nil, nil
+	case strings.HasPrefix(line, "flatpak install --system "):
+		if f.flatpaks == nil {
+			f.flatpaks = map[string]bool{}
+		}
+		f.flatpaks[argv[len(argv)-1]] = true
+		return nil, nil
+	case strings.HasPrefix(line, "flatpak uninstall --system "):
+		delete(f.flatpaks, argv[len(argv)-1])
+		return nil, nil
 	case line == "id screen", strings.HasPrefix(line, "getent group "):
 		return nil, nil
 	case line == "id -nG screen":
@@ -123,6 +180,7 @@ func buildDir(t *testing.T) string {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "hostd-linux-amd64"), []byte("hostd binary v1"), 0o755)
 	os.WriteFile(filepath.Join(dir, "hostctl-linux-amd64"), []byte("hostctl binary v1"), 0o755)
+	os.WriteFile(filepath.Join(dir, "hostd-docs.tar.gz"), docsTarball(t, "<h1>hostd docs</h1>"), 0o644)
 	return dir
 }
 
@@ -272,5 +330,53 @@ func TestSSHKeysOnly(t *testing.T) {
 	if err := in.sshKeysOnly(context.Background()); err != nil || dropIn(m) != "" || ran(m, "systemctl reload ssh") ||
 		!strings.Contains(out.String(), "left as it was") {
 		t.Fatalf("refused: %v %q %q\n%s", err, dropIn(m), m.ran, out)
+	}
+}
+
+// docsTarball is a docs site as a build carries it.
+func docsTarball(t *testing.T, index string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, body := range map[string]string{"index.html": index, "api/index.html": "<h1>API</h1>"} {
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte(body))
+	}
+	tw.Close()
+	gz.Close()
+	return buf.Bytes()
+}
+
+// A bare Debian: the user, its groups, autologin and the packages are
+// made, and hostd comes from the signed release.
+func TestInstallFromScratch(t *testing.T) {
+	m := newFakeMachine(t)
+	m.bare = true
+	m.missing = map[string]bool{"sway": true, "greetd": true}
+	os.Remove(filepath.Join(m.root, "etc/subuid"))
+	os.Remove(filepath.Join(m.root, "var/lib/systemd/linger/screen"))
+	os.RemoveAll(filepath.Join(m.root, "home/screen"))
+	dir, key, _ := signedRelease(t, map[string]string{"hostd-linux-amd64": "hostd from the release", "hostctl-linux-amd64": "hostctl",
+		"hostd-docs.tar.gz": string(docsTarball(t, "<h1>docs</h1>"))})
+	self := filepath.Join(t.TempDir(), "hostd-setup")
+	os.WriteFile(self, []byte("the installer"), 0o755)
+	s, out := newSetup(t, m)
+	o := Options{GPU: "other", Release: Release{URL: "file://" + dir}, ReleaseKey: key, SudoUser: "admin", Self: self}
+	if err := s.Install(context.Background(), o); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{"apt-get update -q", "apt-get install -y -q sway greetd", "useradd -m -s /bin/bash screen", "groupadd -r render",
+		"usermod -aG video screen", "usermod -aG input screen", "usermod --add-subuids 200000-265535", "loginctl enable-linger screen",
+		"systemctl enable greetd"} {
+		if !m.didRun(want) {
+			t.Errorf("did not run %q", want)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(m.root, "usr/local/share/hostd/docs/index.html")); err != nil || string(b) != "<h1>docs</h1>" {
+		t.Errorf("docs %q %v", b, err)
+	}
+	if !strings.Contains(out.String(), "created user screen") || !strings.Contains(out.String(), "Reboot") {
+		t.Errorf("output:\n%s", out)
 	}
 }

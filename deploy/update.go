@@ -32,6 +32,9 @@ type Exec func(ctx context.Context, path string, args, env []string) error
 // --source's, as an install with update's add-on rules: it updates hostd,
 // hostctl and whatever else changed, and changes nothing that is current.
 func (s *Setup) Update(ctx context.Context, a UpdateArgs, run Exec) error {
+	if a.Update == nil {
+		a.Update = &UpdateOptions{}
+	}
 	installed := s.installedAddons()
 	for _, n := range a.Update.Addons {
 		if !contains(installed, n) {
