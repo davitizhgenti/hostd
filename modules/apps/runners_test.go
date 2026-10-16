@@ -117,6 +117,7 @@ func TestInstanceContract(t *testing.T) {
 func TestClosingCountsAsExit(t *testing.T) {
 	sd := unitstest.NewFakeSystemd()
 	r := newRig(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t))
+	waitUntil(t, func() bool { return sd.Watching() == 1 }) // else the exit below can reach no one
 	r.start(t, "term")
 	r.next(t)
 	r.next(t)
