@@ -82,6 +82,29 @@ type CLI struct {
 	Rows string `json:"rows,omitempty"`
 	// Empty is printed instead of a table with no rows (reads only).
 	Empty string `json:"empty,omitempty"`
+
+	// Rest is an array argument that takes the words after the action's
+	// other arguments, "--" first if they could be read as flags:
+	// app.run's command (actions only).
+	Rest string `json:"rest,omitempty"`
+	// Wait says the result names an instance (data.instance): with --wait,
+	// hostctl waits until it ends, prints what it wrote and exits with its
+	// exit status (actions only).
+	Wait bool `json:"wait,omitempty"`
+	// Done is what hostctl prints once the action is applied: the first
+	// line whose condition holds, "TEXT" or "TEXT if FIELD" (FIELD is true
+	// or not empty in the result's data); {field} in TEXT is that field
+	// (actions only). Without it hostctl prints the status and the data.
+	Done []string `json:"done,omitempty"`
+	// Flags give an argument's flag another name or a one-letter form,
+	// by argument: {"background": {"short": "b"}} (actions only).
+	Flags map[string]Flag `json:"flags,omitempty"`
+}
+
+// A Flag is how hostctl names an action's argument on its command line.
+type Flag struct {
+	Name  string `json:"name,omitempty"`  // instead of the argument's name, with _ as -
+	Short string `json:"short,omitempty"` // a one-letter form, such as "b" for -b
 }
 
 // A Column is one column of a read's table.
@@ -385,6 +408,37 @@ func (m *Manifest) Validate() error {
 		}
 		if !read && (len(c.Columns) > 0 || c.Empty != "" || c.Rows != "") {
 			bad("%s: columns, rows and empty apply to reads, not actions", where)
+		}
+		if read && (c.Rest != "" || c.Wait || len(c.Done) > 0 || len(c.Flags) > 0) {
+			bad("%s: rest, wait, done and flags apply to actions, not reads", where)
+		}
+		if c.Rest != "" && !isIdent(c.Rest) {
+			bad("%s: rest %q is not an argument name", where, c.Rest)
+		}
+		for _, d := range c.Done {
+			text, cond, _ := strings.Cut(d, " if ")
+			if cond != "" && !reField.MatchString(cond) {
+				bad("%s: done %q: %q is not a field name", where, d, cond)
+			}
+			for _, f := range reParam.FindAllStringSubmatch(text, -1) {
+				if !reField.MatchString(f[1]) {
+					bad("%s: done %q: {%s} is not a field name", where, d, f[1])
+				}
+			}
+		}
+		shorts := map[string]bool{}
+		for arg, f := range c.Flags {
+			switch {
+			case !isIdent(arg):
+				bad("%s: flags: %q is not an argument name", where, arg)
+			case f.Name != "" && !reAlias.MatchString(f.Name):
+				bad("%s: flags: %s: name %q: use lowercase letters, digits and '-'", where, arg, f.Name)
+			case f.Short != "" && (len(f.Short) != 1 || f.Short[0] < 'a' || f.Short[0] > 'z'):
+				bad("%s: flags: %s: short %q: one lowercase letter", where, arg, f.Short)
+			case f.Short != "" && shorts[f.Short]:
+				bad("%s: flags: -%s is used twice", where, f.Short)
+			}
+			shorts[f.Short] = f.Short != ""
 		}
 		if c.Rows != "" && !reField.MatchString(c.Rows) {
 			bad("%s: rows %q is not a field name such as a or a.b", where, c.Rows)

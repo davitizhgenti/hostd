@@ -711,7 +711,7 @@
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "values for the app's arguments (its file's args), e.g. {\"url\": \"http://...\"}; a running copy is replaced",
+                    "description": "values for the app's arguments (its file's args, such as url); a running copy is replaced",
                     "type": "object"
                   },
                   "dir": {

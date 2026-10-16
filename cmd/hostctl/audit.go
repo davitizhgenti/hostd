@@ -199,31 +199,5 @@ func (a *app) actionCommand() *cobra.Command {
 
 // submit sends an action and prints its result.
 func (a *app) submit(cmd *cobra.Command, req client.ActionRequest) error {
-	c, err := a.client()
-	if err != nil {
-		return err
-	}
-	res, err := c.Submit(cmd.Context(), req)
-	if err != nil {
-		return err
-	}
-	if a.jsonOut {
-		return a.printJSON(res)
-	}
-	switch res.Status {
-	case sdk.StatusSkipped:
-		fmt.Fprintln(a.stdout, heldBy(res))
-	case sdk.StatusAccepted:
-		fmt.Fprintf(a.stdout, "accepted: %s (follow it with hostctl events)\n", res.Action)
-	default:
-		line := string(res.Status)
-		if res.Version > 0 {
-			line += fmt.Sprintf(" (v%d)", res.Version)
-		}
-		if len(res.Data) > 0 {
-			line += " " + string(res.Data)
-		}
-		fmt.Fprintln(a.stdout, line)
-	}
-	return nil
+	return a.submitDone(cmd, req, nil)
 }

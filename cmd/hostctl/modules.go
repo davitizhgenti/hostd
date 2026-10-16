@@ -90,6 +90,9 @@ type prop struct {
 	// media is a string argument's content type (JSON Schema
 	// contentMediaType): a document, which can be given as @file or -.
 	media string
+	// strMap: an object of strings (additionalProperties of type string),
+	// given as --name key=value, repeated.
+	strMap bool
 }
 
 func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
@@ -98,13 +101,16 @@ func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
 			Type        any    `json:"type"`
 			Description string `json:"description"`
 			Media       string `json:"contentMediaType"`
+			Additional  struct {
+				Type string `json:"type"`
+			} `json:"additionalProperties"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
 	_ = json.Unmarshal(raw, &s)
 	for name, p := range s.Properties {
 		typ, _ := p.Type.(string) // a type list ("string","null") is treated as untyped
-		props = append(props, prop{name, typ, p.Description, p.Media})
+		props = append(props, prop{name, typ, p.Description, p.Media, typ == "object" && p.Additional.Type == "string"})
 	}
 	sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
 	return props, s.Required
@@ -112,6 +118,10 @@ func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
 
 func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module string) {
 	props, required := schemaInfo(spec.Schema)
+	cli := spec.CLI
+	if cli == nil {
+		cli = &sdk.CLI{}
+	}
 	// Secret arguments are read from standard input, never from the
 	// command line (shell history, the process list).
 	secret := map[string]bool{}
@@ -125,15 +135,25 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		}
 		return secret[p.name]
 	})
-	required = slices.DeleteFunc(slices.Clone(required), func(r string) bool { return secret[r] })
+	required = slices.DeleteFunc(slices.Clone(required), func(r string) bool { return secret[r] || r == cli.Rest })
 	types := map[string]string{}
 	media := map[string]bool{}
+	flagOf := map[string]string{}
 	values := map[string]*string{}
 	bools := map[string]*bool{}
+	maps := map[string]*[]string{}
 	for _, p := range props {
+		if p.name == cli.Rest {
+			continue // the words after the other arguments
+		}
 		types[p.name] = p.typ
 		media[p.name] = p.media != ""
-		flagName := strings.ReplaceAll(p.name, "_", "-")
+		f := cli.Flags[p.name]
+		flagName := f.Name
+		if flagName == "" {
+			flagName = strings.ReplaceAll(p.name, "_", "-")
+		}
+		flagOf[p.name] = flagName
 		desc := p.desc
 		if desc == "" {
 			desc = p.typ
@@ -141,27 +161,35 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		if p.media != "" {
 			desc += " (@file reads a file, - standard input)"
 		}
-		if p.typ == "boolean" {
-			bools[p.name] = cmd.Flags().Bool(flagName, false, desc)
-		} else {
-			values[p.name] = cmd.Flags().String(flagName, "", desc)
+		switch {
+		case p.typ == "boolean":
+			bools[p.name] = cmd.Flags().BoolP(flagName, f.Short, false, desc)
+		case p.strMap:
+			maps[p.name] = cmd.Flags().StringArrayP(flagName, f.Short, nil, desc+" (key=value, repeat for more)")
+		default:
+			values[p.name] = cmd.Flags().StringP(flagName, f.Short, "", desc)
 		}
 	}
 	var expect int64
 	cmd.Flags().Int64Var(&expect, "expect-version", -1, "refuse if the resource is not at this version")
+	var wait bool
+	if cli.Wait {
+		cmd.Flags().BoolVarP(&wait, "wait", "w", false, "wait until it ends; print what it wrote and exit with its status")
+	}
 
 	// Positional arguments: the required ones, in order; or, for an action
 	// with none required and one non-boolean argument, that one, optional
-	// ("hostctl window close [instance]").
+	// ("hostctl window close [instance]"). A rest argument takes the words
+	// after them, and flags after its first word are its own.
 	positional := required
 	use := cmd.Name()
 	for _, r := range required {
 		use += " <" + r + ">"
 	}
-	if len(required) == 0 {
+	if len(required) == 0 && cli.Rest == "" {
 		var plain []string
 		for _, p := range props {
-			if p.typ != "boolean" {
+			if p.typ != "boolean" && !p.strMap {
 				plain = append(plain, p.name)
 			}
 		}
@@ -170,15 +198,29 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 			use += " [" + plain[0] + "]"
 		}
 	}
+	cmd.Args = cobra.MaximumNArgs(len(positional))
+	if cli.Rest != "" {
+		use = strings.Replace(use, cmd.Name(), cmd.Name()+" [flags]", 1) + " [--] <" + cli.Rest + "...>"
+		cmd.Args = cobra.MinimumNArgs(len(positional) + 1)
+		cmd.Flags().SetInterspersed(false)
+	}
 	cmd.Use = use
+	if cmd.Short == "" {
+		cmd.Short = spec.Description
+	}
 	if cmd.Short == "" {
 		cmd.Short = fmt.Sprintf("%s (module %s, scope %s)", spec.Type, module, spec.Scope)
 	}
-	cmd.Args = cobra.MaximumNArgs(len(positional))
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		out := map[string]json.RawMessage{}
 		var order []string // arguments in the order given, for a readable log
 		for i, v := range args {
+			if i >= len(positional) {
+				rest, _ := json.Marshal(args[i:])
+				out[cli.Rest] = rest
+				order = append(order, cli.Rest)
+				break
+			}
 			v, err := document(cmd, media[positional[i]], v)
 			if err != nil {
 				return err
@@ -191,30 +233,39 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 			order = append(order, positional[i])
 		}
 		for _, p := range props {
-			name, v := p.name, values[p.name]
-			if v == nil || !cmd.Flags().Changed(strings.ReplaceAll(name, "_", "-")) {
+			name := p.name
+			changed := flagOf[name] != "" && cmd.Flags().Changed(flagOf[name])
+			if !changed {
 				continue
 			}
 			if _, dup := out[name]; dup {
-				return usageError{fmt.Errorf("%s given both as an argument and as --%s", name, name)}
+				return usageError{fmt.Errorf("%s given both as an argument and as --%s", name, flagOf[name])}
 			}
-			doc, err := document(cmd, media[name], *v)
-			if err != nil {
-				return err
+			switch {
+			case bools[name] != nil:
+				out[name], _ = json.Marshal(*bools[name])
+			case maps[name] != nil:
+				m := map[string]string{}
+				for _, kv := range *maps[name] {
+					k, v, ok := strings.Cut(kv, "=")
+					if !ok || k == "" {
+						return usageError{fmt.Errorf("--%s %q: use key=value", flagOf[name], kv)}
+					}
+					m[k] = v
+				}
+				out[name], _ = json.Marshal(m)
+			default:
+				doc, err := document(cmd, media[name], *values[name])
+				if err != nil {
+					return err
+				}
+				j, err := convert(name, types[name], doc)
+				if err != nil {
+					return err
+				}
+				out[name] = j
 			}
-			j, err := convert(name, types[name], doc)
-			if err != nil {
-				return err
-			}
-			out[name] = j
 			order = append(order, name)
-		}
-		for _, p := range props {
-			name, v := p.name, bools[p.name]
-			if v != nil && cmd.Flags().Changed(strings.ReplaceAll(name, "_", "-")) {
-				out[name], _ = json.Marshal(*v)
-				order = append(order, name)
-			}
 		}
 		for _, name := range secrets {
 			v, err := readSecret(cmd, name)
@@ -232,7 +283,10 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 			v := uint64(expect)
 			req.ExpectVersion = &v
 		}
-		return a.submit(cmd, req)
+		if wait {
+			return a.submitAndWait(cmd, req)
+		}
+		return a.submitDone(cmd, req, cli.Done)
 	}
 }
 

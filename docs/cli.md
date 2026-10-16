@@ -165,67 +165,12 @@ List the rules, when they fired and whether they are paused
 hostctl rules
 ```
 
-## hostctl run
-
-Run a command on the machine now: a window on the screen, or in the background
-
-```
-hostctl run [flags] -- <command> [args...]
-```
-
-Run a command on the machine as the screen user, without an app file: a
-full-screen window by default, or a background process. It is an instance
-like any other (hostctl ps, hostctl stop, its logs). Needs the run scope:
-a token with it can run anything as the screen user.
-
---wait waits until it ends, prints what it wrote, and exits with its exit
-status. Ctrl-C stops waiting; the command keeps running.
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--background` |  | no window: run in the background |
-| `--dir` |  | the directory to run in (an absolute path on the machine) |
-| `--env` |  | an environment variable, NAME=value (repeat for more) |
-| `--front` |  | open in front even while someone is using the screen |
-| `--name` |  | name the instance run-<name> (default: run) |
-| `--wait` |  | wait until it ends; print its output and exit with its status |
-| `--windowed` |  | a window, not full screen |
-
 ## hostctl scenes
 
 List the scenes (hostctl scene apply <id> reaches one)
 
 ```
 hostctl scenes
-```
-
-## hostctl start
-
-Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)
-
-```
-hostctl start <app> [flags]
-```
-
-Start an app. While someone is using the screen, an app started from
-elsewhere opens in the background and a notice says it is ready; --front
-brings it to the front anyway (needs the display.front scope). --action
-starts one of the app's actions (see hostctl apps <app>) as a new instance.
---arg fills in one of the app's arguments (its file's args); started with
-new values, an app that already runs is replaced.
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--action` |  | start one of the app's actions, as a new instance |
-| `--arg` |  | one of the app's arguments, name=value (repeat for more) |
-| `--front` |  | open in front even while someone is using the screen |
-
-## hostctl stop
-
-Stop a running instance (see hostctl ps)
-
-```
-hostctl stop <instance>
 ```
 
 ## hostctl tls

@@ -91,76 +91,6 @@ func (a *app) appsCommand() *cobra.Command {
 
 // --- start, stop, ps ----------------------------------------------------------
 
-func (a *app) startCommand() *cobra.Command {
-	var front bool
-	var action string
-	var appArgs []string
-	cmd := &cobra.Command{
-		Use:   "start <app>",
-		Short: "Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)",
-		Long: `Start an app. While someone is using the screen, an app started from
-elsewhere opens in the background and a notice says it is ready; --front
-brings it to the front anyway (needs the display.front scope). --action
-starts one of the app's actions (see hostctl apps <app>) as a new instance.
---arg fills in one of the app's arguments (its file's args); started with
-new values, an app that already runs is replaced.`,
-		Example: `  hostctl start foot
-  hostctl start jellyfin --front
-  hostctl start chromium --action new-private-window
-  hostctl start show --arg url=http://192.168.18.60:8000/plot.png`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			req := map[string]any{"id": args[0]}
-			if front {
-				req["front"] = true
-			}
-			if action != "" {
-				req["action"] = action
-			}
-			if len(appArgs) > 0 {
-				vals := map[string]string{}
-				for _, kv := range appArgs {
-					k, v, ok := strings.Cut(kv, "=")
-					if !ok || k == "" {
-						return usageError{fmt.Errorf("--arg %q: use name=value", kv)}
-					}
-					vals[k] = v
-				}
-				req["args"] = vals
-			}
-			return a.act(cmd, "app.start", req, func(res sdk.Result) string {
-				var d struct {
-					Instance       string `json:"instance"`
-					State          string `json:"state"`
-					AlreadyRunning bool   `json:"already_running"`
-				}
-				_ = json.Unmarshal(res.Data, &d)
-				if d.AlreadyRunning {
-					return d.Instance + " is already running"
-				}
-				return fmt.Sprintf("started %s (%s)", d.Instance, d.State)
-			})
-		},
-	}
-	cmd.Flags().BoolVar(&front, "front", false, "open in front even while someone is using the screen")
-	cmd.Flags().StringVar(&action, "action", "", "start one of the app's actions, as a new instance")
-	cmd.Flags().StringArrayVar(&appArgs, "arg", nil, "one of the app's arguments, name=value (repeat for more)")
-	return cmd
-}
-
-func (a *app) stopCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "stop <instance>",
-		Short:   "Stop a running instance (see hostctl ps)",
-		Example: "  hostctl stop foot\n  hostctl stop firefox#2",
-		Args:    cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.act(cmd, "instance.stop", map[string]string{"id": args[0]},
-				func(sdk.Result) string { return "stopped " + args[0] })
-		},
-	}
-}
-
 type instanceInfo struct {
 	ID       string     `json:"id"`
 	App      string     `json:"app"`
@@ -218,22 +148,6 @@ func (a *app) psCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "also show instances that ended recently")
 	return cmd
-}
-
-// act sends an action and says how it went: done(result) when it was
-// carried out, who holds the resource when it was skipped, the result as
-// JSON with --json.
-func (a *app) act(cmd *cobra.Command, typ string, args any, done func(sdk.Result) string) error {
-	res, err := a.submitQuiet(cmd, client.ActionRequest{Type: typ, Args: mustArgs(args)})
-	if err != nil || a.jsonOut {
-		return err
-	}
-	line := heldBy(res)
-	if line == "" {
-		line = done(res)
-	}
-	_, err = fmt.Fprintln(a.stdout, line)
-	return err
 }
 
 // submitQuiet sends an action and returns its result without printing it.

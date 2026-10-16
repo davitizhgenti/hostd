@@ -356,6 +356,13 @@ func (c *Client) streamOnce(ctx context.Context, filter, since string, fn func(s
 			if json.Unmarshal(b, &eb) == nil && eb.Error != nil {
 				return &Error{Status: res.StatusCode, Err: eb.Error}
 			}
+			// An answer, but not hostd's (an old server, a proxy): trying
+			// again would get the same.
+			code := sdk.CodeInternal
+			if res.StatusCode == http.StatusNotFound {
+				code = sdk.CodeNotFound
+			}
+			return &Error{Status: res.StatusCode, Err: &sdk.Error{Code: code, Message: fmt.Sprintf("no event stream here (HTTP %d)", res.StatusCode)}}
 		}
 		return err
 	}
