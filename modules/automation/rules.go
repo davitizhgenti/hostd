@@ -83,9 +83,12 @@ func (d Do) check() error {
 // RuleState is a rule as GET /v1/rules shows it.
 type RuleState struct {
 	Rule
-	Fired       int        `json:"fired"`
-	LastFired   *time.Time `json:"last_fired,omitempty"`
-	LastResult  string     `json:"last_result,omitempty"`
+	Fired      int        `json:"fired"`
+	LastFired  *time.Time `json:"last_fired,omitempty"`
+	LastResult string     `json:"last_result,omitempty"`
+	// Paused: the rule does not run, for PausedWhy; until PausedUntil, or,
+	// paused by hand, until resumed (no PausedUntil).
+	Paused      bool       `json:"paused,omitempty"`
 	PausedUntil *time.Time `json:"paused_until,omitempty"`
 	PausedWhy   string     `json:"paused_why,omitempty"`
 }
@@ -480,8 +483,11 @@ func (m *Module) readRules() RuleList {
 				st.LastFired = &t
 			}
 			if now.Before(run.pausedUntil) {
-				t := run.pausedUntil.UTC()
-				st.PausedUntil, st.PausedWhy = &t, run.pausedWhy
+				st.Paused, st.PausedWhy = true, run.pausedWhy
+				if run.pausedUntil.Year() < 9999 { // paused by hand has no end
+					t := run.pausedUntil.UTC()
+					st.PausedUntil = &t
+				}
 			}
 		}
 		list.Rules = append(list.Rules, st)

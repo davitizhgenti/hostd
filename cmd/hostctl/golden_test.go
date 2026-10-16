@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/davitizhgenti/hostd/modules/apps"
+	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -51,7 +53,8 @@ func hostctl(t *testing.T, args ...string) (string, string, int) {
 // those moved into the manifest: a migration must keep every byte.
 func TestGoldenTables(t *testing.T) {
 	displayManifest := display.New(display.Options{}).Manifest()
-	fakeAPI(t, []sdk.Manifest{displayManifest}, map[string]string{
+	manifests := []sdk.Manifest{displayManifest, apps.New(apps.Options{}).Manifest(), automation.New(automation.Options{}).Manifest()}
+	fakeAPI(t, manifests, map[string]string{
 		"/v1/windows": `[
 			{"id":1,"instance":"firefox","app_id":"firefox","class":"","title":"Mozilla Firefox","workspace":"hostd:firefox","focused":true,"fullscreen":true},
 			{"id":2,"instance":"","app_id":"","class":"Steam","title":"A very long window title that goes on well past forty characters","workspace":"1","focused":false,"fullscreen":false},
@@ -74,11 +77,11 @@ func TestGoldenTables(t *testing.T) {
 			{"seq":1,"time":"2026-10-14T10:00:00Z","action":"act_1","type":"audio.volume.set","args":{"percent":40},"source":{"kind":"manual","name":"admin"},"status":"applied","version":3}]`,
 		"/v1/rules": `{"rules": [
 			{"name":"evening","on":"display.idle","do":{"scene":"dim"},"fired":2,"last_fired":"2026-10-14T10:00:00Z","last_result":"applied"},
-			{"name":"quiet","on":"instance.started","do":{"action":"audio.mute.set"},"fired":0,"paused_until":"9999-01-01T00:00:00Z","paused_why":"paused by hand"}],
+			{"name":"quiet","on":"instance.started","do":{"action":"audio.mute.set"},"fired":0,"paused":true,"paused_why":"paused by hand"}],
 			"problems": [{"file":"rules.toml","error":"rule 3: needs on"}]}`,
 		"/v1/scenes": `{"scenes": [
-			{"id":"movie","name":"Movie night","audio":{"volume":40},"apps":{"running":["jelly"]}},
-			{"id":"lights","name":"Lights only","do":[{"action":"lights.scene.set"}]}],
+			{"id":"movie","name":"Movie night","audio":{"volume":40},"apps":{"running":["jelly"]},"sets":["apps","audio"]},
+			{"id":"lights","name":"Lights only","do":[{"action":"lights.scene.set"}],"sets":["do"]}],
 			"problems": []}`,
 		"/v1/instances": `[
 			{"id":"firefox","app":"firefox","runner":"exec","state":"running","pid":4242,"started":"2026-10-14T10:15:30Z"},
@@ -109,7 +112,7 @@ func TestGoldenTables(t *testing.T) {
 		}
 	}
 	// An empty list.
-	fakeAPI(t, []sdk.Manifest{displayManifest}, map[string]string{"/v1/windows": `[]`, "/v1/controllers": `[]`})
+	fakeAPI(t, manifests, map[string]string{"/v1/windows": `[]`, "/v1/controllers": `[]`})
 	for name, want := range map[string]string{"windows": "INSTANCE  APP ID  WORKSPACE  FOCUSED  FULLSCREEN  TITLE\n", "controllers": "no controllers connected\n"} {
 		if out, _, code := hostctl(t, name); code != 0 || out != want {
 			t.Errorf("empty %s: %q (exit %d), want %q", name, out, code, want)

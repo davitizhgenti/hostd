@@ -78,10 +78,25 @@ var (
 			"oneOf":[{"type":"integer","minimum":0,"maximum":150},{"type":"string","pattern":"^([+-][0-9]{1,3}|[0-9]{1,3})$"}]}},
 		"required":["percent"]}`)
 	muteSchema = json.RawMessage(`{"type":"object","properties":{
-		"muted":{"description":"true, false or \"toggle\"",
-			"oneOf":[{"type":"boolean"},{"const":"toggle"}]}},
-		"required":["muted"]}`)
+		"muted":{"description":"true or on, false or off, or toggle (the default)","default":"toggle",
+			"oneOf":[{"type":"boolean"},{"enum":["toggle","on","off"]}]}}}`)
 )
+
+// masterDone is how hostctl prints the volume: after a change, and for
+// hostctl volume alone (the audio read).
+var masterDone = []string{"volume {percent}% (muted) on {description|sink} if muted", "volume {percent}% on {description|sink}"}
+
+// muteWanted reads a mute argument: true or "on", false or "off", else
+// (absent, "toggle") the opposite of now.
+func muteWanted(raw json.RawMessage, now bool) bool {
+	switch strings.Trim(strings.TrimSpace(string(raw)), `"`) {
+	case "true", "on":
+		return true
+	case "false", "off":
+		return false
+	}
+	return !now
+}
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
@@ -92,11 +107,13 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "audio.volume.set", Description: "Set the volume (0-150) or change it (\"+5\", \"-5\")",
 				Schema: volumeSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
 				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/volume"}},
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/volume"},
+				CLI:     &sdk.CLI{Alias: []string{"volume"}, Read: "audio", Done: masterDone}},
 			{Type: "audio.mute.set", Description: "Mute, unmute or toggle",
 				Schema: muteSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
 				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/mute"}},
+				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/mute"},
+				CLI:     &sdk.CLI{Alias: []string{"mute"}, Done: masterDone}},
 		}, append(m3Actions(), mediaActions()...)...),
 		Events: []sdk.EventSpec{
 			{Type: EventVolumeChanged, Description: "Volume or mute changed"},
@@ -282,14 +299,7 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		if err := a.DecodeArgs(&args); err != nil {
 			return sdk.Result{}, err
 		}
-		switch strings.TrimSpace(string(args.Muted)) {
-		case "true":
-			want.Muted = true
-		case "false":
-			want.Muted = false
-		default: // "toggle"
-			want.Muted = !want.Muted
-		}
+		want.Muted = muteWanted(args.Muted, want.Muted)
 		m.expect(want)
 		if err := m.opts.Backend.SetMute(ctx, want.Muted); err != nil {
 			return sdk.Result{}, err

@@ -66,9 +66,6 @@ func (a *app) fetch(cmd *cobra.Command, path string, v any) (done bool, err erro
 	return false, nil
 }
 
-// problem is a file a module could not use, as reads report them.
-type problem struct{ File, Error string }
-
 // heldBy is the line for an action that was skipped because a change of
 // higher priority holds its resource (and until when), or "" if it was not
 // skipped.

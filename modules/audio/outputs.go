@@ -284,13 +284,7 @@ func (m *Module) handleApp(ctx context.Context, a sdk.Action) (sdk.Result, error
 		}
 		state["percent"] = p
 	} else {
-		muted := !streams[0].Muted // toggle
-		switch strings.TrimSpace(string(args.Muted)) {
-		case "true":
-			muted = true
-		case "false":
-			muted = false
-		}
+		muted := muteWanted(args.Muted, streams[0].Muted)
 		for _, s := range streams {
 			if err := gb.SetNodeMute(ctx, s.ID, muted); err != nil {
 				return sdk.Result{}, err
@@ -318,8 +312,9 @@ var (
 		"required":["instance","percent"]}`)
 	appMuteSchema = json.RawMessage(`{"type":"object","properties":{
 		"instance":{"type":"string"},
-		"muted":{"description":"true, false or \"toggle\"","oneOf":[{"type":"boolean"},{"const":"toggle"}]}},
-		"required":["instance","muted"]}`)
+		"muted":{"description":"true or on, false or off, or toggle (the default)","default":"toggle",
+			"oneOf":[{"type":"boolean"},{"enum":["toggle","on","off"]}]}},
+		"required":["instance"]}`)
 )
 
 // m3Actions are the output and per-app actions.

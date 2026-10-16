@@ -31,6 +31,22 @@ type Scene struct {
 	// scene cannot know what an action of another module changes, so each
 	// is sent every time the scene is applied.
 	Do []SceneDo `json:"do,omitempty" toml:"do"`
+	// Sets are the parts it has, in a fixed order (apps, audio, display,
+	// do): for lists of scenes.
+	Sets []string `json:"sets,omitempty" toml:"-"`
+}
+
+func (s Scene) sets() []string {
+	var out []string
+	for _, p := range []struct {
+		name string
+		has  bool
+	}{{"apps", s.Apps != nil}, {"audio", s.Audio != nil}, {"display", s.Display != nil}, {"do", len(s.Do) > 0}} {
+		if p.has {
+			out = append(out, p.name)
+		}
+	}
+	return out
 }
 
 // SceneDo is one action a scene sends as it stands.

@@ -85,7 +85,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return exitCode(err)
 		}
 	}
-	root.SetArgs(args)
+	root.SetArgs(numbersAsValues(root, args))
 	root.SetIn(stdin)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -110,6 +110,7 @@ type app struct {
 	jsonOut        bool
 	url            string
 	c              *client.Client
+	reads          map[string]sdk.ReadSpec // module/read -> the read
 }
 
 // client connects lazily, so commands that need no server (help) work

@@ -12,7 +12,7 @@ func lightsManifest() sdk.Manifest {
 	return sdk.Manifest{Name: "lights", Version: "1", Owns: []string{"lights.*"},
 		Reads: []sdk.ReadSpec{
 			{Name: "lights", Description: "Every light", Path: "/v1/lights", CLI: &sdk.CLI{
-				Alias: []string{"lamps", "ps"}, // ps is a built-in: not taken
+				Alias: []string{"lamps", "log"}, // log is a built-in: not taken
 				Empty: "no lights",
 				Columns: []sdk.Column{
 					{Title: "LIGHT", Path: "id"}, {Title: "LEVEL", Path: "brightness"}, {Title: "ROOM", Path: "where.room|zone", Max: 8},
@@ -32,7 +32,7 @@ func TestGetPrintsATable(t *testing.T) {
 
 	out, errs, code := hostctl(t, "get", "lights", "lights")
 	want := `LIGHT        LEVEL  ROOM      TAGS  LAST
-porch        40     outside   a,b   10:15:30
+porch        40     outside   a, b  10:15:30
 living-room  0      a room …  -     not a time
 hall         -      -         -     -
 `
@@ -52,7 +52,7 @@ hall         -      -         -     -
 	if out2, _, code := hostctl(t, "lamps"); code != 0 || out2 != want {
 		t.Fatalf("alias: exit %d\n%s", code, out2)
 	}
-	if out3, _, _ := hostctl(t, "ps"); strings.Contains(out3, "LIGHT") {
+	if out3, _, _ := hostctl(t, "log", "--help"); strings.Contains(out3, "LIGHT") || strings.Contains(out3, "Every light") {
 		t.Fatalf("an alias took a built-in's name:\n%s", out3)
 	}
 

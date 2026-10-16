@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -99,6 +100,34 @@ type CLI struct {
 	// Flags give an argument's flag another name or a one-letter form,
 	// by argument: {"background": {"short": "b"}} (actions only).
 	Flags map[string]Flag `json:"flags,omitempty"`
+	// Read is one of the module's reads that the command shows when it is
+	// given no arguments, printed with Done (actions only): hostctl volume
+	// alone shows the volume.
+	Read string `json:"read,omitempty"`
+
+	// One is a read with one parameter, shown when the command is given an
+	// argument: hostctl apps firefox (reads only).
+	One string `json:"one,omitempty"`
+	// Params are the read's query parameters given as switches: --all
+	// asks with ?all=true (reads only).
+	Params []Param `json:"params,omitempty"`
+	// Notes are printed after the table, on standard error: the rows of
+	// another list in the answer, such as files that could not be used
+	// (reads only).
+	Notes *Notes `json:"notes,omitempty"`
+}
+
+// A Param is a read's query parameter that hostctl gives as a switch.
+type Param struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// Notes say how to print a list beside a read's rows.
+type Notes struct {
+	Rows string `json:"rows"`           // the field that holds them
+	Head string `json:"head,omitempty"` // printed once first, if there are any ({count})
+	Line string `json:"line"`           // one per row, in Done's grammar
 }
 
 // A Flag is how hostctl names an action's argument on its command line.
@@ -120,6 +149,35 @@ type Column struct {
 	Format string `json:"format,omitempty"`
 	// Max cuts a longer value to this many characters, ending in "…".
 	Max int `json:"max,omitempty"`
+	// Text, instead of Path, writes the cell in Done's grammar: the first
+	// line whose condition holds ("{state} ({exit_code}) if ended"). A
+	// field's time can be {field:time} (HH:MM:SS) or {field:hm} (HH:MM).
+	Text []string `json:"text,omitempty"`
+}
+
+// checkLine checks a line of Done's grammar: "TEXT" or "TEXT if COND",
+// COND a field, !field or field=value; {field} in TEXT, {a|b} the first
+// that is not empty, {field:time} or {field:hm} a time.
+func checkLine(line string) error {
+	text, cond, _ := strings.Cut(line, " if ")
+	if cond != "" {
+		field, _, _ := strings.Cut(strings.TrimPrefix(cond, "!"), "=")
+		if !reField.MatchString(field) {
+			return fmt.Errorf("condition %q is not a field", cond)
+		}
+	}
+	for _, f := range reParam.FindAllStringSubmatch(text, -1) {
+		paths, format, _ := strings.Cut(f[1], ":")
+		if format != "" && format != "time" && format != "hm" {
+			return fmt.Errorf("{%s}: format %q is not time or hm", f[1], format)
+		}
+		for _, alt := range strings.Split(paths, "|") {
+			if !reField.MatchString(alt) {
+				return fmt.Errorf("{%s} is not a field name", f[1])
+			}
+		}
+	}
+	return nil
 }
 
 // ScopeSpec is a token scope a module defines.
@@ -409,20 +467,38 @@ func (m *Manifest) Validate() error {
 		if !read && (len(c.Columns) > 0 || c.Empty != "" || c.Rows != "") {
 			bad("%s: columns, rows and empty apply to reads, not actions", where)
 		}
-		if read && (c.Rest != "" || c.Wait || len(c.Done) > 0 || len(c.Flags) > 0) {
-			bad("%s: rest, wait, done and flags apply to actions, not reads", where)
+		if read && (c.Rest != "" || c.Wait || len(c.Done) > 0 || len(c.Flags) > 0 || c.Read != "") {
+			bad("%s: rest, wait, done, flags and read apply to actions, not reads", where)
+		}
+		if !read && (c.One != "" || len(c.Params) > 0 || c.Notes != nil) {
+			bad("%s: one, params and notes apply to reads, not actions", where)
+		}
+		if c.One != "" && !slices.ContainsFunc(m.Reads, func(r ReadSpec) bool { return r.Name == c.One && len(reParam.FindAllString(r.Path, -1)) == 1 }) {
+			bad("%s: one %q is not one of the module's reads with one parameter", where, c.One)
+		}
+		for _, p := range c.Params {
+			if !isIdent(p.Name) {
+				bad("%s: param %q is not a name", where, p.Name)
+			}
+		}
+		if c.Notes != nil && (!reField.MatchString(c.Notes.Rows) || c.Notes.Line == "") {
+			bad("%s: notes need rows (a field) and a line", where)
+		}
+		if c.Read != "" && !slices.ContainsFunc(m.Reads, func(r ReadSpec) bool { return r.Name == c.Read && !strings.Contains(r.Path, "{") }) {
+			bad("%s: read %q is not one of the module's reads without parameters", where, c.Read)
 		}
 		if c.Rest != "" && !isIdent(c.Rest) {
 			bad("%s: rest %q is not an argument name", where, c.Rest)
 		}
 		for _, d := range c.Done {
-			text, cond, _ := strings.Cut(d, " if ")
-			if cond != "" && !reField.MatchString(cond) {
-				bad("%s: done %q: %q is not a field name", where, d, cond)
+			if err := checkLine(d); err != nil {
+				bad("%s: done %q: %v", where, d, err)
 			}
-			for _, f := range reParam.FindAllStringSubmatch(text, -1) {
-				if !reField.MatchString(f[1]) {
-					bad("%s: done %q: {%s} is not a field name", where, d, f[1])
+		}
+		if c.Notes != nil {
+			for _, l := range []string{c.Notes.Head, c.Notes.Line} {
+				if err := checkLine(l); err != nil {
+					bad("%s: notes %q: %v", where, l, err)
 				}
 			}
 		}
@@ -450,14 +526,24 @@ func (m *Manifest) Validate() error {
 			switch {
 			case col.Title == "":
 				bad("%s: column %d has no title", where, i+1)
-			case col.Path == "":
-				bad("%s: column %q has no path", where, col.Title)
+			case col.Path == "" && len(col.Text) == 0:
+				bad("%s: column %q has no path or text", where, col.Title)
+			case col.Path != "" && len(col.Text) > 0:
+				bad("%s: column %q has both a path and text", where, col.Title)
 			case col.Format != "" && col.Format != "list" && col.Format != "time":
 				bad("%s: column %q: format %q is not list or time", where, col.Title, col.Format)
 			case col.Max < 0:
 				bad("%s: column %q: negative max", where, col.Title)
 			}
+			for _, l := range col.Text {
+				if err := checkLine(l); err != nil {
+					bad("%s: column %q: text %q: %v", where, col.Title, l, err)
+				}
+			}
 			for _, alt := range strings.Split(col.Path, "|") {
+				if col.Path == "" {
+					break
+				}
 				if !reField.MatchString(alt) {
 					bad("%s: column %q: path %q is not a field name such as a or a.b", where, col.Title, alt)
 				}

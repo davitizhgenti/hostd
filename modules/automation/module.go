@@ -128,13 +128,18 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventSceneApplied, Description: "A scene was applied, with each step's result"},
 		},
 		Reads: []sdk.ReadSpec{
-			{Name: "scenes", Description: "The scenes, and scene files that cannot be used", Path: "/v1/scenes",
-				CLI: &sdk.CLI{Rows: "scenes", Empty: "no scenes", Columns: []sdk.Column{{Title: "SCENE", Path: "id"}, {Title: "NAME", Path: "name"}}}},
+			{Name: "scenes", Description: "The scenes (hostctl scene apply <id> reaches one), and scene files that cannot be used", Path: "/v1/scenes",
+				CLI: &sdk.CLI{Alias: []string{"scenes"}, Rows: "scenes", Empty: "no scenes", Columns: []sdk.Column{{Title: "SCENE", Path: "id"},
+					{Title: "NAME", Path: "name"}, {Title: "SETS", Path: "sets", Format: "list"}},
+					Notes: &sdk.Notes{Rows: "problems", Line: "{file}: {error}"}}},
 			{Name: "scene", Description: "One scene", Path: "/v1/scenes/{id}"},
 			{Name: "rules", Description: "The rules: when each fired, its last result, whether it is paused", Path: "/v1/rules",
-				CLI: &sdk.CLI{Rows: "rules", Empty: "no rules", Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "ON", Path: "on"},
-					{Title: "DO", Path: "do.scene|do.script|do.action"}, {Title: "FIRED", Path: "fired"}, {Title: "LAST", Path: "last_fired", Format: "time"},
-					{Title: "RESULT", Path: "last_result", Max: 40}, {Title: "PAUSED", Path: "paused_why"}}}},
+				CLI: &sdk.CLI{Alias: []string{"rules"}, Rows: "rules", Empty: "no rules", Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "ON", Path: "on"},
+					{Title: "DO", Text: []string{"script {do.script} if do.script", "action {do.action} if do.action", "scene {do.scene}"}},
+					{Title: "FIRED", Path: "fired"},
+					{Title: "LAST", Text: []string{"{last_fired:time} {last_result} if last_fired", "-"}},
+					{Title: "STATE", Text: []string{"active if !paused", "paused: {paused_why} (until {paused_until:hm}) if paused_until", "paused: {paused_why}"}}},
+					Notes: &sdk.Notes{Rows: "problems", Line: "{file}: {error} (the rules before it stay in use)"}}},
 		},
 	}
 }
@@ -219,6 +224,7 @@ func (m *Module) Read(_ context.Context, name string, params map[string]string) 
 			list.Problems = []Problem{}
 		}
 		for _, s := range scenes {
+			s.Sets = s.sets()
 			list.Scenes = append(list.Scenes, s)
 		}
 		sort.Slice(list.Scenes, func(i, j int) bool { return list.Scenes[i].ID < list.Scenes[j].ID })

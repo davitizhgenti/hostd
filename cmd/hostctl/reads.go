@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,7 +113,42 @@ func (a *app) makeReadCommand(cmd *cobra.Command, rd sdk.ReadSpec, module string
 	cmd.Args = cobra.ExactArgs(len(params))
 	var query []string
 	cmd.Flags().StringArrayVar(&query, "param", nil, "a query parameter, key=value (repeat for more)")
+	switches := map[string]*bool{}
+	var one *sdk.ReadSpec
+	if rd.CLI != nil {
+		for _, p := range rd.CLI.Params {
+			switches[p.Name] = cmd.Flags().Bool(strings.ReplaceAll(p.Name, "_", "-"), false, p.Description)
+		}
+		if rd.CLI.One != "" {
+			if r, ok := a.reads[module+"/"+rd.CLI.One]; ok && len(params) == 0 {
+				one = &r
+				cmd.Use += " [" + readParams(r.Path)[0] + "]"
+				cmd.Args = cobra.MaximumNArgs(1)
+			}
+		}
+	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if one != nil && len(args) == 1 {
+			path := strings.Replace(one.Path, "{"+readParams(one.Path)[0]+"}", url.PathEscape(args[0]), 1)
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			var raw json.RawMessage
+			if err := c.Get(cmd.Context(), path, &raw); err != nil {
+				return err
+			}
+			if a.jsonOut || one.CLI == nil || len(one.CLI.Columns) == 0 {
+				return a.printJSON(raw)
+			}
+			return a.printTable(one.CLI, raw)
+		}
+		for name, on := range switches {
+			if *on {
+				query = append(query, name+"=true")
+			}
+		}
+		sort.Strings(query)
 		path := rd.Path
 		for i, p := range params {
 			path = strings.Replace(path, "{"+p+"}", url.PathEscape(args[i]), 1)
@@ -181,12 +217,47 @@ func (a *app) printTable(cli *sdk.CLI, raw json.RawMessage) error {
 	for i, c := range cli.Columns {
 		cols[i] = column[map[string]any]{c.Title, func(row map[string]any) string { return cell(row, c) }}
 	}
-	return writeTable(a.stdout, tableStyle{}, cols, rows)
+	if err := writeTable(a.stdout, tableStyle{}, cols, rows); err != nil {
+		return err
+	}
+	return a.printNotes(cli.Notes, whole)
+}
+
+// printNotes prints the rows of a list beside the read's (files that
+// could not be used) on standard error, after the table.
+func (a *app) printNotes(n *sdk.Notes, whole any) error {
+	if n == nil {
+		return nil
+	}
+	items, _ := fieldOf(whole, n.Rows).([]any)
+	if len(items) == 0 {
+		return nil
+	}
+	if n.Head != "" {
+		head, _ := renderLines([]string{n.Head}, map[string]any{"count": len(items)})
+		fmt.Fprintln(a.stderr, head)
+	}
+	for _, it := range items {
+		if line, ok := renderLines([]string{n.Line}, it); ok {
+			fmt.Fprintln(a.stderr, line)
+		}
+	}
+	return nil
 }
 
 // cell is one value of a row, written as its column says. A value that is
 // missing, empty or null is "-".
 func cell(row map[string]any, c sdk.Column) string {
+	if len(c.Text) > 0 {
+		s, ok := renderLines(c.Text, row)
+		if !ok || s == "" {
+			return "-"
+		}
+		if c.Max > 0 {
+			s = shorten(s, c.Max)
+		}
+		return s
+	}
 	for _, path := range strings.Split(c.Path, "|") {
 		var v any = row
 		for _, key := range strings.Split(path, ".") {
@@ -229,6 +300,9 @@ func render(v any, format string) string {
 			if s := render(e, ""); s != "" {
 				parts = append(parts, s)
 			}
+		}
+		if format == "list" { // a list to read: "apps, audio"
+			return strings.Join(parts, ", ")
 		}
 		return strings.Join(parts, ",")
 	case map[string]any:

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/davitizhgenti/hostd/modules/audio"
+	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -28,7 +30,8 @@ func newFakeHostd(t *testing.T) *fakeHostd {
 	t.Helper()
 	f := &fakeHostd{answers: map[string]string{}, versions: []string{`{"version":"v1","arch":"amd64"}`}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/manifests", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`[]`)) })
+	manifests, _ := json.Marshal([]sdk.Manifest{audio.New(audio.Options{}).Manifest(), display.New(display.Options{}).Manifest()})
+	mux.HandleFunc("GET /v1/manifests", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(manifests) })
 	mux.HandleFunc("POST /v1/actions", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
 		b, _ := io.ReadAll(r.Body)
@@ -39,6 +42,9 @@ func newFakeHostd(t *testing.T) *fakeHostd {
 		f.mu.Unlock()
 		if !ok {
 			answer = `{"action":"act_1","status":"applied"}`
+		}
+		if strings.HasPrefix(answer, `{"error"`) {
+			w.WriteHeader(http.StatusBadRequest)
 		}
 		_, _ = w.Write([]byte(answer))
 	})
@@ -97,10 +103,21 @@ func TestVolumeAndMute(t *testing.T) {
 			t.Errorf("volume %s: %d %s %s %q %s", arg, code, typ, args, out, errs)
 		}
 	}
-	if out, _, _ := hostctl(t, "volume", "1", "2"); !strings.Contains(out, "Usage:") {
-		t.Errorf("two values: %q", out)
+	if _, _, code := hostctl(t, "volume", "1", "2"); code != exitUsage {
+		t.Errorf("two values: %d", code)
 	}
-	for arg, want := range map[string]string{"": `{"muted":"toggle"}`, "on": `{"muted":true}`, "off": `{"muted":false}`} {
+	// A negative number after other flags, and as the flag's value.
+	if _, errs, code := hostctl(t, "--json", "volume", "-10"); code != 0 {
+		t.Errorf("--json volume -10: %d %s", code, errs)
+	} else if _, args := f.last(t); args != `{"percent":"-10"}` {
+		t.Errorf("--json volume -10 sent %s", args)
+	}
+	if _, _, code := hostctl(t, "volume", "--percent", "-3"); code != 0 {
+		t.Errorf("--percent -3: %d", code)
+	} else if _, args := f.last(t); args != `{"percent":"-3"}` {
+		t.Errorf("--percent -3 sent %s", args)
+	}
+	for arg, want := range map[string]string{"": `null`, "on": `{"muted":"on"}`, "off": `{"muted":"off"}`} {
 		args := []string{"mute"}
 		if arg != "" {
 			args = append(args, arg)
@@ -111,8 +128,21 @@ func TestVolumeAndMute(t *testing.T) {
 			t.Errorf("mute %q: %d %s %q", arg, code, sent, out)
 		}
 	}
-	if _, _, code := hostctl(t, "mute", "loud"); code != exitUsage {
-		t.Errorf("mute loud: %d", code)
+	// What the server refuses comes back as its error (the schema says on,
+	// off or toggle).
+	f.answers["audio.mute.set"] = `{"error":{"code":"invalid_args","message":"muted: \"loud\" is not one of toggle, on, off"}}`
+	if _, errs, code := hostctl(t, "mute", "loud"); code != exitInvalidArgs || !strings.Contains(errs, "not one of") {
+		t.Errorf("mute loud: %d %s", code, errs)
+	}
+	delete(f.answers, "audio.mute.set")
+	// The long form takes a negative number too.
+	if _, errs, code := hostctl(t, "audio", "volume", "set", "-5"); code != 0 {
+		t.Errorf("audio volume set -5: %d %s", code, errs)
+	} else if _, args := f.last(t); args != `{"percent":"-5"}` {
+		t.Errorf("audio volume set -5 sent %s", args)
+	}
+	if out, _, code := hostctl(t, "--json", "volume"); code != 0 || !strings.Contains(out, `"percent": 40`) {
+		t.Errorf("--json volume: %d %q", code, out)
 	}
 	// Held by someone at the screen: said so, not an error.
 	f.answers["audio.volume.set"] = `{"status":"skipped","held_by":"local","reason":"held"}`

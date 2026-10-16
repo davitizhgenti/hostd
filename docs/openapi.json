@@ -387,7 +387,7 @@
             "bearer": []
           }
         ],
-        "summary": "The catalog (?all=true includes hidden apps)",
+        "summary": "The app catalog, or one app (?all=true includes hidden apps)",
         "tags": [
           "apps"
         ],
@@ -878,20 +878,22 @@
               "schema": {
                 "properties": {
                   "muted": {
-                    "description": "true, false or \"toggle\"",
+                    "default": "toggle",
+                    "description": "true or on, false or off, or toggle (the default)",
                     "oneOf": [
                       {
                         "type": "boolean"
                       },
                       {
-                        "const": "toggle"
+                        "enum": [
+                          "toggle",
+                          "on",
+                          "off"
+                        ]
                       }
                     ]
                   }
                 },
-                "required": [
-                  "muted"
-                ],
                 "type": "object"
               }
             }
@@ -1071,20 +1073,22 @@
               "schema": {
                 "properties": {
                   "muted": {
-                    "description": "true, false or \"toggle\"",
+                    "default": "toggle",
+                    "description": "true or on, false or off, or toggle (the default)",
                     "oneOf": [
                       {
                         "type": "boolean"
                       },
                       {
-                        "const": "toggle"
+                        "enum": [
+                          "toggle",
+                          "on",
+                          "off"
+                        ]
                       }
                     ]
                   }
                 },
-                "required": [
-                  "muted"
-                ],
                 "type": "object"
               }
             }
@@ -1431,7 +1435,7 @@
             "bearer": []
           }
         ],
-        "summary": "Connected game controllers, with their profile and bindable buttons",
+        "summary": "Connected game controllers: their profile, and the buttons hostd.toml can bind ([display.buttons]); a raw device is read by its app only",
         "tags": [
           "display"
         ],
@@ -3424,7 +3428,7 @@
             "bearer": []
           }
         ],
-        "summary": "The scenes, and scene files that cannot be used",
+        "summary": "The scenes (hostctl scene apply \u003cid\u003e reaches one), and scene files that cannot be used",
         "tags": [
           "automation"
         ],

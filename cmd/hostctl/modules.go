@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"github.com/davitizhgenti/hostd/internal/client"
@@ -30,6 +32,12 @@ func (a *app) addModuleCommands(ctx context.Context, root *cobra.Command) error 
 	manifests, err := c.Manifests(ctx)
 	if err != nil {
 		return err
+	}
+	a.reads = map[string]sdk.ReadSpec{}
+	for _, m := range manifests {
+		for _, rd := range m.Reads {
+			a.reads[m.Name+"/"+rd.Name] = rd
+		}
 	}
 	for _, m := range manifests {
 		for _, spec := range m.Actions {
@@ -199,6 +207,14 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		}
 	}
 	cmd.Args = cobra.MaximumNArgs(len(positional))
+	readPath := ""
+	if cli.Read != "" {
+		readPath = a.reads[module+"/"+cli.Read].Path
+	}
+	if readPath != "" && len(positional) > 0 {
+		// Without arguments, the command shows the read: they are optional.
+		use = strings.Replace(use, "<"+positional[0]+">", "["+positional[0]+"]", 1)
+	}
 	if cli.Rest != "" {
 		use = strings.Replace(use, cmd.Name(), cmd.Name()+" [flags]", 1) + " [--] <" + cli.Rest + "...>"
 		cmd.Args = cobra.MinimumNArgs(len(positional) + 1)
@@ -211,7 +227,18 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 	if cmd.Short == "" {
 		cmd.Short = fmt.Sprintf("%s (module %s, scope %s)", spec.Type, module, spec.Scope)
 	}
+	// Positional slots, by flag name, for numbersAsValues (hostctl volume -5).
+	var slots []string
+	for _, p := range positional {
+		slots = append(slots, flagOf[p])
+	}
+	cmd.Annotations = map[string]string{positionalAnnotation: strings.Join(slots, ",")}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		if readPath != "" && len(args) == 0 && !slices.ContainsFunc(props, func(p prop) bool {
+			return flagOf[p.name] != "" && cmd.Flags().Changed(flagOf[p.name])
+		}) {
+			return a.showRead(cmd, readPath, cli.Done) // no argument given: what is there now
+		}
 		out := map[string]json.RawMessage{}
 		var order []string // arguments in the order given, for a readable log
 		for i, v := range args {
@@ -288,6 +315,69 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		}
 		return a.submitDone(cmd, req, cli.Done)
 	}
+}
+
+const positionalAnnotation = "hostctl.positional"
+
+var reNumber = regexp.MustCompile(`^-[0-9]+(\.[0-9]+)?$`)
+
+// numbersAsValues lets a negative number fill a generated command's
+// positional slot ("hostctl volume -5"), which flag parsing would take for
+// a flag: it becomes that argument's flag, --percent=-5. No flag of
+// hostctl's looks like a number, so nothing else is changed.
+func numbersAsValues(root *cobra.Command, args []string) []string {
+	cmd, _, err := root.Find(args)
+	if err != nil || cmd.Annotations[positionalAnnotation] == "" {
+		return args
+	}
+	slots := strings.Split(cmd.Annotations[positionalAnnotation], ",")
+	path := strings.Fields(cmd.CommandPath())[1:]
+	takesValue := func(tok string) bool { // a flag whose value is the next word
+		name, _, hasValue := strings.Cut(strings.TrimLeft(tok, "-"), "=")
+		if hasValue {
+			return false
+		}
+		var f *pflag.Flag
+		if strings.HasPrefix(tok, "--") {
+			f = cmd.Flags().Lookup(name)
+		} else if len(name) == 1 {
+			f = cmd.Flags().ShorthandLookup(name)
+		}
+		return f != nil && f.Value.Type() != "bool"
+	}
+	out := slices.Clone(args)
+	pos := 0
+	for i := 0; i < len(out); i++ {
+		tok := out[i]
+		switch {
+		case tok == "--":
+			return out
+		case len(path) > 0 && (tok == path[0] || slices.Contains(ancestor(cmd, len(path)).Aliases, tok)):
+			path = path[1:]
+		case reNumber.MatchString(tok) && len(path) == 0:
+			if pos < len(slots) {
+				out[i] = "--" + slots[pos] + "=" + tok
+			}
+			pos++
+		case strings.HasPrefix(tok, "-"):
+			if takesValue(tok) {
+				i++
+			}
+		case len(path) == 0:
+			pos++
+		}
+	}
+	return out
+}
+
+// ancestor is the command at the given depth from the end of cmd's path
+// (1: cmd itself), for its aliases.
+func ancestor(cmd *cobra.Command, fromEnd int) *cobra.Command {
+	c := cmd
+	for range fromEnd - 1 {
+		c = c.Parent()
+	}
+	return c
 }
 
 // document reads an argument that is a document (an app file) from where

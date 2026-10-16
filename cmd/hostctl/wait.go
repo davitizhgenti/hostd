@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +14,16 @@ import (
 	"github.com/davitizhgenti/hostd/internal/client"
 	"github.com/davitizhgenti/hostd/sdk"
 )
+
+// instanceInfo is what --wait reads of an instance.
+type instanceInfo struct {
+	ID       string     `json:"id"`
+	App      string     `json:"app"`
+	State    string     `json:"state"`
+	Ended    *time.Time `json:"ended"`
+	ExitCode *int       `json:"exit_code"`
+	Error    string     `json:"error"`
+}
 
 // submitDone sends an action and prints its result: as the action's Done
 // lines say (its manifest's CLI hint), or its status and data.
@@ -32,11 +41,24 @@ func (a *app) submitDone(cmd *cobra.Command, req client.ActionRequest, done []st
 	}
 	switch res.Status {
 	case sdk.StatusSkipped:
+		// A Done line about a skip (if reason=..., if status=...), else who
+		// holds the resource.
+		var about []string
+		for _, l := range done {
+			if _, cond, _ := strings.Cut(l, " if "); strings.HasPrefix(strings.TrimPrefix(cond, "!"), "reason") ||
+				strings.HasPrefix(strings.TrimPrefix(cond, "!"), "status") {
+				about = append(about, l)
+			}
+		}
+		if line, ok := doneLineFor(about, res.Data, req.Args, &res); ok {
+			fmt.Fprintln(a.stdout, line)
+			return nil
+		}
 		fmt.Fprintln(a.stdout, heldBy(res))
 	case sdk.StatusAccepted:
 		fmt.Fprintf(a.stdout, "accepted: %s (follow it with hostctl events)\n", res.Action)
 	default:
-		if line, ok := doneLine(done, res.Data); ok {
+		if line, ok := doneLineFor(done, res.Data, req.Args, &res); ok {
 			fmt.Fprintln(a.stdout, line)
 			return nil
 		}
@@ -52,35 +74,49 @@ func (a *app) submitDone(cmd *cobra.Command, req client.ActionRequest, done []st
 	return nil
 }
 
-var rePlaceholder = regexp.MustCompile(`\{([a-z0-9_.]+)\}`)
-
-// doneLine is the first of the Done lines whose condition holds for the
-// result's data, with its {fields} filled in.
+// doneLine is the first of the Done lines that holds for the result's
+// data, the action's arguments and its status (status, reason, held_by).
 func doneLine(done []string, data json.RawMessage) (string, bool) {
-	var d map[string]any
-	if len(done) == 0 || json.Unmarshal(data, &d) != nil {
+	return doneLineFor(done, data, nil, nil)
+}
+
+func doneLineFor(done []string, data, args json.RawMessage, res *sdk.Result) (string, bool) {
+	if len(done) == 0 {
 		return "", false
 	}
-	field := func(path string) any {
-		var v any = d
-		for _, k := range strings.Split(path, ".") {
-			m, _ := v.(map[string]any)
-			v = m[k]
-		}
-		return v
-	}
-	for _, line := range done {
-		text, cond, _ := strings.Cut(line, " if ")
-		if cond != "" {
-			if v := field(cond); v == nil || v == false || v == "" {
-				continue
+	ctx := map[string]any{}
+	for _, raw := range []json.RawMessage{args, data} {
+		var m map[string]any
+		dec := json.NewDecoder(strings.NewReader(string(raw)))
+		dec.UseNumber()
+		if len(raw) > 0 && dec.Decode(&m) == nil {
+			for k, v := range m {
+				ctx[k] = v
 			}
 		}
-		return rePlaceholder.ReplaceAllStringFunc(text, func(ph string) string {
-			return render(field(ph[1:len(ph)-1]), "")
-		}), true
 	}
-	return "", false
+	if res != nil {
+		ctx["status"], ctx["reason"], ctx["held_by"] = string(res.Status), res.Reason, string(res.HeldBy)
+	}
+	return renderLines(done, ctx)
+}
+
+// showRead prints one of a module's reads as the Done lines say (hostctl
+// volume with no arguments).
+func (a *app) showRead(cmd *cobra.Command, path string, done []string) error {
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	var raw json.RawMessage
+	if err := c.Get(cmd.Context(), path, &raw); err != nil {
+		return err
+	}
+	if line, ok := doneLine(done, raw); ok && !a.jsonOut {
+		_, err := fmt.Fprintln(a.stdout, line)
+		return err
+	}
+	return a.printJSON(raw)
 }
 
 // submitAndWait sends an action whose result names an instance, waits

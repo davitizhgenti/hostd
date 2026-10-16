@@ -235,7 +235,10 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: focusArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
 				ArgScopes: map[string]string{"front": contract.ScopeFront},
 				Timeout:   sdk.Duration(10 * time.Second),
-				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"}},
+				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"},
+				CLI: &sdk.CLI{Alias: []string{"focus"}, Done: []string{
+					"not switched: someone is using the screen (they got a notice; --front switches anyway) if reason=in_use",
+					"focused {instance}"}}},
 			{Type: "window.close", Description: "Close an instance's windows politely (default: the app in front); stop the app if they stay open",
 				Schema: closeArg, Keys: []sdk.KeyTemplate{"display.close"}, Scope: contract.ScopeApps,
 				Timeout: sdk.Duration(time.Minute),
@@ -300,9 +303,11 @@ func (m *Module) Manifest() sdk.Manifest {
 					{Title: "INSTANCE", Path: "instance"}, {Title: "APP ID", Path: "app_id|class"}, {Title: "WORKSPACE", Path: "workspace"},
 					{Title: "FOCUSED", Path: "focused"}, {Title: "FULLSCREEN", Path: "fullscreen"}, {Title: "TITLE", Path: "title", Max: 40}}}},
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
-			{Name: "controllers", Description: "Connected game controllers, with their profile and bindable buttons", Path: "/v1/controllers",
-				CLI: &sdk.CLI{Empty: "no controllers connected", Columns: []sdk.Column{{Title: "DEVICE", Path: "device"}, {Title: "KIND", Path: "kind"},
-					{Title: "PROFILE", Path: "profile"}, {Title: "BUTTONS", Path: "buttons", Format: "list"}, {Title: "READ BY", Path: "app"}, {Title: "NAME", Path: "name"}}}},
+			{Name: "controllers", Description: "Connected game controllers: their profile, and the buttons hostd.toml can bind ([display.buttons]); a raw device is read by its app only",
+				Path: "/v1/controllers",
+				CLI: &sdk.CLI{Alias: []string{"controllers"}, Empty: "no controllers connected", Columns: []sdk.Column{{Title: "DEVICE", Path: "device"},
+					{Title: "KIND", Path: "kind"}, {Title: "PROFILE", Path: "profile"}, {Title: "ID", Text: []string{"{vendor}:{product}"}},
+					{Title: "BUTTONS", Text: []string{"(read by {app}) if raw", "{buttons}"}}, {Title: "NAME", Path: "name"}}}},
 		},
 	}
 }

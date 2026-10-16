@@ -176,6 +176,9 @@ do   = { scene = "echo" }
 	r.emit(t, contract.EventInstanceStarted, contract.Instance{ID: "a", App: "a"})
 	waitFor(t, "the pause", func() bool { return r.state(t, "echo").PausedUntil != nil })
 	st := r.state(t, "echo")
+	if !st.Paused {
+		t.Fatal("paused for a while, not said so")
+	}
 	if !strings.Contains(st.PausedWhy, "loop") || st.Fired > 10 {
 		t.Fatalf("state %+v", st)
 	}
@@ -196,7 +199,7 @@ func TestRulePauseResume(t *testing.T) {
 	}
 	r.emit(t, contract.EventInstanceStarted, contract.Instance{ID: "a", App: "a"})
 	time.Sleep(100 * time.Millisecond)
-	if st := r.state(t, "r"); st.Fired != 0 || st.PausedWhy != "paused by hand" {
+	if st := r.state(t, "r"); st.Fired != 0 || st.PausedWhy != "paused by hand" || !st.Paused || st.PausedUntil != nil {
 		t.Fatalf("paused rule: %+v", st)
 	}
 	if err := do("rule.resume"); err != nil {

@@ -43,31 +43,6 @@ hostctl action <type> [json-args] [flags]
 | --- | --- | --- |
 | `--expect-version` | `-1` | refuse if the resource is not at this version |
 
-## hostctl apps
-
-List the app catalog, or show one app
-
-```
-hostctl apps [id] [flags]
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--all` |  | include hidden apps |
-
-## hostctl controllers
-
-List connected game controllers and the buttons hostd knows on them
-
-```
-hostctl controllers
-```
-
-List connected game controllers: their profile (which family hostd takes
-them for) and the buttons that can be bound in hostd.toml ([display.buttons]).
-Profiles are built in, and ~/.config/hostd/controllers/*.toml adds more.
-A raw device (a DolphinBar) is read only by its app.
-
 ## hostctl events
 
 Stream live events (Ctrl-C to stop)
@@ -81,22 +56,6 @@ hostctl events [flags]
 | `--count` | `0` | exit after this many events |
 | `--recent` |  | first show the recent events the server still has (up to 1,000) |
 | `--type` | `*` | only these event types, e.g. 'instance.*' |
-
-## hostctl focus
-
-Bring an instance's window to the front
-
-```
-hostctl focus <instance> [flags]
-```
-
-Bring an instance's window to the front. While someone is using the
-screen it stays put and they get a notice instead; --front switches anyway
-(needs the display.front scope).
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--front` |  | switch even while someone is using the screen |
 
 ## hostctl log
 
@@ -136,42 +95,6 @@ hostctl token create.
 | --- | --- | --- |
 | `--ca-fingerprint` |  | the machine's CA fingerprint (hostctl tls on the machine), instead of confirming it |
 | `--token-file` |  | read the token from this file |
-
-## hostctl mute
-
-Mute or unmute (toggle by default)
-
-```
-hostctl mute [on | off | toggle]
-```
-
-## hostctl ps
-
-List running instances
-
-```
-hostctl ps [flags]
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--all` |  | also show instances that ended recently |
-
-## hostctl rules
-
-List the rules, when they fired and whether they are paused
-
-```
-hostctl rules
-```
-
-## hostctl scenes
-
-List the scenes (hostctl scene apply <id> reaches one)
-
-```
-hostctl scenes
-```
 
 ## hostctl tls
 
@@ -261,14 +184,6 @@ Show the versions of hostctl and the connected hostd
 
 ```
 hostctl version
-```
-
-## hostctl volume
-
-Show the volume, or set it (0-150) or change it (+5, -5)
-
-```
-hostctl volume [percent | +n | -n]
 ```
 
 ## hostctl wait-quiet
