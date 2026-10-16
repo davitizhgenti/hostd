@@ -1,6 +1,8 @@
-# The docs site: mkdocs build --strict (CI checks it).
+# The docs site: mkdocs build --strict (CI checks it); published to GitHub
+# Pages by .github/workflows/pages.yml.
 site_name: hostd
 site_description: The display and services daemon for a home machine
+site_url: https://davitizhgenti.github.io/hostd/
 repo_url: https://github.com/davitizhgenti/hostd
 edit_uri: edit/main/docs/
 docs_dir: docs
