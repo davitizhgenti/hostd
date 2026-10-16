@@ -145,7 +145,7 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return 0
 	}
-	if a.cmd != "addons" && os.Geteuid() != 0 {
+	if a.cmd != "addons" && geteuid() != 0 {
 		fmt.Fprintf(stderr, "\033[31merror:\033[0m run as root: sudo hostd-setup %s\n", a.cmd)
 		return 1
 	}
@@ -175,21 +175,27 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 		opts.Update = &deploy.UpdateOptions{All: mode == "all", Addons: fields(os.Getenv("HOSTD_FORCE_ADDONS"))}
 	}
 	up := deploy.UpdateArgs{Options: opts, Source: a.source, Verbose: a.verbose, Pass: a.pass}
+	return exitCode(do(ctx, a, s, opts, up, execInstaller, stdout), stderr)
+}
 
+// do runs a parsed command against a machine (s): the real one, or a
+// test's.
+func do(ctx context.Context, a args, s *deploy.Setup, opts deploy.Options, up deploy.UpdateArgs, run deploy.Exec, stdout io.Writer) error {
+	var err error
 	switch a.cmd {
 	case "install":
 		err = s.Install(ctx, opts)
 	case "update":
 		up.Update = &deploy.UpdateOptions{All: a.all, Addons: a.names}
-		err = s.Update(ctx, up, execInstaller)
+		err = s.Update(ctx, up, run)
 	case "auto-update":
-		err = s.AutoUpdate(ctx, up, execInstaller)
+		err = s.AutoUpdate(ctx, up, run)
 	case "add":
 		if err = s.AddAddons(a.names); err == nil {
 			up.Update, up.Adding = &deploy.UpdateOptions{}, a.names
 			// add shows everything, like an install.
 			up.Verbose = true
-			err = s.Update(ctx, up, execInstaller)
+			err = s.Update(ctx, up, run)
 		}
 	case "remove":
 		err = s.RemoveAddons(ctx, a.user, a.names)
@@ -200,10 +206,16 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	}
 	// An update's summary is the newer installer's: this one adds none.
 	if a.cmd != "update" && a.cmd != "auto-update" && a.cmd != "add" {
-		out.Close()
+		s.Out.Close()
 	}
+	return err
+}
+
+// exitCode is how hostd-setup ends after err: with the newer installer's
+// status when that is what failed (it said why already).
+func exitCode(err error, stderr io.Writer) int {
 	var exit *exec.ExitError
-	if errors.As(err, &exit) { // the newer installer said why already
+	if errors.As(err, &exit) {
 		return exit.ExitCode()
 	}
 	if err != nil {
@@ -212,6 +224,10 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	}
 	return 0
 }
+
+// geteuid is the user hostd-setup runs as (a test may say root, to reach
+// what follows the check with a command that changes nothing).
+var geteuid = os.Geteuid
 
 // execInstaller runs the newer installer with its output on the terminal.
 func execInstaller(ctx context.Context, path string, args, env []string) error {

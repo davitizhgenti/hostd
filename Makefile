@@ -4,7 +4,6 @@ GIT_DESC := $(shell git describe --tags --always --dirty 2>/dev/null)
 VERSION  ?= $(if $(GIT_DESC),$(GIT_DESC)-dev,dev)
 LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
-CORE_COVER_MIN := 85
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
@@ -112,18 +111,11 @@ lint-scripts:
 	python3 -m unittest discover -s clients/python -p "test_*.py"
 	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__ clients/python/__pycache__
 
-# Coverage report; fails if core/ is below CORE_COVER_MIN percent once it has
-# code with tests.
+# Coverage per package, counting every test binary, against the floors in
+# scripts/coverage-floors.txt: fails if a package is below its floor.
 cover:
-	$(GO) test -coverprofile=coverage.out ./...
-	@$(GO) tool cover -func=coverage.out | tail -1
-	@if ls core/*_test.go >/dev/null 2>&1; then \
-		$(GO) test -coverprofile=core.out ./core/... >/dev/null && \
-		pct=$$($(GO) tool cover -func=core.out | awk '/^total:/ {sub("%","",$$3); print $$3}') && \
-		echo "core coverage: $$pct%" && \
-		awk -v p=$$pct -v m=$(CORE_COVER_MIN) 'BEGIN { exit (p < m) }' || \
-		{ echo "core coverage below $(CORE_COVER_MIN)%"; exit 1; }; \
-	fi
+	$(GO) test -coverpkg=./... -coverprofile=coverage.out ./...
+	$(GO) run ./scripts/coverfloor coverage.out scripts/coverage-floors.txt
 
 tidy:
 	$(GO) mod tidy

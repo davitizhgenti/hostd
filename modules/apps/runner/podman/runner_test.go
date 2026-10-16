@@ -310,3 +310,83 @@ func waitUntil(t *testing.T, cond func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestEngineAPIStopRemoveList(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	e := fakeEngine(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		mu.Unlock()
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/v1.41/containers/gone/"), r.URL.Path == "/v1.41/containers/gone":
+			w.WriteHeader(404)
+		case r.URL.Path == "/v1.41/containers/json":
+			io.WriteString(w, `[{"Id":"a1"},{"Id":"gone"}]`)
+		case r.URL.Path == "/v1.41/containers/a1/json":
+			io.WriteString(w, `{"Id":"a1","Name":"/hostd-web","State":{"Status":"running","Running":true,"Pid":7,"StartedAt":"2026-10-16T08:00:00.5Z"}}`)
+		case r.URL.Path == "/v1.41/images/create":
+			io.WriteString(w, `{"status":"Pulling"}`+"\n"+`{"status":"Downloaded newer image"}`+"\n")
+		default:
+			w.WriteHeader(204)
+		}
+	})
+	ctx := context.Background()
+	if err := e.Stop(ctx, "a1", 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Stop(ctx, "gone", time.Second); err != nil {
+		t.Fatalf("stopping a container that is gone: %v", err)
+	}
+	if err := e.Remove(ctx, "a1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Remove(ctx, "gone"); err != nil {
+		t.Fatalf("removing a container that is gone: %v", err)
+	}
+	if err := e.Pull(ctx, "nginx:latest"); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	list, err := e.List(ctx, podman.LabelInstance)
+	if err != nil || len(list) != 1 || list[0].ID != "a1" || list[0].PID != 7 ||
+		!list[0].Started.Equal(time.Date(2026, 10, 16, 8, 0, 0, 5e8, time.UTC)) {
+		t.Fatalf("list %+v %v", list, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, want := range []string{"POST /v1.41/containers/a1/stop?t=10", "DELETE /v1.41/containers/a1?force=true"} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("no %s in %q", want, calls)
+		}
+	}
+}
+
+func TestDefaultEngineSocket(t *testing.T) {
+	rt := t.TempDir()
+	if got := podman.DefaultEngineSocket(rt); got != filepath.Join(rt, "podman", "podman.sock") {
+		t.Fatalf("none there: %s", got)
+	}
+	sock := filepath.Join(rt, "docker.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if got := podman.DefaultEngineSocket(rt); got != sock {
+		t.Fatalf("docker's: %s", got)
+	}
+}
+
+// The compose tool runs with the engine's address, and a failure keeps the
+// end of what it said.
+func TestComposeCommandRuns(t *testing.T) {
+	r := &podman.ComposeRunner{Docker: podmantest.NewFakeEngine(), Socket: "/run/user/1000/podman/podman.sock",
+		Command: []string{"sh", "-c", `echo "DOCKER_HOST=$DOCKER_HOST"; for i in $(seq 1 30); do echo line $i; done; exit 4`, "compose"}}
+	file := filepath.Join(t.TempDir(), "compose.yaml")
+	_ = os.WriteFile(file, []byte("services: {}\n"), 0o644)
+	_, err := r.Start(context.Background(), spec.Instance{ID: "stack"}, &spec.App{ID: "stack",
+		Runner: spec.Runner{Type: spec.RunnerCompose, File: file}})
+	if err == nil || !strings.Contains(err.Error(), "exit status 4") || !strings.Contains(err.Error(), "line 30") || strings.Contains(err.Error(), "line 5\n") {
+		t.Fatalf("%v", err)
+	}
+}

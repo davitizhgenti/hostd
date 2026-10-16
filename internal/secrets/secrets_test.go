@@ -71,3 +71,47 @@ func TestStore(t *testing.T) {
 		t.Fatal("wrote with no directory")
 	}
 }
+
+// The zero store, bad names, and where secrets live by default.
+func TestStoreEdges(t *testing.T) {
+	var none Store
+	if names, err := none.Names(); err != nil || len(names) != 0 {
+		t.Fatalf("zero store: %v %v", names, err)
+	}
+	if _, err := none.Read("db"); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("read from no store: %v", err)
+	}
+	if err := none.Write("db", nil); err == nil {
+		t.Fatal("wrote to no store")
+	}
+	if err := none.Remove("db"); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("remove from no store: %v", err)
+	}
+	s := Store{Dir: t.TempDir()}
+	for _, bad := range []string{"../escape", "a/b", ""} {
+		if err := s.Write(bad, []byte("x")); err == nil {
+			t.Errorf("wrote %q", bad)
+		}
+		if _, err := s.Read(bad); !errors.Is(err, ErrNotExist) {
+			t.Errorf("read %q: %v", bad, err)
+		}
+	}
+	// A store that is a file, not a folder.
+	file := filepath.Join(t.TempDir(), "f")
+	_ = os.WriteFile(file, nil, 0o600)
+	if err := (Store{Dir: file}).Write("db", []byte("x")); err == nil {
+		t.Fatal("wrote into a file")
+	}
+	if _, err := (Store{Dir: file}).Names(); err == nil {
+		t.Fatal("listed a file")
+	}
+	t.Setenv("XDG_CONFIG_HOME", "/cfg")
+	if DefaultDir() != "/cfg/hostd/secrets" {
+		t.Fatalf("default %s", DefaultDir())
+	}
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "/home/screen")
+	if DefaultDir() != "/home/screen/.config/hostd/secrets" {
+		t.Fatalf("default without XDG %s", DefaultDir())
+	}
+}

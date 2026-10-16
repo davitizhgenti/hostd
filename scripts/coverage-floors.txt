@@ -1,0 +1,13 @@
+# Test coverage floors per package (make cover; CI fails below them).
+# Coverage counts every test binary (go test -coverpkg=./...), so a package
+# tested through another (internal/client through cmd/hostctl) counts.
+# A line is: PATTERN PERCENT [# why]. The most specific pattern applies:
+# a package, then the longest prefix/..., then *.
+
+*            80
+core/...     85
+modules/...  85
+deploy       85
+
+# Exceptions, each with its reason:
+cmd/hostd    0   # main() only: daemon.Run, which internal/daemon tests

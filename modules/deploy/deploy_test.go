@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -644,5 +645,327 @@ func TestImageSource(t *testing.T) {
 	time.Sleep(400 * time.Millisecond) // polls: the newer digest is not deployed again
 	if !serves(digestOf('1'))() {
 		t.Fatal("polling undid the rollback")
+	}
+}
+
+// After a reboot the live release is not running: it is started again,
+// and the service answers as before. The module's reads say where it is.
+func TestLiveReleaseComesBack(t *testing.T) {
+	g := newGate(t, nil, Options{})
+	m := g.m
+	ctx := context.Background()
+	// As a push deploys: not a person's changes, so nothing holds the app
+	// (after a reboot no hold would remain either).
+	auto := func(typ string) {
+		t.Helper()
+		res, err := g.e.Submit(ctx, sdk.Action{Type: typ, Args: json.RawMessage(`{"app":"site"}`),
+			Source: sdk.Source{Kind: sdk.SourceAutomation, Name: "git push"}}, core.Auth{Scopes: []string{sdk.ScopeAdmin}})
+		if err != nil || res.Status == sdk.StatusSkipped {
+			t.Fatalf("%s: %v %s", typ, err, res.Status)
+		}
+	}
+	auto("deploy.init")
+	g.sh(g.work, "git", "init", "-q", "-b", "main")
+	g.sh(g.work, "git", "remote", "add", "origin", m.repo("site"))
+	g.commit("v1", false)
+	auto("deploy.run")
+	var cur Release
+	waitFor(t, "the release to be live", func() bool {
+		st, err := m.load("site")
+		if err != nil {
+			return false
+		}
+		c, ok := st.current()
+		cur = c
+		return ok
+	})
+	g.f.stop(cur.Instance) // the machine rebooted: nothing runs
+	if code, _ := g.get(); code == 200 {
+		t.Fatal("still answering with nothing running")
+	}
+	m.sync(ctx)
+	if code, body := g.get(); code != 200 || body != "v1" {
+		t.Fatalf("after the restart: %d %q", code, body)
+	}
+	st, _ := m.load("site")
+	if again, _ := st.current(); again.Instance == cur.Instance || again.Rev != cur.Rev {
+		t.Fatalf("revived %+v, was %+v", again, cur)
+	}
+
+	all, err := m.Read(ctx, "deploys", nil)
+	if err != nil || len(all.([]*State)) != 1 {
+		t.Fatalf("deploys %v %v", all, err)
+	}
+	if one, err := m.Read(ctx, "deploy", map[string]string{"app": "site"}); err != nil || one.(*State).App != "site" {
+		t.Fatalf("deploy %v %v", one, err)
+	}
+	if _, err := m.Read(ctx, "deploy", map[string]string{"app": "ghost"}); err == nil {
+		t.Fatal("a deploy of an app that is not a service")
+	}
+	if _, err := m.Read(ctx, "nothing", nil); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown read: %v", err)
+	}
+	if s, err := m.State(ctx); err != nil || len(s.([]*State)) != 1 {
+		t.Fatalf("state %v %v", s, err)
+	}
+}
+
+// A followed config is applied by polling: a new commit on its branch,
+// not one already applied or rejected.
+func TestConfigFollowPolls(t *testing.T) {
+	upstream := filepath.Join(t.TempDir(), "config.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", "-b", "main", upstream).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	appsDir := filepath.Join(t.TempDir(), "hostd", "apps")
+	g := newGate(t, nil, Options{AppsDir: appsDir})
+	g.sh(g.work, "git", "init", "-q", "-b", "main")
+	g.sh(g.work, "git", "remote", "add", "origin", upstream)
+	commit := func(body string) {
+		_ = os.MkdirAll(filepath.Join(g.work, "apps"), 0o755)
+		_ = os.WriteFile(filepath.Join(g.work, "apps", "site.toml"), []byte(body), 0o644)
+		g.sh(g.work, "git", "add", "-A")
+		g.sh(g.work, "git", "commit", "-q", "-m", body)
+		g.sh(g.work, "git", "push", "-q", "origin", "main")
+	}
+	ctx := context.Background()
+	commit("v1")
+	// Followed by automation: a person's follow would hold the config for
+	// its hold window, and a poll in it would wait for the next one.
+	if _, err := g.e.Submit(ctx, sdk.Action{Type: "config.follow", Args: json.RawMessage(fmt.Sprintf(`{"url":%q,"poll":"30s"}`, upstream)),
+		Source: sdk.Source{Kind: sdk.SourceAutomation, Name: "setup"}}, core.Auth{Scopes: []string{sdk.ScopeAdmin}}); err != nil {
+		t.Fatal(err)
+	}
+	commit("v2")
+	g.m.pollConfig(ctx)
+	if b, _ := os.ReadFile(filepath.Join(appsDir, "site.toml")); string(b) != "v2" {
+		t.Fatalf("not applied by polling: %q", b)
+	}
+	if read, err := g.m.readFollow(); err != nil || read == nil {
+		t.Fatalf("follow read %v %v", read, err)
+	}
+	f, err := g.m.loadFollow()
+	if err != nil || f == nil {
+		t.Fatalf("follow %v %v", f, err)
+	}
+	if f.pollEvery() != 30*time.Second || (&Follow{}).pollEvery() != time.Minute {
+		t.Fatalf("poll %v", f.pollEvery())
+	}
+	// Nothing new: nothing done.
+	before, _ := os.Stat(filepath.Join(appsDir, "site.toml"))
+	g.m.pollConfig(ctx)
+	if after, _ := os.Stat(filepath.Join(appsDir, "site.toml")); !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("applied again with nothing new")
+	}
+	if _, err := g.m.Read(ctx, "config_follow", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// What the deploy module refuses, and the actions not exercised elsewhere.
+func TestDeployRefusals(t *testing.T) {
+	appsDir := filepath.Join(t.TempDir(), "hostd", "apps")
+	_ = os.MkdirAll(appsDir, 0o755)
+	keys := filepath.Join(t.TempDir(), ".ssh", "authorized_keys")
+	g := newGate(t, nil, Options{AppsDir: appsDir, AuthorizedKeys: keys, GitShell: "/usr/local/bin/hostctl git-shell"})
+	ctx := context.Background()
+	do := func(typ, args string) (sdk.Result, error) {
+		return g.e.Submit(ctx, sdk.Action{Type: typ, Args: json.RawMessage(args), Source: sdk.Source{Kind: sdk.SourceManual}},
+			core.Auth{Scopes: []string{sdk.ScopeAdmin}})
+	}
+	for _, c := range []struct {
+		typ, args string
+		code      sdk.Code
+	}{
+		{"deploy.run", `{"app":"ghost"}`, sdk.CodeNotFound},
+		{"deploy.rollback", `{"app":"site"}`, sdk.CodeNotFound}, // no earlier release
+		{"config.follow", `{"url":"--upload-pack=evil"}`, sdk.CodeInvalidArgs},
+		{"config.follow", `{"url":"/r.git","poll":"1s"}`, sdk.CodeInvalidArgs},
+		{"config.sync", `{}`, sdk.CodeNotFound},
+	} {
+		if _, err := do(c.typ, c.args); sdk.CodeOf(err) != c.code {
+			t.Errorf("%s %s: %v, want %s", c.typ, c.args, err, c.code)
+		}
+	}
+	// A key for a private config repository, and for a service's.
+	res, err := do("config.key", `{}`)
+	if err != nil || !strings.Contains(string(res.Data), "ssh-ed25519") {
+		t.Fatalf("config.key: %s %v", res.Data, err)
+	}
+	first, err := do("deploy.key", `{"app":"site"}`)
+	if err != nil || !strings.Contains(string(first.Data), "ssh-ed25519") {
+		t.Fatalf("deploy.key: %s %v", first.Data, err)
+	}
+	// Asked again: the same key, not a new one (the repository has it).
+	if again, err := do("deploy.key", `{"app":"site"}`); err != nil || string(again.Data) != string(first.Data) {
+		t.Fatalf("a second deploy.key: %s %v", again.Data, err)
+	}
+	if again, _ := do("config.key", `{}`); string(again.Data) != string(res.Data) {
+		t.Fatalf("a second config.key: %s", again.Data)
+	}
+	// A push key, through the action: added with its forced command, then gone.
+	pub := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl laptop"
+	if _, err := do("deploy.authorize", fmt.Sprintf(`{"name":"laptop","key":%q}`, pub)); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(keys); !strings.Contains(string(b), `command="/usr/local/bin/hostctl git-shell"`) || !strings.Contains(string(b), "hostd-push:laptop") {
+		t.Fatalf("authorized_keys:\n%s", b)
+	}
+	if _, err := do("deploy.authorize", `{"name":"bad","key":"not a key"}`); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("a bad key: %v", err)
+	}
+	if _, err := do("deploy.revoke", `{"name":"laptop"}`); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(keys); strings.Contains(string(b), "hostd-push:laptop") {
+		t.Fatalf("revoked key stays:\n%s", b)
+	}
+	// init gives the remote to push to.
+	if res, err := do("deploy.init", `{"app":"site"}`); err != nil || !strings.Contains(string(res.Data), `"remote":"ssh://`) {
+		t.Fatalf("init: %s %v", res.Data, err)
+	}
+	// Unfollowing what is not followed changes nothing.
+	if _, err := do("config.unfollow", `{}`); err != nil && sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unfollow: %v", err)
+	}
+}
+
+func TestTeeTail(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var tail bytes.Buffer
+	w := &teeTail{w: f, tail: &tail}
+	big := strings.Repeat("x", 70<<10)
+	if _, err := w.Write([]byte(big + "\nend\n")); err != nil {
+		t.Fatal(err)
+	}
+	if tail.Len() != 64<<10 || !strings.HasSuffix(tail.String(), "end\n") {
+		t.Fatalf("kept %d bytes", tail.Len())
+	}
+	if fi, _ := f.Stat(); fi.Size() != int64(len(big)+5) {
+		t.Fatalf("the log has %d bytes", fi.Size())
+	}
+	if got := lastLines("a\nb\nc\n", 2); got != "b\nc" {
+		t.Fatalf("lastLines %q", got)
+	}
+}
+
+func TestSmallEdges(t *testing.T) {
+	var s, plain service
+	_ = json.Unmarshal([]byte(`{"id":"site","deploy":{"type":"remote","poll":"15s"}}`), &s)
+	_ = json.Unmarshal([]byte(`{"id":"site","deploy":{"type":"remote"}}`), &plain)
+	if s.pollEvery() != 15*time.Second || plain.pollEvery() != time.Minute {
+		t.Errorf("poll %v %v", s.pollEvery(), plain.pollEvery())
+	}
+	if s.branch() != "main" {
+		t.Errorf("default branch %q", s.branch())
+	}
+	m := New(Options{Root: t.TempDir()})
+	if _, err := m.readFollow(); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("nothing followed: %v", err)
+	}
+	// Webhook secrets: none configured, not set, empty, a bad name.
+	if _, err := m.readSecret("hook"); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
+		t.Fatalf("no secrets folder: %v", err)
+	}
+	dir := t.TempDir()
+	m = New(Options{Root: t.TempDir(), SecretsDir: dir})
+	if _, err := m.readSecret("hook"); err == nil || !strings.Contains(err.Error(), "hostctl secret set hook") {
+		t.Fatalf("not set: %v", err)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "hook"), nil, 0o600)
+	if _, err := m.readSecret("hook"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty: %v", err)
+	}
+	if _, err := m.readSecret("../etc"); err == nil {
+		t.Fatal("read outside the secrets")
+	}
+	_ = os.WriteFile(filepath.Join(dir, "hook"), []byte("s3cret"), 0o600)
+	if b, err := m.readSecret("hook"); err != nil || string(b) != "s3cret" {
+		t.Fatalf("%q %v", b, err)
+	}
+}
+
+// A replaced release drains: it takes no new requests, and the drain ends
+// when the last one has (or when the time is up).
+func TestUpstreamDrain(t *testing.T) {
+	u := newUpstream(1)
+	for range 2 { // two requests in flight
+		if !u.acquire() {
+			t.Fatal("a fresh upstream refused a request")
+		}
+	}
+	done := make(chan struct{})
+	go func() { drain(u, 5*time.Second); close(done) }()
+	waitFor(t, "draining", func() bool { u.mu.Lock(); defer u.mu.Unlock(); return u.draining })
+	if u.acquire() {
+		t.Fatal("a draining upstream took a request")
+	}
+	u.release()
+	select {
+	case <-done:
+		t.Fatal("drained with a request left")
+	case <-time.After(50 * time.Millisecond):
+	}
+	u.release()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the drain did not end")
+	}
+	// The time is up before the requests are.
+	slow := newUpstream(2)
+	slow.acquire()
+	start := time.Now()
+	drain(slow, 50*time.Millisecond)
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("waited past the drain time")
+	}
+	drain(nil, time.Second) // nothing to drain
+}
+
+// What the webhook ignores or refuses, before anything is fetched.
+func TestWebhookIgnores(t *testing.T) {
+	secrets := t.TempDir()
+	_ = os.WriteFile(filepath.Join(secrets, "hook"), []byte("s3cret"), 0o600)
+	g := newGate(t, map[string]any{"type": "webhook", "url": "/nowhere.git", "secret": "hook"}, Options{SecretsDir: secrets})
+	ctx := context.Background()
+	sign := func(body string) string {
+		mac := hmac.New(sha256.New, []byte("s3cret"))
+		mac.Write([]byte(body))
+		return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	}
+	hook := func(event, delivery, body string) (any, error) {
+		h := map[string][]string{"X-Hub-Signature-256": {sign(body)}, "X-Github-Event": {event}}
+		if delivery != "" {
+			h["X-Github-Delivery"] = []string{delivery}
+		}
+		return g.m.Hook(ctx, "git", sdk.HookRequest{Params: map[string]string{"app": "site"}, Header: h, Body: []byte(body)})
+	}
+	reason := func(v any) string { m, _ := v.(map[string]string); return m["status"] + ": " + m["reason"] }
+
+	if _, err := g.m.Hook(ctx, "other", sdk.HookRequest{}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("another hook: %v", err)
+	}
+	if _, err := g.m.Hook(ctx, "git", sdk.HookRequest{Params: map[string]string{"app": "ghost"}}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("not a service: %v", err)
+	}
+	for _, c := range []struct{ event, delivery, body, want string }{
+		{"issues", "", `{}`, "ignored: not a push"},
+		{"push", "", `{"ref":"refs/heads/dev","after":"1234"}`, "ignored: a push to refs/heads/dev, not main"},
+		{"push", "", `{"ref":"refs/heads/main","after":"0000000000000000000000000000000000000000"}`, "ignored: the branch was deleted"},
+		{"ping", "d1", `{}`, "pong: "},
+		{"ping", "d1", `{}`, "ignored: this delivery was already handled"},
+	} {
+		got, err := hook(c.event, c.delivery, c.body)
+		if err != nil || reason(got) != c.want {
+			t.Errorf("%s %s: %q %v, want %q", c.event, c.body, reason(got), err, c.want)
+		}
+	}
+	if _, err := hook("push", "", `not json`); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("a broken push: %v", err)
 	}
 }
