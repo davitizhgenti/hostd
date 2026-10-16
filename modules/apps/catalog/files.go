@@ -36,6 +36,7 @@ type AppFile struct {
 	Match    *spec.Match       `toml:"match"`
 	Restart  *string           `toml:"restart"`
 	Env      map[string]string `toml:"env"`
+	Args     map[string]string `toml:"args"`
 	Health   *spec.Health      `toml:"health"`
 	// Actions add to the app's actions; one with the ID of an existing one
 	// replaces it.
@@ -114,6 +115,9 @@ func (f AppFile) applyTo(a *spec.App) {
 	}
 	if f.Restart != nil {
 		a.Restart = *f.Restart
+	}
+	if f.Args != nil {
+		a.Args = f.Args
 	}
 	if f.Env != nil {
 		a.Env = f.Env

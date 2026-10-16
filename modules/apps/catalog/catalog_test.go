@@ -507,3 +507,22 @@ func mustParse(t *testing.T, path, body string) AppFile {
 	}
 	return f
 }
+
+func TestArgsInAppFiles(t *testing.T) {
+	for body, want := range map[string]string{
+		"runner = { type = \"url\", url = \"{url}\" }\nargs = { url = \"url\" }":                "",
+		"runner = { type = \"exec\", command = [\"x\", \"{a}\"] }\nargs = { a = \"number\" }":   `use "url", "path" or "text"`,
+		"runner = { type = \"exec\", command = [\"x\"] }\nargs = { a = \"text\" }":              "a is not used",
+		"runner = { type = \"exec\", command = [\"x\", \"{Bad}\"] }\nargs = { Bad = \"text\" }": "use lowercase",
+		"runner = { type = \"exec\", command = [\"sh\", \"-c\", \"echo {x}\"] }":                "", // braces it does not declare stay
+	} {
+		c := Build(nil, []AppFile{mustParse(t, "/x/a.toml", body)}, nil)
+		got := ""
+		if len(c.Problems) > 0 {
+			got = c.Problems[0].Error
+		}
+		if (want == "") != (got == "") || !strings.Contains(got, want) {
+			t.Errorf("%q: problem %q, want %q", body, got, want)
+		}
+	}
+}

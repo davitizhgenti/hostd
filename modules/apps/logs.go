@@ -19,12 +19,28 @@ type Logs struct {
 	Lines    []string `json:"lines"`
 }
 
+// JournalQuery is what an instance's logs are read with.
+type JournalQuery struct {
+	Unit  string
+	Lines int       // the last ones
+	Since time.Time // the instance's start: an earlier instance of the same name logged in the same unit
+	Plain bool      // the messages only, without time and process
+}
+
 // journal reads a user unit's last lines from the journal.
-func journal(ctx context.Context, unit string, n int) ([]string, error) {
+func journal(ctx context.Context, q JournalQuery) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "journalctl", "--user", "-u", unit, "-n", strconv.Itoa(n), "--no-pager", "-o", "short-iso")
+	format := "short-iso"
+	if q.Plain {
+		format = "cat"
+	}
+	args := []string{"--user", "-u", q.Unit, "-n", strconv.Itoa(q.Lines), "--no-pager", "-o", format}
+	if !q.Since.IsZero() {
+		args = append(args, "--since", "@"+strconv.FormatInt(q.Since.Unix()-1, 10)) // a second early: the clock's rounding
+	}
+	cmd := exec.CommandContext(ctx, "journalctl", args...)
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -38,7 +54,8 @@ func journal(ctx context.Context, unit string, n int) ([]string, error) {
 }
 
 // readLogs returns an instance's last lines (?lines=, default 200, at most
-// 5000), running or recently ended. A handed-off app (a Steam game) logs
+// 5000; ?plain=true for the messages only), running or recently ended,
+// from its start on. A handed-off app (a Steam game) logs
 // in its launcher's unit, which is what this reads.
 func (m *Module) readLogs(ctx context.Context, params map[string]string) (any, error) {
 	in, err := m.readInstance(params["id"])
@@ -60,7 +77,8 @@ func (m *Module) readLogs(ctx context.Context, params map[string]string) (any, e
 	if read == nil {
 		read = journal
 	}
-	lines, err := read(ctx, unit, n)
+	plain := params["plain"] == "true" || params["plain"] == "1"
+	lines, err := read(ctx, JournalQuery{Unit: unit, Lines: n, Since: in.Started, Plain: plain})
 	if err != nil {
 		return nil, err
 	}

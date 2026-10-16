@@ -20,6 +20,13 @@ const (
 	SurfaceBackground = "background"
 )
 
+// The kinds of value an app's argument takes.
+const (
+	ArgURL  = "url"  // an http or https URL
+	ArgPath = "path" // an absolute path on the machine
+	ArgText = "text" // any one line of text
+)
+
 // Runner types.
 const (
 	RunnerExec    = "exec"
@@ -55,7 +62,10 @@ type App struct {
 	Match   Match             `json:"match,omitzero"`
 	Restart string            `json:"restart,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
-	Health  Health            `json:"health,omitzero"`
+	// Args are what app.start may fill in: {name} in the command or URL,
+	// by name, with the kind of value each takes (ArgURL, ArgPath, ArgText).
+	Args   map[string]string `json:"args,omitempty"`
+	Health Health            `json:"health,omitzero"`
 	// Actions are extra ways to start the app ("New private window"):
 	// from its desktop entry, and from app files.
 	Actions []AppAction `json:"actions,omitempty"`

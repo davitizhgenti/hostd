@@ -16,6 +16,9 @@ const (
 	// Scopes the apps module declares, used by other modules' actions too.
 	ScopeApps  = "apps"
 	ScopeFront = "display.front"
+	// ScopeRun runs any command as the screen user: app.run, and app files
+	// written over the API (app.define), which can name any command.
+	ScopeRun = "run"
 
 	ActionAppStart     = "app.start"     // args: AppStart
 	ActionInstanceStop = "instance.stop" // args: {"id": instance}
@@ -38,6 +41,9 @@ type AppStart struct {
 	ID     string `json:"id"`
 	Front  bool   `json:"front,omitempty"`
 	Action string `json:"action,omitempty"`
+	// Args fill in the app's {placeholders}: only those its file declares,
+	// each checked against its kind (an app file's args).
+	Args map[string]string `json:"args,omitempty"`
 	// For the deploy module (scope deploy): a release runs as a new
 	// instance (New), from its own directory (Dir), with its environment
 	// (Env, e.g. PORT).

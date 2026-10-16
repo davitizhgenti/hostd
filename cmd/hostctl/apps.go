@@ -94,16 +94,20 @@ func (a *app) appsCommand() *cobra.Command {
 func (a *app) startCommand() *cobra.Command {
 	var front bool
 	var action string
+	var appArgs []string
 	cmd := &cobra.Command{
 		Use:   "start <app>",
 		Short: "Start an app (if it already runs: focus it, start another copy, or restart it, per its settings)",
 		Long: `Start an app. While someone is using the screen, an app started from
 elsewhere opens in the background and a notice says it is ready; --front
 brings it to the front anyway (needs the display.front scope). --action
-starts one of the app's actions (see hostctl apps <app>) as a new instance.`,
+starts one of the app's actions (see hostctl apps <app>) as a new instance.
+--arg fills in one of the app's arguments (its file's args); started with
+new values, an app that already runs is replaced.`,
 		Example: `  hostctl start foot
   hostctl start jellyfin --front
-  hostctl start chromium --action new-private-window`,
+  hostctl start chromium --action new-private-window
+  hostctl start show --arg url=http://192.168.18.60:8000/plot.png`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := map[string]any{"id": args[0]}
@@ -112,6 +116,17 @@ starts one of the app's actions (see hostctl apps <app>) as a new instance.`,
 			}
 			if action != "" {
 				req["action"] = action
+			}
+			if len(appArgs) > 0 {
+				vals := map[string]string{}
+				for _, kv := range appArgs {
+					k, v, ok := strings.Cut(kv, "=")
+					if !ok || k == "" {
+						return usageError{fmt.Errorf("--arg %q: use name=value", kv)}
+					}
+					vals[k] = v
+				}
+				req["args"] = vals
 			}
 			return a.act(cmd, "app.start", req, func(res sdk.Result) string {
 				var d struct {
@@ -129,6 +144,7 @@ starts one of the app's actions (see hostctl apps <app>) as a new instance.`,
 	}
 	cmd.Flags().BoolVar(&front, "front", false, "open in front even while someone is using the screen")
 	cmd.Flags().StringVar(&action, "action", "", "start one of the app's actions, as a new instance")
+	cmd.Flags().StringArrayVar(&appArgs, "arg", nil, "one of the app's arguments, name=value (repeat for more)")
 	return cmd
 }
 

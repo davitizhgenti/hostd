@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
@@ -228,8 +229,10 @@ func TestInstanceLogs(t *testing.T) {
 	sd := unitstest.NewFakeSystemd()
 	r := newRig(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	var asked []string
-	r.m.opts.Journal = func(_ context.Context, unit string, n int) ([]string, error) {
-		asked = append(asked, fmt.Sprintf("%s %d", unit, n))
+	var since []time.Time
+	r.m.opts.Journal = func(_ context.Context, q JournalQuery) ([]string, error) {
+		asked = append(asked, fmt.Sprintf("%s %d %v", q.Unit, q.Lines, q.Plain))
+		since = append(since, q.Since)
 		return []string{"2026-10-10T19:00:00 core site[1]: listening"}, nil
 	}
 	r.start(t, "term")
@@ -238,10 +241,11 @@ func TestInstanceLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	logs := got.(Logs)
-	if logs.Unit != "hostd-term.service" || len(logs.Lines) != 1 || asked[0] != "hostd-term.service 50" {
+	in, _ := r.m.readInstance("term")
+	if logs.Unit != "hostd-term.service" || len(logs.Lines) != 1 || asked[0] != "hostd-term.service 50 false" || !since[0].Equal(in.Started) {
 		t.Fatalf("logs %+v, asked %q", logs, asked)
 	}
-	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "term", "lines": "99999"}); err != nil || asked[1] != "hostd-term.service 5000" {
+	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "term", "lines": "99999", "plain": "true"}); err != nil || asked[1] != "hostd-term.service 5000 true" {
 		t.Fatalf("capped: %q %v", asked, err)
 	}
 	if _, err := r.m.Read(context.Background(), "logs", map[string]string{"id": "ghost"}); sdk.CodeOf(err) != sdk.CodeNotFound {

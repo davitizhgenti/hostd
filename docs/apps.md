@@ -30,6 +30,7 @@ http = "http://127.0.0.1:8096/health"
 | `surface` | `window` (on the screen) or `background`; the runner sets a default |
 | `extends` | Change a discovered app instead of defining one: `extends = "firefox-esr"` |
 | `env` | Its environment. `{secret:<name>}` takes a secret's value (see [Services](services.md#secrets)) |
+| `args` | What `app.start` fills in: `{name}` in the command or URL. `args = { file = "path" }` with `command = ["imv", "-f", "{file}"]`; the kinds are `url` (http or https), `path` (absolute) and `text`. Started with new values while it runs, the app is replaced |
 | `restart` | `always`, `on-failure` (background default) or `never` (window default) |
 | `requires` | Apps started first: `requires = ["database"]` |
 | `hidden` | Not listed (still startable) |

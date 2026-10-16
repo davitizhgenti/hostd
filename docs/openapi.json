@@ -509,6 +509,171 @@
         "x-hostd-scope": "read"
       }
     },
+    "/v1/apps/{id}/file": {
+      "delete": {
+        "description": "Remove an app file written by hand or by app.define",
+        "operationId": "app.undefine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Remove an app file written by hand or by app.define",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.undefine",
+        "x-hostd-scope": "run"
+      },
+      "put": {
+        "description": "Add or replace an app file (checked first; the catalog follows at once)",
+        "operationId": "app.define",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "file": {
+                    "contentMediaType": "application/toml",
+                    "description": "the app file, TOML, as written by hand (docs: Apps)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Add or replace an app file (checked first; the catalog follows at once)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.define",
+        "x-hostd-scope": "run"
+      }
+    },
     "/v1/apps/{id}/start": {
       "post": {
         "description": "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
@@ -541,6 +706,13 @@
                   "action": {
                     "description": "one of the app's actions (e.g. new-private-window): always a new instance",
                     "type": "string"
+                  },
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "values for the app's arguments (its file's args), e.g. {\"url\": \"http://...\"}; a running copy is replaced",
+                    "type": "object"
                   },
                   "dir": {
                     "description": "run in this directory: a release (needs scope deploy)",
@@ -2438,7 +2610,7 @@
             "bearer": []
           }
         ],
-        "summary": "An instance's latest log lines (?lines=200)",
+        "summary": "An instance's latest log lines (?lines=200, ?plain=true for the messages only)",
         "tags": [
           "apps"
         ],
@@ -3097,6 +3269,126 @@
         ],
         "x-hostd-action": "rule.resume",
         "x-hostd-scope": "rules"
+      }
+    },
+    "/v1/run": {
+      "post": {
+        "description": "Run a command now, on the screen or in the background (an instance with no app file)",
+        "operationId": "app.run",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "background": {
+                    "description": "no window: a service in the background (default: a window on the screen)",
+                    "type": "boolean"
+                  },
+                  "command": {
+                    "description": "the program and its arguments",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "dir": {
+                    "description": "the directory it runs in (default: the screen user's home)",
+                    "type": "string"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "extra environment",
+                    "type": "object"
+                  },
+                  "front": {
+                    "description": "open in front even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  },
+                  "fullscreen": {
+                    "description": "a window: full screen (default true)",
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "description": "names the instance: run-\u003cname\u003e (default: run)",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Run a command now, on the screen or in the background (an instance with no app file)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.run",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
+        "x-hostd-scope": "run"
       }
     },
     "/v1/scenes": {

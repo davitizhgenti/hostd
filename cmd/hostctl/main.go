@@ -63,6 +63,12 @@ var displayZone = time.Local
 // usageError marks mistakes in how hostctl was called.
 type usageError struct{ error }
 
+// commandExit is the exit status of a command hostctl ran and waited for
+// (hostctl run --wait): hostctl ends with it, as ssh does.
+type commandExit int
+
+func (c commandExit) Error() string { return fmt.Sprintf("exit status %d", int(c)) }
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
@@ -86,6 +92,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	err := root.ExecuteContext(ctx)
 	if err == nil {
 		return exitOK
+	}
+	if ce, ok := errors.AsType[commandExit](err); ok {
+		return int(ce)
 	}
 	fmt.Fprintln(stderr, "hostctl:", err)
 	var ue usageError

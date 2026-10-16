@@ -31,6 +31,45 @@ func (p Problem) String() string { return p.File + ": " + p.Error }
 
 var reID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
+var reArg = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
+// usesArg reports whether {name} is in the app's command or URL.
+func usesArg(a *spec.App, name string) bool {
+	ph := "{" + name + "}"
+	if strings.Contains(a.Runner.URL, ph) {
+		return true
+	}
+	for _, c := range a.Runner.Command {
+		if strings.Contains(c, ph) {
+			return true
+		}
+	}
+	return false
+}
+
+// sampleArgs fills s's placeholders with a value of each argument's kind,
+// to check what s will be once app.start fills them in.
+func sampleArgs(a *spec.App, s string) string {
+	samples := map[string]string{spec.ArgURL: "http://example.invalid/", spec.ArgPath: "/x", spec.ArgText: "x"}
+	for name, kind := range a.Args {
+		s = strings.ReplaceAll(s, "{"+name+"}", samples[kind])
+	}
+	return s
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Reserved reports whether an ID belongs to app.run's instances (run,
+// run-<name>), which no app file may take.
+func Reserved(id string) bool { return id == "run" || strings.HasPrefix(id, "run-") }
+
 // ValidID reports whether id can name an app. IDs are lowercase so that
 // "Firefox" and "firefox" are never two apps; '#' is kept for instances.
 func ValidID(id string) bool { return len(id) <= 64 && reID.MatchString(id) }
@@ -86,6 +125,20 @@ func validate(a *spec.App) error {
 	if !ValidID(a.ID) {
 		bad("id %q: use lowercase letters, digits, '.', '-' and '_'", a.ID)
 	}
+	if Reserved(a.ID) {
+		bad("id %q: run and run-* are the commands of app.run", a.ID)
+	}
+	for _, name := range sortedKeys(a.Args) {
+		kind := a.Args[name]
+		switch {
+		case !reArg.MatchString(name):
+			bad("args: %q: use lowercase letters, digits and _", name)
+		case kind != spec.ArgURL && kind != spec.ArgPath && kind != spec.ArgText:
+			bad("args: %s = %q: use \"url\", \"path\" or \"text\"", name, kind)
+		case !usesArg(a, name):
+			bad("args: %s is not used: put {%s} in the runner's command or url", name, name)
+		}
+	}
 	if _, ok := runnerTypes[a.Runner.Type]; !ok {
 		names := make([]string, 0, len(runnerTypes))
 		for n := range runnerTypes {
@@ -100,7 +153,7 @@ func validate(a *spec.App) error {
 			bad("runner %s needs a command", a.Runner.Type)
 		}
 	case spec.RunnerURL:
-		if !strings.HasPrefix(a.Runner.URL, "http://") && !strings.HasPrefix(a.Runner.URL, "https://") {
+		if u := sampleArgs(a, a.Runner.URL); !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 			bad("runner url needs an http:// or https:// url")
 		}
 	case spec.RunnerDocker:

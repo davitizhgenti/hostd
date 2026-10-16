@@ -30,6 +30,7 @@ var (
 		"id":{"type":"string","description":"app ID or alias"},
 		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"},
 		"action":{"type":"string","description":"one of the app's actions (e.g. new-private-window): always a new instance"},
+		"args":{"type":"object","additionalProperties":{"type":"string"},"description":"values for the app's arguments (its file's args), e.g. {\"url\": \"http://...\"}; a running copy is replaced"},
 		"dir":{"type":"string","description":"run in this directory: a release (needs scope deploy)"},
 		"env":{"type":"object","additionalProperties":{"type":"string"},"description":"extra environment, e.g. PORT (needs scope deploy)"},
 		"new":{"type":"boolean","description":"always a new instance (needs scope deploy)"},
@@ -74,7 +75,7 @@ func instanceReads() []sdk.ReadSpec {
 			CLI: &sdk.CLI{Empty: "nothing is running", Columns: []sdk.Column{{Title: "INSTANCE", Path: "id"}, {Title: "APP", Path: "app"},
 				{Title: "RUNNER", Path: "runner"}, {Title: "STATE", Path: "state"}, {Title: "PID", Path: "pid"}, {Title: "SINCE", Path: "started", Format: "time"}}}},
 		{Name: "instance", Description: "One instance", Path: "/v1/instances/{id}"},
-		{Name: "logs", Description: "An instance's latest log lines (?lines=200)", Path: "/v1/instances/{id}/logs"},
+		{Name: "logs", Description: "An instance's latest log lines (?lines=200, ?plain=true for the messages only)", Path: "/v1/instances/{id}/logs"},
 	}
 }
 
@@ -91,13 +92,19 @@ func (m *Module) live(app string) []*Instance {
 }
 
 func (m *Module) validateStart(a sdk.Action) error {
-	var args struct{ ID, Action string }
+	var args struct {
+		ID, Action string
+		Args       map[string]string
+	}
 	if err := a.DecodeArgs(&args); err != nil {
 		return err
 	}
 	app, ok := m.catalog().Get(args.ID)
 	if !ok {
 		return sdk.Errorf(sdk.CodeNotFound, "no app %q (see hostctl apps --all)", args.ID)
+	}
+	if _, err := withArgs(app, args.Args); err != nil {
+		return err
 	}
 	if args.Action != "" {
 		if _, ok := app.Action(args.Action); !ok {
@@ -162,6 +169,10 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if !ok {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app %q", args.ID)
 	}
+	app, err := withArgs(app, args.Args)
+	if err != nil {
+		return sdk.Result{}, err
+	}
 	if args.Action != "" {
 		// One of the app's actions: its own command, always a new
 		// instance (a private window next to the normal one).
@@ -186,7 +197,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 			return sdk.Result{}, sdk.Errorf(sdk.CodeOf(err), "%s requires %s: %v", app.ID, req, err)
 		}
 	}
-	app, err := m.withSecrets(app)
+	app, err = m.withSecrets(app)
 	if err != nil {
 		return sdk.Result{}, err
 	}
@@ -213,7 +224,11 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return m.focusRunning(ctx, app, first, args.Front)
 	}
 	if app.Instance.Policy == "single" && len(running) > 0 && !args.New {
-		switch app.Instance.IfRunning {
+		ifRunning := app.Instance.IfRunning
+		if len(args.Args) > 0 {
+			ifRunning = "restart" // new values: the running copy shows the old ones
+		}
+		switch ifRunning {
 		case "focus":
 			return m.focusRunning(ctx, app, first, args.Front)
 		case "restart":
@@ -226,7 +241,12 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		}
 		// "new": fall through and start another copy
 	}
+	return m.launch(ctx, a.ID, app, backend, args)
+}
 
+// launch starts a new instance of app: app.start's, and app.run's for a
+// command with no app file.
+func (m *Module) launch(ctx context.Context, actionID string, app *App, backend Backend, args contract.AppStart) (sdk.Result, error) {
 	m.mu.Lock()
 	id := nextID(app.ID, func(id string) bool {
 		in, ok := m.instances[id]
@@ -239,7 +259,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		State:  StateStarting, Started: m.opts.Clock.Now().UTC()}
 	m.instances[id] = inst
 	m.mu.Unlock()
-	m.emitInstance(EventStarting, a.ID, *inst)
+	m.emitInstance(EventStarting, actionID, *inst)
 
 	started, err := backend.Start(ctx, *inst, app)
 
@@ -269,7 +289,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		m.retire(id)
 		snapshot := *cur
 		m.mu.Unlock()
-		m.emitInstance(EventFailed, a.ID, snapshot)
+		m.emitInstance(EventFailed, actionID, snapshot)
 		var se *sdk.Error
 		if errors.As(err, &se) {
 			return sdk.Result{}, err
@@ -295,7 +315,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		go func() { defer m.watchersRun.Done(); m.watchHealth(life, id, h) }()
 	}
 	if emitStarted {
-		m.emitInstance(EventStarted, a.ID, snapshot)
+		m.emitInstance(EventStarted, actionID, snapshot)
 	}
 	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
 }

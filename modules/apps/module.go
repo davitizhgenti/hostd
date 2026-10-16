@@ -49,7 +49,7 @@ type Options struct {
 	Debounce time.Duration // wait after the last file change before rescanning (default 500ms)
 	NoWatch  bool          // do not watch the directories (tests)
 	// Journal reads a unit's last lines (default: journalctl --user).
-	Journal func(ctx context.Context, unit string, n int) ([]string, error)
+	Journal func(ctx context.Context, q JournalQuery) ([]string, error)
 }
 
 // DefaultAppsDir is $XDG_CONFIG_HOME/hostd/apps.
@@ -108,13 +108,14 @@ func (m *Module) Manifest() sdk.Manifest {
 			// Used by app.start and the display module's window.focus.
 			{Name: contract.ScopeFront, Description: "Bring an app to the front even while someone is using the screen"},
 			{Name: contract.ScopeDeploy, Description: "Start an app as a release of a service: its own directory and environment (deploys)"},
+			{Name: contract.ScopeRun, Description: "Run any command as the screen user, and add or remove app files (app.run, app.define)"},
 		},
 		Actions: append([]sdk.ActionSpec{
 			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,
 				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
 			{Type: "app.check", Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
 				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
-		}, append(instanceActions(), secretActions()...)...),
+		}, append(append(instanceActions(), runActions()...), secretActions()...)...),
 		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
 			{Type: EventFileRejected, Description: "An app file could not be used"},
@@ -272,6 +273,12 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleClosing(a)
 	case "secret.set", "secret.remove":
 		return m.handleSecret(a)
+	case ActionRun:
+		return m.handleRun(ctx, a)
+	case ActionDefine:
+		return m.handleDefine(a)
+	case ActionUndefine:
+		return m.handleUndefine(a)
 	}
 	if a.Type == "app.check" {
 		return m.handleCheck(a)

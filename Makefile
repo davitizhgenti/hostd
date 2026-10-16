@@ -104,11 +104,13 @@ SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh d
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
-	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py
+	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py
 	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py \
-		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py examples/python-module/lights.py
+		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py examples/python-module/lights.py \
+		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
-	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__
+	python3 -m unittest discover -s clients/python -p "test_*.py"
+	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__ clients/python/__pycache__
 
 # Coverage report; fails if core/ is below CORE_COVER_MIN percent once it has
 # code with tests.

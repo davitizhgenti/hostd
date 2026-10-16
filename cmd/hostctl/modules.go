@@ -87,6 +87,9 @@ func groupRun(cmd *cobra.Command, args []string) error {
 
 type prop struct {
 	name, typ, desc string
+	// media is a string argument's content type (JSON Schema
+	// contentMediaType): a document, which can be given as @file or -.
+	media string
 }
 
 func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
@@ -94,13 +97,14 @@ func schemaInfo(raw json.RawMessage) (props []prop, required []string) {
 		Properties map[string]struct {
 			Type        any    `json:"type"`
 			Description string `json:"description"`
+			Media       string `json:"contentMediaType"`
 		} `json:"properties"`
 		Required []string `json:"required"`
 	}
 	_ = json.Unmarshal(raw, &s)
 	for name, p := range s.Properties {
 		typ, _ := p.Type.(string) // a type list ("string","null") is treated as untyped
-		props = append(props, prop{name, typ, p.Description})
+		props = append(props, prop{name, typ, p.Description, p.Media})
 	}
 	sort.Slice(props, func(i, j int) bool { return props[i].name < props[j].name })
 	return props, s.Required
@@ -123,14 +127,19 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 	})
 	required = slices.DeleteFunc(slices.Clone(required), func(r string) bool { return secret[r] })
 	types := map[string]string{}
+	media := map[string]bool{}
 	values := map[string]*string{}
 	bools := map[string]*bool{}
 	for _, p := range props {
 		types[p.name] = p.typ
+		media[p.name] = p.media != ""
 		flagName := strings.ReplaceAll(p.name, "_", "-")
 		desc := p.desc
 		if desc == "" {
 			desc = p.typ
+		}
+		if p.media != "" {
+			desc += " (@file reads a file, - standard input)"
 		}
 		if p.typ == "boolean" {
 			bools[p.name] = cmd.Flags().Bool(flagName, false, desc)
@@ -170,6 +179,10 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		out := map[string]json.RawMessage{}
 		var order []string // arguments in the order given, for a readable log
 		for i, v := range args {
+			v, err := document(cmd, media[positional[i]], v)
+			if err != nil {
+				return err
+			}
 			j, err := convert(positional[i], types[positional[i]], v)
 			if err != nil {
 				return err
@@ -185,7 +198,11 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 			if _, dup := out[name]; dup {
 				return usageError{fmt.Errorf("%s given both as an argument and as --%s", name, name)}
 			}
-			j, err := convert(name, types[name], *v)
+			doc, err := document(cmd, media[name], *v)
+			if err != nil {
+				return err
+			}
+			j, err := convert(name, types[name], doc)
 			if err != nil {
 				return err
 			}
@@ -217,6 +234,25 @@ func (a *app) makeActionCommand(cmd *cobra.Command, spec sdk.ActionSpec, module 
 		}
 		return a.submit(cmd, req)
 	}
+}
+
+// document reads an argument that is a document (an app file) from where
+// it names: @path is a file, - standard input. Other values are the text.
+func document(cmd *cobra.Command, isDoc bool, v string) (string, error) {
+	switch {
+	case !isDoc:
+		return v, nil
+	case v == "-":
+		b, err := io.ReadAll(cmd.InOrStdin())
+		return string(b), err
+	case strings.HasPrefix(v, "@"):
+		b, err := os.ReadFile(v[1:])
+		if err != nil {
+			return "", usageError{err}
+		}
+		return string(b), nil
+	}
+	return v, nil
 }
 
 // convert turns a command-line string into the JSON the schema expects. A
