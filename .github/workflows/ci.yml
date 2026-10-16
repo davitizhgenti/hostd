@@ -32,7 +32,8 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          msg=$(grep -h -B3 -A25 -E -- '--- FAIL|^panic:|FAIL: testdata' test.log cover.log 2>/dev/null | head -80 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          # A log that is not there (the step before it failed) is no error.
+          msg=$({ grep -h -B3 -A25 -E -- '--- FAIL|^panic:|FAIL: testdata' test.log cover.log 2>/dev/null || true; } | head -80 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
           echo "::error title=Failing tests::${msg:-no test failure found in the output}"
 
   # Shell scripts, the Python menu and the OpenAPI description: what make
