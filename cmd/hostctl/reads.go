@@ -90,12 +90,21 @@ takes them as arguments; ?query parameters are given as --param key=value.`,
 		root.AddCommand(get)
 	}
 	for _, al := range aliases {
-		if taken(al.name) {
+		parent, name := root, al.name
+		if group, sub, ok := strings.Cut(al.name, " "); ok { // "token list": beside the group's actions
+			if taken(group) && !slices.ContainsFunc(root.Commands(), func(c *cobra.Command) bool { return c.Name() == group && c.RunE != nil && c.HasSubCommands() }) {
+				continue // a built-in command has the name
+			}
+			parent, name = child(root, group, ""), sub
+			if slices.ContainsFunc(parent.Commands(), func(c *cobra.Command) bool { return c.Name() == sub }) {
+				continue
+			}
+		} else if taken(name) {
 			continue
 		}
-		c := &cobra.Command{Use: al.name, Args: cobra.ArbitraryArgs}
+		c := &cobra.Command{Use: name, Args: cobra.ArbitraryArgs}
 		al.make(c)
-		root.AddCommand(c)
+		parent.AddCommand(c)
 	}
 }
 
@@ -114,10 +123,16 @@ func (a *app) makeReadCommand(cmd *cobra.Command, rd sdk.ReadSpec, module string
 	var query []string
 	cmd.Flags().StringArrayVar(&query, "param", nil, "a query parameter, key=value (repeat for more)")
 	switches := map[string]*bool{}
+	values := map[string]*string{}
 	var one *sdk.ReadSpec
 	if rd.CLI != nil {
 		for _, p := range rd.CLI.Params {
-			switches[p.Name] = cmd.Flags().Bool(strings.ReplaceAll(p.Name, "_", "-"), false, p.Description)
+			flag := strings.ReplaceAll(p.Name, "_", "-")
+			if p.Value != "" { // takes a value: --limit N
+				values[p.Name] = cmd.Flags().String(flag, p.Default, p.Description)
+				continue
+			}
+			switches[p.Name] = cmd.Flags().Bool(flag, false, p.Description)
 		}
 		if rd.CLI.One != "" {
 			if r, ok := a.reads[module+"/"+rd.CLI.One]; ok && len(params) == 0 {
@@ -138,14 +153,16 @@ func (a *app) makeReadCommand(cmd *cobra.Command, rd sdk.ReadSpec, module string
 			if err := c.Get(cmd.Context(), path, &raw); err != nil {
 				return err
 			}
-			if a.jsonOut || one.CLI == nil || len(one.CLI.Columns) == 0 {
-				return a.printJSON(raw)
-			}
-			return a.printTable(one.CLI, raw)
+			return a.printRead(one.CLI, raw)
 		}
 		for name, on := range switches {
 			if *on {
 				query = append(query, name+"=true")
+			}
+		}
+		for name, v := range values {
+			if *v != "" {
+				query = append(query, name+"="+*v)
 			}
 		}
 		sort.Strings(query)
@@ -172,11 +189,25 @@ func (a *app) makeReadCommand(cmd *cobra.Command, rd sdk.ReadSpec, module string
 		if err := c.Get(cmd.Context(), path, &raw); err != nil {
 			return err
 		}
-		if a.jsonOut || rd.CLI == nil || len(rd.CLI.Columns) == 0 {
-			return a.printJSON(raw)
-		}
-		return a.printTable(rd.CLI, raw)
+		return a.printRead(rd.CLI, raw)
 	}
+}
+
+// printRead prints a read's answer: a table for a list with columns, the
+// Done lines for one object, else the JSON (and always with --json).
+func (a *app) printRead(cli *sdk.CLI, raw json.RawMessage) error {
+	switch {
+	case a.jsonOut || cli == nil:
+		return a.printJSON(raw)
+	case len(cli.Columns) > 0:
+		return a.printTable(cli, raw)
+	case len(cli.Done) > 0:
+		if line, ok := doneLine(cli.Done, raw); ok {
+			_, err := fmt.Fprintln(a.stdout, line)
+			return err
+		}
+	}
+	return a.printJSON(raw)
 }
 
 // printTable prints a read that returned a list of objects as the table the
@@ -217,7 +248,10 @@ func (a *app) printTable(cli *sdk.CLI, raw json.RawMessage) error {
 	for i, c := range cli.Columns {
 		cols[i] = column[map[string]any]{c.Title, func(row map[string]any) string { return cell(row, c) }}
 	}
-	if err := writeTable(a.stdout, tableStyle{}, cols, rows); err != nil {
+	if cli.Reverse {
+		slices.Reverse(rows)
+	}
+	if err := writeTable(a.stdout, tableStyle{gap: cli.Gap, noHeader: cli.NoHeader}, cols, rows); err != nil {
 		return err
 	}
 	return a.printNotes(cli.Notes, whole)
@@ -278,15 +312,19 @@ func cell(row map[string]any, c sdk.Column) string {
 	return "-"
 }
 
+// timeLayouts are the formats of a time: of day, hours and minutes, or a
+// date with its time.
+var timeLayouts = map[string]string{"time": "15:04:05", "hm": "15:04", "date": "2006-01-02 15:04"}
+
 // render writes one JSON value as text; "" means there is nothing.
 func render(v any, format string) string {
 	switch x := v.(type) {
 	case nil:
 		return ""
 	case string:
-		if format == "time" {
+		if layout, ok := timeLayouts[format]; ok {
 			if t, err := time.Parse(time.RFC3339Nano, x); err == nil {
-				return t.In(displayZone).Format("15:04:05")
+				return t.In(displayZone).Format(layout)
 			}
 		}
 		return x

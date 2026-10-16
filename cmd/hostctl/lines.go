@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // The lines of the manifest's CLI hints (done, column text, notes):
@@ -13,7 +12,7 @@ import (
 // {a|b} the first of the two that is set, and {field:time} or
 // {field:hm} a time, as the local time of day.
 
-var rePlaceholder = regexp.MustCompile(`\{([a-z0-9_.|]+)(?::(time|hm))?\}`)
+var rePlaceholder = regexp.MustCompile(`\{([a-z0-9_.|]+)(?::(time|hm|date))?\}`)
 
 // renderLines is the first line whose condition holds for data, filled in.
 func renderLines(lines []string, data any) (string, bool) {
@@ -80,13 +79,5 @@ func fieldOf(data any, paths string) any {
 }
 
 func formatValue(v any, format string) string {
-	if s, ok := v.(string); ok && (format == "time" || format == "hm") {
-		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			if format == "hm" {
-				return t.In(displayZone).Format("15:04")
-			}
-			return t.In(displayZone).Format("15:04:05")
-		}
-	}
-	return render(v, "")
+	return render(v, format)
 }

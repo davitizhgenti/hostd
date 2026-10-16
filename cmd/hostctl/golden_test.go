@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/davitizhgenti/hostd/internal/system"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/modules/display"
@@ -53,7 +54,8 @@ func hostctl(t *testing.T, args ...string) (string, string, int) {
 // those moved into the manifest: a migration must keep every byte.
 func TestGoldenTables(t *testing.T) {
 	displayManifest := display.New(display.Options{}).Manifest()
-	manifests := []sdk.Manifest{displayManifest, apps.New(apps.Options{}).Manifest(), automation.New(automation.Options{}).Manifest()}
+	manifests := []sdk.Manifest{system.New(system.Options{}).Manifest(), displayManifest, apps.New(apps.Options{}).Manifest(),
+		automation.New(automation.Options{}).Manifest()}
 	fakeAPI(t, manifests, map[string]string{
 		"/v1/windows": `[
 			{"id":1,"instance":"firefox","app_id":"firefox","class":"","title":"Mozilla Firefox","workspace":"hostd:firefox","focused":true,"fullscreen":true},
@@ -69,12 +71,12 @@ func TestGoldenTables(t *testing.T) {
 		"/v1/tokens": `[
 			{"id":"tok_1","name":"admin","kind":"manual","scopes":["admin"],"created":"2026-10-01T10:00:00Z","last_used":"2026-10-14T09:30:00Z"},
 			{"id":"tok_2","name":"phone","kind":"manual","scopes":["read","apps"],"created":"2026-10-02T10:00:00Z","expires":"2099-01-01T00:00:00Z"},
-			{"id":"tok_3","name":"old","kind":"automation","scopes":["read"],"created":"2026-01-01T10:00:00Z","expires":"2026-02-01T00:00:00Z"},
+			{"id":"tok_3","name":"old","kind":"automation","scopes":["read"],"created":"2026-01-01T10:00:00Z","expires":"2026-02-01T00:00:00Z","expired":true},
 			{"id":"tok_4","name":"gone","kind":"local","scopes":["read"],"created":"2026-01-01T10:00:00Z","revoked":"2026-03-01T00:00:00Z"}]`,
 		"/v1/actions?limit=50": `[
-			{"seq":3,"time":"2026-10-14T10:02:00Z","action":"act_3","type":"audio.volume.set","args":{"percent":70},"source":{"kind":"automation","name":"evening"},"status":"skipped","held_by":"manual","until":"2026-10-14T10:05:00Z"},
-			{"seq":2,"time":"2026-10-14T10:01:00Z","action":"act_2","type":"app.start","args":{"id":"nope"},"source":{"kind":"manual","name":"phone"},"status":"failed","code":"not_found","reason":"no app \"nope\""},
-			{"seq":1,"time":"2026-10-14T10:00:00Z","action":"act_1","type":"audio.volume.set","args":{"percent":40},"source":{"kind":"manual","name":"admin"},"status":"applied","version":3}]`,
+			{"seq":3,"time":"2026-10-14T10:02:00Z","action":"act_3","type":"audio.volume.set","args":{"percent":70},"summary":"70","source":{"kind":"automation","name":"evening"},"status":"skipped","held_by":"manual","until":"2026-10-14T10:05:00Z"},
+			{"seq":2,"time":"2026-10-14T10:01:00Z","action":"act_2","type":"app.start","args":{"id":"nope"},"summary":"nope","source":{"kind":"manual","name":"phone"},"status":"failed","code":"not_found","reason":"no app \"nope\""},
+			{"seq":1,"time":"2026-10-14T10:00:00Z","action":"act_1","type":"audio.volume.set","args":{"percent":40},"summary":"40","source":{"kind":"manual","name":"admin"},"status":"applied","version":3}]`,
 		"/v1/rules": `{"rules": [
 			{"name":"evening","on":"display.idle","do":{"scene":"dim"},"fired":2,"last_fired":"2026-10-14T10:00:00Z","last_result":"applied"},
 			{"name":"quiet","on":"instance.started","do":{"action":"audio.mute.set"},"fired":0,"paused":true,"paused_why":"paused by hand"}],

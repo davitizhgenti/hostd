@@ -219,67 +219,6 @@ func (c *Client) Submit(ctx context.Context, req ActionRequest) (sdk.Result, err
 	return r, c.Do(ctx, http.MethodPost, "/v1/actions", req, &r)
 }
 
-// AuditRecord is one entry of GET /v1/actions.
-type AuditRecord struct {
-	Seq      int64           `json:"seq"`
-	Time     time.Time       `json:"time"`
-	Action   string          `json:"action"`
-	Type     string          `json:"type"`
-	Args     json.RawMessage `json:"args"`
-	Source   sdk.Source      `json:"source"`
-	Status   string          `json:"status"`
-	Code     sdk.Code        `json:"code"`
-	Reason   string          `json:"reason"`
-	HeldBy   sdk.SourceKind  `json:"held_by"`
-	Until    *time.Time      `json:"until"`
-	Resource string          `json:"resource"`
-	Version  uint64          `json:"version"`
-}
-
-func (c *Client) Audit(ctx context.Context, query url.Values) ([]AuditRecord, error) {
-	var recs []AuditRecord
-	path := "/v1/actions"
-	if len(query) > 0 {
-		path += "?" + query.Encode()
-	}
-	return recs, c.Do(ctx, http.MethodGet, path, nil, &recs)
-}
-
-// Token is a token as the API lists it; Secret is only set on creation.
-type Token struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Kind     sdk.SourceKind `json:"kind"`
-	Scopes   []string       `json:"scopes"`
-	Created  time.Time      `json:"created"`
-	Expires  *time.Time     `json:"expires,omitempty"`
-	Revoked  *time.Time     `json:"revoked,omitempty"`
-	LastUsed *time.Time     `json:"last_used,omitempty"`
-	Secret   string         `json:"secret,omitempty"`
-}
-
-// TokenRequest is the body of POST /v1/tokens.
-type TokenRequest struct {
-	Name   string         `json:"name"`
-	Kind   sdk.SourceKind `json:"kind,omitempty"`
-	Scopes []string       `json:"scopes"`
-	TTL    string         `json:"ttl,omitempty"`
-}
-
-func (c *Client) CreateToken(ctx context.Context, req TokenRequest) (Token, error) {
-	var t Token
-	return t, c.Do(ctx, http.MethodPost, "/v1/tokens", req, &t)
-}
-
-func (c *Client) Tokens(ctx context.Context) ([]Token, error) {
-	var t []Token
-	return t, c.Do(ctx, http.MethodGet, "/v1/tokens", nil, &t)
-}
-
-func (c *Client) RevokeToken(ctx context.Context, id string) error {
-	return c.Do(ctx, http.MethodDelete, "/v1/tokens/"+url.PathEscape(id), nil, nil)
-}
-
 // ErrStop can be returned by an Events callback to end the stream cleanly.
 var ErrStop = errors.New("stop events")
 

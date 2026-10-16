@@ -132,6 +132,11 @@ func (r *Registry) Resolve() error {
 				}
 			}
 		}
+		for _, rd := range m.man.Reads {
+			if rd.Scope != "" && rd.Scope != sdk.ScopePublic && !declared[rd.Scope] {
+				errs = append(errs, fmt.Errorf("module %q, read %q: scope %q is not declared by any module", m.man.Name, rd.Name, rd.Scope))
+			}
+		}
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)

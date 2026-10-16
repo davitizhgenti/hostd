@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -27,8 +26,7 @@ func TestServeTLS(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(docs, "index.html"), []byte("<h1>docs</h1>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	e := setup(t, Options{TLS: ca.TLSConfig(), CA: ca.CAPEM(), DocsDir: docs,
-		TLSInfo: func() any { return map[string]string{"fingerprint": ca.Fingerprint()} }})
+	e := setup(t, Options{TLS: ca.TLSConfig(), CA: ca.CAPEM(), DocsDir: docs})
 	free, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := free.Addr().String()
 	free.Close()
@@ -63,11 +61,6 @@ func TestServeTLS(t *testing.T) {
 	}
 	if code, body := get(pinned, "https://"+addr+"/v1/tls/ca.pem", ""); code != 200 || body != string(ca.CAPEM()) {
 		t.Fatalf("ca.pem: %d", code)
-	}
-	var info map[string]string
-	_, body := get(pinned, "https://"+addr+"/v1/tls", "")
-	if json.Unmarshal([]byte(body), &info); info["fingerprint"] != ca.Fingerprint() {
-		t.Fatalf("tls info %s", body)
 	}
 
 	plain := &http.Client{}

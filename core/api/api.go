@@ -17,7 +17,6 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,9 +53,8 @@ type Options struct {
 	// The unix socket stays plain HTTP: it never leaves the machine.
 	TLS *tls.Config
 	// CA, if set, is served at GET /v1/tls/ca.pem without a token (the
-	// machine's CA, to pin or install), and TLSInfo at GET /v1/tls.
-	CA      []byte
-	TLSInfo func() any
+	// machine's CA, to pin or install; GET /v1/tls is module hostd's).
+	CA []byte
 	// Allow are networks trusted on TCP beside the private ones: a VPN's,
 	// such as Tailscale's 100.64.0.0/10.
 	Allow []netip.Prefix
@@ -108,12 +106,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		{"GET /v1/openapi.json", "", srv.getOpenAPI},
 		{"GET /v1/state/{module}", sdk.ScopeRead, srv.getState},
 		{"POST /v1/actions", "", srv.postAction}, // scope depends on the action
-		{"GET /v1/actions", sdk.ScopeRead, srv.getAudit},
-		{"GET /v1/actions/running", sdk.ScopeRead, srv.getRunning},
 		{"GET /v1/events", sdk.ScopeRead, srv.getEvents},
-		{"GET /v1/tokens", sdk.ScopeAdmin, srv.listTokens},
-		{"POST /v1/tokens", sdk.ScopeAdmin, srv.createToken},
-		{"DELETE /v1/tokens/{id}", sdk.ScopeAdmin, srv.revokeToken},
 		{"POST /v1/update", sdk.ScopeAdmin, srv.postUpdate},
 	}
 	for _, r := range routes {
@@ -134,7 +127,17 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 	}
 	for _, m := range e.Registry().Manifests() {
 		for _, rd := range m.Reads {
-			if err := srv.handle("GET "+rd.Path, sdk.ScopeRead, srv.read(m.Name, rd)); err != nil {
+			scope := rd.Scope
+			if scope == "" {
+				scope = sdk.ScopeRead
+			}
+			var err error
+			if scope == sdk.ScopePublic {
+				err = srv.handlePublic("GET "+rd.Path, srv.read(m.Name, rd))
+			} else {
+				err = srv.handle("GET "+rd.Path, scope, srv.read(m.Name, rd))
+			}
+			if err != nil {
 				return nil, fmt.Errorf("module %q, read %q: %w", m.Name, rd.Name, err)
 			}
 		}
@@ -151,13 +154,6 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		srv.mux.HandleFunc("GET /v1/tls/ca.pem", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/x-pem-file")
 			_, _ = w.Write(opts.CA)
-		})
-		srv.mux.HandleFunc("GET /v1/tls", func(w http.ResponseWriter, _ *http.Request) {
-			var info any = map[string]any{}
-			if opts.TLSInfo != nil {
-				info = opts.TLSInfo()
-			}
-			writeJSON(w, http.StatusOK, info)
 		})
 	}
 	if opts.DocsDir != "" {
@@ -183,6 +179,22 @@ func (s *Server) handle(pattern, scope string, h func(http.ResponseWriter, *http
 		}
 	}()
 	s.mux.Handle(pattern, s.authenticated(scope, h))
+	return nil
+}
+
+// handlePublic registers a route that needs no token (on TCP still the
+// home network only).
+func (s *Server) handlePublic(pattern string, h func(http.ResponseWriter, *http.Request, store.Token) error) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("route %q: %v", pattern, p)
+		}
+	}()
+	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		if err := h(w, r, store.Token{}); err != nil {
+			writeErr(w, r, err)
+		}
+	})
 	return nil
 }
 
@@ -525,112 +537,7 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request, _ store.Token)
 	return nil
 }
 
-func (s *Server) getAudit(w http.ResponseWriter, r *http.Request, _ store.Token) error {
-	q := r.URL.Query()
-	query := store.AuditQuery{Type: q.Get("type"), Action: q.Get("action")}
-	var err error
-	if v := q.Get("limit"); v != "" {
-		if query.Limit, err = strconv.Atoi(v); err != nil {
-			return sdk.Errorf(sdk.CodeInvalidArgs, "limit must be a number")
-		}
-	}
-	if v := q.Get("before"); v != "" {
-		if query.Before, err = strconv.ParseInt(v, 10, 64); err != nil {
-			return sdk.Errorf(sdk.CodeInvalidArgs, "before must be a number")
-		}
-	}
-	if err := s.store.Flush(r.Context()); err != nil { // include actions that just finished
-		return err
-	}
-	recs, err := s.store.QueryAudit(r.Context(), query)
-	if err != nil {
-		return err
-	}
-	if recs == nil {
-		recs = []store.AuditRecord{}
-	}
-	writeJSON(w, http.StatusOK, recs)
-	return nil
-}
-
 // --- tokens ---------------------------------------------------------------
-
-type tokenRequest struct {
-	Name   string         `json:"name"`
-	Kind   sdk.SourceKind `json:"kind,omitempty"`
-	Scopes []string       `json:"scopes"`
-	TTL    sdk.Duration   `json:"ttl,omitempty"`
-}
-
-func (s *Server) knownScopes() map[string]bool {
-	known := map[string]bool{sdk.ScopeRead: true, sdk.ScopeAdmin: true}
-	for _, m := range s.engine.Registry().Manifests() {
-		for _, sc := range m.Scopes {
-			known[sc.Name] = true
-		}
-	}
-	return known
-}
-
-func (s *Server) createToken(w http.ResponseWriter, r *http.Request, caller store.Token) error {
-	var req tokenRequest
-	if err := decodeBody(r, &req); err != nil {
-		return err
-	}
-	if req.Kind == "" {
-		req.Kind = sdk.SourceManual
-	}
-	known := s.knownScopes()
-	for _, sc := range req.Scopes {
-		if !known[sc] {
-			names := make([]string, 0, len(known))
-			for k := range known {
-				names = append(names, k)
-			}
-			sort.Strings(names)
-			return sdk.Errorf(sdk.CodeInvalidArgs, "unknown scope %q; known scopes: %s", sc, strings.Join(names, ", "))
-		}
-	}
-	if !store.ScopesWithin(req.Scopes, caller.Scopes) {
-		return sdk.Errorf(sdk.CodeForbidden, "a token cannot grant scopes its creator does not have")
-	}
-	tok, secret, err := s.store.CreateToken(r.Context(), req.Name, req.Kind, req.Scopes, time.Duration(req.TTL))
-	if err != nil {
-		if errors.Is(err, store.ErrNameTaken) || errors.Is(err, store.ErrBadRequest) {
-			return &sdk.Error{Code: sdk.CodeInvalidArgs, Message: err.Error()}
-		}
-		return err
-	}
-	writeJSON(w, http.StatusCreated, struct {
-		store.Token
-		Secret string `json:"secret"`
-	}{tok, secret})
-	return nil
-}
-
-func (s *Server) listTokens(w http.ResponseWriter, r *http.Request, _ store.Token) error {
-	toks, err := s.store.ListTokens(r.Context())
-	if err != nil {
-		return err
-	}
-	if toks == nil {
-		toks = []store.Token{}
-	}
-	writeJSON(w, http.StatusOK, toks)
-	return nil
-}
-
-func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request, _ store.Token) error {
-	err := s.store.RevokeToken(r.Context(), r.PathValue("id"))
-	if errors.Is(err, store.ErrNotFound) {
-		return sdk.Errorf(sdk.CodeNotFound, "no active token %q", r.PathValue("id"))
-	}
-	if err != nil {
-		return err
-	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
-}
 
 // --- helpers --------------------------------------------------------------
 
@@ -711,9 +618,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
-}
-
-func (s *Server) getRunning(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
-	writeJSON(w, http.StatusOK, s.engine.Running())
-	return nil
 }

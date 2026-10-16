@@ -184,34 +184,15 @@
   "paths": {
     "/v1/actions": {
       "get": {
-        "operationId": "core.actions.audit",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "description": "entries before this sequence number",
-            "in": "query",
-            "name": "before",
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
+        "operationId": "hostd.log",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "array"
-                }
+                "schema": {}
               }
             },
-            "description": "Audit entries"
+            "description": "The module's answer"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -229,10 +210,16 @@
             "$ref": "#/components/responses/Unavailable"
           }
         },
-        "summary": "The audit trail, newest first",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The audit trail: recent actions, their sources and results, newest first (?limit, ?before, ?type, ?action)",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-scope": "read"
       },
       "post": {
         "operationId": "core.actions.submit",
@@ -320,17 +307,15 @@
     },
     "/v1/actions/running": {
       "get": {
-        "operationId": "core.actions.running",
+        "operationId": "hostd.running",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "array"
-                }
+                "schema": {}
               }
             },
-            "description": "Running actions"
+            "description": "The module's answer"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -348,10 +333,16 @@
             "$ref": "#/components/responses/Unavailable"
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "summary": "The actions being handled now, oldest first",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-scope": "read"
       }
     },
     "/v1/apps": {
@@ -3089,6 +3080,96 @@
         "x-hostd-scope": "read"
       }
     },
+    "/v1/quiet": {
+      "post": {
+        "description": "Wait until no deploy or scene is in progress (and, with idle, nobody is at the screen); fails if one still is after max",
+        "operationId": "quiet.wait",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "idle": {
+                    "description": "also wait until nobody is using the screen",
+                    "type": "boolean"
+                  },
+                  "max": {
+                    "description": "how long to wait at most (default 10m)",
+                    "type": "string"
+                  },
+                  "types": {
+                    "description": "action types that count as busy, comma-separated (default deploy.*,scene.*)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Wait until no deploy or scene is in progress (and, with idle, nobody is at the screen); fails if one still is after max",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-action": "quiet.wait",
+        "x-hostd-scope": "read"
+      }
+    },
     "/v1/rules": {
       "get": {
         "operationId": "automation.rules",
@@ -3646,17 +3727,15 @@
     },
     "/v1/tls": {
       "get": {
-        "operationId": "core.tls",
+        "operationId": "hostd.tls",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object"
-                }
+                "schema": {}
               }
             },
-            "description": "TLS"
+            "description": "The module's answer"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3675,10 +3754,11 @@
           }
         },
         "security": [],
-        "summary": "The machine's CA fingerprint and the certificate the API serves (no token: what a client pins)",
+        "summary": "The machine's CA (its fingerprint, which clients pin) and the certificate the API serves",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-scope": "public"
       }
     },
     "/v1/tls/ca.pem": {
@@ -3705,17 +3785,15 @@
     },
     "/v1/tokens": {
       "get": {
-        "operationId": "core.tokens.list",
+        "operationId": "hostd.tokens",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "array"
-                }
+                "schema": {}
               }
             },
-            "description": "Tokens"
+            "description": "The module's answer"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3733,19 +3811,41 @@
             "$ref": "#/components/responses/Unavailable"
           }
         },
-        "summary": "The tokens (never their secrets)",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The API tokens (never their secrets)",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-scope": "admin"
       },
       "post": {
-        "operationId": "core.tokens.create",
+        "description": "Create an API token; its secret is shown only now",
+        "operationId": "token.create",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "kind": {
+                    "default": "manual",
+                    "description": "manual (a person's device), automation (scripts) or local (the on-screen menu)",
                     "enum": [
                       "manual",
                       "automation",
@@ -3754,38 +3854,41 @@
                     "type": "string"
                   },
                   "name": {
+                    "description": "what it is for: a device or a script",
                     "type": "string"
                   },
                   "scopes": {
+                    "description": "what it may do (hostctl get hostd scopes)",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "ttl": {
-                    "description": "e.g. 720h; empty: no expiry",
+                    "description": "how long it lasts, such as 720h; default: until revoked",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "name"
+                  "name",
+                  "scopes"
                 ],
                 "type": "object"
               }
             }
           },
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Result"
                 }
               }
             },
-            "description": "The token, with its secret"
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3799,19 +3902,36 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
           "503": {
             "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
           }
         },
-        "summary": "Create a token (its secret is shown only now)",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create an API token; its secret is shown only now",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-action": "token.create",
+        "x-hostd-scope": "admin"
       }
     },
     "/v1/tokens/{id}": {
       "delete": {
-        "operationId": "core.tokens.revoke",
+        "description": "Revoke a token, by ID or name",
+        "operationId": "token.revoke",
         "parameters": [
           {
             "in": "path",
@@ -3820,11 +3940,28 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
-          "204": {
-            "description": "revoked"
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3838,14 +3975,30 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
           "503": {
             "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
           }
         },
-        "summary": "Revoke a token",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revoke a token, by ID or name",
         "tags": [
-          "core"
-        ]
+          "hostd"
+        ],
+        "x-hostd-action": "token.revoke",
+        "x-hostd-scope": "admin"
       }
     },
     "/v1/update": {
@@ -4588,6 +4741,10 @@
     {
       "description": "Module display 0.1.0",
       "name": "display"
+    },
+    {
+      "description": "Module hostd 0.1.0",
+      "name": "hostd"
     }
   ]
 }

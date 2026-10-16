@@ -10,14 +10,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/davitizhgenti/hostd/internal/client"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/internal/version"
-	"github.com/davitizhgenti/hostd/sdk"
 )
 
 // --- login ----------------------------------------------------------------
@@ -157,49 +155,6 @@ func (a *app) trustCA(cmd *cobra.Command, addr, want string, in *bufio.Reader, t
 
 // --- tls ------------------------------------------------------------------
 
-func (a *app) tlsCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "tls",
-		Short: "Show the machine's certificate authority (to pin or install) and its certificate",
-		Long: `Show the fingerprint of the machine's certificate authority, which
-hostctl login asks to confirm, and the certificate the API serves.
-
-Installing the CA (ca.pem) on a laptop or phone lets browsers open
-https://<machine>:7300/docs/ and the add-ons' sites without warnings. The
-CA can only vouch for this machine's names and private addresses.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := a.client()
-			if err != nil {
-				return err
-			}
-			var info struct {
-				Fingerprint string     `json:"fingerprint"`
-				Leaf        tlsca.Leaf `json:"leaf"`
-			}
-			if err := c.Get(cmd.Context(), "/v1/tls", &info); err != nil {
-				return err
-			}
-			if a.jsonOut {
-				return a.printJSON(info)
-			}
-			if info.Fingerprint == "" {
-				_, err := fmt.Fprintln(a.stdout, "the API is plain HTTP here ([api] tls = false)")
-				return err
-			}
-			fmt.Fprintf(a.stdout, "Certificate authority (pin):\n    %s\n", tlsca.Pretty(info.Fingerprint))
-			fmt.Fprintf(a.stdout, "    file: GET /v1/tls/ca.pem, or ~/.local/state/hostd/tls/ca.pem on the machine\n")
-			fmt.Fprintf(a.stdout, "Certificate: %s\n    valid until %s\n",
-				strings.Join(append(append([]string{}, info.Leaf.Names...), info.Leaf.IPs...), ", "), info.Leaf.NotAfter.In(displayZone).Format("2006-01-02"))
-			if len(info.Leaf.Skipped) > 0 {
-				fmt.Fprintf(a.stdout, "Left out: %s (the CA was made before they were configured; to remake it, stop hostd, remove ~/.local/state/hostd/tls, start it, and log in again everywhere)\n",
-					strings.Join(info.Leaf.Skipped, ", "))
-			}
-			return nil
-		},
-	}
-}
-
 func isTerminal(f *os.File) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
@@ -236,115 +191,3 @@ func (a *app) versionCommand() *cobra.Command {
 }
 
 // --- tokens ---------------------------------------------------------------
-
-func (a *app) tokenCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "token", Short: "Create, list and revoke API tokens", Args: cobra.ArbitraryArgs, RunE: groupRun}
-
-	var scopes []string
-	var kind, ttl string
-	create := &cobra.Command{
-		Use:   "create <name>",
-		Short: "Create a token; its secret is shown only once",
-		Example: `  hostctl token create phone --scopes read,apps,audio
-  hostctl token create backup.sh --kind automation --scopes read,services`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := a.client()
-			if err != nil {
-				return err
-			}
-			t, err := c.CreateToken(cmd.Context(), client.TokenRequest{
-				Name: args[0], Kind: sdk.SourceKind(kind), Scopes: scopes, TTL: ttl})
-			if err != nil {
-				return err
-			}
-			if a.jsonOut {
-				return a.printJSON(t)
-			}
-			fmt.Fprintf(a.stdout, "Created token %q (%s, scopes %s). Its secret, shown only now:\n\n    %s\n",
-				t.Name, t.Kind, strings.Join(t.Scopes, ","), t.Secret)
-			return nil
-		},
-	}
-	create.Flags().StringSliceVar(&scopes, "scopes", nil, "scopes, comma-separated (required)")
-	create.Flags().StringVar(&kind, "kind", "manual", "manual (a person's device), automation (scripts) or local (the on-screen menu)")
-	create.Flags().StringVar(&ttl, "ttl", "", "lifetime such as 1h; default never expires")
-	_ = create.MarkFlagRequired("scopes")
-
-	list := &cobra.Command{
-		Use:   "list",
-		Short: "List tokens",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			var toks []client.Token
-			if done, err := a.fetch(cmd, "/v1/tokens", &toks); done || err != nil {
-				return err
-			}
-			return writeTable(a.stdout, tableStyle{}, tokenColumns(time.Now()), toks)
-		},
-	}
-
-	revoke := &cobra.Command{
-		Use:   "revoke <name or id>",
-		Short: "Revoke a token",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := a.client()
-			if err != nil {
-				return err
-			}
-			id := args[0]
-			if !strings.HasPrefix(id, "tok_") {
-				toks, err := c.Tokens(cmd.Context())
-				if err != nil {
-					return err
-				}
-				id = ""
-				for _, t := range toks {
-					if t.Name == args[0] && t.Revoked == nil {
-						id = t.ID
-					}
-				}
-				if id == "" {
-					return &client.Error{Err: sdk.Errorf(sdk.CodeNotFound, "no active token named %q", args[0])}
-				}
-			}
-			if err := c.RevokeToken(cmd.Context(), id); err != nil {
-				return err
-			}
-			fmt.Fprintf(a.stdout, "Revoked %s\n", args[0])
-			return nil
-		},
-	}
-	cmd.AddCommand(create, list, revoke)
-	return cmd
-}
-
-// tokenColumns are the columns of hostctl token list; now decides which
-// tokens have expired.
-func tokenColumns(now time.Time) []column[client.Token] {
-	stamp := func(t time.Time) string { return t.In(displayZone).Format("2006-01-02 15:04") }
-	return []column[client.Token]{
-		{"NAME", func(t client.Token) string { return t.Name }},
-		{"KIND", func(t client.Token) string { return string(t.Kind) }},
-		{"SCOPES", func(t client.Token) string { return strings.Join(t.Scopes, ",") }},
-		{"LAST USED", func(t client.Token) string {
-			if t.LastUsed == nil {
-				return "never"
-			}
-			return stamp(*t.LastUsed)
-		}},
-		{"STATE", func(t client.Token) string {
-			switch {
-			case t.Revoked != nil:
-				return "revoked"
-			case t.Expires != nil && !now.Before(*t.Expires):
-				return "expired"
-			case t.Expires != nil:
-				return "expires " + stamp(*t.Expires)
-			}
-			return "active"
-		}},
-		{"ID", func(t client.Token) string { return t.ID }},
-	}
-}

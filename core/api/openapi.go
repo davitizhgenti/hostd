@@ -69,9 +69,16 @@ func OpenAPI(manifests []sdk.Manifest, version string) obj {
 			add(a.Route.Method, a.Route.Path, op)
 		}
 		for _, rd := range m.Reads {
+			scope, security := rd.Scope, []obj{{"bearer": []string{}}}
+			switch scope {
+			case "":
+				scope = sdk.ScopeRead
+			case sdk.ScopePublic:
+				security = []obj{}
+			}
 			add(http.MethodGet, rd.Path, obj{
 				"operationId": m.Name + "." + rd.Name, "tags": []string{m.Name}, "summary": rd.Description,
-				"x-hostd-scope": sdk.ScopeRead, "security": []obj{{"bearer": []string{}}},
+				"x-hostd-scope": scope, "security": security,
 				"responses": withErrors(obj{"200": obj{"description": "The module's answer",
 					"content": obj{"application/json": obj{"schema": obj{}}}}}),
 			})
@@ -246,11 +253,6 @@ func coreRoutes() []coreRoute {
 			"expect_version": obj{"type": "integer"},
 			"cause":          obj{"type": "string", "description": "the event this action reacts to"},
 		}}}}}
-	audit := op("core.actions.audit", "The audit trail, newest first", json200("Audit entries", obj{"type": "array"}))
-	audit["parameters"] = []obj{
-		{"name": "limit", "in": "query", "schema": obj{"type": "integer"}},
-		{"name": "before", "in": "query", "schema": obj{"type": "integer"}, "description": "entries before this sequence number"},
-	}
 	events := op("core.events", "Events as a WebSocket stream (?since=<event id> replays what came after it)",
 		withErrors(obj{"101": obj{"description": "switching to the WebSocket"}}))
 	events["parameters"] = []obj{
@@ -260,28 +262,14 @@ func coreRoutes() []coreRoute {
 	update := op("core.update", "Upload a new hostd binary: staged, switched to, rolled back if it does not start",
 		json200("The staged update", obj{"type": "object"}))
 	update["requestBody"] = obj{"required": true, "content": obj{"application/octet-stream": obj{"schema": obj{"type": "string", "format": "binary"}}}}
-	createToken := op("core.tokens.create", "Create a token (its secret is shown only now)", json200("The token, with its secret", obj{"type": "object"}))
-	createToken["requestBody"] = obj{"required": true, "content": obj{"application/json": obj{"schema": obj{
-		"type": "object", "required": []string{"name"}, "properties": obj{
-			"name": obj{"type": "string"}, "scopes": obj{"type": "array", "items": obj{"type": "string"}},
-			"kind": obj{"type": "string", "enum": []string{"manual", "automation", "local"}},
-			"ttl":  obj{"type": "string", "description": "e.g. 720h; empty: no expiry"},
-		}}}}}
 	return []coreRoute{
 		{"GET", "/v1/version", op("core.version", "hostd's version", json200("Version", obj{"type": "object"}))},
 		{"GET", "/v1/manifests", op("core.manifests", "Every module's manifest: its actions, events, reads and scopes", json200("Manifests", obj{"type": "array"}))},
 		{"GET", "/v1/openapi.json", op("core.openapi", "This description", json200("OpenAPI 3.1", obj{"type": "object"}))},
 		{"GET", "/v1/state/{module}", op("core.state", "A module's whole state", json200("State", obj{"type": "object"}))},
 		{"POST", "/v1/actions", actions},
-		{"GET", "/v1/actions", audit},
-		{"GET", "/v1/actions/running", op("core.actions.running", "The actions being handled now, oldest first", json200("Running actions", obj{"type": "array"}))},
 		{"GET", "/v1/events", events},
-		{"GET", "/v1/tokens", op("core.tokens.list", "The tokens (never their secrets)", json200("Tokens", obj{"type": "array"}))},
-		{"POST", "/v1/tokens", createToken},
-		{"DELETE", "/v1/tokens/{id}", op("core.tokens.revoke", "Revoke a token", withErrors(obj{"204": obj{"description": "revoked"}}))},
 		{"POST", "/v1/update", update},
-		{"GET", "/v1/tls", public(op("core.tls", "The machine's CA fingerprint and the certificate the API serves (no token: what a client pins)",
-			json200("TLS", obj{"type": "object"})))},
 		{"GET", "/v1/tls/ca.pem", public(op("core.tls.ca", "The machine's certificate authority, PEM (no token)",
 			obj{"200": obj{"description": "the CA", "content": obj{"application/x-pem-file": obj{"schema": obj{"type": "string"}}}}}))},
 	}

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/davitizhgenti/hostd/core/api"
+	"github.com/davitizhgenti/hostd/internal/system"
+	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/automation"
@@ -24,7 +26,12 @@ var updateGolden = flag.Bool("update", false, "rewrite golden files")
 // intended change: go test ./internal/daemon -run OpenAPI -update
 func TestOpenAPIGolden(t *testing.T) {
 	tmp := t.TempDir()
+	ca, err := tlsca.Open(tlsca.Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	mods := []sdk.Module{
+		system.New(system.Options{TLS: ca}),
 		apps.New(apps.Options{NoWatch: true}),
 		display.New(display.Options{}),
 		audio.New(audio.Options{}),

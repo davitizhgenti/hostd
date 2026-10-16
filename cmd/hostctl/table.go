@@ -6,8 +6,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/spf13/cobra"
-
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -48,22 +46,6 @@ func writeTable[T any](w io.Writer, style tableStyle, cols []column[T], rows []T
 		fmt.Fprintln(tw, strings.Join(cells, "\t"))
 	}
 	return tw.Flush()
-}
-
-// fetch reads a GET path into v. With --json it prints v as well, and done
-// says the command has nothing left to do.
-func (a *app) fetch(cmd *cobra.Command, path string, v any) (done bool, err error) {
-	c, err := a.client()
-	if err != nil {
-		return false, err
-	}
-	if err := c.Get(cmd.Context(), path, v); err != nil {
-		return false, err
-	}
-	if a.jsonOut {
-		return true, a.printJSON(v)
-	}
-	return false, nil
 }
 
 // heldBy is the line for an action that was skipped because a change of

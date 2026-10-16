@@ -22,7 +22,9 @@ import (
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/extmod"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
+	"github.com/davitizhgenti/hostd/internal/system"
 	"github.com/davitizhgenti/hostd/internal/systemd"
+	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
 	"github.com/davitizhgenti/hostd/modules/automation"
@@ -154,7 +156,21 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		return err
 	}
 
+	// The machine's CA, for HTTPS on the home network.
+	var ca *tlsca.Authority
+	if listen != "" && apiCfg.TLSOn() {
+		if ca, err = openCA(ctx, log, filepath.Join(stateDir, "tls"), apiCfg.Names); err != nil {
+			return fmt.Errorf("the machine's certificate authority: %w", err)
+		}
+	} else if listen != "" {
+		log.Warn("the API on " + listen + " is plain HTTP ([api] tls = false): tokens cross the network unencrypted")
+	}
+
 	reg := core.NewRegistry()
+	sys := system.New(system.Options{Store: st, TLS: ca}) // hostd's own: tokens, the audit trail...
+	if err := reg.Add(sys); err != nil {
+		return err
+	}
 	for _, m := range mods {
 		if err := reg.Add(m); err != nil {
 			if em, ok := m.(*extmod.Module); ok { // e.g. a namespace another module owns
@@ -167,6 +183,7 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 	}
 	coreOpts.Audit = st
 	eng := core.New(reg, coreOpts)
+	sys.Wire(eng)
 	for _, m := range mods {
 		if auto, ok := m.(*automation.Module); ok {
 			auto.Wire(eng.Limiter(), scriptTokens{st})
@@ -198,15 +215,8 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		}
 	}
 	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs, Allow: apiCfg.AllowPrefixes()}
-	if listen != "" && apiCfg.TLSOn() {
-		ca, err := openCA(ctx, log, filepath.Join(stateDir, "tls"), apiCfg.Names)
-		if err != nil {
-			return fmt.Errorf("the machine's certificate authority: %w", err)
-		}
+	if ca != nil {
 		apiOpts.TLS, apiOpts.CA = ca.TLSConfig(), ca.CAPEM()
-		apiOpts.TLSInfo = func() any { return map[string]any{"fingerprint": ca.Fingerprint(), "leaf": ca.Leaf()} }
-	} else if listen != "" {
-		log.Warn("the API on " + listen + " is plain HTTP ([api] tls = false): tokens cross the network unencrypted")
 	}
 	if newUpdater != nil {
 		apiOpts.Updater = newUpdater(st)

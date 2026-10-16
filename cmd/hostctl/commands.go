@@ -10,8 +10,8 @@ import (
 // builtins are the top-level commands hostctl always has; anything else is
 // looked up in the server's manifests.
 var builtins = map[string]bool{
-	"login": true, "version": true, "token": true, "log": true, "events": true,
-	"action": true, "update": true, "git-shell": true, "wait-quiet": true, "tls": true,
+	"login": true, "version": true, "events": true,
+	"action": true, "update": true, "git-shell": true,
 	"help": true, "completion": true,
 }
 
@@ -29,8 +29,8 @@ see them all.`,
 	}
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
-	root.AddCommand(a.loginCommand(), a.versionCommand(), a.tokenCommand(), a.logCommand(),
-		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand(), a.waitQuietCommand(), a.tlsCommand())
+	root.AddCommand(a.loginCommand(), a.versionCommand(),
+		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand())
 	return root
 }
 

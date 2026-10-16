@@ -14,6 +14,8 @@ import (
 const (
 	ScopeRead  = "read"  // all GET endpoints and the event stream
 	ScopeAdmin = "admin" // tokens, config reload, everything else
+	// ScopePublic is a read's scope that needs no token (the machine's CA).
+	ScopePublic = "public"
 )
 
 // Manifest describes a module. The core generates API routes, CLI commands,
@@ -60,6 +62,9 @@ type ReadSpec struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Path        string `json:"path"` // e.g. /v1/apps/{id}
+	// Scope a token needs for it: "" is read; "public" needs no token (on
+	// TCP still the home network only).
+	Scope string `json:"scope,omitempty"`
 
 	// CLI says how hostctl shows the read (optional).
 	CLI *CLI `json:"cli,omitempty"`
@@ -71,8 +76,9 @@ type ReadSpec struct {
 // presentation only: the core ignores it, and an older hostctl ignores
 // what it does not know.
 type CLI struct {
-	// Alias are extra top-level command names for this one, such as
-	// "windows" for "hostctl get display windows". An alias that a built-in
+	// Alias are extra command names for this one, such as "windows" for
+	// "hostctl get display windows", or two words for a subcommand beside
+	// the module's actions ("token list"). An alias that a built-in
 	// command or another module already has is not used.
 	Alias []string `json:"alias,omitempty"`
 	// Columns turn a read that returns a list of objects into a table
@@ -94,8 +100,9 @@ type CLI struct {
 	Wait bool `json:"wait,omitempty"`
 	// Done is what hostctl prints once the action is applied: the first
 	// line whose condition holds, "TEXT" or "TEXT if FIELD" (FIELD is true
-	// or not empty in the result's data); {field} in TEXT is that field
-	// (actions only). Without it hostctl prints the status and the data.
+	// or not empty in the result's data); {field} in TEXT is that field.
+	// Without it hostctl prints the status and the data. For a read whose
+	// answer is one object, it is how that object is printed.
 	Done []string `json:"done,omitempty"`
 	// Flags give an argument's flag another name or a one-letter form,
 	// by argument: {"background": {"short": "b"}} (actions only).
@@ -115,12 +122,22 @@ type CLI struct {
 	// another list in the answer, such as files that could not be used
 	// (reads only).
 	Notes *Notes `json:"notes,omitempty"`
+	// Reverse prints the rows last first (a log, newest first in the
+	// answer, reads oldest first); NoHeader leaves out the titles; Gap is
+	// the space between columns (default 2) (reads only).
+	Reverse  bool `json:"reverse,omitempty"`
+	NoHeader bool `json:"no_header,omitempty"`
+	Gap      int  `json:"gap,omitempty"`
 }
 
-// A Param is a read's query parameter that hostctl gives as a switch.
+// A Param is a read's query parameter that hostctl gives as a flag: a
+// switch (--all asks with ?all=true), or, with Value, one that takes a
+// value (--limit N), sent as Default when not given.
 type Param struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Value       string `json:"value,omitempty"`   // what it takes, for the help: "N", "pattern"
+	Default     string `json:"default,omitempty"` // sent when the flag is not given
 }
 
 // Notes say how to print a list beside a read's rows.
@@ -168,8 +185,8 @@ func checkLine(line string) error {
 	}
 	for _, f := range reParam.FindAllStringSubmatch(text, -1) {
 		paths, format, _ := strings.Cut(f[1], ":")
-		if format != "" && format != "time" && format != "hm" {
-			return fmt.Errorf("{%s}: format %q is not time or hm", f[1], format)
+		if format != "" && format != "time" && format != "hm" && format != "date" {
+			return fmt.Errorf("{%s}: format %q is not time, hm or date", f[1], format)
 		}
 		for _, alt := range strings.Split(paths, "|") {
 			if !reField.MatchString(alt) {
@@ -271,7 +288,7 @@ var (
 	reType    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
 	rePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*(\.\*)?$`)
 	reParam   = regexp.MustCompile(`\{([^}]*)\}`)
-	reAlias   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	reAlias   = regexp.MustCompile(`^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)?$`)
 	reField   = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
 )
 
@@ -467,11 +484,17 @@ func (m *Manifest) Validate() error {
 		if !read && (len(c.Columns) > 0 || c.Empty != "" || c.Rows != "") {
 			bad("%s: columns, rows and empty apply to reads, not actions", where)
 		}
-		if read && (c.Rest != "" || c.Wait || len(c.Done) > 0 || len(c.Flags) > 0 || c.Read != "") {
-			bad("%s: rest, wait, done, flags and read apply to actions, not reads", where)
+		if read && (c.Rest != "" || c.Wait || len(c.Flags) > 0 || c.Read != "") {
+			bad("%s: rest, wait, flags and read apply to actions, not reads", where)
 		}
-		if !read && (c.One != "" || len(c.Params) > 0 || c.Notes != nil) {
-			bad("%s: one, params and notes apply to reads, not actions", where)
+		if read && len(c.Done) > 0 && len(c.Columns) > 0 {
+			bad("%s: done (for an answer that is one object) or columns (for a list), not both", where)
+		}
+		if !read && (c.One != "" || len(c.Params) > 0 || c.Notes != nil || c.Reverse || c.NoHeader || c.Gap != 0) {
+			bad("%s: one, params, notes, reverse, no_header and gap apply to reads, not actions", where)
+		}
+		if c.Gap < 0 || c.Gap > 8 {
+			bad("%s: gap %d: 0 to 8", where, c.Gap)
 		}
 		if c.One != "" && !slices.ContainsFunc(m.Reads, func(r ReadSpec) bool { return r.Name == c.One && len(reParam.FindAllString(r.Path, -1)) == 1 }) {
 			bad("%s: one %q is not one of the module's reads with one parameter", where, c.One)
@@ -530,8 +553,8 @@ func (m *Manifest) Validate() error {
 				bad("%s: column %q has no path or text", where, col.Title)
 			case col.Path != "" && len(col.Text) > 0:
 				bad("%s: column %q has both a path and text", where, col.Title)
-			case col.Format != "" && col.Format != "list" && col.Format != "time":
-				bad("%s: column %q: format %q is not list or time", where, col.Title, col.Format)
+			case col.Format != "" && col.Format != "list" && col.Format != "time" && col.Format != "date":
+				bad("%s: column %q: format %q is not list, time or date", where, col.Title, col.Format)
 			case col.Max < 0:
 				bad("%s: column %q: negative max", where, col.Title)
 			}

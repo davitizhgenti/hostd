@@ -22,6 +22,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/system"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -94,10 +95,14 @@ func setup(t *testing.T, opts Options) *env {
 	}
 	reg := core.NewRegistry()
 	l := &lamp{brightness: map[string]int{}}
-	if err := reg.Add(l); err != nil {
-		t.Fatal(err)
+	sys := system.New(system.Options{Store: st, Every: 10 * time.Millisecond})
+	for _, m := range []sdk.Module{sys, l} {
+		if err := reg.Add(m); err != nil {
+			t.Fatal(err)
+		}
 	}
 	eng := core.New(reg, core.Options{Audit: st})
+	sys.Wire(eng)
 	if err := eng.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +146,16 @@ func (r resp) json(t *testing.T, v any) {
 	t.Helper()
 	if err := json.Unmarshal(r.body, v); err != nil {
 		t.Fatalf("body %q: %v", r.body, err)
+	}
+}
+
+// data decodes an action result's data.
+func (r resp) data(t *testing.T, v any) {
+	t.Helper()
+	var res sdk.Result
+	r.json(t, &res)
+	if err := json.Unmarshal(res.Data, v); err != nil {
+		t.Fatalf("data %q: %v", res.Data, err)
 	}
 }
 
@@ -344,7 +359,7 @@ func TestStateAndManifests(t *testing.T) {
 	}
 	var mans []sdk.Manifest
 	e.do(t, "GET", "/v1/manifests", e.admin, "").json(t, &mans)
-	if len(mans) != 1 || mans[0].Name != "lamp" || len(mans[0].Actions) != 3 {
+	if len(mans) != 2 || mans[1].Name != "lamp" || len(mans[1].Actions) != 3 {
 		t.Fatalf("manifests = %+v", mans)
 	}
 	var ver map[string]any
@@ -357,14 +372,14 @@ func TestStateAndManifests(t *testing.T) {
 func TestTokenEndpoints(t *testing.T) {
 	e := setup(t, Options{})
 	r := e.do(t, "POST", "/v1/tokens", e.admin, `{"name":"phone","scopes":["read","lamp"]}`)
-	if r.status != 201 {
+	if r.status != 200 {
 		t.Fatalf("create: %d %s", r.status, r.body)
 	}
 	var created struct {
 		store.Token
 		Secret string `json:"secret"`
 	}
-	r.json(t, &created)
+	r.data(t, &created)
 	if created.Kind != sdk.SourceManual || !strings.HasPrefix(created.Secret, store.TokenPrefix) {
 		t.Fatalf("created = %+v", created)
 	}
@@ -391,12 +406,12 @@ func TestTokenEndpoints(t *testing.T) {
 	// A short-lived script token.
 	r = e.do(t, "POST", "/v1/tokens", e.admin, `{"name":"run-1","kind":"automation","scopes":["lamp"],"ttl":"60s"}`)
 	var short store.Token
-	r.json(t, &short)
+	r.data(t, &short)
 	if short.Expires == nil || short.Kind != sdk.SourceAutomation {
 		t.Fatalf("short-lived token = %+v", short)
 	}
 
-	if r := e.do(t, "DELETE", "/v1/tokens/"+created.ID, e.admin, ""); r.status != 204 {
+	if r := e.do(t, "DELETE", "/v1/tokens/"+created.ID, e.admin, ""); r.status != 200 {
 		t.Fatalf("revoke: %d %s", r.status, r.body)
 	}
 	if r := e.do(t, "GET", "/v1/version", created.Secret, ""); r.status != 401 {
@@ -841,7 +856,7 @@ func TestOpenAPI(t *testing.T) {
 	if _, ok := schema["properties"].(map[string]any)["id"]; ok {
 		t.Fatalf("body schema still has the path parameter: %v", schema)
 	}
-	for _, p := range []string{"/v1/actions", "/v1/events", "/v1/tokens/{id}", "/v1/openapi.json"} {
+	for _, p := range []string{"/v1/actions", "/v1/events", "/v1/openapi.json"} {
 		if doc.Paths[p] == nil {
 			t.Errorf("core route %s missing", p)
 		}

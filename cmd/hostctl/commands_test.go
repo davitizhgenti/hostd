@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/davitizhgenti/hostd/internal/system"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -30,7 +31,7 @@ func newFakeHostd(t *testing.T) *fakeHostd {
 	t.Helper()
 	f := &fakeHostd{answers: map[string]string{}, versions: []string{`{"version":"v1","arch":"amd64"}`}}
 	mux := http.NewServeMux()
-	manifests, _ := json.Marshal([]sdk.Manifest{audio.New(audio.Options{}).Manifest(), display.New(display.Options{}).Manifest()})
+	manifests, _ := json.Marshal([]sdk.Manifest{system.New(system.Options{}).Manifest(), audio.New(audio.Options{}).Manifest(), display.New(display.Options{}).Manifest()})
 	mux.HandleFunc("GET /v1/manifests", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(manifests) })
 	mux.HandleFunc("POST /v1/actions", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
@@ -162,6 +163,35 @@ func TestFocus(t *testing.T) {
 	f.answers["window.focus"] = `{"status":"skipped","reason":"in_use"}`
 	if out, _, _ := hostctl(t, "focus", "firefox"); !strings.Contains(out, "someone is using the screen") {
 		t.Fatalf("in use: %q", out)
+	}
+}
+
+// The installer's calls: the menu's token, and waiting until nobody uses
+// the machine before an update.
+func TestInstallerCommands(t *testing.T) {
+	f := newFakeHostd(t)
+	f.answers["token.create"] = `{"action":"act_1","status":"applied","data":{"name":"menu","kind":"local","scopes":["read","apps"],"secret":"hostd_menu"}}`
+	out, errs, code := hostctl(t, "--json", "token", "create", "menu", "--kind", "local", "--scopes", "read,apps")
+	if typ, args := f.last(t); code != 0 || typ != "token.create" || args != `{"kind":"local","name":"menu","scopes":["read","apps"]}` {
+		t.Fatalf("token create: %d %s %s %s", code, typ, args, errs)
+	}
+	var res struct{ Data struct{ Secret string } }
+	if json.Unmarshal([]byte(out), &res) != nil || res.Data.Secret != "hostd_menu" {
+		t.Fatalf("token create --json: %q", out)
+	}
+	if out, _, _ := hostctl(t, "token", "create", "menu", "--kind", "local", "--scopes", "read,apps"); !strings.Contains(out, "\n\n    hostd_menu\n") {
+		t.Fatalf("token create: %q", out)
+	}
+
+	if out, errs, code := hostctl(t, "wait-quiet", "--idle", "--max", "5m"); code != 0 || out != "quiet\n" {
+		t.Fatalf("wait-quiet: %d %q %s", code, out, errs)
+	}
+	if typ, args := f.last(t); typ != "quiet.wait" || args != `{"idle":true,"max":"5m"}` {
+		t.Fatalf("wait-quiet sent %s %s", typ, args)
+	}
+	f.answers["quiet.wait"] = `{"error":{"code":"precondition_failed","message":"still busy after 5m0s: someone is using the screen"}}`
+	if _, errs, code := hostctl(t, "wait-quiet", "--idle", "--max", "5m"); code != exitPrecondition || !strings.Contains(errs, "still busy") {
+		t.Fatalf("busy: %d %s", code, errs)
 	}
 }
 

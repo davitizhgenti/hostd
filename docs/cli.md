@@ -4,7 +4,7 @@
 
 hostctl talks to a hostd machine: over its unix socket on the machine itself, or over the network with a token (`hostctl login <machine>:7300`). `HOSTD_URL` and `HOSTD_TOKEN` override the saved login.
 
-**Module commands** come from the machine: every action becomes `hostctl <namespace> <action> [args]`, such as `hostctl audio volume set 40`, `hostctl deploy run blog` or `hostctl scene apply movie`. An action's required arguments are positional, in order, and every argument also has a `--flag`. Arguments marked secret (`hostctl secret set <name>`) are read from standard input. `hostctl --help` on a connected machine lists them all, including those of external modules.
+**Module commands** come from the machine: every action becomes `hostctl <namespace> <action> [args]`, such as `hostctl audio volume set 40`, `hostctl deploy run blog` or `hostctl scene apply movie`. An action's required arguments are positional, in order, and every argument also has a `--flag`. Arguments marked secret (`hostctl secret set <name>`) are read from standard input. `hostctl --help` on a connected machine lists them all, including those of external modules. hostd's own features are a module too, named hostd: `hostctl token create phone --scopes read,apps`, `hostctl token list`, `hostctl log`, `hostctl tls` and `hostctl wait-quiet` come from it like the others.
 
 **Reads** (what a module reports) come from the machine too: `hostctl get <module> <read>`, such as `hostctl get display windows`. A read that returns a list prints as a table when its module says how, and as JSON otherwise, or with `--json`. A read with `{parameters}` in its path takes them as arguments (`hostctl get apps app firefox`), and query parameters are given as `--param key=value`. A read named after its module is also the module's own command: `hostctl get audio` is `hostctl get audio audio`. A module can also ask for a short top-level name for one of its commands: `hostctl windows` is `hostctl get display windows`. A name that a built-in command or another module has is not taken.
 
@@ -57,20 +57,6 @@ hostctl events [flags]
 | `--recent` |  | first show the recent events the server still has (up to 1,000) |
 | `--type` | `*` | only these event types, e.g. 'instance.*' |
 
-## hostctl log
-
-Show recent actions and their sources (the audit trail)
-
-```
-hostctl log [flags]
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--action` |  | only this action ID |
-| `--limit` | `50` | how many entries |
-| `--type` |  | only these types, e.g. 'audio.*' |
-
 ## hostctl login
 
 Save the address and token of a hostd machine
@@ -95,59 +81,6 @@ hostctl token create.
 | --- | --- | --- |
 | `--ca-fingerprint` |  | the machine's CA fingerprint (hostctl tls on the machine), instead of confirming it |
 | `--token-file` |  | read the token from this file |
-
-## hostctl tls
-
-Show the machine's certificate authority (to pin or install) and its certificate
-
-```
-hostctl tls
-```
-
-Show the fingerprint of the machine's certificate authority, which
-hostctl login asks to confirm, and the certificate the API serves.
-
-Installing the CA (ca.pem) on a laptop or phone lets browsers open
-https://<machine>:7300/docs/ and the add-ons' sites without warnings. The
-CA can only vouch for this machine's names and private addresses.
-
-## hostctl token
-
-Create, list and revoke API tokens
-
-```
-hostctl token
-```
-
-## hostctl token create
-
-Create a token; its secret is shown only once
-
-```
-hostctl token create <name> [flags]
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--kind` | `manual` | manual (a person's device), automation (scripts) or local (the on-screen menu) |
-| `--scopes` |  | scopes, comma-separated (required) |
-| `--ttl` |  | lifetime such as 1h; default never expires |
-
-## hostctl token list
-
-List tokens
-
-```
-hostctl token list
-```
-
-## hostctl token revoke
-
-Revoke a token
-
-```
-hostctl token revoke <name or id>
-```
 
 ## hostctl update
 
@@ -185,18 +118,3 @@ Show the versions of hostctl and the connected hostd
 ```
 hostctl version
 ```
-
-## hostctl wait-quiet
-
-Wait until no deploy or scene is in progress (exit 1 if one still is after --max)
-
-```
-hostctl wait-quiet [flags]
-```
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--every` | `2s` | how often to look |
-| `--idle` |  | also wait until nobody is using the screen |
-| `--max` | `5m0s` | give up after this long |
-| `--types` | `deploy.*,scene.*` | action types to wait for (comma-separated; a namespace with .*) |

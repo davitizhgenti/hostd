@@ -880,12 +880,12 @@ func (in *installer) startHostd(ctx context.Context) error {
 	localToken := in.user.home + "/.config/hostd/local.token"
 	if b, _ := os.ReadFile(in.path(localToken)); len(bytes.TrimSpace(b)) == 0 && in.exists(config) {
 		out, err := in.asScreen(ctx, "hostctl", "--json", "token", "create", "menu", "--kind", "local", "--scopes", "read,apps")
-		var t struct{ Secret string }
-		if err == nil && json.Unmarshal(out, &t) == nil && strings.HasPrefix(t.Secret, "hostd_") {
+		var t struct{ Data struct{ Secret string } } // the action's result
+		if err == nil && json.Unmarshal(out, &t) == nil && strings.HasPrefix(t.Data.Secret, "hostd_") {
 			if err := in.mkdirs(filepath.Dir(localToken), in.user.name); err != nil {
 				return err
 			}
-			if err := os.WriteFile(in.path(localToken), []byte(t.Secret+"\n"), 0o600); err != nil {
+			if err := os.WriteFile(in.path(localToken), []byte(t.Data.Secret+"\n"), 0o600); err != nil {
 				return err
 			}
 			if err := in.chown(in.path(localToken), in.user.name); err != nil {

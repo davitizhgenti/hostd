@@ -170,7 +170,7 @@ func TestRunHeadless(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(mans) != 1 || mans[0].Name != "apps" {
+	if len(mans) != 2 || mans[0].Name != "hostd" || mans[1].Name != "apps" {
 		t.Fatalf("modules loaded: %+v", mans)
 	}
 

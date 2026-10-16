@@ -147,7 +147,7 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		return nil, nil
 	case strings.Join(argv, " ") == "hostctl --json token create menu --kind local --scopes read,apps":
 		f.tokens++
-		return []byte(`{"secret": "hostd_menu"}`), nil
+		return []byte(`{"action": "act_1", "status": "applied", "data": {"secret": "hostd_menu"}}`), nil
 	case strings.Join(argv, " ") == "hostctl --json ps":
 		return []byte(`[]`), nil
 	case line == "hostname -I":
