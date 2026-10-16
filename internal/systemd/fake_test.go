@@ -317,3 +317,45 @@ func TestUserSystemdAgainstAManager(t *testing.T) {
 		t.Fatalf("watch ended with %v", err)
 	}
 }
+
+// A unit whose app ended before systemd announced it gets only UnitNew:
+// Watch reads its state. A UnitNew that finds no unit (a stub, loaded by a
+// read) is not read again for a while, and other units are not read.
+func TestWatchReadsAnnouncedUnits(t *testing.T) {
+	m := newFakeManager(t)
+	s := &UserSystemd{RuntimeDir: t.TempDir()}
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	changes := make(chan string, 16)
+	go func() { _ = s.Watch(ctx, func(name, sub string) { changes <- name + " " + sub }) }()
+	time.Sleep(100 * time.Millisecond) // subscribed
+
+	announce := func(name string) {
+		_ = m.conn.Emit(managerPath, managerIface+".UnitNew", name, dbus.ObjectPath(unitPathPrefix+"/"+busEscape(name)))
+	}
+	m.mu.Lock()
+	m.units["hostd-run.service"] = &fakeUnit{description: "hostd instance run of app run", active: "active", sub: "exited", exitCode: 1}
+	m.units["other.service"] = &fakeUnit{active: "active", sub: "exited"}
+	m.mu.Unlock()
+	announce("other.service")
+	announce("hostd-gone.service") // not there: a stub
+	announce("hostd-run.service")
+	select {
+	case c := <-changes:
+		if c != "hostd-run.service exited" {
+			t.Fatalf("change %q", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("an announced unit that had ended was not reported")
+	}
+
+	m.mu.Lock()
+	m.units["hostd-gone.service"] = &fakeUnit{active: "active", sub: "exited"}
+	m.mu.Unlock()
+	announce("hostd-gone.service") // within the pause after the stub
+	m.changed("hostd-run.service", "dead")
+	if c := <-changes; c != "hostd-run.service dead" {
+		t.Fatalf("after a stub, its name was read again: %q", c)
+	}
+}

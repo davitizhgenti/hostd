@@ -6,7 +6,8 @@
 #
 #   1. cloud image boots; install.sh installs hostd; a second run changes nothing
 #   2. reboot: hostd and the Sway session come up by themselves; deploy/check.sh passes
-#   3. an update while an app runs: the app keeps running
+#   3. commands run in the background end, with their status; an update
+#      while an app runs: the app keeps running
 #   4. a build that cannot start: rolled back, the app still runs
 #   5. reboot: the installed version, tokens and app files are still there
 #   6. an update through the installer (hostd-setup update, what the timer
@@ -165,6 +166,9 @@ fi
 echo "update"
 gs 'mkdir -p ~/.config/hostd/apps && printf "name = \"E2E sleeper\"\nrunner = { type = \"process\", command = [\"sleep\", \"3600\"] }\nrestart = \"never\"\n" > ~/.config/hostd/apps/e2e-sleep.toml && hostctl app rescan >/dev/null && hostctl start e2e-sleep >/dev/null'
 t "a background app runs" gs 'hostctl ps | grep -q "^e2e-sleep .*running"'
+# A command that ends at once: systemd announces its unit already ended.
+t "run --wait returns for a command that ends at once" gs 'timeout 30 hostctl run -b --wait -- echo e2e-ok | grep -q e2e-ok'
+t "and exits with its status" gs 'timeout 30 hostctl run -b --wait -- false; test $? = 1'
 PID=$(gs 'systemctl --user show -p MainPID --value hostd-e2e-sleep.service')
 t "it has a process" test "${PID:-0}" -gt 1
 gs 'hostctl token create e2e-keep --scopes read' >"$OUT/token.txt" 2>&1

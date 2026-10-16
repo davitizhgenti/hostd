@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/clock"
+
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
@@ -91,6 +93,30 @@ func TestReconcileAfterLostStream(t *testing.T) {
 	sd.Exit(contract.UnitName("tabs"), 3, 1)
 	if ev := r.next(t); ev.Type != EventFailed {
 		t.Fatalf("after reconnect: %s %s", ev.Type, ev.Data)
+	}
+}
+
+// A command that ends while systemd announces its unit, without any
+// signal about it: the check shortly after the start finds it.
+func TestEarlyEndFoundAfterTheStart(t *testing.T) {
+	sd := unitstest.NewFakeSystemd()
+	fc := clock.NewFake(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC))
+	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), fc)
+	waitUntil(t, func() bool { return sd.Watching() == 1 })
+	r.start(t, "term")
+	r.next(t) // starting
+	r.next(t) // started
+	fc.BlockUntil(1)
+	sd.ExitQuietly(contract.UnitName("term"), 0)
+	fc.Advance(300 * time.Millisecond)
+	ev := r.next(t)
+	var in Instance
+	_ = json.Unmarshal(ev.Data, &in)
+	if ev.Type != EventExited || in.ID != "term" || in.ExitCode == nil || *in.ExitCode != 0 {
+		t.Fatalf("event %s %s", ev.Type, ev.Data)
+	}
+	if live := r.live(); len(live) != 0 {
+		t.Fatalf("still live: %v", live)
 	}
 }
 

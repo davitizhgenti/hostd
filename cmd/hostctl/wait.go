@@ -171,6 +171,9 @@ func (a *app) submitAndWait(cmd *cobra.Command, req client.ActionRequest) error 
 // has ended. The stream replays what the server kept, from before the
 // action, so an instance that ended at once is not missed; an earlier
 // instance of the same name is, as its events come before the action's.
+// An action's own events come out when it is done, after the end of a
+// command that ended while it was starting (echo): once they are seen,
+// the instance is asked for too.
 // Without the stream (a token without read, an old server), it asks for
 // the instance twice a second instead.
 func waitEnded(ctx context.Context, c *client.Client, instance, action string) (instanceInfo, error) {
@@ -182,8 +185,13 @@ func waitEnded(ctx context.Context, c *client.Client, instance, action string) (
 		if in.ID != instance {
 			return nil
 		}
-		if ev.Action == action {
+		if ev.Action == action && !ours {
 			ours = true
+			var now instanceInfo
+			if c.Get(ctx, "/v1/instances/"+url.PathEscape(instance), &now) == nil && now.Ended != nil {
+				ended = &now
+				return client.ErrStop
+			}
 		}
 		if ours && (ev.Type == "instance.exited" || ev.Type == "instance.failed") {
 			ended = &in

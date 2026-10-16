@@ -304,6 +304,21 @@ func (m *Module) launch(ctx context.Context, actionID string, app *App, backend 
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "%s: %v", app.ID, err)
 	}
 	cur.Unit, cur.Container, cur.PID = started.Unit, started.Container, started.PID
+	if started.ExitCode != nil { // it ended while starting
+		cur.State, _ = next(cur.State, changeEnded, *started.ExitCode)
+		cur.ExitCode = started.ExitCode
+		now := m.opts.Clock.Now().UTC()
+		cur.Ended = &now
+		typ := EventExited
+		if cur.State == StateFailed {
+			cur.Error, typ = started.Error, EventFailed
+		}
+		m.retire(id)
+		snapshot := *cur
+		m.mu.Unlock()
+		m.emitInstance(typ, actionID, snapshot)
+		return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+	}
 	emitStarted := false
 	gated := app.Health.Set() && m.life != nil
 	if !gated {
@@ -324,7 +339,27 @@ func (m *Module) launch(ctx context.Context, actionID string, app *App, backend 
 	if emitStarted {
 		m.emitInstance(EventStarted, actionID, snapshot)
 	}
+	if life != nil && (app.Runner.Type == RunnerExec || app.Runner.Type == RunnerProcess) {
+		m.watchersRun.Add(1)
+		go func() { defer m.watchersRun.Done(); m.checkEarlyEnd(life, app.Runner.Type, backend) }()
+	}
 	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
+}
+
+// checkEarlyEnd looks again, shortly after a start, for a command that
+// ended at once (echo): while systemd announces its unit, the unit's
+// state lags and the signal that it ended can be folded into the
+// announcement, so neither the start nor the watcher is sure to have
+// seen it.
+func (m *Module) checkEarlyEnd(ctx context.Context, name string, b Backend) {
+	for _, d := range []time.Duration{250 * time.Millisecond, 2 * time.Second} {
+		select {
+		case <-ctx.Done():
+			return
+		case <-m.opts.Clock.After(d):
+		}
+		m.reconcile(ctx, name, b)
+	}
 }
 
 // startThenPass starts a handoff app for one of its actions, then hands

@@ -285,6 +285,13 @@ func (r *ExecRunner) Start(ctx context.Context, inst Instance, app *App) (Instan
 	inst.Unit = name
 	if info, ok, err := r.Systemd.Unit(ctx, name); err == nil && ok {
 		inst.PID = info.MainPID
+		// An app that ended before systemd first announced its unit (echo)
+		// is never reported to Watch: systemd folds those changes into
+		// UnitNew. Its exit code says it ended.
+		if ended, code, reason := endedState(info); ended && kv == "" {
+			r.cleanup(ctx, info)
+			inst.PID, inst.ExitCode, inst.Error = 0, &code, reason
+		}
 	}
 	return inst, nil
 }

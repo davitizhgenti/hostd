@@ -24,7 +24,12 @@ type FakeSystemd struct {
 	watchers map[int]func(name, sub string)
 	nextW    int
 	Started  []systemd.UnitSpec // every spec StartTransient got
-	broken   chan struct{}      // closed by BreakWatch
+	// AtOnce makes commands (by their first word) end, with this status,
+	// before StartTransient returns and without a watcher hearing of it:
+	// systemd folds the changes of a unit it has not announced yet into
+	// UnitNew.
+	AtOnce map[string]int
+	broken chan struct{} // closed by BreakWatch
 }
 
 type FakeUnit struct {
@@ -51,6 +56,15 @@ func (f *FakeSystemd) StartTransient(_ context.Context, name string, spec system
 	f.nextPID++
 	f.Units[name] = &FakeUnit{Info: systemd.UnitInfo{Name: name, Description: spec.Description,
 		ActiveState: "active", SubState: "running", MainPID: f.nextPID, Since: FakeSince(f.nextPID)}, Spec: spec}
+	if status, ok := f.AtOnce[spec.Argv[0]]; ok {
+		u := f.Units[name]
+		u.Info.ExitStatus, u.Info.ExitCode, u.Info.MainPID = status, 1, 0
+		if status != 0 {
+			u.Info.ActiveState, u.Info.SubState, u.Info.Result = "failed", "failed", "exit-code"
+		} else {
+			u.Info.SubState = "exited"
+		}
+	}
 	return nil
 }
 

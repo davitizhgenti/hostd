@@ -196,6 +196,13 @@ func (s *UserSystemd) List(ctx context.Context, pattern string) ([]UnitInfo, err
 // every unit: reading a unit that was just removed loads it again, which
 // is a new signal, a loop that kept systemd busy while Flatpak and Steam
 // ran). Only hostd's units, hostd-*, are reported.
+//
+// One exception: a unit whose app ends before systemd first announces it
+// (echo) gets no PropertiesChanged at all, as systemd folds the changes
+// of a unit it has not announced into UnitNew. So a hostd unit's UnitNew
+// is answered with one read of its state, by the path in the signal; a
+// read that finds no unit (it was removed, and the read loaded a stub,
+// which is announced in turn) is not repeated for that name for a while.
 func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string)) error {
 	addr, err := s.address()
 	if err != nil {
@@ -211,6 +218,10 @@ func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string))
 		dbus.WithMatchArg(0, "org.freedesktop.systemd1.Unit")); err != nil {
 		return err
 	}
+	if err := conn.AddMatchSignalContext(ctx, dbus.WithMatchInterface("org.freedesktop.systemd1.Manager"),
+		dbus.WithMatchMember("UnitNew")); err != nil {
+		return err
+	}
 	signals := make(chan *dbus.Signal, 256)
 	conn.Signal(signals)
 	// Without a subscriber, systemd sends no unit signals.
@@ -220,6 +231,7 @@ func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string))
 	}
 	// systemd repeats a state in several signals: report changes only.
 	last := map[string]string{}
+	stub := map[string]time.Time{} // names whose UnitNew found no unit, until then
 	for {
 		select {
 		case <-ctx.Done():
@@ -229,6 +241,9 @@ func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string))
 				return errors.New("the user bus connection closed")
 			}
 			name, sub, ok := subStateChange(sig)
+			if !ok {
+				name, sub, ok = s.unitNew(ctx, conn, sig, stub)
+			}
 			if !ok || last[name] == sub {
 				continue
 			}
@@ -240,6 +255,30 @@ func (s *UserSystemd) Watch(ctx context.Context, fn func(name, subState string))
 			fn(name, sub)
 		}
 	}
+}
+
+// unitNew reads the state of a hostd unit that systemd announces.
+func (s *UserSystemd) unitNew(ctx context.Context, conn *dbus.Conn, sig *dbus.Signal, stub map[string]time.Time) (name, sub string, ok bool) {
+	if sig.Name != "org.freedesktop.systemd1.Manager.UnitNew" || len(sig.Body) < 2 {
+		return "", "", false
+	}
+	name, _ = sig.Body[0].(string)
+	path, _ := sig.Body[1].(dbus.ObjectPath)
+	if !strings.HasPrefix(name, "hostd-") || time.Now().Before(stub[name]) {
+		return "", "", false
+	}
+	var props map[string]dbus.Variant
+	if err := conn.Object("org.freedesktop.systemd1", path).CallWithContext(ctx, "org.freedesktop.DBus.Properties.GetAll", 0,
+		"org.freedesktop.systemd1.Unit").Store(&props); err != nil {
+		return "", "", false
+	}
+	if load, _ := props["LoadState"].Value().(string); load != "loaded" {
+		stub[name] = time.Now().Add(5 * time.Second)
+		return "", "", false
+	}
+	delete(stub, name)
+	sub, ok = props["SubState"].Value().(string)
+	return name, sub, ok
 }
 
 const unitPathPrefix = "/org/freedesktop/systemd1/unit"

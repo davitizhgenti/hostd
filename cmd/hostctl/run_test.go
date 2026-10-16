@@ -25,6 +25,10 @@ type runAPI struct {
 	mu      sync.Mutex
 	actions []map[string]any
 	polls   int
+	// endFirst: the command ended while its action was running, so its end
+	// comes out before the action's own events (those are held until the
+	// action is done), and the instance has ended when asked for.
+	endFirst bool
 }
 
 func newRunAPI(t *testing.T, events bool) *runAPI {
@@ -47,8 +51,9 @@ func newRunAPI(t *testing.T, events bool) *runAPI {
 		api.mu.Lock()
 		api.polls++
 		n := api.polls
+		first := api.endFirst
 		api.mu.Unlock()
-		if n < 3 {
+		if n < 3 && !first {
 			_, _ = w.Write([]byte(`{"id":"run-tests","app":"run-tests","state":"running"}`))
 			return
 		}
@@ -64,12 +69,18 @@ func newRunAPI(t *testing.T, events bool) *runAPI {
 				return
 			}
 			defer conn.CloseNow()
-			for _, ev := range []string{
+			evs := []string{
 				`{"id":"ev1","type":"instance.exited","action":"act_3","data":{"id":"run-tests","state":"exited","ended":"2026-10-16T09:00:00Z","exit_code":0}}`,
 				`{"id":"ev2","type":"instance.starting","action":"act_7","data":{"id":"run-tests","state":"starting"}}`,
 				`{"id":"ev3","type":"instance.started","action":"act_7","data":{"id":"run-tests","state":"running"}}`,
 				`{"id":"ev4","type":"instance.failed","data":` + ended + `}`,
-			} {
+			}
+			api.mu.Lock()
+			if api.endFirst {
+				evs = []string{evs[0], evs[3], evs[1]}
+			}
+			api.mu.Unlock()
+			for _, ev := range evs {
 				_ = conn.Write(r.Context(), websocket.MessageText, []byte(ev))
 			}
 			<-r.Context().Done()
@@ -102,10 +113,22 @@ func TestRunWaitsAndExitsWithTheCommandsStatus(t *testing.T) {
 		if got["type"] != "app.run" || string(args) != `{"background":true,"command":["pytest","-q","--maxfail=1"],"env":{"CI":"1"},"name":"tests"}` {
 			t.Fatalf("sent %v %s", got["type"], args)
 		}
-		// With the stream, the instance is never asked for: its end comes as an event.
-		if events && api.polls != 0 {
+		// With the stream, the instance is asked for once, when the action's
+		// own events arrive; its end comes as an event.
+		if events && api.polls != 1 {
 			t.Errorf("polled %d times with an event stream", api.polls)
 		}
+	}
+}
+
+// A command that ended while its action ran (echo): its end is published
+// before the action's own events, and --wait still returns.
+func TestRunWaitsForACommandThatEndedAtOnce(t *testing.T) {
+	api := newRunAPI(t, true)
+	api.endFirst = true
+	out, errs, code := hostctl(t, "run", "-b", "--name", "tests", "--wait", "--", "false")
+	if code != 1 || out != "collected 2 items\n1 failed, 1 passed\n" || errs != "" {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errs)
 	}
 }
 

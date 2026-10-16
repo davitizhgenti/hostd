@@ -32,13 +32,18 @@ func journal(ctx context.Context, q JournalQuery) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var stderr bytes.Buffer
-	format := "short-iso"
+	args := []string{"--user", "-n", strconv.Itoa(q.Lines), "--no-pager"}
 	if q.Plain {
-		format = "cat"
+		// The messages of the app's own processes, not systemd's about
+		// starting and stopping its unit.
+		args = append(args, "-o", "cat", "_SYSTEMD_USER_UNIT="+q.Unit)
+	} else {
+		args = append(args, "-o", "short-iso", "-u", q.Unit)
 	}
-	args := []string{"--user", "-u", q.Unit, "-n", strconv.Itoa(q.Lines), "--no-pager", "-o", format}
 	if !q.Since.IsZero() {
-		args = append(args, "--since", "@"+strconv.FormatInt(q.Since.Unix()-1, 10)) // a second early: the clock's rounding
+		// To the microsecond: an earlier instance with the same name, a moment
+		// before, logged in the same unit.
+		args = append(args, "--since", q.Since.UTC().Format("2006-01-02 15:04:05.000000")+" UTC")
 	}
 	cmd := exec.CommandContext(ctx, "journalctl", args...)
 	cmd.Stderr = &stderr

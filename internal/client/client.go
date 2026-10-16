@@ -75,6 +75,7 @@ func New(addr, token string, opt ...Option) (*Client, error) {
 		c.base = strings.TrimSuffix(u.Scheme+"://"+u.Host, "/")
 		c.wsBase = "ws" + strings.TrimPrefix(c.base, "http")
 		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.DialContext = dial
 		if o.caFingerprint != "" {
 			tr.TLSClientConfig = &tls.Config{
 				InsecureSkipVerify: true, //nolint:gosec // replaced by VerifyConnection: the pinned CA, nothing else

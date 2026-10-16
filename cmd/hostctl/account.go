@@ -124,7 +124,7 @@ func (a *app) trustCA(cmd *cobra.Command, addr, want string, in *bufio.Reader, t
 		return "", usageError{err}
 	}
 	d := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // only to read the CA, which is then confirmed
-	conn, err := d.DialContext(cmd.Context(), "tcp", u.Host)
+	conn, err := d.DialContext(cmd.Context(), "tcp", client.ResolveLocal(cmd.Context(), u.Host))
 	if err != nil {
 		if dnsErr := (*net.DNSError)(nil); errors.As(err, &dnsErr) && dnsErr.IsNotFound && !strings.Contains(u.Hostname(), ".") {
 			// Often an SSH alias, which only ssh knows.

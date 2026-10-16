@@ -90,6 +90,43 @@ func TestRunACommand(t *testing.T) {
 	}
 }
 
+// A command that ends before systemd announces its unit (echo) is
+// reported ended by the start itself: the watcher never hears of it.
+func TestRunEndsAtOnce(t *testing.T) {
+	sd := unitstest.NewFakeSystemd()
+	sd.AtOnce = map[string]int{"echo": 0, "false": 1}
+	r := newRig(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t))
+	waitUntil(t, func() bool { return sd.Watching() == 1 })
+
+	for _, c := range []struct {
+		cmd, instance string
+		state         State
+		event         string
+		code          int
+	}{
+		{"echo", "run", StateExited, EventExited, 0},
+		{"false", "run", StateFailed, EventFailed, 1}, // the name is free again
+	} {
+		got, err := r.submit(ActionRun, map[string]any{"command": []string{c.cmd, "ok"}, "background": true}, runner)
+		if err != nil || got["instance"] != c.instance || got["state"] != string(c.state) {
+			t.Fatalf("%s: %v %v", c.cmd, got, err)
+		}
+		r.next(t) // starting
+		ev := r.next(t)
+		var ended Instance
+		_ = json.Unmarshal(ev.Data, &ended)
+		if ev.Type != c.event || ev.Action == "" || ended.ID != c.instance || ended.ExitCode == nil || *ended.ExitCode != c.code || ended.Ended == nil {
+			t.Fatalf("%s: %s %s", c.cmd, ev.Type, ev.Data)
+		}
+		if live := r.m.readInstances(nil); len(live) != 0 {
+			t.Fatalf("%s: still listed %+v", c.cmd, live)
+		}
+		if u, ok := sd.Units[contract.UnitName(c.instance)]; ok && u.Info.SubState != "dead" {
+			t.Fatalf("%s: unit left %+v", c.cmd, u.Info)
+		}
+	}
+}
+
 func TestRunNeedsItsScope(t *testing.T) {
 	r := newRig(t, unitstest.NewFakeSystemd(), podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	apps := core.Auth{Name: "phone", Scopes: []string{contract.ScopeApps}}
