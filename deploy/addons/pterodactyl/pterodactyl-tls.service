@@ -1,0 +1,8 @@
+# Managed by hostd's pterodactyl add-on.
+[Unit]
+Description=hostd: reload nginx and Wings with the machine's new certificate
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl reload nginx
+ExecStart=/usr/bin/systemctl try-restart wings

@@ -30,9 +30,9 @@ type hookRig struct {
 // The commands the hooks may call that touch the system. Everything else
 // (cat, sed, cp, mkdir...) is the real one.
 var hookStubs = []string{
-	"apt-get", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "gpg", "hostname", "ip",
+	"apt-get", "certutil", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "gpg", "hostname", "ip",
 	"mariadb", "modprobe", "nginx", "nvidia-smi", "openssl", "pgrep", "php8.3", "runuser", "sh", "sha256sum",
-	"sleep", "systemctl", "tar", "timedatectl", "update-initramfs",
+	"sleep", "systemctl", "tailscale", "tar", "timedatectl", "update-initramfs",
 }
 
 func newHookRig(t *testing.T) *hookRig {
@@ -70,6 +70,9 @@ while [ $# -gt 0 ]; do
 done
 exec `+real+` "${args[@]}"
 `, 0o755)
+	// The screen user's commands (as_screen: runuser -u screen -- ...) run,
+	// as the test's own user; the panel's (as www-data) answer artisan.out.
+	r.script("runuser", `if [ "$2" = www-data ]; then cat "$STUB_DIR/artisan.out" 2>/dev/null; exit 0; fi; shift 3; exec "$@"`)
 	// apt-get install remembers what it installed, and dpkg-query says so.
 	r.script("apt-get", `[ "$1" = install ] && for p in "$@"; do case $p in -*|install) ;; *) echo "$p" >>"$STUB_DIR/installed" ;; esac; done`)
 	r.script("dpkg-query", `[ "$1" = -W ] && [ "$2" = '-f=${Status}' ] && grep -qsx "$3" "$STUB_DIR/installed" && { printf 'install ok installed'; exit 0; }`)
@@ -344,10 +347,23 @@ func pteroMachine(t *testing.T) *hookRig {
 	r.stub("timedatectl", "America/New_York\n", 0)
 	// The panel's node hands Wings its config; the panel's release unpacks
 	// into a directory with the files the hook uses.
-	r.stub("runuser", "debug: false\nremote: 'http://core.local'\n", 0)
-	r.script("tar", `[ "$1" = xzf ] && mkdir -p "$4/storage/logs" "$4/bootstrap/cache" && : >"$4/artisan" && : >"$4/.env.example"`)
+	r.script("tar", `[ "$1" = xzf ] && mkdir -p "$4/storage/logs" "$4/bootstrap/cache" && : >"$4/artisan" && printf 'APP_URL=http://localhost\n' >"$4/.env.example"`)
+	// The panel's node, as the panel gives it to Wings (scheme http) and as
+	// the database has it.
+	// The panel (artisan, as www-data) answers with Wings' config; the
+	// screen user's commands (as_screen) run, as the test's own user.
+	r.write(filepath.Join(r.stubs, "artisan.out"), "debug: false\nremote: 'http://core.local'\napi:\n  host: 0.0.0.0\n  port: 8080\n  ssl:\n"+
+		"    enabled: false\n    cert: /etc/letsencrypt/live/x/fullchain.pem\n    key: /etc/letsencrypt/live/x/privkey.pem\n  upload_limit: 100\n", 0o644)
+
+	r.script("mariadb", `case "$*" in *"SELECT scheme"*) echo "${NODE_SCHEME:-http}"; exit 0 ;; esac`)
+	// hostd's certificate (its API is HTTPS).
+	for _, f := range []string{"cert.pem", "key.pem", "ca.pem"} {
+		r.file("/home/screen/.local/state/hostd/tls/"+f, "-----BEGIN "+f+"-----\n")
+	}
 	return r
 }
+
+const tlsDir = "/home/screen/.local/state/hostd/tls"
 
 func TestPterodactylHookFirstInstall(t *testing.T) {
 	r := pteroMachine(t)
@@ -371,6 +387,25 @@ func TestPterodactylHookFirstInstall(t *testing.T) {
 	if !strings.Contains(src, "Signed-By: /usr/share/keyrings/deb.sury.org-php.gpg") || !strings.Contains(src, "Suites: trixie") {
 		t.Errorf("PHP repository:\n%s", src)
 	}
+	site := r.read("/etc/nginx/sites-available/pterodactyl.conf")
+	if !strings.Contains(site, "listen 443 ssl default_server;") || !strings.Contains(site, "ssl_certificate     "+filepath.Join(r.root, tlsDir)+"/cert.pem;") ||
+		!strings.Contains(site, "return 301 https://$host$request_uri;") || !strings.Contains(site, "listen 127.0.0.1:80;") || strings.Contains(site, "@TLS_DIR@") {
+		t.Errorf("nginx site:\n%s", site)
+	}
+	if !r.exists("/etc/nginx/snippets/hostd-pterodactyl.conf") {
+		t.Error("the panel's snippet is missing")
+	}
+	wings := r.read("/etc/pterodactyl/config.yml")
+	if !strings.Contains(wings, "    enabled: true") || !strings.Contains(wings, "    cert: "+filepath.Join(r.root, tlsDir)+"/cert.pem") {
+		t.Errorf("Wings without TLS:\n%s", wings)
+	}
+	if !strings.Contains(r.read(ptero+"/.env"), "APP_URL=https://") {
+		t.Errorf(".env %q", r.read(ptero+"/.env"))
+	}
+	if !strings.Contains(r.read("/etc/systemd/system/pterodactyl-tls.path"), "PathModified="+filepath.Join(r.root, tlsDir)+"/cert.pem") {
+		t.Errorf("renewal not followed:\n%s", r.read("/etc/systemd/system/pterodactyl-tls.path"))
+	}
+	r.mustCall("systemctl enable --now pterodactyl-tls.path", "certutil -d sql:"+filepath.Join(r.root, "home/screen/.pki/nssdb")+" -A -n hostd CA -t C,, -i")
 	if l, _ := os.Readlink(filepath.Join(r.root, "etc/nginx/sites-enabled/pterodactyl.conf")); l != "/etc/nginx/sites-available/pterodactyl.conf" {
 		t.Errorf("site link -> %q", l)
 	}
@@ -398,6 +433,8 @@ func TestPterodactylHookFirstInstall(t *testing.T) {
 	// Again, as an update: everything is in place, nothing is downloaded.
 	want := pteroWingsSHA256(t)
 	r.stub("sha256sum", want+"  wings\n", 0)
+	t.Setenv("NODE_SCHEME", "https")
+	r.stub("certutil", r.read(tlsDir+"/ca.pem"), 0) // the screen's browser has the CA
 	in, err = r.run("pterodactyl", "addon_install", Options{})
 	if err != nil {
 		t.Fatalf("second run: %v\n%s", err, r.out.String())
@@ -423,6 +460,25 @@ func pteroWingsSHA256(t *testing.T) string {
 	}
 	t.Fatal("no PTERO_WINGS_SHA256_amd64 in the hook")
 	return ""
+}
+
+// Without a certificate from hostd (its API is plain HTTP), the panel stays
+// on plain HTTP, as before.
+func TestPterodactylHookWithoutTLS(t *testing.T) {
+	r := pteroMachine(t)
+	if err := os.RemoveAll(filepath.Join(r.root, tlsDir)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.run("pterodactyl", "addon_install", Options{Adding: []string{"pterodactyl"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	site := r.read("/etc/nginx/sites-available/pterodactyl.conf")
+	if strings.Contains(site, "443") || strings.Contains(site, "return 301") || !strings.Contains(site, "listen 80 default_server;") {
+		t.Errorf("site:\n%s", site)
+	}
+	r.mustNotCall("certutil", "systemctl enable --now pterodactyl-tls.path")
+	r.says("the panel stays on plain HTTP")
+	r.mustCall("runuser -u www-data -- php8.3 artisan p:node:make --name=core --description=This machine --locationId=1 --fqdn=192.168.18.33 --public=1 --scheme=http")
 }
 
 // The update timer never upgrades the panel: its migrations change data.
@@ -511,4 +567,78 @@ func TestSteamHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.mustNotCall("flatpak override --system --env")
+}
+
+// --- tailscale -----------------------------------------------------------
+
+func tailscaleMachine(t *testing.T) *hookRig {
+	r := newHookRig(t)
+	r.file("/etc/os-release", "VERSION_CODENAME=trixie\n")
+	r.file("/etc/hostd/addons", "tailscale\n")
+	r.stub("gpg", "fpr:::::::::2596A99EAAB33821893C0A79458CA832957F5868:\n", 0)
+	r.stub("hostname", "core\n", 0)
+	r.script("tailscale", `case $1 in
+status) printf '{\n  "BackendState": "%s",\n  "Self": {}\n}\n' "${TS_STATE:-NeedsLogin}"; exit 0 ;;
+ip) echo 100.101.102.103; exit 0 ;;
+up) case "$*" in *--authkey=*) TS_STATE=Running ;; *) printf '\nTo authenticate, visit:\n\n\thttps://login.tailscale.com/a/1b2c3d\n\n' >&2; exit 1 ;; esac ;;
+esac`)
+	return r
+}
+
+const tsDropIn = "/home/screen/.config/hostd/hostd.d/tailscale.toml"
+
+func TestTailscaleHook(t *testing.T) {
+	r := tailscaleMachine(t)
+	t.Setenv("HOSTD_TAILSCALE_AUTHKEY", "tskey-auth-test")
+	if _, err := r.run("tailscale", "addon_install", Options{Adding: []string{"tailscale"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	list := r.read("/etc/apt/sources.list.d/hostd-tailscale.list")
+	if !strings.Contains(list, "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian trixie main") {
+		t.Errorf("repository %q", list)
+	}
+	if !r.exists("/usr/share/keyrings/tailscale-archive-keyring.gpg") {
+		t.Error("no keyring")
+	}
+	r.mustCall("apt-get install -y -q tailscale", "systemctl enable --now tailscaled", "tailscale up --authkey=tskey-auth-test --hostname=core",
+		"systemctl --user restart hostd")
+	if d := r.read(tsDropIn); !strings.Contains(d, "[api]") || !strings.Contains(d, `allow = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]`) {
+		t.Errorf("drop-in %q", d)
+	}
+
+	// Again, logged in: no login, no restart, nothing changed.
+	t.Setenv("TS_STATE", "Running")
+	in, err := r.run("tailscale", "addon_install", Options{})
+	if err != nil || in.Out.AnyChanged() {
+		t.Fatalf("second run: %v\n%s", err, r.out.String())
+	}
+	r.mustNotCall("tailscale up", "systemctl --user restart hostd", "curl")
+	r.says("logged in to the tailnet: 100.101.102.103")
+
+	if _, err := r.run("tailscale", "addon_remove", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if r.exists(tsDropIn) {
+		t.Error("the drop-in stays")
+	}
+	r.mustCall("systemctl --user restart hostd", "tailscale down")
+}
+
+// Without an auth key, the URL to approve the machine at.
+func TestTailscaleHookLoginURL(t *testing.T) {
+	r := tailscaleMachine(t)
+	if _, err := r.run("tailscale", "addon_install", Options{Adding: []string{"tailscale"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	r.says("open https://login.tailscale.com/a/1b2c3d and log in; then: sudo hostd-setup update tailscale")
+}
+
+func TestTailscaleHookPinnedKey(t *testing.T) {
+	r := tailscaleMachine(t)
+	r.stub("gpg", "fpr:::::::::0000000000000000000000000000000000000000:\n", 0)
+	_, err := r.run("tailscale", "addon_install", Options{Adding: []string{"tailscale"}})
+	if err == nil || !strings.Contains(err.Error(), "not the one this add-on pins") {
+		t.Fatalf("err %v", err)
+	}
+	r.mustNotCall("apt-get install -y -q tailscale")
 }

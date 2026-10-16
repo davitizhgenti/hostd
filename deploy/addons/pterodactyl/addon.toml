@@ -1,5 +1,5 @@
 # The Pterodactyl game server panel and its Wings daemon; the steps (PHP,
 # MariaDB, composer, artisan, Docker) are in addon.sh.
-description = "Pterodactyl game server panel (http://<machine>/) and its Wings daemon (Docker)"
+description = "Pterodactyl game server panel (https://<machine>/) and its Wings daemon (Docker)"
 requires = ["chromium"] # the panel is an app of hostd: a page in its browser
 hook = "addon.sh"

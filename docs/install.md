@@ -44,12 +44,29 @@ Then list the modules you want in `~/.config/hostd/hostd.toml`, such as `modules
 
 ## Other devices
 
-Every other device or script uses the API at `http://<machine>:7300`, which is open to the home network only. Each one gets its own token, limited to what it needs:
+Every other device or script uses the API at `https://<machine>:7300`, which is open to the home network only. It is HTTPS with a certificate authority the machine made for itself at its first start, so no domain or outside CA is needed. Each device gets its own token, limited to what it needs:
 
 ```sh
-ssh screen@<machine> hostctl token create phone --scopes read,apps,audio
-hostctl login <machine>:7300            # on a laptop, with that token
+ssh screen@<machine> hostctl token create laptop --scopes read,apps,audio
+ssh screen@<machine> hostctl tls        # the CA's fingerprint
+hostctl login <machine>                 # on the laptop: shows the same fingerprint, then asks for the token
 ```
+
+`hostctl login` shows the machine's CA before anything is sent. Compare it with what `hostctl tls` printed, and confirm: hostctl then trusts that CA, and only it. A script gives it instead with `--ca-fingerprint`, and the Python client with `ca_fingerprint=`.
+
+**Browsers.** To open `https://<machine>:7300/docs/` (and add-ons' sites, such as the Pterodactyl panel) without warnings, install the CA on the laptop or phone: download `https://<machine>:7300/v1/tls/ca.pem`, check its fingerprint against `hostctl tls`, and add it as a trusted certificate authority (Firefox: Settings, Certificates, Import; GNOME: `sudo cp ca.pem /usr/local/share/ca-certificates/hostd.crt && sudo update-ca-certificates`; Android and iOS: open the file and install it as a CA certificate). The CA can only vouch for this machine's names and private addresses: it cannot be used to fake any other site. The docs also stay readable over plain `http://`; the API does not.
+
+## From outside the house
+
+Do not forward any port to the machine. Use a VPN instead: the `tailscale` add-on puts the machine on your tailnet.
+
+```sh
+sudo hostd-setup add tailscale                               # prints a URL to approve the machine at
+sudo HOSTD_TAILSCALE_AUTHKEY=tskey-auth-... hostd-setup add tailscale   # or join with an auth key
+hostctl login 100.x.y.z                                      # on the laptop: the machine's tailnet address
+```
+
+The add-on adds the tailnet's addresses to `[api] allow` (in a drop-in file it removes again), and the machine's tailnet address goes into its certificate, so the same pinned login works at home and away. A router with WireGuard works too, with nothing to change in hostd: its clients get home-network addresses.
 
 ## Updates
 

@@ -9,7 +9,7 @@ import (
 // exists.
 func TestAddonsLoad(t *testing.T) {
 	names := AddonNames()
-	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "nvidia", "pterodactyl", "steam"}
+	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "nvidia", "pterodactyl", "steam", "tailscale"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("add-ons %v", names)
 	}

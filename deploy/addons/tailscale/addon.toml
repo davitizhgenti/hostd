@@ -1,0 +1,5 @@
+# Tailscale: this machine on your tailnet, so your devices reach hostd's
+# API (and the add-ons' sites) from anywhere, with nothing opened to the
+# internet. The steps (the repository, the login) are in hook.sh.
+description = "Tailscale: reach hostd from your other devices anywhere (a VPN; no port opened)"
+hook = "hook.sh"

@@ -93,8 +93,14 @@ if systemctl cat wings.service >/dev/null 2>&1; then
 	for u in nginx mariadb redis-server docker wings pteroq pterodactyl-schedule.timer; do
 		check "$u is running" systemctl is-active --quiet "$u"
 	done
-	check "the panel answers on port 80" curl -fsS -o /dev/null http://127.0.0.1/auth/login
-	check "Wings answers on port 8080" bash -c 'curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ | grep -q "^[1-4]"'
+	check "the panel answers (loopback)" curl -fsS -o /dev/null http://127.0.0.1/auth/login
+	ca=$HOME/.local/state/hostd/tls/ca.pem
+	if [ -r "$ca" ]; then
+		check "the panel answers over HTTPS" curl -fsS -o /dev/null --cacert "$ca" https://127.0.0.1/auth/login
+		check "Wings answers over HTTPS on 8080" bash -c 'curl -sS --cacert "$1" -o /dev/null -w "%{http_code}" https://127.0.0.1:8080/ | grep -q "^[1-4]"' _ "$ca"
+	else
+		check "Wings answers on port 8080" bash -c 'curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ | grep -q "^[1-4]"'
+	fi
 fi
 
 echo "hostd"

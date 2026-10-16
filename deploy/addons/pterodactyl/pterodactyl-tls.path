@@ -1,0 +1,11 @@
+# Managed by hostd's pterodactyl add-on: when hostd renews the machine's
+# certificate, nginx and Wings take the new one.
+[Unit]
+Description=hostd: follow the machine's certificate for the panel and Wings
+
+[Path]
+PathModified=@TLS_DIR@/cert.pem
+Unit=pterodactyl-tls.service
+
+[Install]
+WantedBy=multi-user.target

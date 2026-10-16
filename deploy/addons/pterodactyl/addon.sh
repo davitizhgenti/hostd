@@ -145,7 +145,9 @@ ptero_bootstrap() {
 	chown www-data:www-data "$PTERO_DIR/.env"
 	chmod 640 "$PTERO_DIR/.env"
 	ptero_artisan key:generate --force >/dev/null
-	ptero_artisan p:environment:setup --author="admin@$host.local" --url="http://$host.local" --timezone="$tz" \
+	local scheme=http
+	[ -n "$PTERO_TLS" ] && scheme=https
+	ptero_artisan p:environment:setup --author="admin@$host.local" --url="$scheme://$host.local" --timezone="$tz" \
 		--cache=redis --session=redis --queue=redis --redis-host=127.0.0.1 --redis-pass= --redis-port=6379 \
 		--settings-ui=true --telemetry=false >/dev/null
 	ptero_artisan p:environment:database --host=127.0.0.1 --port=3306 --database=panel --username=pterodactyl \
@@ -167,16 +169,37 @@ ptero_bootstrap() {
 	disk=$(df -BM --output=avail /var/lib | tail -1 | tr -dc '0-9')
 	disk=$((disk * 8 / 10))
 	ptero_artisan p:node:make --name="$host" --description="This machine" --locationId=1 --fqdn="$ip" --public=1 \
-		--scheme=http --proxy=0 --maintenance=0 --maxMemory="$mem" --overallocateMemory=0 --maxDisk="$disk" \
+		--scheme="$scheme" --proxy=0 --maintenance=0 --maxMemory="$mem" --overallocateMemory=0 --maxDisk="$disk" \
 		--overallocateDisk=0 --uploadSize=100 --daemonListeningPort=8080 --daemonSFTPPort=2022 \
 		--daemonBase=/var/lib/pterodactyl/volumes >/dev/null || die "cannot create the panel's node"
 	touch "$PTERO_DIR/.hostd-bootstrapped"
 	PTERO_NODE_IP=$ip
 }
 
+# ptero_tls_dir: hostd's certificate for this machine (from its own CA),
+# which nginx and Wings serve; nothing if hostd has none ([api] tls = false).
+ptero_tls_dir() {
+	local d=$SCREEN_HOME/.local/state/hostd/tls
+	[ -s "$d/cert.pem" ] && [ -s "$d/key.pem" ] && [ -s "$d/ca.pem" ] && printf '%s' "$d"
+	return 0
+}
+
+# ptero_template SRC: an add-on file with @TLS_DIR@ filled in, in a
+# temporary file (its path printed).
+ptero_template() {
+	local tmp
+	tmp=$(mktemp)
+	sed "s|@TLS_DIR@|$PTERO_TLS|g" "$ADDON_HERE/$1" >"$tmp"
+	printf '%s' "$tmp"
+}
+
 ptero_nginx() {
-	local changed_nginx=0 nx=$ROOT/etc/nginx
-	install_file "$ADDON_HERE/nginx.conf" "$nx/sites-available/pterodactyl.conf" 644 root && changed_nginx=1
+	local changed_nginx=0 nx=$ROOT/etc/nginx site=nginx.conf tmp
+	[ -n "$PTERO_TLS" ] || site=nginx-http.conf
+	install_file "$ADDON_HERE/panel.conf" "$nx/snippets/hostd-pterodactyl.conf" 644 root && changed_nginx=1
+	tmp=$(ptero_template "$site")
+	install_file "$tmp" "$nx/sites-available/pterodactyl.conf" 644 root && changed_nginx=1
+	rm -f "$tmp"
 	if [ ! -L "$nx/sites-enabled/pterodactyl.conf" ]; then
 		mkdir -p "$nx/sites-enabled"
 		ln -s /etc/nginx/sites-available/pterodactyl.conf "$nx/sites-enabled/pterodactyl.conf"
@@ -191,7 +214,11 @@ ptero_nginx() {
 		nginx -t >/dev/null 2>&1 || die "the nginx configuration is not valid (nginx -t)"
 		systemctl enable nginx >/dev/null 2>&1
 		systemctl reload-or-restart nginx
-		changed "nginx serves the panel on port 80"
+		if [ -n "$PTERO_TLS" ]; then
+			changed "nginx serves the panel over HTTPS (port 443; port 80 redirects there)"
+		else
+			changed "nginx serves the panel on port 80 (plain HTTP: hostd has no certificate)"
+		fi
 	else
 		info "nginx site up to date"
 	fi
@@ -229,6 +256,89 @@ ptero_wings() {
 		info "Wings $PTERO_WINGS_VERSION is installed"
 	fi
 	install -d -m 755 "$ROOT/etc/pterodactyl" "$ROOT/var/lib/pterodactyl" "$ROOT/var/log/pterodactyl"
+}
+
+# ptero_tls_follow: nginx and Wings take hostd's certificate again when
+# hostd renews it.
+ptero_tls_follow() {
+	local u tmp units_changed=0
+	if [ -z "$PTERO_TLS" ]; then
+		if [ -e "$ROOT/etc/systemd/system/pterodactyl-tls.path" ]; then
+			systemctl disable --now pterodactyl-tls.path >/dev/null 2>&1 || true
+			rm -f "$ROOT"/etc/systemd/system/pterodactyl-tls.{path,service}
+			systemctl daemon-reload
+		fi
+		return 0
+	fi
+	for u in pterodactyl-tls.path pterodactyl-tls.service; do
+		tmp=$(ptero_template "$u")
+		install_file "$tmp" "$ROOT/etc/systemd/system/$u" 644 root && units_changed=1
+		rm -f "$tmp"
+	done
+	[ $units_changed -eq 1 ] && systemctl daemon-reload
+	systemctl enable --now pterodactyl-tls.path >/dev/null 2>&1 || warn "could not follow the certificate (systemctl status pterodactyl-tls.path)"
+	return 0
+}
+
+# ptero_wings_tls: Wings serves HTTPS with hostd's certificate (browsers
+# reach it for the console, from a page that is HTTPS), and the panel
+# sends them there.
+ptero_wings_tls() {
+	local conf=$ROOT/etc/pterodactyl/config.yml tmp scheme
+	[ -n "$PTERO_TLS" ] && [ -f "$conf" ] || return 0
+	tmp=$(mktemp)
+	awk -v cert="$PTERO_TLS/cert.pem" -v key="$PTERO_TLS/key.pem" '
+		/^  ssl:/ { ssl = 1; print; next }
+		ssl && /^    enabled:/ { print "    enabled: true"; next }
+		ssl && /^    cert:/ { print "    cert: " cert; next }
+		ssl && /^    key:/ { print "    key: " key; next }
+		ssl && !/^    / { ssl = 0 }
+		{ print }' "$conf" >"$tmp"
+	if ! cmp -s "$tmp" "$conf"; then
+		cat "$tmp" >"$conf" # in place: the file keeps its mode (0600, it holds a token)
+		WINGS_NEW=1
+		changed "Wings serves HTTPS with the machine's certificate"
+	fi
+	rm -f "$tmp"
+	scheme=$(mariadb -N -e "SELECT scheme FROM panel.nodes WHERE id = 1" 2>/dev/null || true)
+	if [ "$scheme" = http ]; then
+		mariadb -e "UPDATE panel.nodes SET scheme = 'https' WHERE id = 1"
+		changed "the panel's node is reached over HTTPS"
+	fi
+}
+
+# ptero_app_url: the panel's own address, as its links and mails use it.
+ptero_app_url() {
+	local env=$PTERO_DIR/.env want=http
+	[ -f "$env" ] || return 0
+	[ -n "$PTERO_TLS" ] && want=https
+	if grep -q "^APP_URL=$want://" "$env"; then
+		return 0
+	fi
+	sed -i -E "s|^APP_URL=https?://|APP_URL=$want://|" "$env"
+	ptero_artisan config:clear >/dev/null || true
+	changed "the panel's address is $want://"
+}
+
+# ptero_screen_trust: the screen's browser trusts hostd's CA, for the
+# panel's console (Wings over HTTPS). Chromium keeps the CAs it trusts
+# in ~/.pki/nssdb, which every profile shares. The CA can only vouch for
+# this machine's names and private addresses.
+ptero_screen_trust() {
+	[ -n "$PTERO_TLS" ] || return 0
+	local db=$SCREEN_HOME/.pki/nssdb have
+	ensure_packages libnss3-tools
+	if [ ! -f "$db/cert9.db" ]; then
+		as_screen mkdir -p "$db"
+		as_screen certutil -d "sql:$db" -N --empty-password
+	fi
+	have=$(as_screen certutil -d "sql:$db" -L -n "hostd CA" -a 2>/dev/null || true)
+	if [ "$have" = "$(cat "$PTERO_TLS/ca.pem")" ]; then
+		return 0
+	fi
+	[ -n "$have" ] && as_screen certutil -d "sql:$db" -D -n "hostd CA"
+	as_screen certutil -d "sql:$db" -A -n "hostd CA" -t "C,," -i "$PTERO_TLS/ca.pem"
+	changed "the screen's browser trusts the machine's CA"
 }
 
 # ptero_podman: Docker sets up its own firewall rules next to Podman's.
@@ -278,6 +388,8 @@ addon_install() {
 	[ -f "$PTERO_DIR/.hostd-bootstrapped" ] || fresh=1
 	WINGS_NEW=0
 	PTERO_UPGRADE=0
+	PTERO_TLS=$(ptero_tls_dir)
+	[ -n "$PTERO_TLS" ] || warn "hostd has no certificate here ([api] tls = false): the panel stays on plain HTTP"
 
 	if [ $fresh -eq 1 ] && [ -e "$PTERO_DIR" ] && [ ! -f "$PTERO_DIR/.hostd-owned" ] && [ -n "$(ls -A "$PTERO_DIR" 2>/dev/null)" ]; then
 		die "pterodactyl: $PTERO_DIR exists and was not made by this add-on; not touching it"
@@ -316,6 +428,10 @@ addon_install() {
 	ptero_units
 	ptero_wings
 	ptero_wings_config
+	ptero_wings_tls
+	ptero_app_url
+	ptero_tls_follow
+	ptero_screen_trust
 	ptero_podman
 	ptero_node_address
 	install -d -o "$SCREEN_USER" -g "$SCREEN_USER" "$SCREEN_HOME/.config/hostd" "$SCREEN_HOME/.config/hostd/apps"
@@ -328,13 +444,16 @@ addon_install() {
 		systemctl restart wings || info "Wings did not start: journalctl -u wings"
 	fi
 
-	if curl -fsS -o /dev/null http://127.0.0.1/auth/login; then
-		info "the panel answers on port 80"
-	else
-		die "the panel does not answer on port 80 (journalctl -u nginx -u php8.3-fpm; $PTERO_DIR/storage/logs)"
+	if ! curl -fsS -o /dev/null http://127.0.0.1/auth/login; then
+		die "the panel does not answer (journalctl -u nginx -u php8.3-fpm; $PTERO_DIR/storage/logs)"
+	elif [ -n "$PTERO_TLS" ] && ! curl -fsS -o /dev/null --cacert "$PTERO_TLS/ca.pem" https://127.0.0.1/auth/login; then
+		die "the panel does not answer over HTTPS (journalctl -u nginx)"
 	fi
+	info "the panel answers"
 	if [ $fresh -eq 1 ]; then
-		info "Pterodactyl panel: http://$host.local/"
+		local url=http://$host.local/
+		[ -n "$PTERO_TLS" ] && url=https://$host.local/
+		info "Pterodactyl panel: $url (browsers: install the machine's CA, see hostctl tls)"
 		info "  admin login:   admin@$host.local"
 		info "  admin password: $PTERO_ADMIN_PASSWORD   (shown only now; change it in the panel)"
 		info "A node for this machine ($PTERO_NODE_IP:8080) is set up. For a game server, add allocations"
@@ -346,7 +465,9 @@ addon_remove() {
 	rm -f "$SCREEN_HOME/.config/hostd/apps/pterodactyl.toml"
 	addon_rescan
 	systemctl disable --now wings.service pteroq.service pterodactyl-schedule.timer >/dev/null 2>&1 || true
+	systemctl disable --now pterodactyl-tls.path >/dev/null 2>&1 || true
 	rm -f "$ROOT"/etc/systemd/system/{wings.service,pteroq.service,pterodactyl-schedule.service,pterodactyl-schedule.timer} \
+		"$ROOT"/etc/systemd/system/pterodactyl-tls.{path,service} "$ROOT/etc/nginx/snippets/hostd-pterodactyl.conf" \
 		"$ROOT/usr/local/bin/wings" "$ROOT"/etc/nginx/sites-{enabled,available}/pterodactyl.conf
 	if [ ! -e "$ROOT/etc/nginx/sites-enabled/default" ] && [ -f "$ROOT/etc/nginx/sites-available/default" ]; then
 		ln -s /etc/nginx/sites-available/default "$ROOT/etc/nginx/sites-enabled/default"
