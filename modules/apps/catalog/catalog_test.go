@@ -236,6 +236,7 @@ func TestValidation(t *testing.T) {
 		`runner = { type = "docker", image = "x", handoff = "A=1" }`:                         "applies to exec",
 		"runner = { type = \"exec\", command = [\"x\"] }\nsurface = \"tv\"":                  `surface "tv"`,
 		"runner = { type = \"exec\", command = [\"x\"] }\nrestart = \"maybe\"":               `restart "maybe"`,
+		"runner = { type = \"exec\", command = [\"x\"] }\nautostart = true":                  "autostart is for background apps",
 		"runner = { type = \"exec\", command = [\"x\"] }\n[instance]\npolicy = \"many\"":     "instance.policy",
 		"runner = { type = \"exec\", command = [\"x\"] }\n[instance]\nif_running = \"kill\"": "instance.if_running",
 		"runner = { type = \"exec\", command = [\"x\"] }\n[window]\nwrap = \"xvfb\"":         "window.wrap",

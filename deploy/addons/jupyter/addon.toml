@@ -1,0 +1,15 @@
+# JupyterLab with real-time collaboration, as a hostd app: started with
+# hostd (autostart), served over HTTPS with the machine's certificate,
+# behind a token. The Python environment is made by hook.sh.
+description = "JupyterLab with real-time collaboration, on https://<machine>:8888"
+packages = ["python3-venv"]
+files = [
+  { src = "jupyter.toml", dest = "~/.config/hostd/apps/jupyter.toml", owner = "screen" },
+  { src = "hostd-jupyter", dest = "/usr/local/lib/hostd/addons/hostd-jupyter", mode = "755" },
+  { src = "hostd-jupyter-tls.path", dest = "~/.config/systemd/user/hostd-jupyter-tls.path", owner = "screen" },
+  { src = "hostd-jupyter-tls.service", dest = "~/.config/systemd/user/hostd-jupyter-tls.service", owner = "screen" },
+]
+user_units = ["hostd-jupyter-tls.path"]
+rescan = true
+keeps = "the notebooks stay in ~/notebooks, the token in ~/.config/hostd/jupyter, the Python environment in ~/.local/share/hostd/jupyter"
+hook = "hook.sh"

@@ -16,7 +16,7 @@ import (
 )
 
 // On TCP with TLS: the API over HTTPS for a client that pinned the CA;
-// plain HTTP gets the docs and an error, never the API.
+// plain HTTP is sent to HTTPS (pages) or gets an error (the API).
 func TestServeTLS(t *testing.T) {
 	ca, err := tlsca.Open(tlsca.Options{Dir: t.TempDir()})
 	if err != nil {
@@ -68,8 +68,17 @@ func TestServeTLS(t *testing.T) {
 	if code != 400 || !strings.Contains(body, "speaks HTTPS") || strings.Contains(body, `"version"`) {
 		t.Fatalf("plain http: %d %s", code, body)
 	}
-	if code, body := get(plain, "http://"+addr+"/docs/", ""); code != 200 || !strings.Contains(body, "docs") {
-		t.Fatalf("plain docs: %d %s", code, body)
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := noRedirect.Get("http://" + addr + "/docs/install/?x=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMovedPermanently || res.Header.Get("Location") != "https://"+addr+"/docs/install/?x=1" {
+		t.Fatalf("plain docs: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if code, body := get(pinned, "https://"+addr+"/docs/", ""); code != 200 || !strings.Contains(body, "docs") {
+		t.Fatalf("docs over https: %d %s", code, body)
 	}
 	// Silence on a connection does not hold up the others.
 	idle, _ := net.Dial("tcp", addr)

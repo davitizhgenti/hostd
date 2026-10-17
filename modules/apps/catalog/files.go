@@ -21,23 +21,24 @@ import (
 type AppFile struct {
 	Path string `toml:"-"`
 
-	ID       string            `toml:"id"`
-	Extends  string            `toml:"extends"`
-	Name     *string           `toml:"name"`
-	Icon     *string           `toml:"icon"`
-	Runner   *spec.Runner      `toml:"runner"`
-	Surface  *string           `toml:"surface"`
-	Window   *fileWindow       `toml:"window"`
-	Instance *fileInstance     `toml:"instance"`
-	Audio    *fileAudio        `toml:"audio"`
-	Requires []string          `toml:"requires"`
-	Hidden   *bool             `toml:"hidden"`
-	Under    *string           `toml:"under"`
-	Match    *spec.Match       `toml:"match"`
-	Restart  *string           `toml:"restart"`
-	Env      map[string]string `toml:"env"`
-	Args     map[string]string `toml:"args"`
-	Health   *spec.Health      `toml:"health"`
+	ID        string            `toml:"id"`
+	Extends   string            `toml:"extends"`
+	Name      *string           `toml:"name"`
+	Icon      *string           `toml:"icon"`
+	Runner    *spec.Runner      `toml:"runner"`
+	Surface   *string           `toml:"surface"`
+	Window    *fileWindow       `toml:"window"`
+	Instance  *fileInstance     `toml:"instance"`
+	Audio     *fileAudio        `toml:"audio"`
+	Requires  []string          `toml:"requires"`
+	Hidden    *bool             `toml:"hidden"`
+	Under     *string           `toml:"under"`
+	Match     *spec.Match       `toml:"match"`
+	Restart   *string           `toml:"restart"`
+	Autostart *bool             `toml:"autostart"`
+	Env       map[string]string `toml:"env"`
+	Args      map[string]string `toml:"args"`
+	Health    *spec.Health      `toml:"health"`
 	// Actions add to the app's actions; one with the ID of an existing one
 	// replaces it.
 	Actions []spec.AppAction `toml:"actions"`
@@ -115,6 +116,9 @@ func (f AppFile) applyTo(a *spec.App) {
 	}
 	if f.Restart != nil {
 		a.Restart = *f.Restart
+	}
+	if f.Autostart != nil {
+		a.Autostart = *f.Autostart
 	}
 	if f.Args != nil {
 		a.Args = f.Args

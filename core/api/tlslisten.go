@@ -102,19 +102,20 @@ func (c *peekedConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
-// plainHandler is what plain HTTP on the TLS port gets: the docs (public
-// pages with no secrets, readable before a browser trusts the CA), and
-// otherwise an error that says where the API is.
+// plainHandler is what plain HTTP on the TLS port gets: pages (the docs)
+// move to HTTPS, since a page sent in the clear can be changed on the way,
+// and the docs say which CA to trust; the API answers an error that says
+// where it is, rather than taking a request that came in the clear.
 func (s *Server) plainHandler() http.Handler {
 	mux := http.NewServeMux()
-	if s.opts.DocsDir != "" {
-		mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.Dir(s.opts.DocsDir))))
-		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/docs/", http.StatusFound) })
-	}
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "close")
 		writeError(w, r, http.StatusBadRequest, sdk.CodeInvalidArgs,
 			"this port speaks HTTPS: use https://"+r.Host+r.URL.Path+" (hostctl login "+r.Host+"). A token sent here over plain HTTP was not used, but it crossed the network unencrypted: consider revoking it")
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Connection", "close")
+		http.Redirect(w, r, "https://"+r.Host+r.URL.RequestURI(), http.StatusMovedPermanently)
 	})
 	return mux
 }

@@ -1,0 +1,11 @@
+# Managed by hostd's jupyter add-on: when hostd renews the machine's
+# certificate, JupyterLab is restarted to serve the new one.
+[Unit]
+Description=hostd: follow the machine's certificate for JupyterLab
+
+[Path]
+PathModified=%h/.local/state/hostd/tls/cert.pem
+Unit=hostd-jupyter-tls.service
+
+[Install]
+WantedBy=default.target

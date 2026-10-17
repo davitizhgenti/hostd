@@ -120,6 +120,35 @@ func TestEarlyEndFoundAfterTheStart(t *testing.T) {
 	}
 }
 
+// An autostart app is started when hostd starts, unless it already runs
+// (hostd restarted, the app did not); others are not.
+func TestAutostart(t *testing.T) {
+	apps := rigApps + `-- notebook.toml --
+runner = { type = "process", command = ["jupyter", "lab"] }
+autostart = true
+`
+	sd := unitstest.NewFakeSystemd()
+	r := newRigApps(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, apps)
+	ev := r.next(t) // starting
+	if ev.Type != EventStarting || !strings.Contains(string(ev.Data), `"app":"notebook"`) {
+		t.Fatalf("event %s %s", ev.Type, ev.Data)
+	}
+	r.next(t) // started
+	if live := r.live(); len(live) != 1 || live[0] != "notebook" {
+		t.Fatalf("live: %v", live)
+	}
+
+	// hostd starts again while it runs: it is found, not started twice.
+	again := newRigApps(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, apps)
+	waitUntil(t, func() bool { return sd.Watching() == 2 })
+	if live := again.live(); len(live) != 1 || live[0] != "notebook" {
+		t.Fatalf("live after a restart: %v", live)
+	}
+	if n := len(sd.Started); n != 1 {
+		t.Fatalf("started %d times", n)
+	}
+}
+
 // --- the contract other modules rely on --------------------------------------------
 
 func TestInstanceContract(t *testing.T) {

@@ -1,0 +1,10 @@
+# Managed by hostd's jupyter add-on: JupyterLab, kept running, started with
+# hostd. hostctl stop jupyter / hostctl start jupyter / hostctl logs jupyter.
+name = "JupyterLab"
+runner = { type = "process", command = ["/usr/local/lib/hostd/addons/hostd-jupyter"] }
+restart = "always"
+autostart = true
+
+[health]
+tcp = "127.0.0.1:8888"
+start = "120s"

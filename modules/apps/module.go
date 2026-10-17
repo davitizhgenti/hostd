@@ -154,6 +154,8 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 		m.watchersRun.Add(1)
 		go func() { defer m.watchersRun.Done(); m.watchBackend(wctx, name, b) }()
 	}
+	m.watchersRun.Add(1)
+	go func() { defer m.watchersRun.Done(); m.autostart(wctx) }()
 
 	if m.opts.NoWatch {
 		return nil

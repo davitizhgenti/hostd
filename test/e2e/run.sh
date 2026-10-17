@@ -13,7 +13,8 @@
 #   6. an update through the installer (hostd-setup update, what the timer
 #      runs): the app keeps running, and the old version's data is kept for
 #      a rollback
-#   7. the wireguard add-on: the tunnel, a device, hostd on its address
+#   7. the wireguard add-on: the tunnel, a device, hostd on its address;
+#      the jupyter add-on: HTTPS, its token, collaboration, autostart
 #   8. the API and the docs from outside the VM
 #
 # Runs inside the hostd-e2e container, with these mounted:
@@ -82,6 +83,7 @@ fetch_ca() { gs 'cat ~/.local/state/hostd/tls/ca.pem' >"$OUT/ca.pem" && grep -q 
 api_version() { curl -fsS --cacert "$OUT/ca.pem" -H "Authorization: Bearer $TOKEN" https://127.0.0.1:7300/v1/version | grep -q '"version"'; }
 api_without_token() { [ "$(curl -s --cacert "$OUT/ca.pem" -o /dev/null -w '%{http_code}' https://127.0.0.1:7300/v1/version)" = 401 ]; }
 api_not_plain() { [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7300/v1/version)" = 400 ]; }
+docs_redirect() { [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1:7300/docs/)" = "301 https://127.0.0.1:7300/docs/" ]; }
 docs_served() { curl -fsS --cacert "$OUT/ca.pem" https://127.0.0.1:7300/docs/ | grep -qi 'hostd'; }
 
 cleanup() {
@@ -230,6 +232,20 @@ t "a removed device is no longer a peer" ga 'sudo hostd-wg remove phone && ! sud
 t "remove wireguard stops the tunnel" ga 'sudo hostd-setup remove wireguard && ! ip link show wg-hostd 2>/dev/null'
 t "and its forwarding rules go with it" ga '! sudo nft list table inet hostd_wg >/dev/null 2>&1'
 
+# --- the jupyter add-on -----------------------------------------------------
+# JupyterLab from PyPI in its own environment, a hostd app that starts with
+# hostd, over HTTPS with the machine's certificate, behind its token.
+echo "jupyter"
+JCA='--cacert ~/.local/state/hostd/tls/ca.pem'
+t "sudo hostd-setup add jupyter" ga 'sudo hostd-setup add jupyter --source ~/dist --from ~/dist --gpu other'
+t "JupyterLab runs as a hostd app" wait_for 120 gs 'hostctl ps | grep -q "^jupyter .*running"'
+t "it answers over HTTPS, with the machine's certificate and the token" wait_for 60 gs "curl -fsS $JCA \"https://127.0.0.1:8888/api/status?token=\$(cat ~/.config/hostd/jupyter/token)\" | grep -q started"
+t "and not without the token" gs "case \$(curl -s $JCA -o /dev/null -w '%{http_code}' https://127.0.0.1:8888/api/status) in 401|403) ;; *) false ;; esac"
+# shellcheck disable=SC2088 # ~ is the VM's home: it expands there
+t "real-time collaboration is on" gs '~/.local/share/hostd/jupyter/venv/bin/jupyter server extension list 2>&1 | grep -Eiq "(ydoc|collaboration).*enabled"'
+t "stopped, it is back when hostd starts (autostart)" gs 'hostctl stop jupyter >/dev/null && systemctl --user restart hostd'
+t "  running again" wait_for 90 gs 'hostctl ps 2>/dev/null | grep -q "^jupyter .*running"'
+
 # --- from outside the VM ---------------------------------------------------
 echo "the network API"
 t "the machine's CA is in its state folder" fetch_ca
@@ -237,6 +253,7 @@ t "the API answers over HTTPS with the token" api_version
 t "plain HTTP does not reach the API" api_not_plain
 t "the API refuses a request without a token" api_without_token
 t "the docs are served without a token" docs_served
+t "plain HTTP is sent to HTTPS" docs_redirect
 
 echo
 [ $fail -eq 0 ] && echo "e2e test passed" || echo "e2e test FAILED (logs in test/e2e/.vm/out)"

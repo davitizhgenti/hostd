@@ -1,0 +1,7 @@
+# Managed by hostd's jupyter add-on: restarts JupyterLab if it runs.
+[Unit]
+Description=hostd: restart JupyterLab with the machine's new certificate
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'if /usr/local/bin/hostctl ps | grep -q "^jupyter "; then /usr/local/bin/hostctl stop jupyter && /usr/local/bin/hostctl start jupyter; fi'

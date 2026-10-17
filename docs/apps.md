@@ -32,6 +32,7 @@ http = "http://127.0.0.1:8096/health"
 | `env` | Its environment. `{secret:<name>}` takes a secret's value (see [Services](services.md#secrets)) |
 | `args` | What `app.start` fills in: `{name}` in the command or URL. `args = { file = "path" }` with `command = ["imv", "-f", "{file}"]`; the kinds are `url` (http or https), `path` (absolute) and `text`. Started with new values while it runs, the app is replaced |
 | `restart` | `always`, `on-failure` (background default) or `never` (window default) |
+| `autostart` | Background apps: `true` starts the app when hostd starts (at boot, and after an update), unless it already runs. `hostctl stop` stops it until the next start |
 | `requires` | Apps started first: `requires = ["database"]` |
 | `hidden` | Not listed (still startable) |
 | `under` | Listed in another app's actions box: `under = "steam"` |
@@ -65,3 +66,19 @@ One app is in front at a time, fullscreen. Super (or holding a controller's Guid
 While someone uses the screen (input in the last 5 minutes), an app started from elsewhere opens in the background and a notice says so. To bring it forward anyway, start it with `front = true`, which needs the `display.front` scope.
 
 A screen-only extra: `hostctl action display.notice '{"text": "Dinner is ready"}'` shows a notice above any app.
+
+## JupyterLab, shared
+
+The `jupyter` add-on runs JupyterLab with real-time collaboration (`jupyter-collaboration`): everyone who opens a notebook edits it together, and sees the others' cursors.
+
+```sh
+sudo hostd-setup add jupyter                       # a few minutes the first time: its Python environment
+ssh screen@<machine> cat ~/.config/hostd/jupyter/token
+```
+
+Open `https://<machine>.local:8888` and give the token. It is an app like any other (`hostctl ps`, `hostctl logs jupyter`, `hostctl stop jupyter`), marked `autostart`, so it is back after a reboot. Notebooks are in `~/notebooks` on the machine.
+
+- **Who can reach it**: the home network, and devices on the machine's VPN (the `wireguard` add-on), with the token. Share the address and the token with the people you work with; anyone with both can run code as the `screen` user, as with a `run` token.
+- **HTTPS**: it serves the machine's certificate, from hostd's CA, and is restarted when hostd renews it. Browsers that trust the CA (see [Install](install.md#other-devices)) show no warning.
+- **Packages**: install them from a notebook (`%pip install pandas`), into JupyterLab's own environment (`~/.local/share/hostd/jupyter/venv`). `sudo hostd-setup update jupyter` upgrades JupyterLab itself; the update timer never does.
+- **A new token**: delete `~/.config/hostd/jupyter/token` and `hostctl stop jupyter && hostctl start jupyter`; the next start makes another.

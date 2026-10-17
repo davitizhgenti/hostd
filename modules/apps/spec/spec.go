@@ -58,10 +58,13 @@ type App struct {
 	Hidden   bool           `json:"hidden"`
 	// Under is the app this one is listed under rather than on its own: a
 	// Steam game under Steam. Menus show it with that app's actions.
-	Under   string            `json:"under,omitempty"`
-	Match   Match             `json:"match,omitzero"`
-	Restart string            `json:"restart,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+	Under   string `json:"under,omitempty"`
+	Match   Match  `json:"match,omitzero"`
+	Restart string `json:"restart,omitempty"`
+	// Autostart: hostd starts the app when it starts (at boot, after an
+	// update), unless it already runs. Background apps only.
+	Autostart bool              `json:"autostart,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 	// Args are what app.start may fill in: {name} in the command or URL,
 	// by name, with the kind of value each takes (ArgURL, ArgPath, ArgText).
 	Args   map[string]string `json:"args,omitempty"`

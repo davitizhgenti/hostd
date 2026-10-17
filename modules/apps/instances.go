@@ -346,6 +346,39 @@ func (m *Module) launch(ctx context.Context, actionID string, app *App, backend 
 	return sdk.Result{Data: sdk.MustJSON(startResult{Instance: id, App: app.ID, State: snapshot.State})}, nil
 }
 
+// autostart starts the apps marked autostart that do not run yet: at
+// hostd's start, which is also after a reboot (their units, transient,
+// did not survive it). Through the pipeline, so it is in the audit trail.
+func (m *Module) autostart(ctx context.Context) {
+	var ids []string
+	apps := m.catalog().List(true)
+	m.mu.Lock()
+	for _, a := range apps {
+		if !a.Autostart {
+			continue
+		}
+		running := false
+		for _, in := range m.instances {
+			running = running || (in.App == a.ID && !in.State.Ended())
+		}
+		if !running {
+			ids = append(ids, a.ID)
+		}
+	}
+	core := m.core
+	m.mu.Unlock()
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]string{"id": id})}); err != nil {
+			m.log.Warn("autostart", "app", id, "err", err)
+		} else {
+			m.log.Info("started at hostd's start", "app", id)
+		}
+	}
+}
+
 // checkEarlyEnd looks again, shortly after a start, for a command that
 // ended at once (echo): while systemd announces its unit, the unit's
 // state lags and the signal that it ended can be folded into the

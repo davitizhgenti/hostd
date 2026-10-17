@@ -136,8 +136,14 @@ func newRig(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, r
 
 func newRigClock(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, runtimeDir string, clk clock.Clock) *rig {
 	t.Helper()
+	return newRigApps(t, sd, d, runtimeDir, clk, rigApps)
+}
+
+// newRigApps is a rig with these app files (in writeApps' form).
+func newRigApps(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, runtimeDir string, clk clock.Clock, apps string) *rig {
+	t.Helper()
 	appsDir := t.TempDir()
-	writeApps(t, appsDir, rigApps)
+	writeApps(t, appsDir, apps)
 	m := New(Options{AppsDir: appsDir, NoWatch: true, Clock: clk, Backends: map[string]Backend{
 		RunnerExec:   &ExecRunner{Systemd: sd, RuntimeDir: runtimeDir},
 		RunnerDocker: &DockerRunner{Docker: d},

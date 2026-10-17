@@ -19,11 +19,12 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 
 ## On the network
 
-- **The API on port 7300 is HTTPS.** The machine made its own certificate authority at its first start. Clients pin that CA: `hostctl login` shows its fingerprint before sending anything, and the Python client takes `ca_fingerprint`. So a device in between (on the same Wi-Fi) cannot read or change what passes, even though no outside CA is involved. Plain HTTP on that port gets the docs and an error, never the API.
+- **The API on port 7300 is HTTPS.** The machine made its own certificate authority at its first start. Clients pin that CA: `hostctl login` shows its fingerprint before sending anything, and the Python client takes `ca_fingerprint`. So a device in between (on the same Wi-Fi) cannot read or change what passes, even though no outside CA is involved. Plain HTTP on that port is sent to HTTPS, pages included: a page sent in the clear could be changed on the way, and the docs say which CA to trust. A request to the API over plain HTTP gets an error, never an answer.
 - **The CA can only vouch for this machine**: its X.509 name constraints allow the host name, `<host>.local`, the names it was made with, and private addresses. If you install `ca.pem` in a browser, it cannot be used to fake any other site, even if its key were stolen.
 - **The unix socket** (`$XDG_RUNTIME_DIR/hostd.sock`, mode 0600) is plain HTTP; it never leaves the machine. The menu, hostctl on the machine, scripts and git hooks use it.
 - **Webhooks** (`POST /v1/hooks/...`) need no token, but each checks its own signature (an HMAC from GitHub or Gitea).
 - **The Pterodactyl panel** (an add-on) is served over HTTPS with a certificate from the same CA; its port 80 only redirects. Wings, which runs the game servers, is HTTPS too. The panel and Wings run as root and control Docker: keep the panel's admin password strong, and its version current (the add-on pins it, and `sudo hostd-setup update` upgrades it).
+- **JupyterLab** (the `jupyter` add-on) listens on port 8888, HTTPS with the machine's certificate, behind a token (`~/.config/hostd/jupyter/token`, readable by `screen` only). Anyone with the token runs code as `screen`: treat it like a `run` token, and make a new one when someone should no longer have it.
 - **VNC** listens on localhost only: reach it through SSH (`ssh -L 5900:127.0.0.1:5900 screen@<machine>`).
 
 ## On the machine

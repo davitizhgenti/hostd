@@ -193,6 +193,9 @@ func validate(a *spec.App) error {
 	default:
 		bad("restart %q: use always, on-failure or never", a.Restart)
 	}
+	if a.Autostart && a.Surface != spec.SurfaceBackground {
+		bad("autostart is for background apps (a window waits for someone to open it)")
+	}
 	if h := a.Health; h.HTTP != "" && !strings.HasPrefix(h.HTTP, "http://") && !strings.HasPrefix(h.HTTP, "https://") {
 		bad("health.http %q: an http:// or https:// URL", h.HTTP)
 	}

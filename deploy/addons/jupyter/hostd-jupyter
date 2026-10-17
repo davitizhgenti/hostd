@@ -1,0 +1,30 @@
+#!/bin/bash
+# JupyterLab for hostd's jupyter add-on (the app "jupyter"). Notebooks are
+# in ~/notebooks; anyone with the token can open and edit them, together
+# (jupyter-collaboration). Served over HTTPS with the certificate hostd
+# keeps for this machine, from its own CA.
+set -euo pipefail
+venv=$HOME/.local/share/hostd/jupyter/venv
+conf=$HOME/.config/hostd/jupyter
+tls=$HOME/.local/state/hostd/tls
+notebooks=$HOME/notebooks
+
+[ -x "$venv/bin/jupyter" ] || {
+	echo "no JupyterLab in $venv: sudo hostd-setup update jupyter" >&2
+	exit 1
+}
+mkdir -p "$notebooks" "$conf"
+if [ ! -s "$conf/token" ]; then
+	(umask 077 && head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$conf/token")
+fi
+# From the environment, not the command line, which other users can read.
+JUPYTER_TOKEN=$(cat "$conf/token")
+export JUPYTER_TOKEN
+
+args=(--no-browser --ip=0.0.0.0 --port=8888 --ServerApp.port_retries=0 --ServerApp.root_dir="$notebooks")
+if [ -s "$tls/cert.pem" ] && [ -s "$tls/key.pem" ]; then
+	args+=(--ServerApp.certfile="$tls/cert.pem" --ServerApp.keyfile="$tls/key.pem")
+else
+	echo "hostd has no certificate here ([api] tls = false): JupyterLab is plain HTTP" >&2
+fi
+exec "$venv/bin/jupyter" lab "${args[@]}"
