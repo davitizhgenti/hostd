@@ -1,0 +1,188 @@
+#!/bin/bash
+# hostd-wg: the devices of hostd's WireGuard tunnel (the wireguard add-on).
+#
+#   sudo hostd-wg add NAME [--public-key KEY] [--no-qr]
+#       a new device: prints its config (and a QR code to scan with the
+#       WireGuard app). Its private key is made here and shown only now;
+#       with --public-key, the device made its own and nothing secret is
+#       shown.
+#   sudo hostd-wg list               the devices, their addresses and last contact
+#   sudo hostd-wg remove NAME        the device can no longer connect
+#   sudo hostd-wg endpoint HOST      the address devices reach this machine at
+#                                    (a name or a public IP; the router forwards
+#                                    the port to this machine)
+#   sudo hostd-wg show               this machine's side: address, port, endpoint
+set -euo pipefail
+
+ROOT=${HOSTD_ROOT:-}
+IFACE=wg-hostd
+DIR=$ROOT/etc/wireguard
+PEERS=$DIR/hostd-peers
+ENVF=$ROOT/etc/hostd/wireguard.env
+
+die() {
+	echo "hostd-wg: $*" >&2
+	exit 1
+}
+
+[ "$(id -u)" = 0 ] || [ -n "$ROOT" ] || die "run it with sudo"
+[ -f "$ENVF" ] || die "the wireguard add-on is not set up (sudo hostd-setup add wireguard)"
+# shellcheck disable=SC1090
+. "$ENVF" # NET, ADDRESS, PORT, ENDPOINT
+
+prefix=${NET%.0/24}
+
+up() { ip link show "$IFACE" >/dev/null 2>&1; }
+
+server_public() { wg pubkey <"$DIR/$IFACE.key"; }
+
+# peer_field NAME FIELD: a field of a device's file.
+peer_field() { sed -n "s/^$2 = //p" "$PEERS/$1.peer"; }
+
+valid_name() {
+	[[ $1 =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "a device's name is lowercase letters, digits and -, such as phone or laptop-2"
+}
+
+valid_key() {
+	[[ $1 =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw480]=$ ]] || die "$1 is not a WireGuard public key (wg pubkey prints one)"
+}
+
+next_address() {
+	local used n
+	used=$(cat "$PEERS"/*.peer 2>/dev/null | sed -n "s|^AllowedIPs = $prefix\.\([0-9]*\)/32$|\1|p")
+	for ((n = 2; n < 255; n++)); do
+		grep -qx "$n" <<<"$used" || {
+			echo "$prefix.$n"
+			return
+		}
+	done
+	die "no free address left in $NET"
+}
+
+cmd_add() {
+	local name=${1:-} pub="" qr=1 priv="" addr
+	[ -n "$name" ] || die "usage: hostd-wg add NAME [--public-key KEY] [--no-qr]"
+	shift
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--public-key)
+			pub=${2:-}
+			shift 2 || die "--public-key needs the key"
+			;;
+		--no-qr) qr=0 && shift ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	valid_name "$name"
+	[ -n "${ENDPOINT:-}" ] || die "first, the address devices reach this machine at: sudo hostd-wg endpoint home.example.org"
+	[ ! -e "$PEERS/$name.peer" ] || die "there is already a device called $name (hostd-wg remove $name first)"
+	if [ -z "$pub" ]; then
+		priv=$(wg genkey)
+		pub=$(wg pubkey <<<"$priv")
+	fi
+	valid_key "$pub"
+	if grep -qsx "PublicKey = $pub" "$PEERS"/*.peer; then
+		die "that key is already a device's"
+	fi
+	addr=$(next_address)
+	mkdir -p "$PEERS"
+	printf '%s\n' "# $name, added $(date -u +%Y-%m-%d)" "PublicKey = $pub" "AllowedIPs = $addr/32" >"$PEERS/$name.peer"
+	render
+	if up; then
+		wg set "$IFACE" peer "$pub" allowed-ips "$addr/32"
+	fi
+	local conf key=${priv:-"<the device's own private key>"}
+	conf=$(printf '%s\n' "[Interface]" "PrivateKey = $key" "Address = $addr/32" "" \
+		"[Peer]" "# this machine" "PublicKey = $(server_public)" "Endpoint = $ENDPOINT:$PORT" "AllowedIPs = $NET" "PersistentKeepalive = 25")
+	echo "Added $name at $addr. Its WireGuard config$([ -n "$priv" ] && echo ", with its private key, shown only now"):"
+	echo
+	printf '%s\n' "$conf"
+	echo
+	if [ "$qr" = 1 ] && [ -n "$priv" ] && command -v qrencode >/dev/null; then
+		echo "Or scan this with the WireGuard app (Add a tunnel, Scan from QR code):"
+		qrencode -t ansiutf8 <<<"$conf"
+	fi
+	echo "Then, through the tunnel: hostctl login $ADDRESS"
+}
+
+cmd_remove() {
+	local name=${1:-} pub
+	[ -n "$name" ] || die "usage: hostd-wg remove NAME"
+	valid_name "$name"
+	[ -f "$PEERS/$name.peer" ] || die "no device called $name (hostd-wg list)"
+	pub=$(peer_field "$name" PublicKey)
+	rm -f "$PEERS/$name.peer"
+	render
+	if up; then
+		wg set "$IFACE" peer "$pub" remove
+	fi
+	echo "Removed $name: it can no longer connect."
+}
+
+cmd_list() {
+	local f name pub seen when
+	seen=""
+	if up; then seen=$(wg show "$IFACE" latest-handshakes 2>/dev/null || true); fi
+	printf '%-20s %-15s %s\n' DEVICE ADDRESS "LAST CONTACT"
+	for f in "$PEERS"/*.peer; do
+		[ -e "$f" ] || continue
+		name=$(basename "$f" .peer)
+		pub=$(peer_field "$name" PublicKey)
+		when=$(awk -v k="$pub" '$1 == k {print $2}' <<<"$seen")
+		if [ -n "$when" ] && [ "$when" != 0 ]; then
+			when=$(date -d "@$when" '+%Y-%m-%d %H:%M')
+		else
+			when=never
+		fi
+		printf '%-20s %-15s %s\n' "$name" "$(peer_field "$name" AllowedIPs | sed 's|/32$||')" "$when"
+	done
+}
+
+cmd_endpoint() {
+	local host=${1:-}
+	[[ $host =~ ^[A-Za-z0-9.:-]+$ ]] || die "usage: hostd-wg endpoint HOST (a name such as home.example.org, or a public IP)"
+	sed -i "/^ENDPOINT=/d" "$ENVF"
+	echo "ENDPOINT=$host" >>"$ENVF"
+	echo "Devices reach this machine at $host:$PORT (UDP). Devices added earlier keep the address they were given."
+}
+
+cmd_show() {
+	echo "This machine: $ADDRESS in $NET, listening on UDP $PORT"
+	echo "Devices reach it at: ${ENDPOINT:-(not set: hostd-wg endpoint HOST)}"
+	echo "Public key: $(server_public)"
+	if up; then echo "Tunnel: up"; else echo "Tunnel: down (systemctl status wg-quick@$IFACE)"; fi
+}
+
+# render writes the interface's config from the devices' files. It holds
+# no secret: this machine's key is applied from its own file.
+render() {
+	local tmp f
+	tmp=$(mktemp)
+	{
+		echo "# Managed by hostd's wireguard add-on: edit the devices with hostd-wg."
+		echo "[Interface]"
+		echo "Address = $ADDRESS/24"
+		echo "ListenPort = $PORT"
+		echo "PostUp = wg set %i private-key /etc/wireguard/$IFACE.key"
+		for f in "$PEERS"/*.peer; do
+			[ -e "$f" ] || continue
+			echo
+			echo "[Peer]"
+			cat "$f"
+		done
+	} >"$tmp"
+	if ! cmp -s "$tmp" "$DIR/$IFACE.conf"; then
+		install -m 600 "$tmp" "$DIR/$IFACE.conf"
+	fi
+	rm -f "$tmp"
+}
+
+case ${1:-} in
+add) shift && cmd_add "$@" ;;
+remove) shift && cmd_remove "$@" ;;
+list) cmd_list ;;
+endpoint) shift && cmd_endpoint "$@" ;;
+show) cmd_show ;;
+render) render ;;
+*) sed -n '2,/^set -/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2 && exit 2 ;;
+esac

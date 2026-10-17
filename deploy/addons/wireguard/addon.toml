@@ -1,0 +1,8 @@
+# WireGuard: your devices reach this machine from anywhere through one
+# forwarded UDP port, with no outside service in between. The tunnel and
+# its keys are made by hook.sh; devices are added with hostd-wg.
+description = "WireGuard: reach hostd from your devices anywhere (a VPN of your own; forward one UDP port)"
+packages = ["wireguard-tools", "qrencode"]
+files = [{ src = "hostd-wg", dest = "/usr/local/sbin/hostd-wg", mode = "755" }]
+hook = "hook.sh"
+keeps = "the tunnel's keys and devices stay in /etc/wireguard (adding the add-on again brings them back)"

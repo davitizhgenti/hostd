@@ -13,7 +13,8 @@
 #   6. an update through the installer (hostd-setup update, what the timer
 #      runs): the app keeps running, and the old version's data is kept for
 #      a rollback
-#   7. the API and the docs from outside the VM
+#   7. the wireguard add-on: the tunnel, a device, hostd on its address
+#   8. the API and the docs from outside the VM
 #
 # Runs inside the hostd-e2e container, with these mounted:
 #   /repo (the checkout), /dist (make dist), /bins (e2e-next, e2e-bad),
@@ -213,6 +214,19 @@ t "the app kept running through it" app_runs
 t "the old version's state is kept for a rollback" gs 'L=~/.local/lib/hostd; [ "$(cat $L/versions/e2e-next/backup-for)" = "versions/'"$RELEASE"'" ] && test -s $L/versions/e2e-next/state.db.bak'
 t "no more than 3 versions are kept" gs '[ "$(ls ~/.local/lib/hostd/versions | wc -l)" -le 3 ]'
 t "no unit failed after it" ga '! systemctl --failed --no-legend | grep -q .'
+
+# --- the wireguard add-on ---------------------------------------------------
+# A tunnel of the machine's own, on the VM's real kernel: up, a device
+# added and removed, hostd reached on the tunnel's address, then removed.
+echo "wireguard"
+t "sudo hostd-setup add wireguard" ga 'sudo HOSTD_WIREGUARD_ENDPOINT=vpn.example.org hostd-setup add wireguard --source ~/dist --from ~/dist --gpu other'
+t "the tunnel is up at 10.44.0.1" ga 'ip -4 addr show wg-hostd | grep -q "inet 10.44.0.1/24"'
+t "it listens on UDP 51820" ga '[ "$(sudo wg show wg-hostd listen-port)" = 51820 ]'
+t "a device is added" ga 'sudo hostd-wg add phone | grep -q "Endpoint = vpn.example.org:51820"'
+t "it is a peer of the tunnel" ga 'sudo wg show wg-hostd allowed-ips | grep -q "10.44.0.2/32"'
+t "hostd answers on the tunnel's address" ga '[ "$(curl -sk -o /dev/null -w "%{http_code}" https://10.44.0.1:7300/v1/version)" = 401 ]'
+t "a removed device is no longer a peer" ga 'sudo hostd-wg remove phone && ! sudo wg show wg-hostd allowed-ips | grep -q "10.44.0.2/32"'
+t "remove wireguard stops the tunnel" ga 'sudo hostd-setup remove wireguard && ! ip link show wg-hostd 2>/dev/null'
 
 # --- from outside the VM ---------------------------------------------------
 echo "the network API"

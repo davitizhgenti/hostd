@@ -99,7 +99,7 @@ lint:
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
 	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/addons/*/hook.sh \
-	deploy/addons/lib.sh deploy/files/start-sway
+	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py

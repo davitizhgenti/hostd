@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,7 +33,7 @@ type hookRig struct {
 var hookStubs = []string{
 	"apt-get", "certutil", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "gpg", "hostname", "ip",
 	"mariadb", "modprobe", "nginx", "nvidia-smi", "openssl", "pgrep", "php8.3", "runuser", "sh", "sha256sum",
-	"sleep", "systemctl", "tailscale", "tar", "timedatectl", "update-initramfs",
+	"qrencode", "sleep", "systemctl", "tailscale", "tar", "timedatectl", "ufw", "update-initramfs", "wg",
 }
 
 func newHookRig(t *testing.T) *hookRig {
@@ -641,4 +642,142 @@ func TestTailscaleHookPinnedKey(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 	r.mustNotCall("apt-get install -y -q tailscale")
+}
+
+// --- wireguard -----------------------------------------------------------
+
+// wireguardMachine has ufw on, and a wg whose keys are made up but look
+// right: a public key is the hex of the private one's start.
+func wireguardMachine(t *testing.T) *hookRig {
+	r := newHookRig(t)
+	r.file("/etc/hostd/addons", "wireguard\n")
+	r.stub("hostname", "192.168.18.33 fd00::5\n", 0)
+	r.script("ufw", `[ "$1" = status ] && { echo "Status: active"; [ -f "$STUB_DIR/ufw-open" ] && echo "51820/udp   ALLOW   Anywhere"; exit 0; }
+[ "$1" = allow ] && touch "$STUB_DIR/ufw-open"`)
+	r.script("systemctl", `case "$*" in
+"is-active --quiet wg-quick@wg-hostd") [ -f "$STUB_DIR/wg-up" ] || exit 3 ;;
+"is-enabled --quiet wg-quick@wg-hostd") [ -f "$STUB_DIR/wg-up" ] || exit 1 ;;
+"enable --now wg-quick@wg-hostd") touch "$STUB_DIR/wg-up" ;;
+"disable --now wg-quick@wg-hostd") rm -f "$STUB_DIR/wg-up" ;;
+esac`)
+	r.script("wg", `case $1 in
+genkey) echo "priv-$RANDOM$RANDOM$RANDOM-key"; exit 0 ;;
+pubkey) printf '%sA=\n' "$(od -An -tx1 | tr -d ' \n' | head -c 42)"; exit 0 ;;
+show) [ -f "$STUB_DIR/wg.handshakes" ] && cat "$STUB_DIR/wg.handshakes"; exit 0 ;;
+esac`)
+	return r
+}
+
+// wgCmd runs hostd-wg on the machine.
+func (r *hookRig) wgCmd(args ...string) (string, error) {
+	r.t.Helper()
+	cmd := exec.Command("bash", append([]string{"addons/wireguard/hostd-wg"}, args...)...)
+	cmd.Env = append(os.Environ(), "HOSTD_ROOT="+r.root)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestWireguardHook(t *testing.T) {
+	r := wireguardMachine(t)
+	t.Setenv("HOSTD_WIREGUARD_ENDPOINT", "home.example.org")
+	if _, err := r.run("wireguard", "addon_install", Options{Adding: []string{"wireguard"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	if env := r.read("/etc/hostd/wireguard.env"); !strings.Contains(env, "NET=10.44.0.0/24\nADDRESS=10.44.0.1\nPORT=51820\nENDPOINT=home.example.org\n") {
+		t.Errorf("settings %q", env)
+	}
+	if fi, err := os.Stat(filepath.Join(r.root, "etc/wireguard/wg-hostd.key")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("key: %v %v", fi, err)
+	}
+	conf := r.read("/etc/wireguard/wg-hostd.conf")
+	if !strings.Contains(conf, "Address = 10.44.0.1/24\nListenPort = 51820\nPostUp = wg set %i private-key /etc/wireguard/wg-hostd.key") ||
+		strings.Contains(conf, "PrivateKey") {
+		t.Errorf("config %q", conf)
+	}
+	r.mustCall("systemctl enable --now wg-quick@wg-hostd", "ufw allow 51820/udp")
+	r.says("forward UDP 51820 on your router to this machine (192.168.18.33)")
+
+	// Again: nothing changes.
+	in, err := r.run("wireguard", "addon_install", Options{})
+	if err != nil || in.Out.AnyChanged() {
+		t.Fatalf("second run: %v\n%s", err, r.out.String())
+	}
+	r.mustNotCall("systemctl enable", "systemctl restart", "ufw allow")
+
+	// Devices: one with a key made here, one with its own.
+	out, err := r.wgCmd("add", "phone", "--no-qr")
+	if err != nil || !strings.Contains(out, "Address = 10.44.0.2/32") || !strings.Contains(out, "Endpoint = home.example.org:51820") ||
+		!strings.Contains(out, "PrivateKey = priv-") || !strings.Contains(out, "AllowedIPs = 10.44.0.0/24") || !strings.Contains(out, "hostctl login 10.44.0.1") {
+		t.Fatalf("add phone: %v\n%s", err, out)
+	}
+	r.mustCall("wg set wg-hostd peer ")
+	const ownKey = "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+	out, err = r.wgCmd("add", "laptop", "--public-key", ownKey)
+	if err != nil || !strings.Contains(out, "Address = 10.44.0.3/32") || !strings.Contains(out, "<the device's own private key>") {
+		t.Fatalf("add laptop: %v\n%s", err, out)
+	}
+	conf = r.read("/etc/wireguard/wg-hostd.conf")
+	if !strings.Contains(conf, "[Peer]\n# laptop") || !strings.Contains(conf, "PublicKey = "+ownKey+"\nAllowedIPs = 10.44.0.3/32") || strings.Contains(conf, "priv-") {
+		t.Errorf("config with devices %q", conf)
+	}
+	for args, want := range map[string]string{
+		"add phone":                        "already a device called phone",
+		"add Phone":                        "lowercase letters",
+		"add tv --public-key nope":         "not a WireGuard public key",
+		"add tv --public-key " + ownKey:    "already a device's",
+		"remove tv":                        "no device called tv",
+		"endpoint home.example.org;reboot": "usage: hostd-wg endpoint",
+	} {
+		if out, err := r.wgCmd(strings.Fields(args)...); err == nil || !strings.Contains(out, want) {
+			t.Errorf("%s: %v %s", args, err, out)
+		}
+	}
+	r.write(filepath.Join(r.stubs, "wg.handshakes"), ownKey+"\t1792231200\n", 0o644)
+	out, _ = r.wgCmd("list")
+	if !regexp.MustCompile(`laptop +10\.44\.0\.3 +2026-`).MatchString(out) || !regexp.MustCompile(`phone +10\.44\.0\.2 +never`).MatchString(out) {
+		t.Errorf("list:\n%s", out)
+	}
+	if out, err := r.wgCmd("remove", "phone"); err != nil || !strings.Contains(out, "can no longer connect") {
+		t.Fatalf("remove: %v %s", err, out)
+	}
+	r.mustCall("wg set wg-hostd peer ")
+	if out, _ := r.wgCmd("add", "tablet", "--public-key", "AAAAA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="); !strings.Contains(out, "Address = 10.44.0.2/32") {
+		t.Errorf("a freed address is not used again:\n%s", out)
+	}
+
+	if _, err := r.run("wireguard", "addon_remove", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	r.mustCall("systemctl disable --now wg-quick@wg-hostd", "ufw delete allow 51820/udp")
+	if !r.exists("/etc/wireguard/wg-hostd.key") || !r.exists("/etc/wireguard/hostd-peers/laptop.peer") {
+		t.Error("the keys and devices were not kept")
+	}
+}
+
+// Without an endpoint: the tunnel runs, and devices wait until it is set.
+func TestWireguardHookNoEndpoint(t *testing.T) {
+	r := wireguardMachine(t)
+	if _, err := r.run("wireguard", "addon_install", Options{Adding: []string{"wireguard"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	r.says("set the address your devices reach this machine at: sudo hostd-wg endpoint home.example.org")
+	if out, err := r.wgCmd("add", "phone"); err == nil || !strings.Contains(out, "sudo hostd-wg endpoint") {
+		t.Fatalf("add without an endpoint: %v %s", err, out)
+	}
+	if out, err := r.wgCmd("endpoint", "203.0.113.7"); err != nil {
+		t.Fatalf("endpoint: %v %s", err, out)
+	}
+	if out, err := r.wgCmd("add", "phone", "--no-qr"); err != nil || !strings.Contains(out, "Endpoint = 203.0.113.7:51820") {
+		t.Fatalf("add: %v %s", err, out)
+	}
+}
+
+func TestWireguardHookNetworkMustBePrivate(t *testing.T) {
+	for _, net := range []string{"8.8.8.0/24", "10.44.0.0/16", "172.32.0.0/24", "10.44.0.5/24"} {
+		r := wireguardMachine(t)
+		t.Setenv("HOSTD_WIREGUARD_NET", net)
+		if _, err := r.run("wireguard", "addon_install", Options{Adding: []string{"wireguard"}}); err == nil || !strings.Contains(err.Error(), "private /24") {
+			t.Errorf("%s: %v", net, err)
+		}
+	}
 }

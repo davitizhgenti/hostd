@@ -86,8 +86,9 @@ current:
 sudo hostd-setup addons              # list them
 sudo hostd-setup add steam dolphin   # Steam in Big Picture with an app per game; Dolphin
 sudo hostd-setup add compose         # podman-compose, for compose apps
-sudo hostd-setup add pterodactyl     # Pterodactyl panel (http://<machine>/) and Wings (Docker)
+sudo hostd-setup add pterodactyl     # Pterodactyl panel (https://<machine>/) and Wings (Docker)
 sudo hostd-setup add controllers     # game controller access (the app add-ons bring it too)
+sudo hostd-setup add wireguard       # reach it from anywhere: a VPN of your own (sudo hostd-wg add phone)
 sudo hostd-setup remove dolphin
 ```
 

@@ -6,12 +6,14 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 
 | Who | Can | Because |
 | --- | --- | --- |
-| Anyone on the internet | Nothing | No port is open to the internet (the router forwards none). The API refuses addresses outside the home network and `[api] allow`, even if a port were forwarded. |
+| Anyone on the internet | Nothing | No port is open to the internet, except WireGuard's if you add it, which answers only the keys you added. The API refuses addresses outside the home network and `[api] allow`, even if a port were forwarded. |
 | A device on the home network, without a token | Read the docs | Everything else needs a token. |
 | A device with a token | What the token's scopes allow, nothing more | Each action declares its scope; the core checks it before the module sees the action. Every action is in the audit trail (`hostctl log`). |
 | A token with `run` or `admin` | Anything the `screen` user can: run any command, read its files | That is what these scopes are for. Give them only to devices you trust like a login, and revoke them when a device is lost (`hostctl token revoke`). |
 | The `screen` user | Not root | `screen` has no sudo, no password (`passwd -S screen`: L), and is not in the `docker` group. |
 | The admin user (`serve` on core) | Root, with sudo | SSH accepts keys only, once the admin has one (the installer turns passwords off; `--ssh-passwords keep` opts out). |
+
+**WireGuard** (the `wireguard` add-on) adds a tunnel of your own: one forwarded UDP port, silent to anyone without a key you added (`hostd-wg add`). Its devices are given a route to the tunnel's network only, and hostd still asks them for a token. Remove a lost device with `hostd-wg remove`; its token too (`hostctl token revoke`).
 
 **Tailscale** (the `tailscale` add-on) adds your tailnet to the home network: its devices can reach hostd as home devices can, with a token. Nothing is opened to the internet.
 
