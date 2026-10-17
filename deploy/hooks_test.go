@@ -44,13 +44,13 @@ func newHookRig(t *testing.T) *hookRig {
 	r := &hookRig{t: t, root: t.TempDir(), stubs: t.TempDir()}
 	r.log = filepath.Join(r.stubs, "calls.log")
 	// A stub logs its call; NAME.out is what it prints, NAME.rc its exit
-	// status, and NAME.sh, if there, runs first with its arguments. A
-	// -o FILE (curl) is created.
+	// status, and NAME.sh, if there, runs first with its arguments. curl's
+	// -o FILE is created.
 	stub := `#!/bin/bash
 name=${0##*/}
 printf '%s\n' "$name $*" >>"$STUB_LOG"
 prev=""
-for a in "$@"; do [ "$prev" = -o ] && [ "$a" != /dev/null ] && : >"$a"; prev=$a; done
+[ "$name" = curl ] && for a in "$@"; do [ "$prev" = -o ] && [ "$a" != /dev/null ] && : >"$a"; prev=$a; done
 [ -f "$STUB_DIR/$name.sh" ] && . "$STUB_DIR/$name.sh"
 [ -f "$STUB_DIR/$name.out" ] && cat "$STUB_DIR/$name.out"
 [ -f "$STUB_DIR/$name.rc" ] && exit "$(cat "$STUB_DIR/$name.rc")"
