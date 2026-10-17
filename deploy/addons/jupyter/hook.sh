@@ -36,7 +36,7 @@ addon_install() {
 			warn "JupyterLab did not start (hostctl logs jupyter)"
 		fi
 	fi
-	info "JupyterLab: https://$(hostname -s).local:8888 (the token: ssh screen@<machine> cat ~/.config/hostd/jupyter/token)"
+	info "JupyterLab: https://$(hostname -s).local:8888 (the token: ssh screen@<machine> \"cat ~/.config/hostd/jupyter/token\")"
 	info "collaborators open the same address, with the token; their browsers need the machine's CA (hostctl tls)"
 }
 

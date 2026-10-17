@@ -73,7 +73,7 @@ The `jupyter` add-on runs JupyterLab with real-time collaboration (`jupyter-coll
 
 ```sh
 sudo hostd-setup add jupyter                       # a few minutes the first time: its Python environment
-ssh screen@<machine> cat ~/.config/hostd/jupyter/token
+ssh screen@<machine> 'cat ~/.config/hostd/jupyter/token'
 ```
 
 Open `https://<machine>.local:8888` and give the token. It is an app like any other (`hostctl ps`, `hostctl logs jupyter`, `hostctl stop jupyter`), marked `autostart`, so it is back after a reboot. Notebooks are in `~/notebooks` on the machine.
