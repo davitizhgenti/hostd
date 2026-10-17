@@ -241,6 +241,10 @@ t "sudo hostd-setup add jupyter" ga 'sudo hostd-setup add jupyter --source ~/dis
 t "JupyterLab runs as a hostd app" wait_for 120 gs 'hostctl ps | grep -q "^jupyter .*running"'
 t "it answers over HTTPS, with the machine's certificate and the token" wait_for 60 gs "curl -fsS $JCA \"https://127.0.0.1:8888/api/status?token=\$(cat ~/.config/hostd/jupyter/token)\" | grep -q started"
 t "and not without the token" gs "case \$(curl -s $JCA -o /dev/null -w '%{http_code}' https://127.0.0.1:8888/api/status) in 401|403) ;; *) false ;; esac"
+t "it works on ~/projects" gs 'test -d ~/projects && ! test -e ~/notebooks'
+# shellcheck disable=SC2088 # ~ is the VM's home: it expands there
+t "the Git panel is on" gs '~/.local/share/hostd/jupyter/venv/bin/jupyter server extension list 2>&1 | grep -Eiq "jupyterlab_git.*enabled"'
+t "the key for GitHub is made, and GitHub's host key pinned" gs 'test -s ~/.ssh/github_ed25519.pub && grep -q "^github.com ssh-ed25519 " ~/.ssh/known_hosts'
 # shellcheck disable=SC2088 # ~ is the VM's home: it expands there
 t "real-time collaboration is on" gs '~/.local/share/hostd/jupyter/venv/bin/jupyter server extension list 2>&1 | grep -Eiq "(ydoc|collaboration).*enabled"'
 t "stopped, it is back when hostd starts (autostart)" gs 'hostctl stop jupyter >/dev/null && systemctl --user restart hostd'

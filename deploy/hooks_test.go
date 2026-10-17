@@ -34,8 +34,8 @@ type hookRig struct {
 // The commands the hooks may call that touch the system. Everything else
 // (cat, sed, cp, mkdir...) is the real one.
 var hookStubs = []string{
-	"apt-get", "certutil", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "gpg", "hostctl", "hostname", "ip",
-	"mariadb", "modprobe", "nginx", "nvidia-smi", "openssl", "pgrep", "php8.3", "python3", "runuser", "sh", "sha256sum",
+	"apt-get", "certutil", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "git", "gpg", "hostctl", "hostname", "ip",
+	"mariadb", "modprobe", "nginx", "nvidia-smi", "openssl", "pgrep", "php8.3", "python3", "runuser", "sh", "sha256sum", "ssh", "ssh-keygen",
 	"qrencode", "sleep", "systemctl", "tailscale", "tar", "timedatectl", "ufw", "update-initramfs", "wg",
 }
 
@@ -809,6 +809,9 @@ func jupyterMachine(t *testing.T) *hookRig {
 	}
 	t.Cleanup(func() { l.Close() })
 	r.script("python3", `[ "$1 $2" = "-m venv" ] && { mkdir -p "$3/bin"; for b in jupyter pip; do printf '#!/bin/sh\necho "%s $*" >>"$STUB_LOG"\n' "$b" >"$3/bin/$b"; chmod +x "$3/bin/$b"; done; }`)
+	r.script("ssh-keygen", `while [ $# -gt 0 ]; do [ "$1" = -f ] && { echo PRIVATE >"$2"; echo "ssh-ed25519 AAAAtest screen@core (hostd)" >"$2.pub"; }; shift; done`)
+	r.script("ssh", `[ -f "$STUB_DIR/github-ok" ] && echo "Hi davit! You've successfully authenticated, but GitHub does not provide shell access." >&2; exit 1`)
+	r.script("git", `[ "$*" = "config --global user.email" ] && [ -f "$STUB_DIR/git-email" ] && echo me@example.com; exit 0`)
 	r.script("hostctl", `[ "$1" = ps ] && [ -f "$STUB_DIR/jupyter-runs" ] && echo "jupyter     jupyter   process  running  4242  12:00:00"
 [ "$1" = start ] && touch "$STUB_DIR/jupyter-runs"
 [ "$1" = stop ] && rm -f "$STUB_DIR/jupyter-runs"`)
@@ -821,17 +824,38 @@ func TestJupyterHook(t *testing.T) {
 		t.Fatalf("%v\n%s", err, r.out.String())
 	}
 	venv := filepath.Join(r.root, "home/screen/.local/share/hostd/jupyter/venv")
-	r.mustCall("python3 -m venv "+venv, "pip install -q --disable-pip-version-check jupyterlab>=4.2,<5 jupyter-collaboration>=3,<5",
+	r.mustCall("python3 -m venv "+venv, "pip install -q --disable-pip-version-check jupyterlab>=4.2,<5 jupyter-collaboration>=3,<5 jupyterlab-git>=0.50,<1",
 		"hostctl app rescan", "hostctl start jupyter")
 	r.says("started JupyterLab")
-	r.says("JupyterLab: https://core.local:8888")
+	r.says("JupyterLab: https://core.local:8888, on ~/projects")
 
-	// Again, unattended: nothing to do.
+	// GitHub: a key of its own, GitHub's host key pinned, used for github.com
+	// only; until GitHub knows the key, the output says where to add it.
+	if !r.exists("/home/screen/.ssh/github_ed25519") {
+		t.Error("no key for GitHub")
+	}
+	if kh := r.read("/home/screen/.ssh/known_hosts"); !strings.Contains(kh, "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n") {
+		t.Errorf("known_hosts %q", kh)
+	}
+	if c := r.read("/home/screen/.ssh/config"); !strings.Contains(c, "Host github.com\n\tIdentityFile ~/.ssh/github_ed25519\n\tIdentitiesOnly yes") {
+		t.Errorf("ssh config %q", c)
+	}
+	r.says("add it at https://github.com/settings/ssh/new")
+	r.says("ssh-ed25519 AAAAtest screen@core (hostd)")
+	r.says("commits need a name")
+
+	// Again, unattended, with the key on GitHub: nothing to do, and it says so.
+	r.write(filepath.Join(r.stubs, "github-ok"), "", 0o644)
+	r.write(filepath.Join(r.stubs, "git-email"), "", 0o644)
 	in, err := r.run("jupyter", "addon_install", Options{})
 	if err != nil || in.Out.AnyChanged() {
 		t.Fatalf("second run: %v\n%s", err, r.out.String())
 	}
-	r.mustNotCall("python3", "pip", "hostctl start")
+	r.mustNotCall("python3", "pip", "hostctl start", "ssh-keygen")
+	r.says("GitHub: this machine's key works, as davit")
+	if c := r.read("/home/screen/.ssh/config"); strings.Count(c, "Host github.com") != 1 {
+		t.Errorf("ssh config written twice %q", c)
+	}
 
 	// Named (hostd-setup update jupyter): upgraded, but not by the timer.
 	t.Setenv("HOSTD_AUTO", "1")
@@ -843,7 +867,18 @@ func TestJupyterHook(t *testing.T) {
 	if _, err := r.run("jupyter", "addon_install", Options{Adding: []string{"jupyter"}}); err != nil {
 		t.Fatal(err)
 	}
-	r.mustCall("pip install -q --disable-pip-version-check --upgrade jupyterlab>=4.2,<5")
+	r.mustCall("pip install -q --disable-pip-version-check --upgrade jupyterlab>=4.2,<5", "hostctl stop jupyter", "hostctl start jupyter")
+
+	// A package added to the add-on is installed on the next run, unattended
+	// too, and JupyterLab restarted for it.
+	r.write(filepath.Join(venv, ".hostd-packages"), "jupyterlab>=4.2,<5\n", 0o644)
+	t.Setenv("HOSTD_AUTO", "1")
+	if _, err := r.run("jupyter", "addon_install", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	r.mustCall("pip install -q --disable-pip-version-check jupyterlab>=4.2,<5 jupyter-collaboration>=3,<5 jupyterlab-git>=0.50,<1", "hostctl stop jupyter")
+	r.says("restarted JupyterLab with the new packages")
+	t.Setenv("HOSTD_AUTO", "")
 
 	if _, err := r.run("jupyter", "addon_remove", Options{}); err != nil {
 		t.Fatal(err)

@@ -24,7 +24,7 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 - **The unix socket** (`$XDG_RUNTIME_DIR/hostd.sock`, mode 0600) is plain HTTP; it never leaves the machine. The menu, hostctl on the machine, scripts and git hooks use it.
 - **Webhooks** (`POST /v1/hooks/...`) need no token, but each checks its own signature (an HMAC from GitHub or Gitea).
 - **The Pterodactyl panel** (an add-on) is served over HTTPS with a certificate from the same CA; its port 80 only redirects. Wings, which runs the game servers, is HTTPS too. The panel and Wings run as root and control Docker: keep the panel's admin password strong, and its version current (the add-on pins it, and `sudo hostd-setup update` upgrades it).
-- **JupyterLab** (the `jupyter` add-on) listens on port 8888, HTTPS with the machine's certificate, behind a token (`~/.config/hostd/jupyter/token`, readable by `screen` only). Anyone with the token runs code as `screen`: treat it like a `run` token, and make a new one when someone should no longer have it.
+- **JupyterLab** (the `jupyter` add-on) listens on port 8888, HTTPS with the machine's certificate, behind a token (`~/.config/hostd/jupyter/token`, readable by `screen` only). Anyone with the token runs code as `screen`, and so can use the machine's key for GitHub (`~/.ssh/github_ed25519`), which can push to every repository your account can: treat the token like a `run` token, and make a new one when someone should no longer have it. For less reach, give GitHub a deploy key per repository instead of an account key.
 - **VNC** listens on localhost only: reach it through SSH (`ssh -L 5900:127.0.0.1:5900 screen@<machine>`).
 
 ## On the machine

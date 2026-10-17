@@ -69,16 +69,24 @@ A screen-only extra: `hostctl action display.notice '{"text": "Dinner is ready"}
 
 ## JupyterLab, shared
 
-The `jupyter` add-on runs JupyterLab with real-time collaboration (`jupyter-collaboration`): everyone who opens a notebook edits it together, and sees the others' cursors.
+The `jupyter` add-on runs JupyterLab on `~/projects`, with real-time collaboration (`jupyter-collaboration`: everyone who opens a notebook edits it together, and sees the others' cursors) and a Git panel (`jupyterlab-git`) for your GitHub repositories.
 
 ```sh
 sudo hostd-setup add jupyter                       # a few minutes the first time: its Python environment
 ssh screen@<machine> 'cat ~/.config/hostd/jupyter/token'
 ```
 
-Open `https://<machine>.local:8888` and give the token. It is an app like any other (`hostctl ps`, `hostctl logs jupyter`, `hostctl stop jupyter`), marked `autostart`, so it is back after a reboot. Notebooks are in `~/notebooks` on the machine.
+Open `https://<machine>.local:8888` and give the token. It is an app like any other (`hostctl ps`, `hostctl logs jupyter`, `hostctl stop jupyter`), marked `autostart`, so it is back after a reboot.
 
-- **Who can reach it**: the home network, and devices on the machine's VPN (the `wireguard` add-on), with the token. Share the address and the token with the people you work with; anyone with both can run code as the `screen` user, as with a `run` token.
+**GitHub.** The add-on makes the machine a key of its own for GitHub (`~/.ssh/github_ed25519`, used for github.com only, whose host key it pins) and prints its public half until GitHub knows it. Add that once to your account, at <https://github.com/settings/ssh/new> as an authentication key; then the machine can clone, pull and push every repository you can. Revoke it there when you want it to stop. Tell git who commits:
+
+```sh
+ssh screen@<machine> "git config --global user.name 'Your Name' && git config --global user.email you@example.com"
+```
+
+Then clone into `~/projects`: in JupyterLab, the Git panel's *Clone a Repository* with `git@github.com:you/repo.git`, or `git clone` in its terminal. Commit, pull and push from the panel.
+
+- **Who can reach it**: the home network, and devices on the machine's VPN (the `wireguard` add-on), with the token. Anyone with both can run code as the `screen` user, and so push to your repositories with the machine's key: share the token only with people you would trust that far.
 - **HTTPS**: it serves the machine's certificate, from hostd's CA, and is restarted when hostd renews it. Browsers that trust the CA (see [Install](install.md#other-devices)) show no warning.
 - **Packages**: install them from a notebook (`%pip install pandas`), into JupyterLab's own environment (`~/.local/share/hostd/jupyter/venv`). `sudo hostd-setup update jupyter` upgrades JupyterLab itself; the update timer never does.
 - **A new token**: delete `~/.config/hostd/jupyter/token` and `hostctl stop jupyter && hostctl start jupyter`; the next start makes another.

@@ -1,19 +1,21 @@
 #!/bin/bash
-# JupyterLab for hostd's jupyter add-on (the app "jupyter"). Notebooks are
-# in ~/notebooks; anyone with the token can open and edit them, together
+# JupyterLab for hostd's jupyter add-on (the app "jupyter"), on ~/projects:
+# your repositories, cloned from GitHub (the Git panel, or the terminal).
+# Anyone with the token can open and edit them, together
 # (jupyter-collaboration). Served over HTTPS with the certificate hostd
 # keeps for this machine, from its own CA.
 set -euo pipefail
 venv=$HOME/.local/share/hostd/jupyter/venv
 conf=$HOME/.config/hostd/jupyter
 tls=$HOME/.local/state/hostd/tls
-notebooks=$HOME/notebooks
+projects=$HOME/projects
 
 [ -x "$venv/bin/jupyter" ] || {
 	echo "no JupyterLab in $venv: sudo hostd-setup update jupyter" >&2
 	exit 1
 }
-mkdir -p "$notebooks" "$conf"
+mkdir -p "$projects" "$conf"
+rmdir "$HOME/notebooks" 2>/dev/null || true # the folder before ~/projects, if left empty
 if [ ! -s "$conf/token" ]; then
 	(umask 077 && head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$conf/token")
 fi
@@ -21,7 +23,7 @@ fi
 JUPYTER_TOKEN=$(cat "$conf/token")
 export JUPYTER_TOKEN
 
-args=(--no-browser --ip=0.0.0.0 --port=8888 --ServerApp.port_retries=0 --ServerApp.root_dir="$notebooks")
+args=(--no-browser --ip=0.0.0.0 --port=8888 --ServerApp.port_retries=0 --ServerApp.root_dir="$projects")
 if [ -s "$tls/cert.pem" ] && [ -s "$tls/key.pem" ]; then
 	args+=(--ServerApp.certfile="$tls/cert.pem" --ServerApp.keyfile="$tls/key.pem")
 else
