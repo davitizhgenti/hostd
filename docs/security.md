@@ -13,7 +13,7 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 | The `screen` user | Not root | `screen` has no sudo, no password (`passwd -S screen`: L), and is not in the `docker` group. |
 | The admin user (`serve` on core) | Root, with sudo | SSH accepts keys only, once the admin has one (the installer turns passwords off; `--ssh-passwords keep` opts out). |
 
-**WireGuard** (the `wireguard` add-on) adds a tunnel of your own: one forwarded UDP port, silent to anyone without a key you added (`hostd-wg add`). Its devices are given a route to the tunnel's network only, and hostd still asks them for a token. Remove a lost device with `hostd-wg remove`; its token too (`hostctl token revoke`).
+**WireGuard** (the `wireguard` add-on) adds a tunnel of your own: one forwarded UDP port, silent to anyone without a key you added (`hostd-wg add`). Its devices reach the machine and nothing behind it (a firewall table of the tunnel's drops anything forwarded from or to it), and hostd still asks them for a token. Remove a lost device with `hostd-wg remove`; its token too (`hostctl token revoke`).
 
 **Tailscale** (the `tailscale` add-on) adds your tailnet to the home network: its devices can reach hostd as home devices can, with a token. Nothing is opened to the internet.
 

@@ -154,16 +154,29 @@ cmd_show() {
 }
 
 # render writes the interface's config from the devices' files. It holds
-# no secret: this machine's key is applied from its own file.
+# no secret: this machine's key is applied from its own file. While the
+# tunnel is up, a table of its own drops anything forwarded from or to it:
+# devices reach this machine, nothing behind it, even where forwarding is
+# on (Docker turns it on); in nftables a drop is final, whatever other
+# tables accept.
 render() {
 	local tmp f
 	tmp=$(mktemp)
+	printf '%s\n' "# Managed by hostd's wireguard add-on: the tunnel's devices reach this machine only." \
+		"table inet hostd_wg" "delete table inet hostd_wg" "table inet hostd_wg {" "	chain forward {" \
+		"		type filter hook forward priority filter - 10; policy accept;" \
+		"		iifname \"$IFACE\" drop" "		oifname \"$IFACE\" drop" "	}" "}" >"$tmp"
+	if ! cmp -s "$tmp" "$DIR/$IFACE.nft"; then
+		install -m 644 "$tmp" "$DIR/$IFACE.nft"
+	fi
 	{
 		echo "# Managed by hostd's wireguard add-on: edit the devices with hostd-wg."
 		echo "[Interface]"
 		echo "Address = $ADDRESS/24"
 		echo "ListenPort = $PORT"
 		echo "PostUp = wg set %i private-key /etc/wireguard/$IFACE.key"
+		echo "PostUp = nft -f /etc/wireguard/$IFACE.nft"
+		echo "PostDown = nft delete table inet hostd_wg"
 		for f in "$PEERS"/*.peer; do
 			[ -e "$f" ] || continue
 			echo

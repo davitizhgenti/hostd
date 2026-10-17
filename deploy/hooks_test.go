@@ -691,8 +691,14 @@ func TestWireguardHook(t *testing.T) {
 	}
 	conf := r.read("/etc/wireguard/wg-hostd.conf")
 	if !strings.Contains(conf, "Address = 10.44.0.1/24\nListenPort = 51820\nPostUp = wg set %i private-key /etc/wireguard/wg-hostd.key") ||
+		!strings.Contains(conf, "PostUp = nft -f /etc/wireguard/wg-hostd.nft\nPostDown = nft delete table inet hostd_wg") ||
 		strings.Contains(conf, "PrivateKey") {
 		t.Errorf("config %q", conf)
+	}
+	// Nothing is forwarded from or to the tunnel.
+	if nft := r.read("/etc/wireguard/wg-hostd.nft"); !strings.Contains(nft, `iifname "wg-hostd" drop`) || !strings.Contains(nft, `oifname "wg-hostd" drop`) ||
+		!strings.Contains(nft, "hook forward priority filter - 10; policy accept;") {
+		t.Errorf("forwarding rules %q", nft)
 	}
 	r.mustCall("systemctl enable --now wg-quick@wg-hostd", "ufw allow 51820/udp")
 	r.says("forward UDP 51820 on your router to this machine (192.168.18.33)")
