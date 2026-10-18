@@ -107,10 +107,18 @@ func TestEarlyEndFoundAfterTheStart(t *testing.T) {
 	r.start(t, "term")
 	r.next(t)        // starting
 	r.next(t)        // started
-	fc.BlockUntil(2) // the look again after the start, and the one for apps started elsewhere
 	sd.ExitQuietly(contract.UnitName("term"), 0)
-	fc.Advance(300 * time.Millisecond)
-	ev := r.next(t)
+	// Time passes until the look again after the start (at 250ms) finds it.
+	var ev sdk.Event
+	waitUntil(t, func() bool {
+		select {
+		case ev = <-r.events:
+			return true
+		default:
+			fc.Advance(50 * time.Millisecond)
+			return false
+		}
+	})
 	var in Instance
 	_ = json.Unmarshal(ev.Data, &in)
 	if ev.Type != EventExited || in.ID != "term" || in.ExitCode == nil || *in.ExitCode != 0 {
