@@ -182,6 +182,48 @@ func (r *ExecRunner) stopHandoff(ctx context.Context, kv string) error {
 	return nil
 }
 
+// HandoffsRunning reports which of these handoff variables processes
+// have: apps that run though hostd did not start them (a game started
+// from Steam's own menu). One pass over the processes for all of them.
+func (r *ExecRunner) HandoffsRunning(kvs []string) map[string]bool {
+	found := map[string]bool{}
+	want := map[string]bool{}
+	for _, kv := range kvs {
+		want[kv] = true
+	}
+	entries, err := os.ReadDir(r.procRoot())
+	if err != nil {
+		return found
+	}
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		env, err := os.ReadFile(filepath.Join(r.procRoot(), e.Name(), "environ"))
+		if err != nil {
+			continue
+		}
+		for _, v := range bytes.Split(env, []byte{0}) {
+			if want[string(v)] {
+				found[string(v)] = true
+			}
+		}
+		if len(found) == len(want) {
+			break
+		}
+	}
+	return found
+}
+
+// FollowHandoff follows an instance hostd did not start by its handoff
+// variable: it ends when no process has it any more.
+func (r *ExecRunner) FollowHandoff(id, kv string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.handoffDefaults()
+	r.handoffs[id] = &handoff{kv: kv, since: r.clock().Now(), seen: true, unitDone: true}
+}
+
 // pidsWithEnv lists the processes whose environment has kv. Only the
 // user's own processes are readable, which are the only ones of interest.
 func pidsWithEnv(procRoot, kv string) []int {

@@ -57,7 +57,7 @@ http = "http://127.0.0.1:8096/health"
 
 Each instance runs in its own systemd unit or container. Stopping hostd never stops an app, and after a restart hostd finds its apps again.
 
-**Handoff.** Some commands pass the app to another program and exit, such as `steam steam://rungameid/620`. `runner.handoff = "KEY=value"` makes the instance last as long as processes with that variable exist. A single-instance Flatpak app does this by default (`FLATPAK_ID`).
+**Handoff.** Some commands pass the app to another program and exit, such as `steam steam://rungameid/620`. `runner.handoff = "KEY=value"` makes the instance last as long as processes with that variable exist. A single-instance Flatpak app does this by default (`FLATPAK_ID`). The same variable finds the app when hostd did not start it: a game started from Steam's own menu has its app file's `SteamAppId`, so it becomes that app's instance, listed in the menu, in front on a workspace of its own, closed like any other, and ended with its processes. (An app that just ended is not looked for again for 30 seconds, while its processes finish.)
 
 ## The screen
 

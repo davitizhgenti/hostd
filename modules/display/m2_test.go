@@ -468,3 +468,52 @@ func TestNoticeAction(t *testing.T) {
 		t.Fatalf("empty notice: %v", err)
 	}
 }
+
+// A game started from Steam's own menu, while someone uses Steam: the
+// game's window comes to the front (it was taken for Steam's, which is in
+// front), and when hostd finds the game's own instance, that instance
+// takes the window, still in front.
+func TestGameFromTheAppInFront(t *testing.T) {
+	const steamScope = `0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-com.valvesoftware.Steam-1.scope`
+	r := newDisplayRig(t, true)
+	r.input.press(t)
+	waitFor(t, "present", r.m.presence.Present)
+	// Steam was started from a phone: someone at the screen kept it in the
+	// background, then went to it themselves.
+	r.start(t, "steam", "Steam", sdk.SourceManual, false)
+	r.setLive(contract.Instance{ID: "steam", State: "running", Match: &contract.Match{Env: "FLATPAK_ID=com.valvesoftware.Steam"}})
+	r.procEnv(t, 901, steamScope, "FLATPAK_ID=com.valvesoftware.Steam")
+	r.b.openWindow(Window{ID: 7, PID: 901, Class: "steam"})
+	r.event(t)
+	r.b.focus(7)
+	r.event(t)
+	r.b.commands()
+
+	r.procEnv(t, 902, steamScope, "FLATPAK_ID=com.valvesoftware.Steam", "SteamAppId=2085540")
+	r.b.openWindow(Window{ID: 13, PID: 902, Class: "steam_app_2085540"})
+	if _, tw := r.event(t); tw.Instance != "steam" {
+		t.Fatalf("game window taken for %q", tw.Instance)
+	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 13 hostd:steam:13", "show hostd:steam:13", "focus 13", "fullscreen 13 true"}) {
+		t.Fatalf("commands %q", got)
+	}
+
+	// hostd finds the game's instance: the window is its own now.
+	r.setLive(contract.Instance{ID: "steam", State: "running", Match: &contract.Match{Env: "FLATPAK_ID=com.valvesoftware.Steam"}},
+		contract.Instance{ID: "steam-2085540", State: "running", Match: &contract.Match{Class: "steam_app_2085540", Env: "SteamAppId=2085540"}})
+	r.apps.Core().Emit(sdk.Event{Type: "instance.started", Source: &sdk.Source{Kind: sdk.SourceExternal},
+		Data: json.RawMessage(`{"id":"steam-2085540","name":"Stick It To The Stickman","fullscreen":true,"front":true}`)})
+	if _, tw := r.event(t); tw.Instance != "steam-2085540" {
+		t.Fatalf("window instance %q", tw.Instance)
+	}
+	if got := r.b.commands(); !reflect.DeepEqual(got, []string{"move 13 hostd:steam-2085540", "show hostd:steam-2085540", "focus 13", "fullscreen 13 true"}) {
+		t.Fatalf("commands %q", got)
+	}
+	// Steam's own window stays Steam's.
+	r.m.mu.Lock()
+	owner := r.m.windows[7].Instance
+	r.m.mu.Unlock()
+	if owner != "steam" {
+		t.Fatalf("Steam's window went to %q", owner)
+	}
+}

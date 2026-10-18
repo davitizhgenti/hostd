@@ -77,8 +77,11 @@ type Module struct {
 	watcher *fsnotify.Watcher
 	done    chan struct{}
 
-	instances   map[string]*Instance // live instances by ID
-	ended       []Instance           // recently ended, newest first
+	instances map[string]*Instance // live instances by ID
+	ended     []Instance           // recently ended, newest first
+	// endedAt is when each app's last instance ended: its processes may
+	// linger a moment, and must not be found again as a new instance.
+	endedAt     map[string]time.Time
 	stopWatch   context.CancelFunc
 	watchersRun sync.WaitGroup  // watchers and background hand-offs
 	life        context.Context // ends when the module stops
@@ -96,7 +99,7 @@ func New(opts Options) *Module {
 		opts.Debounce = 500 * time.Millisecond
 	}
 	return &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), reported: map[string]bool{},
-		instances: map[string]*Instance{}}
+		instances: map[string]*Instance{}, endedAt: map[string]time.Time{}}
 }
 
 func (m *Module) Manifest() sdk.Manifest {
@@ -156,6 +159,10 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	}
 	m.watchersRun.Add(1)
 	go func() { defer m.watchersRun.Done(); m.autostart(wctx) }()
+	if f, ok := m.opts.Backends[RunnerExec].(HandoffFinder); ok {
+		m.watchersRun.Add(1)
+		go func() { defer m.watchersRun.Done(); m.findStartedElsewhere(wctx, f) }()
+	}
 
 	if m.opts.NoWatch {
 		return nil

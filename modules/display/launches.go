@@ -84,13 +84,15 @@ func (m *Module) followInstances(ctx context.Context, events <-chan sdk.Event) {
 
 // claimWindows gives a started instance the open windows that turn out
 // to be its own: a handoff app whose program ran before the instance
-// (Steam, still running, started again from the menu). They are placed
-// as if they had just opened.
+// (Steam, still running, started again from the menu), or a game Steam
+// started that was taken for Steam's until hostd found the game's own
+// instance (its rules are the more specific). They are placed as if they
+// had just opened.
 func (m *Module) claimWindows(ctx context.Context, instance string) {
 	m.mu.Lock()
 	var free []Window
 	for _, t := range m.windows {
-		if t.Instance == "" {
+		if t.Instance != instance {
 			free = append(free, t.Window)
 		}
 	}

@@ -174,6 +174,12 @@ t "run --wait returns for a command that ends at once" gs 'timeout 30 hostctl ru
 t "and exits with its status" gs 'timeout 30 hostctl run -b --wait -- false; test $? = 1'
 PID=$(gs 'systemctl --user show -p MainPID --value hostd-e2e-sleep.service')
 t "it has a process" test "${PID:-0}" -gt 1
+# An app hostd did not start, found by its handoff variable (a game started
+# from Steam's own menu), and ended with its process.
+gs 'printf "name = \"Started elsewhere\"\nrunner = { type = \"exec\", command = [\"true\"], handoff = \"E2E_ELSEWHERE=1\" }\n" > ~/.config/hostd/apps/e2e-elsewhere.toml && hostctl app rescan >/dev/null'
+gs 'E2E_ELSEWHERE=1 setsid sleep 600 >/dev/null 2>&1 < /dev/null &'
+t "an app started outside hostd becomes its instance" wait_for 30 gs 'hostctl ps | grep -q "^e2e-elsewhere .*running"'
+t "and ends with its process" gs 'pkill -f "^sleep 600$"; for i in $(seq 20); do hostctl ps | grep -q "^e2e-elsewhere " || exit 0; sleep 1; done; exit 1'
 gs 'hostctl token create e2e-keep --scopes read' >"$OUT/token.txt" 2>&1
 TOKEN=$(grep -o 'hostd_[A-Za-z0-9_-]*' "$OUT/token.txt" | head -1)
 t "a token is created" test -n "$TOKEN"

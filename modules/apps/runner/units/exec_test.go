@@ -355,3 +355,18 @@ func waitUntil(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("timed out")
 }
+
+func TestHandoffsRunning(t *testing.T) {
+	procs := newFakeProcs(t)
+	procs.spawn(10, "HOME=/home/screen", "SteamAppId=550")
+	procs.spawn(11, "FLATPAK_ID=org.DolphinEmu.dolphin-emu")
+	_ = os.WriteFile(filepath.Join(procs.root, "self"), nil, 0o644) // not a process
+	r := &ExecRunner{ProcRoot: procs.root}
+	got := r.HandoffsRunning([]string{"SteamAppId=550", "SteamAppId=620", "FLATPAK_ID=org.DolphinEmu.dolphin-emu"})
+	if !got["SteamAppId=550"] || got["SteamAppId=620"] || !got["FLATPAK_ID=org.DolphinEmu.dolphin-emu"] || len(got) != 2 {
+		t.Fatalf("found %v", got)
+	}
+	if got := (&ExecRunner{ProcRoot: filepath.Join(procs.root, "nope")}).HandoffsRunning([]string{"A=1"}); len(got) != 0 {
+		t.Fatalf("no /proc: %v", got)
+	}
+}

@@ -43,6 +43,10 @@ func TestScripts(t *testing.T) {
 			env.Setenv("HOME", env.WorkDir)
 			env.Setenv("XDG_CONFIG_HOME", filepath.Join(env.WorkDir, "config"))
 			env.Setenv("XDG_STATE_HOME", filepath.Join(env.WorkDir, "state"))
+			// Not this machine's installed apps: hostd would find the ones
+			// running here (a Flatpak app is found by FLATPAK_ID).
+			env.Setenv("XDG_DATA_HOME", filepath.Join(env.WorkDir, "data"))
+			env.Setenv("XDG_DATA_DIRS", filepath.Join(env.WorkDir, "data-dirs"))
 			env.Setenv("XDG_RUNTIME_DIR", run)
 			repo, err := filepath.Abs(filepath.Join("..", ".."))
 			if err != nil {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,9 +105,9 @@ func TestEarlyEndFoundAfterTheStart(t *testing.T) {
 	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), fc)
 	waitUntil(t, func() bool { return sd.Watching() == 1 })
 	r.start(t, "term")
-	r.next(t) // starting
-	r.next(t) // started
-	fc.BlockUntil(1)
+	r.next(t)        // starting
+	r.next(t)        // started
+	fc.BlockUntil(2) // the look again after the start, and the one for apps started elsewhere
 	sd.ExitQuietly(contract.UnitName("term"), 0)
 	fc.Advance(300 * time.Millisecond)
 	ev := r.next(t)
@@ -147,6 +148,64 @@ autostart = true
 	if n := len(sd.Started); n != 1 {
 		t.Fatalf("started %d times", n)
 	}
+}
+
+// spawn makes a process the exec runner can see, with this environment.
+func (r *rig) spawn(t *testing.T, pid int, env ...string) {
+	t.Helper()
+	dir := filepath.Join(r.proc, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "environ"), []byte(strings.Join(env, "\x00")+"\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A handoff app hostd did not start (a game started from Steam's own
+// menu) becomes an instance while its processes run: in front, since
+// someone here started it. It ends with them, and is not found again
+// while they linger after an end.
+func TestAppsStartedElsewhereBecomeInstances(t *testing.T) {
+	apps := rigApps + `-- game.toml --
+name = "Game"
+runner = { type = "exec", command = ["steam", "steam://rungameid/550"], handoff = "SteamAppId=550" }
+[match]
+env = "SteamAppId=550"
+`
+	sd := unitstest.NewFakeSystemd()
+	fc := clock.NewFake(time.Date(2026, 10, 18, 16, 0, 0, 0, time.UTC))
+	r := newRigApps(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), fc, apps)
+	waitUntil(t, func() bool { return sd.Watching() == 1 })
+	tick := func() { fc.Advance(2 * time.Second) }
+
+	r.spawn(t, 4242, "FLATPAK_ID=com.valvesoftware.Steam", "SteamAppId=550")
+	waitUntil(t, func() bool { tick(); return len(r.live()) == 1 })
+	ev := r.next(t)
+	var in Instance
+	_ = json.Unmarshal(ev.Data, &in)
+	if ev.Type != EventStarted || ev.Source == nil || ev.Source.Kind != sdk.SourceExternal || in.ID != "game" || !in.Front ||
+		in.State != StateRunning || in.Match == nil || in.Match.Env != "SteamAppId=550" {
+		t.Fatalf("event %s %s", ev.Type, ev.Data)
+	}
+
+	// Its processes end: so does the instance.
+	_ = os.RemoveAll(filepath.Join(r.proc, "4242"))
+	waitUntil(t, func() bool { tick(); return len(r.live()) == 0 })
+	if ev := r.next(t); ev.Type != EventExited {
+		t.Fatalf("end: %s %s", ev.Type, ev.Data)
+	}
+
+	// A process that lingers after the end is not a new start.
+	r.spawn(t, 4243, "SteamAppId=550")
+	for range 5 {
+		tick()
+	}
+	if live := r.live(); len(live) != 0 {
+		t.Fatalf("found again at once: %v", live)
+	}
+	fc.Advance(30 * time.Second)
+	waitUntil(t, func() bool { tick(); return len(r.live()) == 1 })
 }
 
 // --- the contract other modules rely on --------------------------------------------

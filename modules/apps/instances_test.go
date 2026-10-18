@@ -91,6 +91,7 @@ type rig struct {
 	sd     *unitstest.FakeSystemd
 	docker *podmantest.FakeEngine
 	events <-chan sdk.Event
+	proc   string // the processes the exec runner sees (pid/environ files)
 }
 
 const rigApps = `
@@ -142,10 +143,10 @@ func newRigClock(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngi
 // newRigApps is a rig with these app files (in writeApps' form).
 func newRigApps(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, runtimeDir string, clk clock.Clock, apps string) *rig {
 	t.Helper()
-	appsDir := t.TempDir()
+	appsDir, proc := t.TempDir(), t.TempDir()
 	writeApps(t, appsDir, apps)
 	m := New(Options{AppsDir: appsDir, NoWatch: true, Clock: clk, Backends: map[string]Backend{
-		RunnerExec:   &ExecRunner{Systemd: sd, RuntimeDir: runtimeDir},
+		RunnerExec:   &ExecRunner{Systemd: sd, RuntimeDir: runtimeDir, ProcRoot: proc, Clock: clk},
 		RunnerDocker: &DockerRunner{Docker: d},
 	}})
 	reg := core.NewRegistry()
@@ -157,7 +158,7 @@ func newRigApps(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngin
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &rig{e: e, m: m, sd: sd, docker: d, events: e.Subscribe(ctx, "instance.*")}
+	r := &rig{e: e, m: m, sd: sd, docker: d, events: e.Subscribe(ctx, "instance.*"), proc: proc}
 	t.Cleanup(func() {
 		cancel()
 		_ = e.Stop(context.Background())

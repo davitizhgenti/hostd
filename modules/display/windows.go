@@ -56,9 +56,16 @@ func (m *Module) windowOpened(ctx context.Context, w Window) {
 	m.mu.Lock()
 	full, known := m.prefs[inst]
 	ws := m.workspaceFor(inst, w, full || !known)
+	focusedHere := false // the person is in this app now: what it opens is theirs
+	for id, t := range m.windows {
+		focusedHere = focusedHere || (inst != "" && id != w.ID && t.Focused && t.Instance == inst)
+	}
 	tw := &trackedWindow{Window: w, Instance: inst}
 	m.windows[w.ID] = tw
 	front, announce := m.placement(inst)
+	if focusedHere {
+		front, announce = true, ""
+	}
 	b := m.backend
 	m.mu.Unlock()
 	if inst != "" && b != nil {
