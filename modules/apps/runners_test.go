@@ -105,8 +105,8 @@ func TestEarlyEndFoundAfterTheStart(t *testing.T) {
 	r := newRigClock(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), fc)
 	waitUntil(t, func() bool { return sd.Watching() == 1 })
 	r.start(t, "term")
-	r.next(t)        // starting
-	r.next(t)        // started
+	r.next(t) // starting
+	r.next(t) // started
 	sd.ExitQuietly(contract.UnitName("term"), 0)
 	// Time passes until the look again after the start (at 250ms) finds it.
 	var ev sdk.Event
