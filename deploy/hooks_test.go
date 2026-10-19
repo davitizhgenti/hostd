@@ -36,7 +36,7 @@ type hookRig struct {
 var hookStubs = []string{
 	"apt-get", "certutil", "chown", "curl", "df", "dpkg", "dpkg-query", "flatpak", "free", "git", "gpg", "hostctl", "hostname", "ip",
 	"mariadb", "modprobe", "nginx", "nvidia-smi", "openssl", "pgrep", "php8.3", "python3", "runuser", "sh", "sha256sum", "ssh", "ssh-keygen",
-	"qrencode", "sleep", "systemctl", "tailscale", "tar", "timedatectl", "ufw", "update-initramfs", "wg",
+	"qrencode", "sleep", "systemctl", "tailscale", "tar", "timedatectl", "ufw", "update-ca-certificates", "update-initramfs", "wg",
 }
 
 func newHookRig(t *testing.T) *hookRig {
@@ -386,6 +386,7 @@ func TestPterodactylHookFirstInstall(t *testing.T) {
 		"systemctl daemon-reload",
 		"systemctl enable --now pteroq.service pterodactyl-schedule.timer",
 		"systemctl restart wings",
+		"update-ca-certificates",
 	)
 	src := r.read("/etc/apt/sources.list.d/hostd-sury-php.sources")
 	if !strings.Contains(src, "Signed-By: /usr/share/keyrings/deb.sury.org-php.gpg") || !strings.Contains(src, "Suites: trixie") {
@@ -402,6 +403,12 @@ func TestPterodactylHookFirstInstall(t *testing.T) {
 	wings := r.read("/etc/pterodactyl/config.yml")
 	if !strings.Contains(wings, "    enabled: true") || !strings.Contains(wings, "    cert: "+filepath.Join(r.root, tlsDir)+"/cert.pem") {
 		t.Errorf("Wings without TLS:\n%s", wings)
+	}
+	if !strings.Contains(wings, "allowed_origins:") || !strings.Contains(wings, "- '*'") {
+		t.Errorf("Wings without allowed_origins *:\n%s", wings)
+	}
+	if !r.exists("/usr/local/share/ca-certificates/hostd-ca.crt") {
+		t.Error("missing CA in system trust store")
 	}
 	if !strings.Contains(r.read(ptero+"/.env"), "APP_URL=https://") {
 		t.Errorf(".env %q", r.read(ptero+"/.env"))
@@ -525,9 +532,9 @@ func TestPterodactylHookRemove(t *testing.T) {
 	if _, err := r.run("pterodactyl", "addon_remove", Options{}); err != nil {
 		t.Fatal(err)
 	}
-	r.mustCall("systemctl disable --now wings.service pteroq.service pterodactyl-schedule.timer", "systemctl reload nginx")
+	r.mustCall("systemctl disable --now wings.service pteroq.service pterodactyl-schedule.timer", "systemctl reload nginx", "update-ca-certificates --fresh")
 	for _, f := range []string{"/etc/systemd/system/wings.service", "/usr/local/bin/wings", "/etc/nginx/sites-enabled/pterodactyl.conf",
-		"/home/screen/.config/hostd/apps/pterodactyl.toml"} {
+		"/home/screen/.config/hostd/apps/pterodactyl.toml", "/usr/local/share/ca-certificates/hostd-ca.crt"} {
 		if r.exists(f) {
 			t.Errorf("%s kept", f)
 		}

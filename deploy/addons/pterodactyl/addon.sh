@@ -307,6 +307,42 @@ ptero_wings_tls() {
 	fi
 }
 
+# ptero_wings_origins: Wings allows console/WebSocket connections from any
+# origin (browsers opening the panel via LAN IP, localhost, or mDNS).
+ptero_wings_origins() {
+	local conf=$ROOT/etc/pterodactyl/config.yml tmp
+	[ -f "$conf" ] || return 0
+	tmp=$(mktemp)
+	awk '
+		BEGIN { found = 0; skipping = 0 }
+		/^allowed_origins:/ {
+			found = 1
+			skipping = 1
+			print "allowed_origins:"
+			print "  - \x27*\x27"
+			next
+		}
+		skipping && /^[ \t]+-/ {
+			next
+		}
+		{
+			skipping = 0
+			print
+		}
+		END {
+			if (!found) {
+				print "allowed_origins:"
+				print "  - \x27*\x27"
+			}
+		}' "$conf" >"$tmp"
+	if ! cmp -s "$tmp" "$conf"; then
+		cat "$tmp" >"$conf"
+		WINGS_NEW=1
+		changed "Wings allows console connections from any browser origin"
+	fi
+	rm -f "$tmp"
+}
+
 # ptero_app_url: the panel's own address, as its links and mails use it.
 ptero_app_url() {
 	local env=$PTERO_DIR/.env want=http
@@ -318,6 +354,19 @@ ptero_app_url() {
 	sed -i -E "s|^APP_URL=https?://|APP_URL=$want://|" "$env"
 	ptero_artisan config:clear >/dev/null || true
 	changed "the panel's address is $want://"
+}
+
+# ptero_system_trust: the machine (PHP-FPM, pteroq, curl) trusts hostd's CA,
+# so the panel can reach Wings over HTTPS (port 8080) with TLS verified.
+ptero_system_trust() {
+	[ -n "$PTERO_TLS" ] || return 0
+	local ca_cert=$ROOT/usr/local/share/ca-certificates/hostd-ca.crt
+	if [ -f "$ca_cert" ] && cmp -s "$PTERO_TLS/ca.pem" "$ca_cert"; then
+		return 0
+	fi
+	install -D -m 644 "$PTERO_TLS/ca.pem" "$ca_cert"
+	update-ca-certificates >/dev/null 2>&1 || true
+	changed "the machine trusts its own CA system-wide (panel to Wings)"
 }
 
 # ptero_screen_trust: the screen's browser trusts hostd's CA, for the
@@ -429,8 +478,10 @@ addon_install() {
 	ptero_wings
 	ptero_wings_config
 	ptero_wings_tls
+	ptero_wings_origins
 	ptero_app_url
 	ptero_tls_follow
+	ptero_system_trust
 	ptero_screen_trust
 	ptero_podman
 	ptero_node_address
@@ -471,6 +522,10 @@ addon_remove() {
 		"$ROOT/usr/local/bin/wings" "$ROOT"/etc/nginx/sites-{enabled,available}/pterodactyl.conf
 	if [ ! -e "$ROOT/etc/nginx/sites-enabled/default" ] && [ -f "$ROOT/etc/nginx/sites-available/default" ]; then
 		ln -s /etc/nginx/sites-available/default "$ROOT/etc/nginx/sites-enabled/default"
+	fi
+	if [ -f "$ROOT/usr/local/share/ca-certificates/hostd-ca.crt" ]; then
+		rm -f "$ROOT/usr/local/share/ca-certificates/hostd-ca.crt"
+		update-ca-certificates --fresh >/dev/null 2>&1 || true
 	fi
 	systemctl daemon-reload
 	systemctl reload nginx >/dev/null 2>&1 || true
