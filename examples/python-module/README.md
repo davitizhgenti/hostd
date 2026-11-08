@@ -8,10 +8,9 @@
 - **Events:** each `lights.changed` event is tied to the action that caused it.
 - **A subscription:** the module counts the apps hostd starts.
 
-To try it, add this to `~/.config/hostd/hostd.toml` (or a file in `hostd.d/`) and restart hostd:
+To try it, make `~/.config/hostd/modules/lights.toml` and restart hostd:
 
 ```toml
-[external.lights]
 command = ["python3", "/path/to/examples/python-module/lights.py"]
 # transport = "stdio"   # the same module over standard input and output, with no socket
 ```

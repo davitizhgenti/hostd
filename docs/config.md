@@ -37,11 +37,6 @@ hold = "600ms"
 [display.buttons]
 guide = "display.menu"
 
-# External modules: programs in any language (see Writing a module).
-[external.lights]
-command = ["python3", "/home/screen/hostd/modules/lights.py"]
-env     = { LIGHTS_BRIDGE = "192.168.1.20" }
-
 # How the API is served on the network (listen). HTTPS with the machine's
 # own CA, always, unless tls = false and insecure_http = true.
 [api]
@@ -57,14 +52,15 @@ The default bindings are: Super for the menu, Super+Tab and Super+Shift+Tab for 
 
 ## Drop-in files
 
-Files in `~/.config/hostd/hostd.d/` add to `hostd.toml`: every `*.toml` there, in name order. A drop-in holds module sections (`[apps]`, `[display]`...) and external modules (`[external.NAME]`), so an add-on or a person can plug in a module, or change one setting, without editing `hostd.toml`. Anything else (`modules`, `listen`...) belongs in `hostd.toml`. A setting given in two files stops hostd with a message naming both; an external module counts as one setting, so it lives in one file.
+Files in `~/.config/hostd/hostd.d/` add to `hostd.toml`: every `*.toml` there, in name order. A drop-in holds module sections (`[apps]`, `[display]`...) and `[api]`, so an add-on or a person can change a setting without editing `hostd.toml`. Anything else (`modules`, `listen`...) belongs in `hostd.toml`. A setting given in two files stops hostd with a message naming both.
 
 ```toml
-# ~/.config/hostd/hostd.d/lights.toml
-[external.lights]
-command   = ["python3", "/home/screen/hostd/modules/lights.py"]
-transport = "stdio"
+# ~/.config/hostd/hostd.d/keys.toml
+[display.keys]
+"F1" = "display.menu"
 ```
+
+External modules are not configured here: each is a file in `~/.config/hostd/modules/` ([resources](resources.md); [writing a module](modules.md)).
 
 ## Files and folders
 
@@ -74,6 +70,7 @@ transport = "stdio"
 | `~/.config/hostd/hostd.d/*.toml` | [Drop-ins](#drop-in-files): modules and settings in files of their own |
 | `~/.config/hostd/apps/` | [App files](apps.md) |
 | `~/.config/hostd/scenes/`, `rules/`, `scripts/` | [Automation](automation.md) |
+| `~/.config/hostd/modules/` | [External modules](modules.md#in-any-language-an-external-module), one file each |
 | `~/.config/hostd/<kind>/` | [Resources](resources.md): one folder per kind, one file each |
 | `~/.config/hostd/.pre-0.2/` | The files `hostd -migrate` replaced, kept |
 | `~/.config/hostd/secrets/` | [Secrets](services.md#secrets) (0600) |

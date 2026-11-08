@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -29,6 +30,11 @@ func Needed(configDir string) error {
 	if _, err := os.Stat(filepath.Join(configDir, "rules.toml")); err == nil {
 		return fmt.Errorf("%s is the format before 0.2 (one file for all rules; now one file each in rules/): run `hostd -migrate`",
 			filepath.Join(configDir, "rules.toml"))
+	}
+	for _, f := range configFiles(configDir) {
+		if hasExternal(f) {
+			return fmt.Errorf("%s has [external.NAME] tables (external modules are now one file each in modules/): run `hostd -migrate`", f)
+		}
 	}
 	if old := legacyScripts(configDir); len(old) > 0 {
 		return fmt.Errorf("the script %s has no script file (scripts are now described by scripts/<name>.toml): run `hostd -migrate`",
@@ -46,6 +52,11 @@ func Run(configDir string) ([]string, error) {
 		return did, err
 	}
 	lines, err = scripts(configDir)
+	did = append(did, lines...)
+	if err != nil {
+		return did, err
+	}
+	lines, err = externals(configDir)
 	did = append(did, lines...)
 	return did, err
 }
@@ -246,4 +257,134 @@ func headerScopes(path string) []string {
 		}
 	}
 	return nil
+}
+
+// configFiles are the files that may hold [external.NAME]: hostd.toml and the
+// drop-ins beside it.
+func configFiles(configDir string) []string {
+	files := []string{filepath.Join(configDir, "hostd.toml")}
+	drops, _ := filepath.Glob(filepath.Join(configDir, "hostd.d", "*.toml"))
+	sort.Strings(drops)
+	return append(files, drops...)
+}
+
+// hasExternal reports whether a config file has an "external" table.
+func hasExternal(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc map[string]any
+	if _, err := toml.Decode(string(b), &doc); err != nil {
+		return false // hostd reports a file it cannot read, when it reads it
+	}
+	_, ok := doc["external"]
+	return ok
+}
+
+// moduleFile is an external module as its own file says it.
+type moduleFile struct {
+	Command   []string          `toml:"command"`
+	Env       map[string]string `toml:"env,omitempty"`
+	Transport string            `toml:"transport,omitempty"`
+}
+
+var notModuleName = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// externals moves every [external.NAME] of hostd.toml and its drop-ins into
+// modules/NAME.toml, and takes the tables out of the file they were in (the
+// original is kept in the backup folder).
+func externals(configDir string) ([]string, error) {
+	var did []string
+	for _, file := range configFiles(configDir) {
+		if !hasExternal(file) {
+			continue
+		}
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return did, err
+		}
+		var doc struct {
+			External map[string]moduleFile `toml:"external"`
+		}
+		if _, err := toml.Decode(string(b), &doc); err != nil {
+			return did, fmt.Errorf("%s: %w (fix it, or move it away, then run again)", file, err)
+		}
+		stripped := removeExternal(string(b))
+		var check map[string]any
+		if _, err := toml.Decode(stripped, &check); err != nil {
+			return did, fmt.Errorf("%s: could not take [external] out automatically: %w", file, err)
+		}
+		if _, still := check["external"]; still {
+			return did, fmt.Errorf("%s: external modules are written in a form that cannot be moved automatically (inline table or dotted keys): move them to modules/<name>.toml by hand", file)
+		}
+		names := make([]string, 0, len(doc.External))
+		for n := range doc.External {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			name := strings.Trim(notModuleName.ReplaceAllString(strings.ToLower(n), "-"), "-")
+			dest := filepath.Join(configDir, "modules", name+".toml")
+			if exists(dest) {
+				return did, fmt.Errorf("%s: the module %q would be modules/%s.toml, which exists already (move one of them away, then run again)", file, n, name)
+			}
+			var buf bytes.Buffer
+			if name != n {
+				fmt.Fprintf(&buf, "# Was [external.%s] in %s.\n", n, filepath.Base(file))
+			}
+			x := doc.External[n]
+			if err := toml.NewEncoder(&buf).Encode(x); err != nil {
+				return did, err
+			}
+			if err := fsx.WriteFile(dest, buf.Bytes(), 0o644); err != nil {
+				return did, err
+			}
+			did = append(did, fmt.Sprintf("%s: [external.%s] is now modules/%s.toml", filepath.Base(file), n, name))
+		}
+		backup, err := copyAway(configDir, file)
+		if err != nil {
+			return did, err
+		}
+		if err := fsx.WriteFile(file, []byte(stripped), 0o644); err != nil {
+			return did, err
+		}
+		did = append(did, fmt.Sprintf("%s: the original is kept as %s", filepath.Base(file), backup))
+	}
+	return did, nil
+}
+
+var tableHeader = regexp.MustCompile(`^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$`)
+
+// removeExternal drops the [external] and [external.NAME...] tables from a
+// TOML text, each up to the next table's header, and leaves the rest as it
+// is, comments included.
+func removeExternal(text string) string {
+	var out []string
+	skipping := false
+	for _, line := range strings.Split(text, "\n") {
+		if m := tableHeader.FindStringSubmatch(line); m != nil {
+			key := strings.ReplaceAll(m[1], " ", "")
+			skipping = key == "external" || strings.HasPrefix(key, "external.")
+		}
+		if !skipping {
+			out = append(out, line)
+		}
+	}
+	return strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
+}
+
+// copyAway copies a file into the backup folder (it stays where it is), under
+// a name that is free.
+func copyAway(configDir, path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(configDir, BackupDir)
+	dest := filepath.Join(dir, filepath.Base(path))
+	for n := 2; exists(dest); n++ {
+		dest = filepath.Join(dir, fmt.Sprintf("%s.%d", filepath.Base(path), n))
+	}
+	return dest, fsx.WriteFile(dest, b, 0o644)
 }

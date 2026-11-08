@@ -1,0 +1,54 @@
+# External modules are resources of the kind "module": hostd starts them
+# when it starts, so a file added or changed while it runs says so.
+[!exec:python3] skip
+mkdir $XDG_CONFIG_HOME/hostd
+cp hostd.toml $XDG_CONFIG_HOME/hostd/hostd.toml
+mkdir $XDG_CONFIG_HOME/hostd/modules
+cp lights.toml $XDG_CONFIG_HOME/hostd/modules/lights.toml
+exec sed -i s|@REPO@|$REPO| $XDG_CONFIG_HOME/hostd/modules/lights.toml
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+exec hostctl modules
+stdout 'lights +python3, .*lights.py +stdio +running'
+
+# A new file: it is checked now, and runs at the next start.
+exec hostctl apply -f more.toml --kind module --name more
+stdout 'module/more: applied'
+exec hostctl modules
+stdout 'more +python3, .*more.py +socket +restart required'
+exec hostctl get modules more --json
+stdout '"reason": "RestartRequired"'
+
+# A changed file for a module that runs: the same.
+env EDITOR='sed -i s/stdio/socket/'
+exec hostctl edit module lights
+stdout 'module/lights: applied'
+exec hostctl get modules lights --json
+stdout '"reason": "RestartRequired"'
+
+# Refused when it is applied: not a command, a name of a built-in module.
+! exec hostctl apply -f nocommand.toml --kind module --name nope
+stdout 'missing property .command'
+! exec hostctl apply -f more.toml --kind module --name apps
+stdout 'built-in module'
+exec hostctl apply -f more.toml --kind module --name more --check
+stdout 'would be accepted'
+
+# Deleting the file: the module runs until hostd restarts.
+exec hostctl delete module more
+! exec hostctl get modules more
+stderr 'no module "more"'
+exec hostctl lights set porch --brightness 40
+stdout 'applied'
+
+-- hostd.toml --
+modules = ["apps"]
+-- lights.toml --
+command = ["python3", "@REPO@/examples/python-module/lights.py"]
+transport = "stdio"
+-- more.toml --
+command = ["python3", "/nowhere/more.py"]
+-- nocommand.toml --
+env = { A = "1" }

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -77,32 +78,28 @@ browser = ["firefox", "{url}"]
 	}
 
 	for body, want := range map[string]string{
-		"[input.keys]\n\"F2\" = \"display.menu\"":                    "input is now [display]: hold, [display.keys] and [display.buttons]",
-		"idle_after = \"7m\"":                                        "idle_after is now [display] idle_after",
-		`gamescope = ["gamescope"]`:                                  "gamescope is now [apps] gamescope",
-		"[display.keys]\n\"F2\" = \"window.fly\"":                    `[display] keys: F2: "window.fly" cannot be bound`,
-		"[display.buttons]\nturbo = \"window.next\"":                 `[display] buttons: button "turbo"`,
-		"[display]\nmice = 1":                                        "unknown key(s): display.mice",
-		"[display]\nidle_after = \"-1m\"":                            "idle_after is negative",
-		"[display]\nidle_after = \"soon\"":                           "not a duration",
-		"[audio]\nvolume = 5":                                        "the audio module has no settings",
-		"[api]\ntls = false":                                         "insecure_http",
-		"[api]\nallow = [\"tailscale\"]":                             "not a network",
-		"[api]\nnames = [\"my core\"]":                               "not a host name",
-		"[api]\nport = 1":                                            "unknown key(s): api.port",
-		`modules = ["apps", "lights"]`:                               `no module "lights"`,
-		`modules = ["apps", "apps"]`:                                 "listed twice",
-		`listn = ":7300"`:                                            "unknown key(s): listn",
-		`hold_window = "three minutes"`:                              "not a duration",
-		`hold_window = "-1m"`:                                        "negative",
-		`modules = "apps"`:                                           "",
-		"[hold_windows]\n\"audio.\" = 5":                             "",
-		`this is not toml`:                                           "",
-		"[external.apps]\ncommand = [\"x\"]":                         "a built-in module's name",
-		"[external.Lights]\ncommand = [\"x\"]":                       "use lowercase",
-		"[external.lights]\nenv = {}":                                "needs a command",
-		"[external.lights]\ncommand = [\"x\"]\ntransport = \"pipe\"": `transport "pipe"`,
-		"[external.lights]\ncommnd = [\"x\"]":                        "unknown key(s): external.lights.commnd",
+		"[input.keys]\n\"F2\" = \"display.menu\"":    "input is now [display]: hold, [display.keys] and [display.buttons]",
+		"idle_after = \"7m\"":                        "idle_after is now [display] idle_after",
+		`gamescope = ["gamescope"]`:                  "gamescope is now [apps] gamescope",
+		"[display.keys]\n\"F2\" = \"window.fly\"":    `[display] keys: F2: "window.fly" cannot be bound`,
+		"[display.buttons]\nturbo = \"window.next\"": `[display] buttons: button "turbo"`,
+		"[display]\nmice = 1":                        "unknown key(s): display.mice",
+		"[display]\nidle_after = \"-1m\"":            "idle_after is negative",
+		"[display]\nidle_after = \"soon\"":           "not a duration",
+		"[audio]\nvolume = 5":                        "the audio module has no settings",
+		"[api]\ntls = false":                         "insecure_http",
+		"[api]\nallow = [\"tailscale\"]":             "not a network",
+		"[api]\nnames = [\"my core\"]":               "not a host name",
+		"[api]\nport = 1":                            "unknown key(s): api.port",
+		`modules = ["apps", "lights"]`:               `no module "lights"`,
+		`modules = ["apps", "apps"]`:                 "listed twice",
+		`listn = ":7300"`:                            "unknown key(s): listn",
+		`hold_window = "three minutes"`:              "not a duration",
+		`hold_window = "-1m"`:                        "negative",
+		`modules = "apps"`:                           "",
+		"[hold_windows]\n\"audio.\" = 5":             "",
+		`this is not toml`:                           "",
+		"[external.lights]\ncommand = [\"x\"]":       "is now a file in modules/",
 	} {
 		_, err := LoadConfig(writeConfig(t, body))
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -201,15 +198,52 @@ func TestRunRefusesBadConfig(t *testing.T) {
 	}
 }
 
-func TestLoadConfigExternal(t *testing.T) {
-	c, err := LoadConfig(writeConfig(t, "[external.lights]\ncommand = [\"python3\", \"lights.py\"]\nenv = { BRIDGE = \"10.0.0.2\" }\n"))
-	if err != nil || len(c.External["lights"].Command) != 2 || c.External["lights"].Env["BRIDGE"] != "10.0.0.2" {
-		t.Fatalf("%+v %v", c.External, err)
+// External modules are files in modules/: read in order, and one that is
+// not valid is kept with its error.
+func TestLoadExternals(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "modules"), 0o755)
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, "modules", name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("lights.toml", "command = [\"python3\", \"lights.py\"]\nenv = { BRIDGE = \"10.0.0.2\" }\ntransport = \"stdio\"\n")
+	write("apps.toml", "command = [\"x\"]\n")
+	write("noword.toml", "env = {}\n")
+	write("typo.toml", "commnd = [\"x\"]\n")
+	write("README", "not a module")
+	write(".hidden.toml", "command = [\"x\"]\n")
+	got := loadExternals(dir)
+	names := make([]string, len(got))
+	for i, x := range got {
+		names[i] = x.name
+	}
+	if !reflect.DeepEqual(names, []string{"apps", "lights", "noword", "typo"}) {
+		t.Fatalf("names = %v", names)
+	}
+	l := got[1]
+	if l.err != nil || len(l.file.Command) != 2 || l.file.Env["BRIDGE"] != "10.0.0.2" || l.file.Transport != "stdio" {
+		t.Fatalf("lights: %+v", l)
+	}
+	for i, want := range map[int]string{0: "built-in module", 2: "needs a command", 3: "unknown key(s): commnd"} {
+		if got[i].err == nil || !strings.Contains(got[i].err.Error(), want) {
+			t.Errorf("%s: %v, want %q", got[i].name, got[i].err, want)
+		}
+		if st := got[i].state(nil); st.Err == "" || st.Name != got[i].name {
+			t.Errorf("%s: state %+v", got[i].name, st)
+		}
+	}
+	if st := l.state(errors.New("did not answer")); st.Err != "did not answer" || !bytes.Equal(st.Raw, l.raw) {
+		t.Errorf("a module that did not start: %+v", st)
+	}
+	if got := loadExternals(t.TempDir()); len(got) != 0 {
+		t.Errorf("no modules/ folder: %v", got)
 	}
 }
 
-// Files in hostd.d/ add to hostd.toml: an add-on, or a person, plugs in an
-// external module or a module's settings without editing hostd.toml.
+// Files in hostd.d/ add to hostd.toml: an add-on, or a person, plugs in a
+// module's settings without editing hostd.toml.
 func TestDropIns(t *testing.T) {
 	setup := func(t *testing.T, main string, drops map[string]string) string {
 		t.Helper()
@@ -227,16 +261,15 @@ func TestDropIns(t *testing.T) {
 
 	// Settings from several files come together; other files are ignored.
 	path := setup(t, "modules = [\"apps\", \"display\"]\n[display]\nidle_after = \"9m\"\n", map[string]string{
-		"10-lights.toml": "[external.lights]\ncommand = [\"python3\", \"lights.py\"]\ntransport = \"stdio\"\n",
-		"20-keys.toml":   "[display.keys]\n\"F1\" = \"display.menu\"\n[apps]\nbrowser = [\"firefox\", \"{url}\"]\n",
-		"README":         "not a config file",
-		"old.toml~":      "not one either",
+		"20-keys.toml": "[display.keys]\n\"F1\" = \"display.menu\"\n[apps]\nbrowser = [\"firefox\", \"{url}\"]\n",
+		"README":       "not a config file",
+		"old.toml~":    "not one either",
 	})
 	c, err := LoadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(c.Modules, []string{"apps", "display"}) || c.External["lights"].Transport != "stdio" {
+	if !reflect.DeepEqual(c.Modules, []string{"apps", "display"}) {
 		t.Fatalf("config %+v", c)
 	}
 	confs, err := moduleConfigs(c)
@@ -259,7 +292,7 @@ func TestDropIns(t *testing.T) {
 	}
 
 	// Drop-ins alone, with no hostd.toml.
-	if c, err := LoadConfig(setup(t, "", map[string]string{"x.toml": "[external.x]\ncommand = [\"x\"]\n"})); err != nil || len(c.External) != 1 {
+	if c, err := LoadConfig(setup(t, "", map[string]string{"x.toml": "[display]\nidle_after = \"7m\"\n"})); err != nil || len(c.sections) != 1 {
 		t.Fatalf("no hostd.toml: %+v %v", c, err)
 	}
 
@@ -270,8 +303,8 @@ func TestDropIns(t *testing.T) {
 	}{
 		"a setting in two files": {"[display]\nidle_after = \"1m\"\n", map[string]string{"a.toml": "[display]\nidle_after = \"2m\"\n"},
 			[]string{"display.idle_after is set in both", "hostd.toml", "a.toml"}},
-		"a module in two drop-ins": {"", map[string]string{"a.toml": "[external.x]\ncommand = [\"x\"]\n", "b.toml": "[external.x]\nenv = {A = \"1\"}\n"},
-			[]string{"external.x is set in both", "a.toml", "b.toml"}},
+		"an external module in a drop-in": {"", map[string]string{"a.toml": "[external.x]\ncommand = [\"x\"]\n"},
+			[]string{"a.toml: external belongs in", "hostd.toml"}},
 		"a top-level key": {"", map[string]string{"a.toml": "listen = \"\"\n"},
 			[]string{"a.toml: listen belongs in", "hostd.toml"}},
 		"a mistake in a drop-in": {"", map[string]string{"a.toml": "[display.keys]\n\"F2\" = \"window.fly\"\n"},

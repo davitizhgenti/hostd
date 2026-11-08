@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"syscall"
 	"time"
 
@@ -131,19 +130,21 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	// External modules: one that fails to start or to describe itself is
 	// left out, and hostd runs without it.
-	names := make([]string, 0, len(cfg.External))
-	for name := range cfg.External {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		x := cfg.External[name]
-		em, err := extmod.Load(ctx, extmod.Options{Name: name, Command: x.Command, Env: x.Env, Transport: x.Transport,
-			SocketDir: filepath.Join(*runtimeDir, "hostd-modules"), Logger: log})
-		if err != nil {
-			log.Error("external module left out", "module", name, "err", err)
+	var externals []system.ExternalState
+	for _, x := range loadExternals(configDir) {
+		if x.err != nil {
+			log.Error("external module left out", "module", x.name, "err", x.err)
+			externals = append(externals, x.state(nil))
 			continue
 		}
+		em, err := extmod.Load(ctx, extmod.Options{Name: x.name, Command: x.file.Command, Env: x.file.Env, Transport: x.file.Transport,
+			SocketDir: filepath.Join(*runtimeDir, "hostd-modules"), Logger: log})
+		if err != nil {
+			log.Error("external module left out", "module", x.name, "err", err)
+			externals = append(externals, x.state(err))
+			continue
+		}
+		externals = append(externals, x.state(nil))
 		mods = append(mods, em)
 	}
 	coreOpts := core.Options{Logger: log, HoldWindow: time.Duration(cfg.HoldWindow), HoldWindows: cfg.holdWindows()}
@@ -159,14 +160,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			}}
 		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, configDir, *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, configDir, *socket, *listen, *docs, cfg.API, mods, externals, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDir, socket, listen, docs string, apiCfg APIConfig, mods []sdk.Module,
+func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDir, socket, listen, docs string, apiCfg APIConfig, mods []sdk.Module, externals []system.ExternalState,
 	coreOpts core.Options, newUpdater func(*store.Store) api.Updater, stderr io.Writer) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -194,7 +195,7 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDi
 	}
 
 	reg := core.NewRegistry()
-	sys := system.New(system.Options{Store: st, TLS: ca}) // hostd's own: tokens, the audit trail...
+	sys := system.New(system.Options{Store: st, TLS: ca, Externals: externals, Reserved: builtinNames(), Logger: log}) // hostd's own: tokens, the audit trail...
 	if err := reg.Add(sys); err != nil {
 		return err
 	}
@@ -202,6 +203,11 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDi
 		if err := reg.Add(m); err != nil {
 			if em, ok := m.(*extmod.Module); ok { // e.g. a namespace another module owns
 				log.Error("external module left out", "module", em.Manifest().Name, "err", err)
+				for i := range externals { // shown on its resource
+					if externals[i].Name == em.Manifest().Name {
+						externals[i].Err = err.Error()
+					}
+				}
 				_ = em.Stop(ctx)
 				continue
 			}

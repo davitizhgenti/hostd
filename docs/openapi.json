@@ -3004,6 +3004,461 @@
         "x-hostd-scope": "audio"
       }
     },
+    "/v1/modules": {
+      "get": {
+        "description": "An external module: a program that speaks the module protocol, started with hostd",
+        "operationId": "list.modules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "error": {
+                        "description": "why the file on disk is not in use; spec is then the version that is",
+                        "type": "string"
+                      },
+                      "file": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "spec": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "command": {
+                            "description": "the program and its arguments",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "env": {
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "added to the program's environment",
+                            "type": "object"
+                          },
+                          "transport": {
+                            "description": "socket (default) or stdio",
+                            "enum": [
+                              "socket",
+                              "stdio"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "command"
+                        ],
+                        "type": "object"
+                      },
+                      "status": {
+                        "description": "Conditions (Ready...) and the kind's own data",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List modules",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/modules/{name}": {
+      "delete": {
+        "operationId": "delete.module",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a module",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-scope": "admin"
+      },
+      "get": {
+        "operationId": "get.module",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "command": {
+                          "description": "the program and its arguments",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "added to the program's environment",
+                          "type": "object"
+                        },
+                        "transport": {
+                          "description": "socket (default) or stdio",
+                          "enum": [
+                            "socket",
+                            "stdio"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One module",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-scope": "read"
+      },
+      "put": {
+        "description": "The body is TOML, or a JSON object. A resource the module rejects is not written and the previous one stays. With ?check=1 nothing is applied or written.",
+        "operationId": "apply.module",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "only check that the resource would be accepted",
+            "in": "query",
+            "name": "check",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "command": {
+                    "description": "the program and its arguments",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "added to the program's environment",
+                    "type": "object"
+                  },
+                  "transport": {
+                    "description": "socket (default) or stdio",
+                    "enum": [
+                      "socket",
+                      "stdio"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "command"
+                ],
+                "type": "object"
+              }
+            },
+            "application/toml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "command": {
+                          "description": "the program and its arguments",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "env": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "added to the program's environment",
+                          "type": "object"
+                        },
+                        "transport": {
+                          "description": "socket (default) or stdio",
+                          "enum": [
+                            "socket",
+                            "stdio"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "command"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create or replace a module",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-scope": "admin"
+      }
+    },
+    "/v1/modules/{name}/file": {
+      "get": {
+        "operationId": "file.module",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/toml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "TOML"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The module's file as written",
+        "tags": [
+          "hostd"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
     "/v1/openapi.json": {
       "get": {
         "operationId": "core.openapi",

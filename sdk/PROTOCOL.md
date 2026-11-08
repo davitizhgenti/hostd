@@ -6,13 +6,12 @@ An external module is a separate program that hostd starts and talks to over a u
 
 ## Configuration and start
 
-A module is configured in `~/.config/hostd/hostd.toml`, or in a file of its own in `~/.config/hostd/hostd.d/` (see the configuration page):
+A module is configured with a file of its own, `~/.config/hostd/modules/<name>.toml` (the name is the module's, and must be the name its manifest gives):
 
 ```toml
-[external.lights]
-command = ["python3", "/home/screen/hostd/modules/lights.py"]
-env     = { LIGHTS_BRIDGE = "192.168.1.20" }   # optional
-transport = "stdio"                            # optional: "socket" (default) or "stdio"
+command   = ["python3", "/home/screen/hostd/modules/lights.py"]
+env       = { LIGHTS_BRIDGE = "192.168.1.20" }   # optional
+transport = "stdio"                              # optional: "socket" (default) or "stdio"
 ```
 
 hostd starts `command` with these environment variables:

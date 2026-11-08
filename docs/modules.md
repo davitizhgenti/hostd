@@ -11,18 +11,21 @@ A module owns a namespace (`lights.*`). It declares its actions, events, reads a
 | New actions, events or reads: lights, a thermostat, anything with an API | An external module | Any language; configured in a file of its own in `hostd.d/` |
 | The same, inside hostd | A built-in module | Go, one entry in `internal/daemon/modules.go` |
 
-They combine: an add-on can install what an external module needs and write its `hostd.d/` file (listed under `files`, so `remove` takes it away again), so `sudo hostd-setup add NAME` gives the machine a new module without anyone editing `hostd.toml`.
+They combine: an add-on can install what an external module needs and write its `modules/` file (listed under `files`, so `remove` takes it away again), so `sudo hostd-setup add NAME` gives the machine a new module without anyone editing `hostd.toml`.
 
 ## In any language: an external module
 
 An external module is a program that hostd starts and talks to over a unix socket (or, with `transport = "stdio"`, over its standard input and output), with JSON-RPC 2.0 and one message per line. It needs no library: [`examples/python-module/lights.py`](https://github.com/davitizhgenti/hostd/tree/main/examples/python-module) is a complete module in Python's standard library.
 
-Configure it in `hostd.toml`, or better, in a file of its own beside it, `~/.config/hostd/hostd.d/lights.toml` ([drop-ins](config.md#drop-in-files)):
+Configure it with a file of its own, `~/.config/hostd/modules/lights.toml` (the file's name is the module's, and must be the name its manifest gives). It is a [resource](resources.md) of the kind `module`:
 
 ```toml
-[external.lights]
-command = ["python3", "/home/screen/hostd/modules/lights.py"]
+command   = ["python3", "/home/screen/hostd/modules/lights.py"]
+env       = { LIGHTS_BRIDGE = "192.168.1.20" }   # optional
+transport = "stdio"                              # optional: "socket" (default) or "stdio"
 ```
+
+`hostctl apply -f lights.toml --kind module` puts it there (and checks it), `hostctl modules` shows each module's state: `running`, `failed: ...`, or `restart required`. hostd starts external modules when it starts, so a new or changed file takes effect at the next start of hostd, and the state says so until then.
 
 Its actions then become commands and routes like the built-in ones:
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strconv"
@@ -34,6 +35,11 @@ type Options struct {
 	Every time.Duration
 	// Clock times quiet.wait (default: the real one).
 	Clock clock.Clock
+	// Externals are the external modules hostd found when it started, and
+	// Reserved the names of the built-in modules: for the kind "module".
+	Externals []ExternalState
+	Reserved  []string
+	Logger    *slog.Logger
 }
 
 // Module is hostd's own module.
@@ -74,7 +80,8 @@ var (
 func (m *Module) Manifest() sdk.Manifest {
 	man := sdk.Manifest{
 		Name: Name, Version: "0.1.0",
-		Owns: []string{"token.*", "quiet.*"},
+		Owns:  []string{"token.*", "quiet.*"},
+		Kinds: []sdk.KindSpec{moduleKind()},
 		Actions: []sdk.ActionSpec{
 			{Type: "token.create", Description: "Create an API token; its secret is shown only now",
 				Schema: createSchema, Scope: sdk.ScopeAdmin, Keys: []sdk.KeyTemplate{"token:{name}"},

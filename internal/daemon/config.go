@@ -46,18 +46,14 @@ import (
 //	[display.keys]
 //	"F1" = "display.menu"
 //
-//	# External modules: programs that speak the module protocol
-//	# (sdk/PROTOCOL.md), in any language.
-//	[external.lights]
-//	command = ["python3", "/home/screen/hostd/modules/lights.py"]
-//	env = { LIGHTS_BRIDGE = "192.168.1.20" }
-//	transport = "stdio"   # optional: talk over the program's stdin/stdout, not a socket
+// External modules, programs that speak the module protocol
+// (sdk/PROTOCOL.md), are not here: each is a file in modules/ (see
+// loadExternals).
 type Config struct {
 	Modules     []string                `toml:"modules"`
 	Listen      *string                 `toml:"listen"`
 	HoldWindow  sdk.Duration            `toml:"hold_window"`
 	HoldWindows map[string]sdk.Duration `toml:"hold_windows"`
-	External    map[string]External     `toml:"external"`
 	API         APIConfig               `toml:"api"`
 
 	path       string
@@ -69,6 +65,7 @@ type Config struct {
 var movedKeys = map[string]string{
 	"idle_after": "[display] idle_after",
 	"input":      "[display]: hold, [display.keys] and [display.buttons]",
+	"external":   "a file in modules/ (modules/<name>.toml; hostd -migrate makes them)",
 	"browser":    "[apps] browser",
 	"gamescope":  "[apps] gamescope",
 }
@@ -128,18 +125,6 @@ func LoadConfig(path string) (Config, error) {
 			return Config{}, fmt.Errorf("%s: no module %q; available: %s", path, m, strings.Join(builtinNames(), ", "))
 		}
 		seen[m] = true
-	}
-	for name, x := range c.External {
-		switch {
-		case builtinNamed(name) != nil:
-			return Config{}, fmt.Errorf("%s: external module %q has a built-in module's name", path, name)
-		case !sdk.ValidModuleName(name):
-			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and - (up to 32)", path, name)
-		case len(x.Command) == 0:
-			return Config{}, fmt.Errorf("%s: external module %q needs a command", path, name)
-		case x.Transport != "" && x.Transport != "socket" && x.Transport != "stdio":
-			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
-		}
 	}
 	if c.HoldWindow < 0 {
 		return Config{}, fmt.Errorf("%s: hold_window is negative", path)
@@ -203,13 +188,6 @@ func (c APIConfig) check(path string) error {
 	return nil
 }
 
-// External is an external module's settings.
-type External struct {
-	Command   []string          `toml:"command"`
-	Env       map[string]string `toml:"env"`
-	Transport string            `toml:"transport"` // "socket" (default) or "stdio"
-}
-
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -232,13 +210,13 @@ func (c Config) holdWindows() map[string]time.Duration {
 }
 
 // DropInDir is where files that add to hostd.toml go: hostd.d/ beside it.
-// An add-on, or a person, puts an external module or a module's settings
-// there in a file of its own, without editing hostd.toml.
+// An add-on, or a person, puts a module's settings there in a file of its
+// own, without editing hostd.toml.
 func DropInDir(configPath string) string { return filepath.Join(filepath.Dir(configPath), "hostd.d") }
 
 // readConfig returns hostd.toml with the files in hostd.d/ (*.toml, in name
 // order) merged into it. A drop-in may hold module sections ([apps],
-// [display]...) and [external.NAME]; anything set in two files is an error
+// [display]...) and [api]; anything set in two files is an error
 // naming both. Without drop-ins it is hostd.toml as it is. Neither file
 // existing is fs.ErrNotExist.
 func readConfig(path string) ([]byte, error) {
@@ -269,8 +247,8 @@ func readConfig(path string) ([]byte, error) {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		for k := range m {
-			if k != "external" && k != "api" && builtinNamed(k) == nil {
-				return nil, fmt.Errorf("%s: %s belongs in %s; a drop-in holds module sections ([apps], [display]...), [api] and [external.NAME]", f, k, path)
+			if k != "api" && builtinNamed(k) == nil {
+				return nil, fmt.Errorf("%s: %s belongs in %s; a drop-in holds module sections ([apps], [display]...) and [api]", f, k, path)
 			}
 		}
 		if err := mergeInto(merged, m, "", f, owner); err != nil {
@@ -284,12 +262,11 @@ func readConfig(path string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// mark records file as the owner of every setting in m. An external module
-// counts as one setting: its command and env come from one file.
+// mark records file as the owner of every setting in m.
 func mark(m map[string]any, prefix, file string, owner map[string]string) {
 	for k, v := range m {
 		key := prefix + k
-		if sub, ok := v.(map[string]any); ok && prefix != "external." {
+		if sub, ok := v.(map[string]any); ok {
 			mark(sub, key+".", file, owner)
 			continue
 		}
@@ -306,7 +283,7 @@ func mergeInto(dst, src map[string]any, prefix, file string, owner map[string]st
 	for _, k := range keys {
 		key, v := prefix+k, src[k]
 		sub, isTable := v.(map[string]any)
-		if isTable && prefix != "external." {
+		if isTable {
 			d, ok := dst[k].(map[string]any)
 			if !ok {
 				if _, taken := dst[k]; taken {
