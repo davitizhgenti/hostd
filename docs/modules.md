@@ -37,7 +37,33 @@ The protocol, message by message: [the module protocol](protocol.md).
 
 ## In Go: a built-in module
 
-A built-in module implements `sdk.Module` (`Manifest`, `Start`, `Validate`, `Handle`, `Stop`), and optionally `sdk.Reader`, `sdk.StateReporter` and `sdk.Hooker`. It is compiled into hostd and has one entry in `internal/daemon/modules.go`: how to make it, and its settings, a `Config` type of its own decoded from its section of `hostd.toml` (`[display]`) and checked by its `Check` method. Modules never import each other. When one uses another's actions, events or reads, it declares that in its manifest (`requires`), and both take the names and data shapes from the `contract` package.
+Write a built-in module with the kit, `sdk/kit`. Actions, reads and events are typed Go values; the kit builds the manifest (the argument schemas come from the Go types, see `sdk.SchemaOf`) and does the decoding and dispatch. `modules/demo` is the smallest example; copy it.
+
+```go
+type SetArgs struct {
+	Lamp       string `json:"lamp" desc:"lamp name"`
+	Brightness int    `json:"brightness" min:"0" max:"100"`
+}
+
+m := kit.New("lights", "1.0.0").Owns("lights.*").Scope("lights", "Change the lights")
+changed := kit.Event[map[string]any](m, "lights.changed", "A lamp changed")
+kit.Action(m, kit.Spec{Type: "lights.set", Scope: "lights", Keys: []sdk.KeyTemplate{"lamp:{lamp}"},
+	Route: "POST /v1/lights/{lamp}"},
+	func(ctx context.Context, c kit.Ctx, a SetArgs) (struct{}, error) {
+		changed.Emit(c, map[string]any{"lamp": a.Lamp}, "lamp:"+a.Lamp)
+		return struct{}{}, nil
+	})
+```
+
+The tags on a field are `json` (as `encoding/json`; a field is required unless it is a pointer or says `omitempty`), `desc`, `min`, `max`, `enum`, `pattern`, `format` and `media` (an argument hostctl reads from `@file` or `-`). Properties keep the struct's order, and hostctl takes the required ones as positional arguments in it.
+
+Under the kit, a module is an `sdk.Module` (`Manifest`, `Start`, `Validate`, `Handle`, `Stop`), with `sdk.Reader` and `sdk.StateReporter` where it has reads or state. You can also implement these by hand, plus `sdk.Hooker`. The module is compiled into hostd and exports one `host.Builtin` (`Name`, whether it loads by default, its `Settings` and a `New` that makes it from `host.Host`: directories, logger, clock, secrets, the user's systemd). `internal/daemon/modules.go` only lists the `Builtin`s. Settings are a `Config` type of the module's own, decoded from its section of `hostd.toml` (`[display]`) and checked by its `Check` method.
+
+Modules never import each other. When one uses another's actions, events or reads, it declares that in its manifest (`requires`), and both take the names and data shapes from the `contract` package.
+
+What the core offers a module (`sdk.Core`): `Emit`, `Do`, `Subscribe`, `Handles`, `Read`, and, for the built-in modules that need them, `Tokens` (short-lived tokens for scripts), `Limiter` (the rule limit) and `Introspect` (only hostd's own module gets it).
+
+To test a module on its own, `sdk/moduletest` has a fake `Core` that records what the module emits and sends, answers its reads from a script and feeds it events. To test through the real pipeline (schema, locks, priority), build a registry and an engine with `core.New`, as `sdk/kit/kit_test.go` does.
 
 ## The manifest
 
