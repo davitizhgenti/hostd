@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -122,6 +123,13 @@ func (a *app) getKind(ctx context.Context, k sdk.KindSpec, args []string) error 
 			fmt.Fprintf(a.stdout, "# the file is not in use: %s\n", it.Error)
 		}
 		return nil
+	}
+	if len(k.Columns) > 0 && !a.jsonOut {
+		var raw json.RawMessage
+		if err := c.Get(ctx, "/v1/"+k.Plural, &raw); err != nil {
+			return err
+		}
+		return a.printTable(&sdk.CLI{Columns: k.Columns, Empty: k.Empty}, raw)
 	}
 	items, err := c.Resources(ctx, k.Plural)
 	if err != nil {

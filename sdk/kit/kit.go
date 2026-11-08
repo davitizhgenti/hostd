@@ -360,6 +360,9 @@ type KindSpec struct {
 	WriteScope string
 	// Verbs are the actions a resource takes: POST /v1/<plural>/<name>/<verb>.
 	Verbs []sdk.VerbSpec
+	// Columns and Empty make hostctl's list a table (see sdk.KindSpec).
+	Columns []sdk.Column
+	Empty   string
 }
 
 // Res is a resource of a kind whose spec is the Go type S.
@@ -390,6 +393,7 @@ func Kind[S any](m *Module, spec KindSpec,
 	m.man.Kinds = append(m.man.Kinds, sdk.KindSpec{
 		Kind: spec.Kind, Plural: spec.Plural, Description: spec.Description,
 		Schema: sdk.SchemaOf[S](), WriteScope: spec.WriteScope, Verbs: spec.Verbs,
+		Columns: spec.Columns, Empty: spec.Empty,
 	})
 	typed := func(r sdk.Resource) (Res[S], error) {
 		var out Res[S]

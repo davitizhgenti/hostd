@@ -73,7 +73,9 @@ transport = "stdio"
 | `~/.config/hostd/hostd.toml` | This file |
 | `~/.config/hostd/hostd.d/*.toml` | [Drop-ins](#drop-in-files): modules and settings in files of their own |
 | `~/.config/hostd/apps/` | [App files](apps.md) |
-| `~/.config/hostd/scenes/`, `rules.toml`, `scripts/` | [Automation](automation.md) |
+| `~/.config/hostd/scenes/`, `rules/`, `scripts/` | [Automation](automation.md) |
+| `~/.config/hostd/<kind>/` | [Resources](resources.md): one folder per kind, one file each |
+| `~/.config/hostd/.pre-0.2/` | The files `hostd -migrate` replaced, kept |
 | `~/.config/hostd/secrets/` | [Secrets](services.md#secrets) (0600) |
 | `~/.local/state/hostd/state.db` | Tokens and the audit trail |
 | `~/hostd/git/`, `~/hostd/releases/`, `~/hostd/keys/` | [Services](services.md): repositories, releases, deploy keys |

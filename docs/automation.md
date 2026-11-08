@@ -4,7 +4,7 @@ Scenes describe a state, rules decide when to reach it, and scripts handle real 
 
 ## Scenes
 
-A scene is a file in `~/.config/hostd/scenes/`. Every part of it is optional.
+A scene is a file in `~/.config/hostd/scenes/` (the file name is its name). Every part of it is optional.
 
 ```toml
 # scenes/movie.toml
@@ -42,31 +42,33 @@ Applying a scene reads the current state and sends only the actions still needed
 
 ## Rules
 
-Rules live in `~/.config/hostd/rules.toml`, and are read again whenever the file changes:
+A rule is a file in `~/.config/hostd/rules/`; its name is the file's (`rules/gaming-audio.toml` is the rule `gaming-audio`). Rules are read again whenever a file changes:
 
 ```toml
-[[rule]]
-name = "gaming audio"
+# rules/gaming-audio.toml
 on   = "instance.started"           # an event type, a namespace (instance.*) or *
 if   = { app = "dota*" }
 do   = { scene = "gaming" }
+```
 
-[[rule]]
-name     = "screen off when idle"
+```toml
+# rules/screen-off-when-idle.toml
 on       = "display.idle"
 if       = { minutes = 30, between = "22:00-07:00" }
 do       = { scene = "screen-off" }
 cooldown = "10m"
+```
 
-[[rule]]
-name = "evening"
-on   = "display.active"
-do   = { script = "evening.sh" }
+```toml
+# rules/evening.toml
+on = "display.active"
+do = { script = "evening.sh" }
+```
 
-[[rule]]
-name = "quiet when nobody is there"
-on   = "display.idle"
-do   = { action = "audio.mute.set", args = { muted = true } }
+```toml
+# rules/quiet-when-nobody-is-there.toml
+on = "display.idle"
+do = { action = "audio.mute.set", args = { muted = true } }
 ```
 
 A rule does one of three things: applies a `scene`, runs a `script`, or sends one `action` with its `args` (any action a loaded module handles, built-in or external; [the API description](api.md) lists them). An action needs no scene or script file. It runs as the rule, at automation priority, with the event as its cause, so loop limits, holds and the audit trail apply as they do to a scene. The core checks the action's name and arguments when the rule fires, so a rule for a module that starts later is fine: until then it fails, and `hostctl rules` shows the failure.
@@ -77,7 +79,7 @@ A rule does one of three things: applies a `scene`, runs a `script`, or sends on
 | `between` | The local time is in the range, which may cross midnight |
 | `minutes` | Nobody has used the screen for that long. The rule waits for it, and fires then if the screen is still unused. |
 
-`hostctl rules` shows each rule's last firing and result. `hostctl rule pause <name>` and `hostctl rule resume <name>` stop and restart one. A broken `rules.toml` is reported there, and the rules before it stay in use.
+`hostctl rules` shows each rule's last firing and result. `hostctl rule pause <name>` and `hostctl rule resume <name>` stop and restart one. A rule file that is wrong is reported there (the PROBLEM column), and the version before it, if there was one, stays in use. Rules and scenes are [resources](resources.md): `hostctl apply -f`, `edit` and `delete` work on them as on every kind.
 
 **Loops.** A rule's work carries the event as its cause. When rules set each other off more than 5 steps deep, the core stops the chain with `loop_detected` and pauses the rule for 10 minutes. A rule that fires more than 10 times in a minute is paused too.
 

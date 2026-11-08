@@ -16,6 +16,7 @@ nav:
   - Apps: apps.md
   - Services and deploys: services.md
   - Automation: automation.md
+  - Resources: resources.md
   - Configuration: config.md
   - The API: api.md
   - The CLI: cli.md

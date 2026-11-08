@@ -3,10 +3,7 @@ package automation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -73,12 +70,6 @@ type SceneDisplay struct {
 	Power string `json:"power,omitempty" toml:"power"` // on, off
 }
 
-// Problem is a scene file that cannot be used.
-type Problem struct {
-	File  string `json:"file"`
-	Error string `json:"error"`
-}
-
 var sceneID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // ParseScene decodes and checks one scene file.
@@ -121,35 +112,6 @@ func ParseScene(path string, data []byte) (Scene, error) {
 		}
 	}
 	return s, nil
-}
-
-// loadScenes reads every scene file.
-func loadScenes(dir string) (map[string]Scene, []Problem) {
-	scenes := map[string]Scene{}
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) || dir == "" {
-		return scenes, nil
-	}
-	if err != nil {
-		return scenes, []Problem{{File: dir, Error: err.Error()}}
-	}
-	var problems []Problem
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		b, err := os.ReadFile(path)
-		if err == nil {
-			var s Scene
-			if s, err = ParseScene(path, b); err == nil {
-				scenes[s.ID] = s
-				continue
-			}
-		}
-		problems = append(problems, Problem{File: path, Error: err.Error()})
-	}
-	return scenes, problems
 }
 
 // Step is one action a scene needed, and what became of it.

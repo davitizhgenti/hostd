@@ -11,8 +11,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
@@ -29,8 +27,6 @@ const (
 
 // Options configure the automation module.
 type Options struct {
-	ScenesDir  string // default ~/.config/hostd/scenes
-	RulesFile  string // default ~/.config/hostd/rules.toml
 	ScriptsDir string // default ~/.config/hostd/scripts
 	// URL is hostd's API for scripts (HOSTD_URL), e.g. unix:///run/user/1000/hostd.sock.
 	URL      string
@@ -38,7 +34,7 @@ type Options struct {
 	Clock    clock.Clock
 	Logger   *slog.Logger
 	// Limiter pauses rules that fire too often, and Tokens mints script
-	// tokens; the daemon sets both (Wire) once the core is built.
+	// tokens; set here only by tests, the core offers both.
 	Limiter Limiter
 	Tokens  Tokens
 }
@@ -48,14 +44,12 @@ type Module struct {
 	opts Options
 	log  *slog.Logger
 
-	mu           sync.Mutex
-	core         sdk.Core
-	rules        []Rule
-	runs         map[string]*ruleRun
-	rulesMod     time.Time
-	rulesLoaded  bool
-	rulesProblem *Problem
-	scriptRuns   int
+	mu         sync.Mutex
+	core       sdk.Core
+	scenes     map[string]Scene // in use, from the scenes kind
+	rules      []Rule           // in use, from the rules kind, by name
+	runs       map[string]*ruleRun
+	scriptRuns int
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -63,12 +57,6 @@ type Module struct {
 
 // New returns the automation module.
 func New(opts Options) *Module {
-	if opts.ScenesDir == "" {
-		opts.ScenesDir = paths.Config("scenes")
-	}
-	if opts.RulesFile == "" {
-		opts.RulesFile = paths.Config("rules.toml")
-	}
 	if opts.ScriptsDir == "" {
 		opts.ScriptsDir = paths.Config("scripts")
 	}
@@ -81,14 +69,14 @@ func New(opts Options) *Module {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	return &Module{opts: opts, log: opts.Logger, runs: map[string]*ruleRun{}}
+	return &Module{opts: opts, log: opts.Logger, runs: map[string]*ruleRun{}, scenes: map[string]Scene{}}
 }
 
 var ruleSchema = json.RawMessage(`{"type":"object","properties":{
-	"name":{"type":"string","description":"the rule's name in rules.toml"}},"required":["name"],"additionalProperties":false}`)
+	"name":{"type":"string","description":"the rule"}},"required":["name"],"additionalProperties":false}`)
 
 var sceneSchema = json.RawMessage(`{"type":"object","properties":{
-	"id":{"type":"string","description":"the scene (its file name in the scenes folder)"}},"required":["id"],"additionalProperties":false}`)
+	"id":{"type":"string","description":"the scene"}},"required":["id"],"additionalProperties":false}`)
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
@@ -98,34 +86,18 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: "scenes", Description: "Apply scenes"},
 			{Name: "rules", Description: "Pause and resume rules"},
 		},
+		Kinds: kinds(),
 		Actions: []sdk.ActionSpec{
 			{Type: "scene.apply", Description: "Reach a scene: send only the actions still needed, in a fixed order",
 				Schema: sceneSchema, Keys: []sdk.KeyTemplate{"scene:{id}"}, Scope: "scenes",
-				Timeout: sdk.Duration(10 * time.Minute), // starting apps can take a while
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/scenes/{id}/apply"}},
+				Timeout: sdk.Duration(10 * time.Minute)}, // starting apps can take a while
 			{Type: "rule.pause", Description: "Stop a rule from firing until it is resumed",
-				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules",
-				Route: &sdk.Route{Method: "POST", Path: "/v1/rules/{name}/pause"}},
+				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules"},
 			{Type: "rule.resume", Description: "Let a paused rule fire again",
-				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules",
-				Route: &sdk.Route{Method: "POST", Path: "/v1/rules/{name}/resume"}},
+				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules"},
 		},
 		Events: []sdk.EventSpec{
 			{Type: EventSceneApplied, Description: "A scene was applied, with each step's result"},
-		},
-		Reads: []sdk.ReadSpec{
-			{Name: "scenes", Description: "The scenes (hostctl scene apply <id> reaches one), and scene files that cannot be used", Path: "/v1/scenes",
-				CLI: &sdk.CLI{Alias: []string{"scenes"}, Rows: "scenes", Empty: "no scenes", Columns: []sdk.Column{{Title: "SCENE", Path: "id"},
-					{Title: "NAME", Path: "name"}, {Title: "SETS", Path: "sets", Format: "list"}},
-					Notes: &sdk.Notes{Rows: "problems", Line: "{file}: {error}"}}},
-			{Name: "scene", Description: "One scene", Path: "/v1/scenes/{id}"},
-			{Name: "rules", Description: "The rules: when each fired, its last result, whether it is paused", Path: "/v1/rules",
-				CLI: &sdk.CLI{Alias: []string{"rules"}, Rows: "rules", Empty: "no rules", Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "ON", Path: "on"},
-					{Title: "DO", Text: []string{"script {do.script} if do.script", "action {do.action} if do.action", "scene {do.scene}"}},
-					{Title: "FIRED", Path: "fired"},
-					{Title: "LAST", Text: []string{"{last_fired:time} {last_result} if last_fired", "-"}},
-					{Title: "STATE", Text: []string{"active if !paused", "paused: {paused_why} (until {paused_until:hm}) if paused_until", "paused: {paused_why}"}}},
-					Notes: &sdk.Notes{Rows: "problems", Line: "{file}: {error} (the rules before it stay in use)"}}},
 		},
 	}
 }
@@ -145,12 +117,9 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 			m.opts.Tokens = t
 		}
 	}
-	for _, d := range []string{m.opts.ScenesDir, m.opts.ScriptsDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			m.log.Warn("cannot create a folder", "dir", d, "err", err)
-		}
+	if err := os.MkdirAll(m.opts.ScriptsDir, 0o755); err != nil {
+		m.log.Warn("cannot create a folder", "dir", m.opts.ScriptsDir, "err", err)
 	}
-	m.loadRules()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.stop = cancel
 	events := core.Subscribe(ctx, "*")
@@ -192,44 +161,12 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	return sdk.Result{Data: sdk.MustJSON(res)}, nil
 }
 
-// scene reads one scene file, reporting its problem if it has one.
+// scene returns a scene in use.
 func (m *Module) scene(id string) (Scene, error) {
-	scenes, problems := loadScenes(m.opts.ScenesDir)
-	if s, ok := scenes[id]; ok {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.scenes[id]; ok {
 		return s, nil
 	}
-	for _, p := range problems {
-		if filepath.Base(p.File) == id+".toml" {
-			return Scene{}, sdk.Errorf(sdk.CodeInvalidArgs, "scene %q cannot be used: %s", id, p.Error)
-		}
-	}
-	return Scene{}, sdk.Errorf(sdk.CodeNotFound, "no scene %q (%s)", id, filepath.Join(m.opts.ScenesDir, id+".toml"))
-}
-
-// SceneList is GET /v1/scenes.
-type SceneList struct {
-	Scenes   []Scene   `json:"scenes"`
-	Problems []Problem `json:"problems"`
-}
-
-func (m *Module) Read(_ context.Context, name string, params map[string]string) (any, error) {
-	switch name {
-	case "scenes":
-		scenes, problems := loadScenes(m.opts.ScenesDir)
-		list := SceneList{Scenes: []Scene{}, Problems: problems}
-		if list.Problems == nil {
-			list.Problems = []Problem{}
-		}
-		for _, s := range scenes {
-			s.Sets = s.sets()
-			list.Scenes = append(list.Scenes, s)
-		}
-		sort.Slice(list.Scenes, func(i, j int) bool { return list.Scenes[i].ID < list.Scenes[j].ID })
-		return list, nil
-	case "scene":
-		return m.scene(params["id"])
-	case "rules":
-		return m.readRules(), nil
-	}
-	return nil, sdk.Errorf(sdk.CodeNotFound, "automation module has no read %q", name)
+	return Scene{}, sdk.Errorf(sdk.CodeNotFound, "no scene %q (hostctl get scenes)", id)
 }

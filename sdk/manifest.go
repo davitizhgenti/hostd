@@ -603,6 +603,11 @@ func (m *Manifest) Validate() error {
 	for _, rd := range m.Reads {
 		checkCLI(fmt.Sprintf("read %q", rd.Name), rd.CLI, true)
 	}
+	for _, k := range m.Kinds {
+		if len(k.Columns) > 0 {
+			checkCLI(fmt.Sprintf("kind %q", k.Kind), &CLI{Columns: k.Columns}, true)
+		}
+	}
 
 	m.checkKinds(bad, owned)
 

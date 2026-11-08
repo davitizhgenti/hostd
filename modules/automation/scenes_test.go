@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -186,7 +185,7 @@ func newRig(t *testing.T, w *world) *rig {
 	t.Helper()
 	dir := t.TempDir()
 	clk := clock.NewFake(time.Date(2026, 10, 11, 20, 0, 0, 0, time.UTC))
-	m := New(Options{ScenesDir: dir, RulesFile: filepath.Join(dir, "rules.toml"), ScriptsDir: filepath.Join(dir, "scripts"),
+	m := New(Options{ScriptsDir: filepath.Join(dir, "scripts"),
 		Location: time.UTC, Clock: clk, Limiter: core.NewRuleLimiter(clk), Tokens: w.tokens()})
 	reg := core.NewRegistry()
 	for _, mod := range append(w.modules(), m) {
@@ -203,10 +202,11 @@ func newRig(t *testing.T, w *world) *rig {
 	return &rig{e: e, m: m, w: w, dir: dir, clock: clk, audit: audit}
 }
 
+// scene puts a scene in use, as the core does when its file appears.
 func (r *rig) scene(t *testing.T, id, body string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(r.dir, id+".toml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
+	if _, err := r.m.Apply(context.Background(), sdk.Resource{Kind: "scene", Name: id, Raw: []byte(body)}); err != nil {
+		t.Fatalf("scene %q: %v", id, err)
 	}
 }
 
@@ -330,25 +330,37 @@ func TestSceneHeldByManual(t *testing.T) {
 	}
 }
 
+// A scene file the module refuses is not in use; the ones before it are.
 func TestSceneFiles(t *testing.T) {
 	r := newRig(t, &world{})
-	r.scene(t, "movie", movie)
-	r.scene(t, "bad", "[audio]\nvolume = 400\n")
-	r.scene(t, "typo", "[audoi]\nvolume = 4\n")
-	r.scene(t, "clash", "[apps]\nstop = [\"a\"]\nrunning = [\"a\"]\n")
-	v, err := r.m.Read(context.Background(), "scenes", nil)
-	if err != nil {
+	ctx := context.Background()
+	st, err := r.m.Apply(ctx, sdk.Resource{Kind: "scene", Name: "movie", Raw: []byte(movie)})
+	if err != nil || !st.Ready() || string(st.Data) != `{"sets":["apps","audio","display"]}` {
+		t.Fatalf("movie: %+v %v", st, err)
+	}
+	for name, c := range map[string]struct{ body, want string }{
+		"bad":   {"[audio]\nvolume = 400\n", "0-150"},
+		"typo":  {"[audoi]\nvolume = 4\n", "unknown key"},
+		"clash": {"[apps]\nstop = [\"a\"]\nrunning = [\"a\"]\n", "both in stop and in running"},
+	} {
+		if _, err := r.m.Apply(ctx, sdk.Resource{Kind: "scene", Name: name, Raw: []byte(c.body)}); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", name, err, c.want)
+		}
+		if err := r.m.Check(ctx, sdk.Resource{Kind: "scene", Name: name, Raw: []byte(c.body)}); err == nil {
+			t.Errorf("%s: check should refuse it too", name)
+		}
+	}
+	if _, err := r.apply(t, "bad", sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("a refused scene is not in use: %v", err)
+	}
+	if _, err := r.apply(t, "movie", sdk.SourceManual); err != nil {
+		t.Fatalf("movie: %v", err)
+	}
+	if err := r.m.Delete(ctx, "scene", "movie"); err != nil {
 		t.Fatal(err)
 	}
-	list := v.(SceneList)
-	if len(list.Scenes) != 1 || list.Scenes[0].Name != "Movie night" || len(list.Problems) != 3 {
-		t.Fatalf("list %+v", list)
-	}
-	if _, err := r.apply(t, "bad", sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeInvalidArgs || !strings.Contains(err.Error(), "0-150") {
-		t.Fatalf("bad scene: %v", err)
-	}
-	if _, err := r.apply(t, "nope", sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeNotFound {
-		t.Fatalf("missing scene: %v", err)
+	if _, err := r.apply(t, "movie", sdk.SourceManual); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("a deleted scene is not in use: %v", err)
 	}
 }
 

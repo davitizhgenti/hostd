@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -9,47 +10,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-func TestParseRules(t *testing.T) {
-	rules, err := ParseRules([]byte(`
-[[rule]]
-name = "gaming audio"
+func TestParseRule(t *testing.T) {
+	r, err := ParseRule("gaming-audio", []byte(`
 on   = "instance.started"
 if   = { app = "dota*", between = "18:00-02:00" }
 do   = { scene = "gaming" }
 cooldown = "10m"
 `))
-	if err != nil || len(rules) != 1 || rules[0].cooldown != 10*time.Minute || rules[0].from != 18*60 || rules[0].to != 2*60 {
-		t.Fatalf("%+v %v", rules, err)
+	if err != nil || r.Name != "gaming-audio" || r.cooldown != 10*time.Minute || r.from != 18*60 || r.to != 2*60 {
+		t.Fatalf("%+v %v", r, err)
 	}
-	rules, err = ParseRules([]byte(`
-[[rule]]
-name = "mute when idle"
+	r, err = ParseRule("mute-when-idle", []byte(`
 on   = "display.idle"
 do   = { action = "audio.mute.set", args = { muted = true } }
 `))
-	if err != nil || len(rules) != 1 || rules[0].Do.Action != "audio.mute.set" || rules[0].Do.Args["muted"] != true {
-		t.Fatalf("an action rule: %+v %v", rules, err)
+	if err != nil || r.Do.Action != "audio.mute.set" || r.Do.Args["muted"] != true {
+		t.Fatalf("an action rule: %+v %v", r, err)
 	}
 	for body, want := range map[string]string{
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"audio.mute.set\", scene = \"s\" }":                                "one of them",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"mute\" }":                                                         "an action type",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"Audio.Mute\" }":                                                   "an action type",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\", args = { a = 1 } }":                                           "goes with do.action",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { action = \"audio.mute.set\", args = { m = true }, bogus = 1 }":               "unknown key",
-		"[[rule]]\non = \"x\"\ndo = { scene = \"s\" }":                                                                           "needs a name",
-		"[[rule]]\nname = \"a\"\ndo = { scene = \"s\" }":                                                                         "needs on",
-		"[[rule]]\nname = \"a\"\non = \"x\"":                                                                                     "one of them",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\", script = \"x.sh\" }":                                          "one of them",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\nif = { between = \"9-5\" }":                                 "HH:MM-HH:MM",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\ncooldown = \"soon\"":                                        "cooldown",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\nwhen = 1":                                                   "unknown key",
-		"[[rule]]\nname = \"a\"\non = \"x\"\ndo = { scene = \"s\" }\n[[rule]]\nname = \"a\"\non = \"y\"\ndo = { scene = \"s\" }": "twice",
+		"on = \"x\"\ndo = { action = \"audio.mute.set\", scene = \"s\" }":                  "one of them",
+		"on = \"x\"\ndo = { action = \"mute\" }":                                           "an action type",
+		"on = \"x\"\ndo = { action = \"Audio.Mute\" }":                                     "an action type",
+		"on = \"x\"\ndo = { scene = \"s\", args = { a = 1 } }":                             "goes with do.action",
+		"on = \"x\"\ndo = { action = \"audio.mute.set\", args = { m = true }, bogus = 1 }": "unknown key",
+		"do = { scene = \"s\" }":                                                           "needs on",
+		"on = \"x\"":                                                                       "one of them",
+		"on = \"x\"\ndo = { scene = \"s\", script = \"x.sh\" }":                            "one of them",
+		"on = \"x\"\ndo = { scene = \"s\" }\nif = { between = \"9-5\" }":                   "HH:MM-HH:MM",
+		"on = \"x\"\ndo = { scene = \"s\" }\ncooldown = \"soon\"":                          "cooldown",
+		"on = \"x\"\ndo = { scene = \"s\" }\nwhen = 1":                                     "unknown key",
+		"name = \"a\"\non = \"x\"\ndo = { scene = \"s\" }":                                 "unknown key", // the name is the file's
 	} {
-		if _, err := ParseRules([]byte(body)); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := ParseRule("a", []byte(body)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", body, err, want)
 		}
 	}
@@ -76,15 +74,41 @@ func TestInTime(t *testing.T) {
 	}
 }
 
+// rules puts the rules of a [[rule]] document in use, and takes out the ones
+// it does not have: what rewriting the old rules.toml did. Each becomes a
+// rule resource named as the rule is.
 func (r *rig) rules(t *testing.T, body string) {
 	t.Helper()
-	p := filepath.Join(r.dir, "rules.toml")
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+	var doc struct {
+		Rule []map[string]any `toml:"rule"`
+	}
+	if _, err := toml.Decode(body, &doc); err != nil {
 		t.Fatal(err)
 	}
-	// A new modification time, so the rules are read again.
-	r.clock.Advance(time.Second)
-	_ = os.Chtimes(p, r.clock.Now(), r.clock.Now())
+	keep := map[string]bool{}
+	for _, tbl := range doc.Rule {
+		name, _ := tbl["name"].(string)
+		delete(tbl, "name")
+		var raw bytes.Buffer
+		if err := toml.NewEncoder(&raw).Encode(tbl); err != nil {
+			t.Fatal(err)
+		}
+		keep[name] = true
+		if _, err := r.m.Apply(context.Background(), sdk.Resource{Kind: "rule", Name: name, Raw: raw.Bytes()}); err != nil {
+			t.Fatalf("rule %q: %v", name, err)
+		}
+	}
+	r.m.mu.Lock()
+	var gone []string
+	for _, rule := range r.m.rules {
+		if !keep[rule.Name] {
+			gone = append(gone, rule.Name)
+		}
+	}
+	r.m.mu.Unlock()
+	for _, name := range gone {
+		_ = r.m.Delete(context.Background(), "rule", name)
+	}
 }
 
 // emit sends an event as the module that owns its type.
@@ -97,15 +121,17 @@ func (r *rig) emit(t *testing.T, typ string, data any) {
 	r.w.mods[mod].Core().Emit(sdk.Event{Type: typ, Data: sdk.MustJSON(data)})
 }
 
-func (r *rig) state(t *testing.T, name string) RuleState {
+func (r *rig) state(t *testing.T, name string) RuleStatus {
 	t.Helper()
-	for _, st := range r.m.readRules().Rules {
-		if st.Name == name {
-			return st
-		}
+	st, ok := r.m.StatusOf(context.Background(), "rule", name)
+	if !ok {
+		t.Fatalf("no rule %q", name)
 	}
-	t.Fatalf("no rule %q", name)
-	return RuleState{}
+	var out RuleStatus
+	if err := json.Unmarshal(st.Data, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {

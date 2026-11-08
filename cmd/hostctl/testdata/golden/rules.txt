@@ -1,5 +1,5 @@
-RULE     ON                DO                     FIRED  LAST              STATE
-evening  display.idle      scene dim              2      10:00:00 applied  active
-quiet    instance.started  action audio.mute.set  0      -                 paused: paused by hand
---- stderr
-rules.toml: rule 3: needs on (the rules before it stay in use)
+RULE     ON                DO                     FIRED  LAST                        STATE                   PROBLEM
+evening  display.idle      scene dim              2      10:00:00 applied            active                  -
+night    display.idle      script off.sh          1      10:30:00 failed: no script  active                  -
+quiet    instance.started  action audio.mute.set  0      -                           paused: paused by hand  -
+broken   -                 -                      -      -                           not in use              needs on (an event type, or a namespace such as instance.*)

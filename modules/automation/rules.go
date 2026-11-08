@@ -5,14 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -79,80 +75,9 @@ func (d Do) check() error {
 	return nil
 }
 
-// RuleState is a rule as GET /v1/rules shows it.
-type RuleState struct {
-	Rule
-	Fired      int        `json:"fired"`
-	LastFired  *time.Time `json:"last_fired,omitempty"`
-	LastResult string     `json:"last_result,omitempty"`
-	// Paused: the rule does not run, for PausedWhy; until PausedUntil, or,
-	// paused by hand, until resumed (no PausedUntil).
-	Paused      bool       `json:"paused,omitempty"`
-	PausedUntil *time.Time `json:"paused_until,omitempty"`
-	PausedWhy   string     `json:"paused_why,omitempty"`
-}
-
-// RuleList is GET /v1/rules.
-type RuleList struct {
-	Rules    []RuleState `json:"rules"`
-	Problems []Problem   `json:"problems"`
-}
-
 // Limiter pauses a rule that fires too often (the core's RuleLimiter).
 type Limiter interface {
 	Allow(rule string) (ok bool, until time.Time, tripped bool)
-}
-
-// ParseRules decodes and checks rules.toml.
-func ParseRules(data []byte) ([]Rule, error) {
-	var f struct {
-		Rule []Rule `toml:"rule"`
-	}
-	_, err := tomlx.Decode(data, &f)
-	if err != nil {
-		return nil, err
-	}
-	seen := map[string]bool{}
-	for i := range f.Rule {
-		r := &f.Rule[i]
-		where := fmt.Sprintf("rule %d", i+1)
-		if r.Name != "" {
-			where = fmt.Sprintf("rule %q", r.Name)
-		}
-		switch {
-		case r.Name == "":
-			return nil, fmt.Errorf("%s: needs a name", where)
-		case seen[r.Name]:
-			return nil, fmt.Errorf("%s is defined twice", where)
-		case r.On == "":
-			return nil, fmt.Errorf("%s: needs on (an event type, or a namespace such as instance.*)", where)
-		case r.Do.check() != nil:
-			return nil, fmt.Errorf("%s: %w", where, r.Do.check())
-		case r.If.Minutes < 0:
-			return nil, fmt.Errorf("%s: if.minutes must be positive", where)
-		}
-		seen[r.Name] = true
-		if r.If.App != "" {
-			if _, err := path.Match(r.If.App, ""); err != nil {
-				return nil, fmt.Errorf("%s: if.app %q: %w", where, r.If.App, err)
-			}
-		}
-		if r.If.Between != "" {
-			from, to, err := parseBetween(r.If.Between)
-			if err != nil {
-				return nil, fmt.Errorf("%s: if.between %q: %w", where, r.If.Between, err)
-			}
-			r.from, r.to = from, to
-		}
-		if r.Cooldown != "" {
-			d, err := time.ParseDuration(r.Cooldown)
-			if err != nil || d < 0 {
-				return nil, fmt.Errorf("%s: cooldown %q: a duration such as 10m", where, r.Cooldown)
-			}
-			r.cooldown = d
-		}
-	}
-	return f.Rule, nil
 }
 
 func parseBetween(s string) (from, to int, err error) {
@@ -209,61 +134,9 @@ type ruleRun struct {
 	waiting     bool // for If.Minutes
 }
 
-// loadRules reads rules.toml when it changed. A broken file keeps the
-// rules in use and is reported.
-func (m *Module) loadRules() {
-	fi, err := os.Stat(m.opts.RulesFile)
-	var mod time.Time
-	if err == nil {
-		mod = fi.ModTime()
-	}
-	m.mu.Lock()
-	same := mod.Equal(m.rulesMod) && m.rulesLoaded
-	m.mu.Unlock()
-	if same {
-		return
-	}
-	var rules []Rule
-	var problem *Problem
-	switch b, err := os.ReadFile(m.opts.RulesFile); {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
-		problem = &Problem{File: m.opts.RulesFile, Error: err.Error()}
-	default:
-		if rules, err = ParseRules(b); err != nil {
-			problem = &Problem{File: m.opts.RulesFile, Error: err.Error()}
-		}
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.rulesMod, m.rulesLoaded = mod, true
-	if problem != nil {
-		if m.rulesProblem == nil || *m.rulesProblem != *problem {
-			m.log.Warn("rules.toml not used; the rules before it stay", "err", problem.Error)
-		}
-		m.rulesProblem = problem
-		return
-	}
-	m.rulesProblem = nil
-	m.rules = rules
-	if m.core != nil {
-		for _, r := range rules {
-			if r.Do.Action != "" && !m.core.Handles(r.Do.Action) {
-				m.log.Warn("a rule's action is not handled by any loaded module (yet)", "rule", r.Name, "action", r.Do.Action)
-			}
-		}
-	}
-	for _, r := range rules {
-		if m.runs[r.Name] == nil {
-			m.runs[r.Name] = &ruleRun{}
-		}
-	}
-}
-
 // followRules matches every event against the rules.
 func (m *Module) followRules(ctx context.Context, events <-chan sdk.Event) {
 	for ev := range events {
-		m.loadRules()
 		m.mu.Lock()
 		rules := append([]Rule(nil), m.rules...)
 		m.mu.Unlock()
@@ -437,7 +310,6 @@ func (m *Module) handleRule(a sdk.Action) (sdk.Result, error) {
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
 	}
-	m.loadRules()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	run := m.runs[args.Name]
@@ -446,7 +318,7 @@ func (m *Module) handleRule(a sdk.Action) (sdk.Result, error) {
 		found = found || r.Name == args.Name
 	}
 	if !found || run == nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no rule %q in %s", args.Name, m.opts.RulesFile)
+		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no rule %q (hostctl get rules)", args.Name)
 	}
 	if a.Type == "rule.pause" {
 		run.pausedUntil, run.pausedWhy = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), "paused by hand"
@@ -454,34 +326,4 @@ func (m *Module) handleRule(a sdk.Action) (sdk.Result, error) {
 		run.pausedUntil, run.pausedWhy = time.Time{}, ""
 	}
 	return sdk.Result{}, nil
-}
-
-func (m *Module) readRules() RuleList {
-	m.loadRules()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	list := RuleList{Rules: []RuleState{}, Problems: []Problem{}}
-	if m.rulesProblem != nil {
-		list.Problems = append(list.Problems, *m.rulesProblem)
-	}
-	now := m.opts.Clock.Now()
-	for _, r := range m.rules {
-		st := RuleState{Rule: r}
-		if run := m.runs[r.Name]; run != nil {
-			st.Fired, st.LastResult = run.fired, run.lastResult
-			if !run.lastFired.IsZero() {
-				t := run.lastFired.UTC()
-				st.LastFired = &t
-			}
-			if now.Before(run.pausedUntil) {
-				st.Paused, st.PausedWhy = true, run.pausedWhy
-				if run.pausedUntil.Year() < 9999 { // paused by hand has no end
-					t := run.pausedUntil.UTC()
-					st.PausedUntil = &t
-				}
-			}
-		}
-		list.Rules = append(list.Rules, st)
-	}
-	return list
 }

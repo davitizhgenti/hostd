@@ -30,6 +30,13 @@ type KindSpec struct {
 	// of this kind (default admin). Reading needs read.
 	WriteScope string `json:"write_scope,omitempty"`
 
+	// Columns make hostctl's list of these resources a table; each Path or
+	// {field} is read from the item as the API shows it ("spec.on",
+	// "status.data.fired"). Without them hostctl shows name, status and
+	// problem. Empty is printed for no resources.
+	Columns []Column `json:"columns,omitempty"`
+	Empty   string   `json:"empty,omitempty"`
+
 	// Verbs are the actions a resource of this kind takes, as
 	// POST /v1/<plural>/<name>/<verb>.
 	Verbs []VerbSpec `json:"verbs,omitempty"`

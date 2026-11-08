@@ -36,7 +36,7 @@ func TestOpenAPIGolden(t *testing.T) {
 		display.New(display.Options{}),
 		audio.New(audio.Options{}),
 		deploy.New(deploy.Options{Root: tmp}),
-		automation.New(automation.Options{ScenesDir: tmp}),
+		automation.New(automation.Options{ScriptsDir: tmp}),
 	}
 	var manifests []sdk.Manifest
 	for _, m := range mods {

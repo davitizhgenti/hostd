@@ -3172,15 +3172,44 @@
     },
     "/v1/rules": {
       "get": {
-        "operationId": "automation.rules",
+        "description": "When something happens, do something",
+        "operationId": "list.rules",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "error": {
+                        "description": "why the file on disk is not in use; spec is then the version that is",
+                        "type": "string"
+                      },
+                      "file": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "spec": {},
+                      "status": {
+                        "description": "Conditions (Ready...) and the kind's own data",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
               }
             },
-            "description": "The module's answer"
+            "description": "The resource"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3203,17 +3232,133 @@
             "bearer": []
           }
         ],
-        "summary": "The rules: when each fired, its last result, whether it is paused",
+        "summary": "List rules",
         "tags": [
           "automation"
         ],
         "x-hostd-scope": "read"
       }
     },
-    "/v1/rules/{name}/pause": {
-      "post": {
-        "description": "Stop a rule from firing until it is resumed",
-        "operationId": "rule.pause",
+    "/v1/rules/{name}": {
+      "delete": {
+        "operationId": "delete.rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a rule",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "admin"
+      },
+      "get": {
+        "operationId": "get.rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One rule",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
+      },
+      "put": {
+        "description": "The body is TOML, or a JSON object. A resource the module rejects is not written and the previous one stays. With ?check=1 nothing is applied or written.",
+        "operationId": "apply.rule",
         "parameters": [
           {
             "in": "path",
@@ -3224,13 +3369,152 @@
             }
           },
           {
-            "description": "refuse with precondition_failed if the resource changed since this version",
+            "description": "only check that the resource would be accepted",
             "in": "query",
-            "name": "expect_version",
+            "name": "check",
             "required": false,
             "schema": {
-              "minimum": 0,
-              "type": "integer"
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            },
+            "application/toml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create or replace a rule",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "admin"
+      }
+    },
+    "/v1/rules/{name}/file": {
+      "get": {
+        "operationId": "file.rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/toml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "TOML"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The rule's file as written",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/rules/{name}/pause": {
+      "post": {
+        "operationId": "rule.pause",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -3275,17 +3559,15 @@
             "bearer": []
           }
         ],
-        "summary": "Stop a rule from firing until it is resumed",
+        "summary": "Stop the rule from firing until it is resumed",
         "tags": [
           "automation"
         ],
-        "x-hostd-action": "rule.pause",
-        "x-hostd-scope": "rules"
+        "x-hostd-action": "rule.pause"
       }
     },
     "/v1/rules/{name}/resume": {
       "post": {
-        "description": "Let a paused rule fire again",
         "operationId": "rule.resume",
         "parameters": [
           {
@@ -3294,16 +3576,6 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "description": "refuse with precondition_failed if the resource changed since this version",
-            "in": "query",
-            "name": "expect_version",
-            "required": false,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
             }
           }
         ],
@@ -3352,8 +3624,7 @@
         "tags": [
           "automation"
         ],
-        "x-hostd-action": "rule.resume",
-        "x-hostd-scope": "rules"
+        "x-hostd-action": "rule.resume"
       }
     },
     "/v1/run": {
@@ -3478,15 +3749,44 @@
     },
     "/v1/scenes": {
       "get": {
-        "operationId": "automation.scenes",
+        "description": "A state to reach: audio, apps and display, and actions of any module",
+        "operationId": "list.scenes",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "error": {
+                        "description": "why the file on disk is not in use; spec is then the version that is",
+                        "type": "string"
+                      },
+                      "file": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "spec": {},
+                      "status": {
+                        "description": "Conditions (Ready...) and the kind's own data",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
               }
             },
-            "description": "The module's answer"
+            "description": "The resource"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3509,20 +3809,63 @@
             "bearer": []
           }
         ],
-        "summary": "The scenes (hostctl scene apply \u003cid\u003e reaches one), and scene files that cannot be used",
+        "summary": "List scenes",
         "tags": [
           "automation"
         ],
         "x-hostd-scope": "read"
       }
     },
-    "/v1/scenes/{id}": {
-      "get": {
-        "operationId": "automation.scene",
+    "/v1/scenes/{name}": {
+      "delete": {
+        "operationId": "delete.scene",
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a scene",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "admin"
+      },
+      "get": {
+        "operationId": "get.scene",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
             "required": true,
             "schema": {
               "type": "string"
@@ -3533,10 +3876,35 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
               }
             },
-            "description": "The module's answer"
+            "description": "The resource"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -3564,29 +3932,114 @@
           "automation"
         ],
         "x-hostd-scope": "read"
-      }
-    },
-    "/v1/scenes/{id}/apply": {
-      "post": {
-        "description": "Reach a scene: send only the actions still needed, in a fixed order",
-        "operationId": "scene.apply",
+      },
+      "put": {
+        "description": "The body is TOML, or a JSON object. A resource the module rejects is not written and the previous one stays. With ?check=1 nothing is applied or written.",
+        "operationId": "apply.scene",
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "name",
             "required": true,
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "refuse with precondition_failed if the resource changed since this version",
+            "description": "only check that the resource would be accepted",
             "in": "query",
-            "name": "expect_version",
+            "name": "check",
             "required": false,
             "schema": {
-              "minimum": 0,
-              "type": "integer"
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            },
+            "application/toml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Create or replace a scene",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "admin"
+      }
+    },
+    "/v1/scenes/{name}/apply": {
+      "post": {
+        "operationId": "scene.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -3631,12 +4084,63 @@
             "bearer": []
           }
         ],
-        "summary": "Reach a scene: send only the actions still needed, in a fixed order",
+        "summary": "Reach the scene",
         "tags": [
           "automation"
         ],
-        "x-hostd-action": "scene.apply",
-        "x-hostd-scope": "scenes"
+        "x-hostd-action": "scene.apply"
+      }
+    },
+    "/v1/scenes/{name}/file": {
+      "get": {
+        "operationId": "file.scene",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/toml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "TOML"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The scene's file as written",
+        "tags": [
+          "automation"
+        ],
+        "x-hostd-scope": "read"
       }
     },
     "/v1/secrets": {

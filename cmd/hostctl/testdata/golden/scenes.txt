@@ -1,3 +1,4 @@
-SCENE   NAME         SETS
-movie   Movie night  apps, audio
-lights  Lights only  do
+SCENE   NAME         SETS         PROBLEM
+movie   Movie night  apps, audio  -
+lights  Lights only  do           -
+loud    -            -            audio.volume 400: 0-150

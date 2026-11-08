@@ -77,14 +77,20 @@ func TestGoldenTables(t *testing.T) {
 			{"seq":3,"time":"2026-10-14T10:02:00Z","action":"act_3","type":"audio.volume.set","args":{"percent":70},"summary":"70","source":{"kind":"automation","name":"evening"},"status":"skipped","held_by":"manual","until":"2026-10-14T10:05:00Z"},
 			{"seq":2,"time":"2026-10-14T10:01:00Z","action":"act_2","type":"app.start","args":{"id":"nope"},"summary":"nope","source":{"kind":"manual","name":"phone"},"status":"failed","code":"not_found","reason":"no app \"nope\""},
 			{"seq":1,"time":"2026-10-14T10:00:00Z","action":"act_1","type":"audio.volume.set","args":{"percent":40},"summary":"40","source":{"kind":"manual","name":"admin"},"status":"applied","version":3}]`,
-		"/v1/rules": `{"rules": [
-			{"name":"evening","on":"display.idle","do":{"scene":"dim"},"fired":2,"last_fired":"2026-10-14T10:00:00Z","last_result":"applied"},
-			{"name":"quiet","on":"instance.started","do":{"action":"audio.mute.set"},"fired":0,"paused":true,"paused_why":"paused by hand"}],
-			"problems": [{"file":"rules.toml","error":"rule 3: needs on"}]}`,
-		"/v1/scenes": `{"scenes": [
-			{"id":"movie","name":"Movie night","audio":{"volume":40},"apps":{"running":["jelly"]},"sets":["apps","audio"]},
-			{"id":"lights","name":"Lights only","do":[{"action":"lights.scene.set"}],"sets":["do"]}],
-			"problems": []}`,
+		"/v1/rules": `[
+			{"kind":"rule","name":"evening","spec":{"on":"display.idle","do":{"scene":"dim"}},"generation":1,
+			 "status":{"conditions":[{"type":"Ready","status":"True"}],"data":{"fired":2,"last_fired":"2026-10-14T10:00:00Z","last_result":"applied"}}},
+			{"kind":"rule","name":"night","spec":{"on":"display.idle","do":{"script":"off.sh"}},"generation":1,
+			 "status":{"conditions":[{"type":"Ready","status":"True"}],"data":{"fired":1,"last_fired":"2026-10-14T10:30:00Z","last_result":"failed: no script"}}},
+			{"kind":"rule","name":"quiet","spec":{"on":"instance.started","do":{"action":"audio.mute.set"}},"generation":2,
+			 "status":{"conditions":[{"type":"Ready","status":"True"},{"type":"Paused","status":"True"}],"data":{"fired":0,"paused":true,"paused_why":"paused by hand"}}},
+			{"kind":"rule","name":"broken","error":"needs on (an event type, or a namespace such as instance.*)","generation":0,"status":{}}]`,
+		"/v1/scenes": `[
+			{"kind":"scene","name":"movie","spec":{"name":"Movie night","audio":{"volume":40},"apps":{"running":["jelly"]}},"generation":1,
+			 "status":{"conditions":[{"type":"Ready","status":"True"}],"data":{"sets":["apps","audio"]}}},
+			{"kind":"scene","name":"lights","spec":{"name":"Lights only","do":[{"action":"lights.scene.set"}]},"generation":1,
+			 "status":{"conditions":[{"type":"Ready","status":"True"}],"data":{"sets":["do"]}}},
+			{"kind":"scene","name":"loud","error":"audio.volume 400: 0-150","generation":0,"status":{}}]`,
 		"/v1/instances": `[
 			{"id":"firefox","app":"firefox","runner":"exec","state":"running","pid":4242,"started":"2026-10-14T10:15:30Z"},
 			{"id":"term","app":"term","runner":"exec","state":"exited","pid":4300,"started":"2026-10-14T10:00:00Z","ended":"2026-10-14T10:20:00Z","exit_code":1}]`,

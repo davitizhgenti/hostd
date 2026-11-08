@@ -26,6 +26,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/extmod"
 	"github.com/davitizhgenti/hostd/internal/host"
+	"github.com/davitizhgenti/hostd/internal/migrate"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
 	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/system"
@@ -52,6 +53,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		docs       = fs.String("docs", defaultDocsDir(), "serve this folder (the docs site) at /docs/, without a token; empty to disable")
 		install    = fs.String("install", "", "install this hostd binary next to the running one and restart into it")
 		libDir     = fs.String("lib", "", "-install: the installation directory (default: the one this binary is in)")
+		doMigrate  = fs.Bool("migrate", false, "move the config folder from the layout before 0.2 to the current one (the old files are kept), and exit")
 		noRestart  = fs.Bool("no-restart", false, "-install: switch to the new version, but leave restarting hostd to the caller")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -63,6 +65,25 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	if *install != "" {
 		return installFromFile(*install, *libDir, *stateDir, *configPath, *noRestart, stderr)
+	}
+	configDir := filepath.Dir(*configPath)
+	if *doMigrate {
+		did, err := migrate.Run(configDir)
+		for _, line := range did {
+			fmt.Fprintln(stderr, line)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "hostd:", err)
+			return 1
+		}
+		if len(did) == 0 {
+			fmt.Fprintln(stderr, "nothing to migrate")
+		}
+		return 0
+	}
+	if err := migrate.Needed(configDir); err != nil {
+		fmt.Fprintln(stderr, "hostd:", err)
+		return 2
 	}
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
@@ -138,7 +159,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			}}
 		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, filepath.Dir(*configPath), *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, configDir, *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}

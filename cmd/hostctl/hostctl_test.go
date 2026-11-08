@@ -59,6 +59,7 @@ func TestScripts(t *testing.T) {
 			"waitfile": waitFile,
 			"exits":    exits,
 			"envfrom":  envFrom,
+			"waitout":  waitOut,
 		},
 	})
 }
@@ -113,4 +114,25 @@ func envFrom(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Fatalf("%q not found in stdout", args[1])
 	}
 	ts.Setenv(args[0], m[1])
+}
+
+// waitout REGEXP command args...: run the command until its standard
+// output matches REGEXP, for up to 10s: for what hostd does after a change on
+// disk (its folders are watched, not read on request).
+func waitOut(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) < 2 {
+		ts.Fatalf("usage: waitout regexp command [args...]")
+	}
+	re := regexp.MustCompile(args[0])
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_ = ts.Exec(args[1], args[2:]...)
+		if re.MatchString(ts.ReadFile("stdout")) {
+			return
+		}
+		if time.Now().After(deadline) {
+			ts.Fatalf("%q never matched the output of %s: %s", args[0], args[1], ts.ReadFile("stdout"))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
