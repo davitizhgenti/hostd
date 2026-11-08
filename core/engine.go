@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -48,6 +49,14 @@ type Options struct {
 	// MaxChainDepth is how many rule-triggered steps a cause chain may
 	// have before the core stops it.
 	MaxChainDepth int
+
+	// Tokens mints the short-lived tokens modules hand to scripts; nil means
+	// modules get none (Core.Tokens returns nil).
+	Tokens sdk.TokenMinter
+
+	// Privileged names the modules that may introspect the core
+	// (Core.Introspect); the daemon grants it to hostd's own module only.
+	Privileged []string
 
 	BusBuffer   int // events a subscriber may fall behind
 	ChainMemory int // events remembered for following cause chains
@@ -654,6 +663,33 @@ func (mc moduleCore) Subscribe(ctx context.Context, filter string) <-chan sdk.Ev
 	return out
 }
 
+func (mc moduleCore) Tokens() sdk.TokenMinter { return mc.e.opts.Tokens }
+
+func (mc moduleCore) Limiter() sdk.Limiter { return mc.e.limiter }
+
+func (mc moduleCore) Introspect() sdk.Introspector {
+	if !slices.Contains(mc.e.opts.Privileged, mc.name) {
+		return nil
+	}
+	return introspect{mc.e}
+}
+
+// introspect is what hostd's own module sees of the engine.
+type introspect struct{ e *Engine }
+
+func (i introspect) Running() []sdk.RunningAction { return i.e.Running() }
+
+func (i introspect) Scopes() []string {
+	var out []string
+	for _, man := range i.e.Registry().Manifests() {
+		for _, sc := range man.Scopes {
+			out = append(out, sc.Name)
+		}
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
 func (mc moduleCore) Handles(actionType string) bool {
 	m, _, ok := mc.e.reg.lookup(actionType)
 	return ok && mc.e.reg.started(m)
@@ -690,13 +726,7 @@ func (mc moduleCore) Do(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 }
 
 // RunningAction is an action being handled.
-type RunningAction struct {
-	ID      string     `json:"id"`
-	Type    string     `json:"type"`
-	Source  sdk.Source `json:"source"`
-	Parent  string     `json:"parent,omitempty"`
-	Started time.Time  `json:"started"`
-}
+type RunningAction = sdk.RunningAction
 
 // Running lists the actions being handled, oldest first: what an update
 // waits for (a deploy or a scene) before it restarts hostd.

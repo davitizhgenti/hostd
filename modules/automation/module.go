@@ -69,12 +69,6 @@ type Module struct {
 	done sync.WaitGroup
 }
 
-// Wire gives the module the core's rule limiter and token minting; call
-// it before the core starts.
-func (m *Module) Wire(l Limiter, t Tokens) {
-	m.opts.Limiter, m.opts.Tokens = l, t
-}
-
 // New returns the automation module.
 func New(opts Options) *Module {
 	if opts.ScenesDir == "" {
@@ -148,6 +142,17 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.mu.Lock()
 	m.core = core
 	m.mu.Unlock()
+	// What the core offers, unless the options already set it (tests).
+	if m.opts.Limiter == nil {
+		if l := core.Limiter(); l != nil {
+			m.opts.Limiter = l
+		}
+	}
+	if m.opts.Tokens == nil {
+		if t := core.Tokens(); t != nil {
+			m.opts.Tokens = t
+		}
+	}
 	for _, d := range []string{m.opts.ScenesDir, m.opts.ScriptsDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			m.log.Warn("cannot create a folder", "dir", d, "err", err)

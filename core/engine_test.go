@@ -1033,3 +1033,39 @@ func TestRunning(t *testing.T) {
 		t.Fatalf("running after: %+v", got)
 	}
 }
+
+type fakeMinter struct{}
+
+func (fakeMinter) Mint(context.Context, string, []string, time.Duration) (string, func(), error) {
+	return "secret", func() {}, nil
+}
+
+// Core v2: what a module is offered. Introspection belongs to the modules
+// the daemon names; tokens only exist where the daemon provides a minter.
+func TestCoreOffers(t *testing.T) {
+	plain := newHarness(t, Options{})
+	c := plain.res.Core()
+	if c.Introspect() != nil {
+		t.Error("a module the daemon did not name can introspect the core")
+	}
+	if c.Tokens() != nil {
+		t.Error("tokens offered without a minter")
+	}
+	if c.Limiter() == nil {
+		t.Error("no rule limiter")
+	}
+
+	priv := newHarness(t, Options{Tokens: fakeMinter{}, Privileged: []string{"res"}})
+	c = priv.res.Core()
+	in := c.Introspect()
+	if in == nil {
+		t.Fatal("a privileged module gets no introspection")
+	}
+	if c.Tokens() == nil {
+		t.Error("the minter is not offered")
+	}
+	if got := in.Running(); len(got) != 0 {
+		t.Errorf("running = %v, want none", got)
+	}
+	_ = in.Scopes() // sorted, without duplicates: whatever the modules declare
+}

@@ -1,6 +1,6 @@
 # hostd module protocol, version 1
 
-An external module is a separate program that hostd starts and talks to over a unix socket, or over the program's standard input and output. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 1.
+An external module is a separate program that hostd starts and talks to over a unix socket, or over the program's standard input and output. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 2. Version 2 added three Go-only calls, `Tokens`, `Limiter` and `Introspect`, which built-in modules use (for scripts, rule limits and hostd's own module); external modules do not get them over the protocol, so the wire methods below are the same as in version 1.
 
 `examples/python-module` is a complete module that uses only Python's standard library.
 

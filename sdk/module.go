@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // Module is implemented by every module, built-in or external.
@@ -29,11 +30,11 @@ type Module interface {
 	Stop(ctx context.Context) error
 }
 
-// CoreVersion numbers the Core interface below. It is frozen: external
-// modules (M6) will reach the same calls over a wire protocol, so adding,
-// removing or changing a method is a new version, recorded in
-// design/architecture-report.md (finding L6) and the module protocol docs.
-const CoreVersion = 1
+// CoreVersion numbers the Core interface below. It is frozen between
+// versions: adding, removing or changing a method is a new version, recorded
+// in the module protocol docs. Version 2 added Tokens, Limiter and
+// Introspect, which in-process modules used to be wired with by hand.
+const CoreVersion = 2
 
 // Core is what the core gives every module (version CoreVersion).
 type Core interface {
@@ -63,6 +64,51 @@ type Core interface {
 	// Read answers another module's declared read (see Manifest.Reads) as
 	// JSON, so modules share data without importing each other's types.
 	Read(ctx context.Context, module, read string, params map[string]string) (json.RawMessage, error)
+
+	// Tokens mints short-lived tokens for programs a module runs on behalf
+	// of automation (a rule's script). It is nil where hostd offers none
+	// (and for external modules, for now).
+	Tokens() TokenMinter
+
+	// Limiter is the core's guard against a rule that fires too often.
+	// Nil where hostd offers none.
+	Limiter() Limiter
+
+	// Introspect shows what is running and which scopes exist. Only hostd's
+	// own module gets it; every other module gets nil.
+	Introspect() Introspector
+}
+
+// TokenMinter creates tokens that end with a run.
+type TokenMinter interface {
+	// Mint returns a secret for a token of kind automation with the given
+	// scopes, valid for ttl, and the function that revokes it early.
+	Mint(ctx context.Context, name string, scopes []string, ttl time.Duration) (secret string, revoke func(), err error)
+}
+
+// Limiter pauses a rule that fires too often.
+type Limiter interface {
+	// Allow records a firing of rule. When ok is false the rule is paused
+	// until the given time; tripped says this firing caused the pause.
+	Allow(rule string) (ok bool, until time.Time, tripped bool)
+}
+
+// Introspector is the core looking at itself.
+type Introspector interface {
+	// Running lists the actions being handled, oldest first.
+	Running() []RunningAction
+	// Scopes lists every token scope some module declares, besides the
+	// core's own, sorted.
+	Scopes() []string
+}
+
+// RunningAction is an action being handled.
+type RunningAction struct {
+	ID      string    `json:"id"`
+	Type    string    `json:"type"`
+	Source  Source    `json:"source"`
+	Parent  string    `json:"parent,omitempty"`
+	Started time.Time `json:"started"`
 }
 
 // StateReporter is implemented by modules that expose their current state

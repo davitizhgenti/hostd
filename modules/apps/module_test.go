@@ -37,7 +37,10 @@ func (f *fakeCore) Do(context.Context, sdk.Action) (sdk.Result, error) {
 
 func (f *fakeCore) Subscribe(context.Context, string) <-chan sdk.Event { return nil }
 
-func (f *fakeCore) Handles(string) bool { return false }
+func (f *fakeCore) Handles(string) bool          { return false }
+func (f *fakeCore) Tokens() sdk.TokenMinter      { return nil }
+func (f *fakeCore) Limiter() sdk.Limiter         { return nil }
+func (f *fakeCore) Introspect() sdk.Introspector { return nil }
 
 func (f *fakeCore) Read(context.Context, string, string, map[string]string) (json.RawMessage, error) {
 	return nil, sdk.Errorf(sdk.CodeNotFound, "no reads in this fake")

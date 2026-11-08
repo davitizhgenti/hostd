@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
@@ -41,9 +40,9 @@ type Options struct {
 type Module struct {
 	o Options
 
-	mu     sync.Mutex
-	core   sdk.Core
-	engine *core.Engine
+	mu    sync.Mutex
+	core  sdk.Core
+	intro sdk.Introspector // nil until Start, and in tests that set none
 }
 
 func New(o Options) *Module {
@@ -54,14 +53,6 @@ func New(o Options) *Module {
 		o.Every = time.Second
 	}
 	return &Module{o: o}
-}
-
-// Wire gives the module the engine, once it exists: the actions running
-// now, and the scopes the modules declare.
-func (m *Module) Wire(e *core.Engine) {
-	m.mu.Lock()
-	m.engine = e
-	m.mu.Unlock()
 }
 
 var (
@@ -140,6 +131,7 @@ const tlsText = "Certificate authority (pin):\n    {pin}\n    file: GET /v1/tls/
 func (m *Module) Start(_ context.Context, c sdk.Core) error {
 	m.mu.Lock()
 	m.core = c
+	m.intro = c.Introspect() // hostd's own module is the one that gets it
 	m.mu.Unlock()
 	return nil
 }
@@ -162,14 +154,10 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 func (m *Module) knownScopes() []string {
 	known := []string{sdk.ScopeRead, sdk.ScopeAdmin}
 	m.mu.Lock()
-	e := m.engine
+	in := m.intro
 	m.mu.Unlock()
-	if e != nil {
-		for _, man := range e.Registry().Manifests() {
-			for _, sc := range man.Scopes {
-				known = append(known, sc.Name)
-			}
-		}
+	if in != nil {
+		known = append(known, in.Scopes()...)
 	}
 	sort.Strings(known)
 	return slices.Compact(known)
@@ -288,11 +276,11 @@ func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error
 
 func (m *Module) busy(ctx context.Context, patterns []string, idle bool) []string {
 	m.mu.Lock()
-	e, c := m.engine, m.core
+	in, c := m.intro, m.core
 	m.mu.Unlock()
 	var busy []string
-	if e != nil {
-		for _, r := range e.Running() {
+	if in != nil {
+		for _, r := range in.Running() {
 			for _, p := range patterns {
 				if sdk.MatchType(strings.TrimSpace(p), r.Type) {
 					busy = append(busy, fmt.Sprintf("%s (%s, since %s)", r.Type, r.ID, r.Started.Format("15:04:05")))
@@ -329,12 +317,12 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 		return m.audit(ctx, params)
 	case "running":
 		m.mu.Lock()
-		e := m.engine
+		in := m.intro
 		m.mu.Unlock()
-		if e == nil {
-			return []core.RunningAction{}, nil
+		if in == nil {
+			return []sdk.RunningAction{}, nil
 		}
-		return e.Running(), nil
+		return in.Running(), nil
 	case "tls":
 		if m.o.TLS == nil {
 			return nil, sdk.Errorf(sdk.CodeNotFound, "the API is plain HTTP here ([api] tls = false)")

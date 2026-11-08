@@ -30,7 +30,6 @@ import (
 	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/internal/version"
-	"github.com/davitizhgenti/hostd/modules/automation"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -186,13 +185,9 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		}
 	}
 	coreOpts.Audit = st
+	coreOpts.Tokens = scriptTokens{st}
+	coreOpts.Privileged = []string{system.Name}
 	eng := core.New(reg, coreOpts)
-	sys.Wire(eng)
-	for _, m := range mods {
-		if auto, ok := m.(*automation.Module); ok {
-			auto.Wire(eng.Limiter(), scriptTokens{st})
-		}
-	}
 	if err := eng.Start(ctx); err != nil {
 		return err
 	}

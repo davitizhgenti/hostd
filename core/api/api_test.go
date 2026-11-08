@@ -101,8 +101,7 @@ func setup(t *testing.T, opts Options) *env {
 			t.Fatal(err)
 		}
 	}
-	eng := core.New(reg, core.Options{Audit: st})
-	sys.Wire(eng)
+	eng := core.New(reg, core.Options{Audit: st, Privileged: []string{system.Name}})
 	if err := eng.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
