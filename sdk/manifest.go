@@ -66,6 +66,10 @@ type ReadSpec struct {
 	// TCP still the home network only).
 	Scope string `json:"scope,omitempty"`
 
+	// Schema is the JSON Schema of what the read returns (optional; kit
+	// modules fill it from the Go type).
+	Schema json.RawMessage `json:"schema,omitempty"`
+
 	// CLI says how hostctl shows the read (optional).
 	CLI *CLI `json:"cli,omitempty"`
 }
