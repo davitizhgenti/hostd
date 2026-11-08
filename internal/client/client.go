@@ -100,47 +100,117 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Do sends a request and decodes a JSON response into out (if not nil).
 func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
-	var body io.Reader
+	var body []byte
+	contentType := ""
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(b)
+		body, contentType = b, "application/json"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	b, err := c.request(ctx, method, path, contentType, body)
 	if err != nil {
 		return err
 	}
-	if in != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if out != nil && len(b) > 0 {
+		return json.Unmarshal(b, out)
+	}
+	return nil
+}
+
+// request sends a request with a body of the given type and returns the
+// response body; an error status becomes an *Error.
+func (c *Client) request(ctx context.Context, method, path, contentType string, body []byte) ([]byte, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("cannot reach hostd: %w", err)
+		return nil, fmt.Errorf("cannot reach hostd: %w", err)
 	}
 	defer res.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if res.StatusCode >= 400 {
 		var eb struct {
 			Error *sdk.Error `json:"error"`
 		}
 		if json.Unmarshal(b, &eb) == nil && eb.Error != nil {
-			return &Error{Status: res.StatusCode, Err: eb.Error}
+			return nil, &Error{Status: res.StatusCode, Err: eb.Error}
 		}
-		return &Error{Status: res.StatusCode, Err: &sdk.Error{Code: sdk.CodeInternal,
+		return nil, &Error{Status: res.StatusCode, Err: &sdk.Error{Code: sdk.CodeInternal,
 			Message: fmt.Sprintf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(b)))}}
 	}
-	if out != nil && len(b) > 0 {
-		return json.Unmarshal(b, out)
+	return b, nil
+}
+
+// Resource is a declared thing as GET /v1/<plural> shows it.
+type Resource struct {
+	Kind       string             `json:"kind"`
+	Name       string             `json:"name"`
+	File       string             `json:"file"`
+	Spec       json.RawMessage    `json:"spec,omitempty"`
+	Status     sdk.ResourceStatus `json:"status"`
+	Generation uint64             `json:"generation"`
+	Error      string             `json:"error,omitempty"`
+}
+
+// Resources lists the resources of a kind (by its plural).
+func (c *Client) Resources(ctx context.Context, plural string) ([]Resource, error) {
+	var out []Resource
+	err := c.Get(ctx, "/v1/"+plural, &out)
+	return out, err
+}
+
+// Resource returns one resource.
+func (c *Client) Resource(ctx context.Context, plural, name string) (Resource, error) {
+	var out Resource
+	err := c.Get(ctx, "/v1/"+plural+"/"+url.PathEscape(name), &out)
+	return out, err
+}
+
+// ResourceFile returns a resource's file as written.
+func (c *Client) ResourceFile(ctx context.Context, plural, name string) ([]byte, error) {
+	return c.request(ctx, http.MethodGet, "/v1/"+plural+"/"+url.PathEscape(name)+"/file", "", nil)
+}
+
+// Apply creates or replaces a resource from TOML (or a JSON object); with
+// check set, it only checks that it would be accepted.
+func (c *Client) Apply(ctx context.Context, plural, name string, body []byte, check bool) (Resource, error) {
+	path := "/v1/" + plural + "/" + url.PathEscape(name)
+	if check {
+		path += "?check=1"
 	}
-	return nil
+	contentType := "application/toml"
+	if t := bytes.TrimSpace(body); len(t) > 0 && t[0] == '{' {
+		contentType = "application/json"
+	}
+	b, err := c.request(ctx, http.MethodPut, path, contentType, body)
+	if err != nil {
+		return Resource{}, err
+	}
+	var out Resource
+	return out, json.Unmarshal(b, &out)
+}
+
+// DeleteResource removes a resource.
+func (c *Client) DeleteResource(ctx context.Context, plural, name string) error {
+	_, err := c.request(ctx, http.MethodDelete, "/v1/"+plural+"/"+url.PathEscape(name), "", nil)
+	return err
 }
 
 // Version is GET /v1/version.

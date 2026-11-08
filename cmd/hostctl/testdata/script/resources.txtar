@@ -1,0 +1,110 @@
+# Resources: every kind a module declares has the same commands. The demo
+# module's kind is "preset": a file in ~/.config/hostd/presets/.
+mkdir $XDG_CONFIG_HOME/hostd/presets
+cp night.toml $XDG_CONFIG_HOME/hostd/presets/night.toml
+exec hostd -listen= -demo &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+
+# A file that was there at start is in use; the list and the alias agree.
+exec hostctl get presets
+stdout 'NAME +STATUS +PROBLEM'
+stdout 'night +ready'
+exec hostctl presets
+stdout 'night +ready'
+
+# One resource: its file as written, then its status as comments.
+exec hostctl get presets night
+stdout 'lamp = "desk"'
+stdout '# ready, generation 1'
+exec hostctl get presets night --json
+stdout '"generation": 1'
+
+# Apply from a file: the kind from --kind, the name from the file name.
+exec hostctl apply -f day.toml --kind preset
+stdout 'preset/day: applied'
+# ...or from a folder named after the kind, or a tree of such folders.
+exec hostctl apply -f tree
+stdout 'preset/dusk: applied'
+exec hostctl get presets
+stdout 'day +ready'
+stdout 'dusk +ready'
+# JSON works, with the name given.
+stdin dawn.json
+exec hostctl apply -f - --kind presets --name dawn
+stdout 'preset/dawn: applied'
+exec hostctl get presets dawn
+stdout 'brightness = 5'
+
+# A check says whether it would be accepted and writes nothing.
+exec hostctl apply -f day.toml --kind preset --check
+stdout 'would be accepted'
+! exec hostctl apply -f bad.toml --kind preset --name bad --check
+stdout 'preset/bad: rejected'
+stderr '1 of 1 resources rejected'
+! exec hostctl get presets bad
+stderr 'no preset "bad"'
+
+# A rejected file is reported and the others are still applied.
+! exec hostctl apply -f mixed
+stdout 'preset/good: applied'
+stdout 'preset/worse: rejected'
+stderr '1 of 2 resources rejected'
+exec hostctl get presets good
+
+# The verb is the action's own command: it uses the preset.
+exec hostctl demo preset apply night
+stdout 'applied'
+exec hostctl log --type demo.lamp.set --limit 1
+stdout 'desk'
+! exec hostctl demo preset apply nothing
+stderr 'no preset "nothing"'
+
+# Edit: the editor changes the file, and it is applied.
+env EDITOR='sed -i s/20/65/'
+exec hostctl edit preset night
+stdout 'preset/night: applied'
+exec hostctl get presets night
+stdout 'brightness = 65'
+env EDITOR=true
+exec hostctl edit preset night
+stdout 'no changes'
+# An edit the module rejects keeps the copy.
+env EDITOR='sed -i s/65/650/'
+! exec hostctl edit preset night
+stderr 'your copy is in'
+exec hostctl get presets night
+stdout 'brightness = 65$'
+
+# Delete.
+exec hostctl delete preset night
+stdout 'preset/night: deleted'
+! exec hostctl get presets night
+stderr 'no preset "night"'
+! exec hostctl delete preset night
+stderr 'no preset "night"'
+! exec hostctl delete thing night
+stderr 'no kind "thing"'
+! exec hostctl apply -f day.toml
+stderr 'which kind'
+
+-- night.toml --
+lamp = "desk"
+brightness = 20
+-- day.toml --
+lamp = "porch"
+brightness = 90
+-- bad.toml --
+lamp = "porch"
+brightness = 900
+-- dawn.json --
+{"lamp": "hall", "brightness": 5}
+-- tree/presets/dusk.toml --
+lamp = "porch"
+brightness = 30
+-- mixed/presets/good.toml --
+lamp = "porch"
+brightness = 1
+-- mixed/presets/worse.toml --
+lamp = "porch"
+brightness = 1000

@@ -54,6 +54,7 @@ func (a *app) addModuleCommands(ctx context.Context, root *cobra.Command) error 
 		}
 	}
 	a.addReadCommands(root, manifests)
+	a.addKindCommands(root, manifests)
 	describeGroups(root)
 	return nil
 }

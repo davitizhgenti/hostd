@@ -20,11 +20,19 @@ type setArgs struct {
 	Brightness int    `json:"brightness" desc:"0-100" min:"0" max:"100"`
 }
 
+// presetSpec is the spec of the kind "preset": a file in
+// ~/.config/hostd/presets/ that saves a lamp's setting.
+type presetSpec struct {
+	Lamp       string `json:"lamp" desc:"lamp name"`
+	Brightness int    `json:"brightness" desc:"0-100" min:"0" max:"100"`
+}
+
 // New returns the demo module.
 func New() *kit.Module {
 	var (
-		mu    sync.Mutex
-		lamps = map[string]int{}
+		mu      sync.Mutex
+		lamps   = map[string]int{}
+		presets = map[string]presetSpec{}
 	)
 	m := kit.New("demo", "0.1.0").Owns("demo.*").Scope("demo", "Change the demo lamps")
 	changed := kit.Event[map[string]any](m, "demo.lamp.changed", "A lamp's brightness changed")
@@ -54,6 +62,38 @@ func New() *kit.Module {
 				changed.Emit(c, map[string]any{"lamp": n, "brightness": 0}, "")
 			}
 			return struct{}{}, nil
+		})
+
+	// A kind of resource: saved settings, one file each. Applying one (the
+	// file appearing or changing) only stores it; the verb "apply" uses it.
+	kit.Kind(m, kit.KindSpec{Kind: "preset", Plural: "presets", Description: "A saved lamp setting",
+		Verbs: []sdk.VerbSpec{{Name: "apply", Description: "Set the lamp as the preset says", Action: "demo.preset.apply"}}},
+		func(_ context.Context, _ kit.Ctx, r kit.Res[presetSpec]) (sdk.ResourceStatus, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			presets[r.Name] = r.Spec
+			return sdk.ResourceStatus{Conditions: []sdk.Condition{{Type: sdk.ConditionReady, Status: sdk.ConditionTrue}}}, nil
+		},
+		func(_ context.Context, _ kit.Ctx, name string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			delete(presets, name)
+			return nil
+		})
+	kit.Action(m, kit.Spec{Type: "demo.preset.apply", Description: "Set the lamp as a preset says", Scope: "demo",
+		Keys: []sdk.KeyTemplate{"demo.preset:{name}"}},
+		func(ctx context.Context, c kit.Ctx, a struct {
+			Name string `json:"name" desc:"the preset"`
+		}) (struct{}, error) {
+			mu.Lock()
+			p, ok := presets[a.Name]
+			mu.Unlock()
+			if !ok {
+				return struct{}{}, sdk.Errorf(sdk.CodeNotFound, "no preset %q", a.Name)
+			}
+			args := sdk.MustJSON(setArgs(p))
+			_, err := c.Core.Do(ctx, sdk.Action{Type: "demo.lamp.set", Args: args})
+			return struct{}{}, err
 		})
 
 	// GET /v1/state/demo: every lamp's brightness.
