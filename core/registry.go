@@ -12,7 +12,7 @@ import (
 )
 
 // Namespaces the core itself emits events in; no module may claim them.
-var coreNamespaces = []string{"action.*", "bus.*", "core.*"}
+var coreNamespaces = []string{"action.*", "bus.*", "core.*", "resource.*"}
 
 // moduleState tracks where a module is in its lifecycle.
 type moduleState int
@@ -74,6 +74,21 @@ func (r *Registry) Add(m sdk.Module) error {
 				if sdk.PatternsOverlap(p, q) {
 					return fmt.Errorf("module %q: namespace %q overlaps %q owned by module %q",
 						man.Name, p, q, other.man.Name)
+				}
+			}
+		}
+	}
+
+	if len(man.Kinds) > 0 {
+		if _, ok := m.(sdk.Reconciler); !ok {
+			return fmt.Errorf("module %q declares kinds but does not implement sdk.Reconciler", man.Name)
+		}
+		for _, k := range man.Kinds {
+			for _, other := range r.modules {
+				for _, ok := range other.man.Kinds {
+					if ok.Kind == k.Kind || ok.Plural == k.Plural {
+						return fmt.Errorf("module %q: kind %q (%s) is already owned by module %q", man.Name, k.Kind, k.Plural, other.man.Name)
+					}
 				}
 			}
 		}
@@ -303,4 +318,37 @@ func (r *Registry) Manifests() []sdk.Manifest {
 		out[i] = m.man
 	}
 	return out
+}
+
+// KindOwner is a kind of resource and the module that owns it.
+type KindOwner struct {
+	sdk.KindSpec
+	Module string
+}
+
+// Kinds lists every kind of resource the modules declare, in module
+// registration order.
+func (r *Registry) Kinds() []KindOwner {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []KindOwner
+	for _, m := range r.modules {
+		for _, k := range m.man.Kinds {
+			out = append(out, KindOwner{KindSpec: k, Module: m.man.Name})
+		}
+	}
+	return out
+}
+
+// Reconciler returns the owner of a kind, once its module has started.
+func (r *Registry) Reconciler(kind string) (sdk.Reconciler, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, m := range r.modules {
+		if _, ok := m.man.Kind(kind); ok && m.state == stateStarted {
+			rc, ok := m.mod.(sdk.Reconciler)
+			return rc, ok
+		}
+	}
+	return nil, false
 }

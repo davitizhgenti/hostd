@@ -202,3 +202,47 @@ func TestModuleNamesAllowHyphen(t *testing.T) {
 		t.Fatalf("hyphenated module should validate: %v", err)
 	}
 }
+
+func kindManifest(mut func(*Manifest)) Manifest {
+	m := Manifest{
+		Name: "lights", Version: "1", Owns: []string{"lights.*"},
+		Actions: []ActionSpec{{Type: "lights.run", Scope: ScopeAdmin,
+			Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`)}},
+		Kinds: []KindSpec{{Kind: "scene", Plural: "scenes", Verbs: []VerbSpec{{Name: "run", Action: "lights.run"}}}},
+	}
+	if mut != nil {
+		mut(&m)
+	}
+	return m
+}
+
+func TestManifestKinds(t *testing.T) {
+	good := kindManifest(nil)
+	if err := good.Validate(); err != nil {
+		t.Fatalf("a valid kind: %v", err)
+	}
+	if k, ok := good.Kind("scene"); !ok || k.Plural != "scenes" {
+		t.Fatalf("Kind lookup: %+v %v", k, ok)
+	}
+	for name, c := range map[string]struct {
+		mut  func(*Manifest)
+		want string
+	}{
+		"bad kind":     {func(m *Manifest) { m.Kinds[0].Kind = "Scene" }, "use a lowercase word"},
+		"bad plural":   {func(m *Manifest) { m.Kinds[0].Plural = "a_b" }, "plural"},
+		"core route":   {func(m *Manifest) { m.Kinds[0].Plural = "actions" }, "core route"},
+		"twice":        {func(m *Manifest) { m.Kinds = append(m.Kinds, m.Kinds[0]) }, "declared twice"},
+		"bad schema":   {func(m *Manifest) { m.Kinds[0].Schema = json.RawMessage(`{"type":`) }, "schema"},
+		"bad scope":    {func(m *Manifest) { m.Kinds[0].WriteScope = "No Scope" }, "write_scope"},
+		"unknown verb": {func(m *Manifest) { m.Kinds[0].Verbs[0].Action = "lights.nope" }, "not declared"},
+		"verb name":    {func(m *Manifest) { m.Kinds[0].Verbs[0].Name = "file" }, "taken"},
+		"verb twice":   {func(m *Manifest) { m.Kinds[0].Verbs = append(m.Kinds[0].Verbs, m.Kinds[0].Verbs[0]) }, "declared twice"},
+		"verb arg":     {func(m *Manifest) { m.Kinds[0].Verbs[0].Arg = "id" }, `no argument "id"`},
+	} {
+		m := kindManifest(c.mut)
+		err := m.Validate()
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, c.want)
+		}
+	}
+}

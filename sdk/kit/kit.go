@@ -78,6 +78,7 @@ type Module struct {
 	handlers   map[string]func(context.Context, Ctx, sdk.Action) (sdk.Result, error)
 	validators map[string]func(context.Context, Ctx, sdk.Action) error
 	reads      map[string]func(context.Context, Ctx, map[string]string) (any, error)
+	kinds      map[string]*kindHandler
 	starts     []func(context.Context, Ctx) error
 	stops      []func(context.Context) error
 	state      func(context.Context, Ctx) (any, error)
@@ -90,6 +91,7 @@ func New(name, version string) *Module {
 		handlers:   map[string]func(context.Context, Ctx, sdk.Action) (sdk.Result, error){},
 		validators: map[string]func(context.Context, Ctx, sdk.Action) error{},
 		reads:      map[string]func(context.Context, Ctx, map[string]string) (any, error){},
+		kinds:      map[string]*kindHandler{},
 	}
 }
 
@@ -349,4 +351,109 @@ func decodeParams(params map[string]string, p any) error {
 	}
 	b, _ = json.Marshal(typed)
 	return json.Unmarshal(b, p)
+}
+
+// KindSpec declares a kind of resource (a file in ~/.config/hostd/<plural>/).
+type KindSpec struct {
+	Kind, Plural, Description string
+	// WriteScope is the scope to apply or delete one (default admin).
+	WriteScope string
+	// Verbs are the actions a resource takes: POST /v1/<plural>/<name>/<verb>.
+	Verbs []sdk.VerbSpec
+}
+
+// Res is a resource of a kind whose spec is the Go type S.
+type Res[S any] struct {
+	Name string
+	Spec S
+	// Raw is the file as written; Generation counts its changes.
+	Raw        []byte
+	Generation uint64
+}
+
+type kindHandler struct {
+	apply  func(context.Context, Ctx, sdk.Resource) (sdk.ResourceStatus, error)
+	remove func(context.Context, Ctx, string) error
+	check  func(context.Context, Ctx, sdk.Resource) error
+}
+
+// Kind declares a kind of resource whose spec is the Go type S; the schema
+// comes from S. apply puts a resource in use (an error rejects it and the
+// previous version stays), remove takes it out. The module then implements
+// sdk.Reconciler.
+func Kind[S any](m *Module, spec KindSpec,
+	apply func(ctx context.Context, c Ctx, r Res[S]) (sdk.ResourceStatus, error),
+	remove func(ctx context.Context, c Ctx, name string) error) {
+	if _, dup := m.kinds[spec.Kind]; dup {
+		panic(fmt.Sprintf("kit: kind %q declared twice", spec.Kind))
+	}
+	m.man.Kinds = append(m.man.Kinds, sdk.KindSpec{
+		Kind: spec.Kind, Plural: spec.Plural, Description: spec.Description,
+		Schema: sdk.SchemaOf[S](), WriteScope: spec.WriteScope, Verbs: spec.Verbs,
+	})
+	typed := func(r sdk.Resource) (Res[S], error) {
+		var out Res[S]
+		if err := json.Unmarshal(r.Spec, &out.Spec); err != nil {
+			return out, fmt.Errorf("%s %q: %w", r.Kind, r.Name, err)
+		}
+		out.Name, out.Raw, out.Generation = r.Name, r.Raw, r.Generation
+		return out, nil
+	}
+	m.kinds[spec.Kind] = &kindHandler{
+		apply: func(ctx context.Context, c Ctx, r sdk.Resource) (sdk.ResourceStatus, error) {
+			t, err := typed(r)
+			if err != nil {
+				return sdk.ResourceStatus{}, err
+			}
+			return apply(ctx, c, t)
+		},
+		remove: remove,
+	}
+}
+
+// CheckKind adds the dry run for a kind: whether a resource would be
+// accepted, without putting it in use (hostctl apply --check).
+func CheckKind[S any](m *Module, kind string, check func(ctx context.Context, c Ctx, r Res[S]) error) {
+	h := m.kinds[kind]
+	if h == nil {
+		panic(fmt.Sprintf("kit: CheckKind: no kind %q", kind))
+	}
+	h.check = func(ctx context.Context, c Ctx, r sdk.Resource) error {
+		var out Res[S]
+		if err := json.Unmarshal(r.Spec, &out.Spec); err != nil {
+			return err
+		}
+		out.Name, out.Raw, out.Generation = r.Name, r.Raw, r.Generation
+		return check(ctx, c, out)
+	}
+}
+
+// Apply implements sdk.Reconciler.
+func (m *Module) Apply(ctx context.Context, r sdk.Resource) (sdk.ResourceStatus, error) {
+	h := m.kinds[r.Kind]
+	if h == nil {
+		return sdk.ResourceStatus{}, sdk.Errorf(sdk.CodeNotFound, "%s has no kind %q", m.man.Name, r.Kind)
+	}
+	return h.apply(ctx, m.ctx(sdk.Action{}), r)
+}
+
+// Delete implements sdk.Reconciler.
+func (m *Module) Delete(ctx context.Context, kind, name string) error {
+	h := m.kinds[kind]
+	if h == nil {
+		return sdk.Errorf(sdk.CodeNotFound, "%s has no kind %q", m.man.Name, kind)
+	}
+	if h.remove == nil {
+		return nil
+	}
+	return h.remove(ctx, m.ctx(sdk.Action{}), name)
+}
+
+// Check implements sdk.Checker: a kind's dry run, or accepted when it has
+// none (the schema was checked already).
+func (m *Module) Check(ctx context.Context, r sdk.Resource) error {
+	if h := m.kinds[r.Kind]; h != nil && h.check != nil {
+		return h.check(ctx, m.ctx(sdk.Action{}), r)
+	}
+	return nil
 }

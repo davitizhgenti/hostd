@@ -3,6 +3,7 @@ package kit_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -224,5 +225,71 @@ func TestLifecycleAndMistakes(t *testing.T) {
 			}()
 			f()
 		}()
+	}
+}
+
+type sceneSpec struct {
+	Volume int `json:"volume" min:"0" max:"150"`
+}
+
+func TestKindsAreReconciled(t *testing.T) {
+	var applied []string
+	m := kit.New("scenes", "1").Owns("scenes.*")
+	kit.Action(m, kit.Spec{Type: "scenes.apply", Scope: sdk.ScopeAdmin},
+		func(context.Context, kit.Ctx, struct {
+			Name string `json:"name"`
+		}) (struct{}, error) {
+			return struct{}{}, nil
+		})
+	kit.Kind(m, kit.KindSpec{Kind: "scene", Plural: "scenes", Verbs: []sdk.VerbSpec{{Name: "apply", Action: "scenes.apply"}}},
+		func(_ context.Context, _ kit.Ctx, r kit.Res[sceneSpec]) (sdk.ResourceStatus, error) {
+			applied = append(applied, r.Name)
+			if r.Spec.Volume == 99 {
+				return sdk.ResourceStatus{}, errors.New("99 is too loud")
+			}
+			return sdk.ResourceStatus{}, nil
+		}, func(_ context.Context, _ kit.Ctx, name string) error {
+			applied = append(applied, "-"+name)
+			return nil
+		})
+	kit.CheckKind(m, "scene", func(_ context.Context, _ kit.Ctx, r kit.Res[sceneSpec]) error {
+		if r.Spec.Volume == 1 {
+			return errors.New("too quiet")
+		}
+		return nil
+	})
+
+	man := m.Manifest()
+	if err := man.Validate(); err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	k, ok := man.Kind("scene")
+	if !ok || !strings.Contains(string(k.Schema), `"maximum":150`) {
+		t.Fatalf("kind = %+v", k)
+	}
+	ctx := context.Background()
+	res := sdk.Resource{Kind: "scene", Name: "movie", Spec: json.RawMessage(`{"volume":40}`)}
+	if _, err := m.Apply(ctx, res); err != nil {
+		t.Fatal(err)
+	}
+	res.Spec = json.RawMessage(`{"volume":99}`)
+	if _, err := m.Apply(ctx, res); err == nil {
+		t.Fatal("the module's refusal was lost")
+	}
+	if err := m.Delete(ctx, "scene", "movie"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(applied, ","); got != "movie,movie,-movie" {
+		t.Fatalf("calls = %s", got)
+	}
+	res.Spec = json.RawMessage(`{"volume":1}`)
+	if err := m.Check(ctx, res); err == nil {
+		t.Fatal("check should refuse")
+	}
+	if _, err := m.Apply(ctx, sdk.Resource{Kind: "ghost", Name: "x"}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown kind: %v", err)
+	}
+	if err := m.Delete(ctx, "ghost", "x"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown kind delete: %v", err)
 	}
 }

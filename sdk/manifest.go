@@ -39,6 +39,10 @@ type Manifest struct {
 	Actions []ActionSpec `json:"actions,omitempty"`
 	Events  []EventSpec  `json:"events,omitempty"`
 
+	// Kinds are the kinds of resource the module owns; it implements
+	// Reconciler to make them real (see resource.go).
+	Kinds []KindSpec `json:"kinds,omitempty"`
+
 	// Reads are GET routes serving parts of the module's state, such as
 	// the app catalog. The module implements Reader to answer them.
 	Reads []ReadSpec `json:"reads,omitempty"`
@@ -293,6 +297,7 @@ var (
 	rePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*(\.\*)?$`)
 	reParam   = regexp.MustCompile(`\{([^}]*)\}`)
 	reAlias   = regexp.MustCompile(`^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)?$`)
+	reKind    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	reField   = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
 )
 
@@ -599,6 +604,8 @@ func (m *Manifest) Validate() error {
 		checkCLI(fmt.Sprintf("read %q", rd.Name), rd.CLI, true)
 	}
 
+	m.checkKinds(bad, owned)
+
 	seen = map[string]bool{}
 	for _, e := range m.Events {
 		where := fmt.Sprintf("event %q", e.Type)
@@ -627,4 +634,77 @@ func (m *Manifest) Action(typ string) (ActionSpec, bool) {
 		}
 	}
 	return ActionSpec{}, false
+}
+
+// reservedPlurals are API paths a kind may not take: the core's own routes.
+var reservedPlurals = map[string]bool{
+	"actions": true, "events": true, "manifests": true, "openapi": true, "state": true,
+	"version": true, "update": true, "hooks": true, "tls": true, "resources": true,
+}
+
+// checkKinds checks the kinds a manifest declares: names, schema, scope,
+// and that every verb sends an action the module declares and owns.
+func (m *Manifest) checkKinds(bad func(string, ...any), owned func(string) bool) {
+	kinds, plurals := map[string]bool{}, map[string]bool{}
+	for _, k := range m.Kinds {
+		where := fmt.Sprintf("kind %q", k.Kind)
+		switch {
+		case !reKind.MatchString(k.Kind):
+			bad("%s: use a lowercase word such as \"rule\"", where)
+		case kinds[k.Kind]:
+			bad("%s declared twice", where)
+		}
+		switch {
+		case !reKind.MatchString(k.Plural):
+			bad("%s: plural %q: use a lowercase word such as \"rules\"", where, k.Plural)
+		case reservedPlurals[k.Plural]:
+			bad("%s: plural %q is a core route", where, k.Plural)
+		case plurals[k.Plural]:
+			bad("%s: plural %q declared twice", where, k.Plural)
+		}
+		kinds[k.Kind], plurals[k.Plural] = true, true
+		if _, err := CompileArgsSchema(k.Schema); err != nil {
+			bad("%s: schema: %v", where, err)
+		}
+		if k.WriteScope != "" && !reScope.MatchString(k.WriteScope) {
+			bad("%s: write_scope %q is not a scope name", where, k.WriteScope)
+		}
+		verbs := map[string]bool{}
+		for _, v := range k.Verbs {
+			vw := fmt.Sprintf("%s verb %q", where, v.Name)
+			spec, declared := m.Action(v.Action)
+			switch {
+			case !reKind.MatchString(v.Name):
+				bad("%s: use a lowercase word", vw)
+			case verbs[v.Name]:
+				bad("%s declared twice", vw)
+			case v.Name == "file" || v.Name == "status":
+				bad("%s: the name is taken", vw)
+			case !declared:
+				bad("%s: action %q is not declared by this module", vw, v.Action)
+			case !owned(v.Action):
+				bad("%s: action %q is outside the namespaces this module owns", vw, v.Action)
+			}
+			verbs[v.Name] = true
+			arg := v.Arg
+			if arg == "" {
+				arg = "name"
+			}
+			if declared {
+				if sch, err := CompileArgsSchema(spec.Schema); err == nil && !sch.HasProperty(arg) {
+					bad("%s: action %q has no argument %q for the resource's name", vw, v.Action, arg)
+				}
+			}
+		}
+	}
+}
+
+// Kind returns the spec of a kind, if declared.
+func (m *Manifest) Kind(kind string) (KindSpec, bool) {
+	for _, k := range m.Kinds {
+		if k.Kind == kind {
+			return k, true
+		}
+	}
+	return KindSpec{}, false
 }

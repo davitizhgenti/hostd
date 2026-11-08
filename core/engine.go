@@ -585,6 +585,13 @@ func (e *Engine) publish(ev sdk.Event, depth int) {
 	e.bus.Publish(ev)
 }
 
+// Announce publishes an event the core itself owns (resource.applied...), for
+// the parts of the core that live in their own packages. A rule reacting to
+// it starts a chain of its own.
+func (e *Engine) Announce(typ string, data any) {
+	e.publish(sdk.Event{Type: typ, Data: sdk.MustJSON(data), Source: &sdk.Source{Kind: sdk.SourceExternal, Name: "core"}}, 0)
+}
+
 // fail records and publishes an action that failed before it ran, and
 // returns the error with the action ID set.
 func (e *Engine) fail(a sdk.Action, start time.Time, err error) error {
