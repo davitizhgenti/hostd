@@ -34,7 +34,12 @@ type runAPI struct {
 func newRunAPI(t *testing.T, events bool) *runAPI {
 	t.Helper()
 	api := &runAPI{}
-	manifests := []sdk.Manifest{apps.New(apps.Options{}).Manifest()}
+	// A module of its own for an argument that is a document.
+	notes := sdk.Manifest{Name: "notes", Version: "1", Owns: []string{"note.*"}, Actions: []sdk.ActionSpec{{
+		Type: "note.add", Scope: sdk.ScopeAdmin,
+		Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},` +
+			`"file":{"type":"string","contentMediaType":"application/toml"}},"required":["id","file"],"additionalProperties":false}`)}}}
+	manifests := []sdk.Manifest{apps.New(apps.Options{}).Manifest(), notes}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/manifests", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(manifests) })
 	mux.HandleFunc("POST /v1/actions", func(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +183,7 @@ func TestDoneLines(t *testing.T) {
 	}
 }
 
-// An argument that is a document (an app file) can come from a file or
+// An argument that is a document can come from a file or
 // from standard input.
 func TestDocumentArguments(t *testing.T) {
 	api := newRunAPI(t, false)
@@ -187,14 +192,14 @@ func TestDocumentArguments(t *testing.T) {
 	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, errs, code := hostctl(t, "app", "define", "results", "@"+file); code != 0 {
+	if _, errs, code := hostctl(t, "note", "add", "results", "@"+file); code != 0 {
 		t.Fatalf("exit %d %s", code, errs)
 	}
 	args, _ := api.actions[0]["args"].(map[string]any)
-	if api.actions[0]["type"] != "app.define" || args["id"] != "results" || args["file"] != body {
+	if api.actions[0]["type"] != "note.add" || args["id"] != "results" || args["file"] != body {
 		t.Fatalf("sent %v", api.actions[0])
 	}
-	if _, errs, code := hostctl(t, "app", "define", "results", "@/no/such/file"); code != exitUsage {
+	if _, errs, code := hostctl(t, "note", "add", "results", "@/no/such/file"); code != exitUsage {
 		t.Fatalf("missing file: exit %d %s", code, errs)
 	}
 }

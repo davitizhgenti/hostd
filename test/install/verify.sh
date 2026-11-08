@@ -35,7 +35,7 @@ t "screen user hostctl is logged in"   'runuser -u screen -- env HOME=/home/scre
 t "admin token file used up"           '! test -e /run/user/$(id -u screen)/hostd-admin-token'
 t "screen user hostctl config private" '[ "$(stat -c "%U %a" /home/screen/.config/hostctl/config.toml)" = "screen 600" ]'
 t "menu installed"                     'test -x /usr/local/lib/hostd/hostd-menu && ! test -e /usr/local/lib/hostd/hostd-overlay && ! grep -q "^bindsym" /home/screen/.config/sway/config'
-t "menu in the catalog, hidden"        'hc() { runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl --json "$@"; }; hc apps --all | jq -e ".apps[] | select(.id == \"hostd-menu\")" && ! hc apps | jq -e ".apps[] | select(.id == \"hostd-menu\")"'
+t "menu in the catalog, hidden"        'hc() { runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl --json "$@"; }; hc apps --all | jq -e ".[] | select(.name == \"hostd-menu\")" && ! hc apps | jq -e ".[] | select(.name == \"hostd-menu\")"'
 t "menu token: local, private"         '[ "$(stat -c "%U %a" /home/screen/.config/hostd/local.token)" = "screen 600" ] && runuser -u screen -- env HOME=/home/screen XDG_RUNTIME_DIR=/run/user/$(id -u screen) hostctl --json token list | jq -e ".[] | select(.name == \"menu\" and .kind == \"local\")"'
 t "hostd config dir owned by screen"   '[ "$(stat -c %U /home/screen/.config/hostd)" = screen ] && [ "$(stat -c %U /home/screen/.config/hostd/apps)" = screen ]'
 t "menu runs (GTK 4 bindings)"         'python3 -c "import gi; gi.require_version(\"Gtk\", \"4.0\")"'

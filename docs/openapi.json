@@ -347,130 +347,44 @@
     },
     "/v1/apps": {
       "get": {
-        "operationId": "apps.apps",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "The module's answer"
-          },
-          "400": {
-            "$ref": "#/components/responses/InvalidArgs"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "503": {
-            "$ref": "#/components/responses/Unavailable"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "The app catalog, or one app (?all=true includes hidden apps)",
-        "tags": [
-          "apps"
-        ],
-        "x-hostd-scope": "read"
-      }
-    },
-    "/v1/apps/rescan": {
-      "post": {
-        "description": "Read installed apps and app files again",
-        "operationId": "app.rescan",
-        "parameters": [
-          {
-            "description": "refuse with precondition_failed if the resource changed since this version",
-            "in": "query",
-            "name": "expect_version",
-            "required": false,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
-          }
-        ],
+        "description": "An app: what to run, where it shows, how it is told apart",
+        "operationId": "list.apps",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "items": {
+                    "properties": {
+                      "error": {
+                        "description": "why the file on disk is not in use; spec is then the version that is",
+                        "type": "string"
+                      },
+                      "file": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "spec": {},
+                      "status": {
+                        "description": "Conditions (Ready...) and the kind's own data",
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
                 }
               }
             },
-            "description": "applied, or skipped (a higher-priority hold; not an error)"
-          },
-          "400": {
-            "$ref": "#/components/responses/InvalidArgs"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "412": {
-            "$ref": "#/components/responses/PreconditionFailed"
-          },
-          "503": {
-            "$ref": "#/components/responses/Unavailable"
-          },
-          "504": {
-            "$ref": "#/components/responses/Timeout"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Read installed apps and app files again",
-        "tags": [
-          "apps"
-        ],
-        "x-hostd-action": "app.rescan",
-        "x-hostd-scope": "apps"
-      }
-    },
-    "/v1/apps/{id}": {
-      "get": {
-        "operationId": "apps.app",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "The module's answer"
+            "description": "The resource"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -493,47 +407,29 @@
             "bearer": []
           }
         ],
-        "summary": "One app, by ID or alias",
+        "summary": "List apps",
         "tags": [
           "apps"
         ],
         "x-hostd-scope": "read"
       }
     },
-    "/v1/apps/{id}/file": {
+    "/v1/apps/{name}": {
       "delete": {
-        "description": "Remove an app file written by hand or by app.define",
-        "operationId": "app.undefine",
+        "operationId": "delete.app",
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "name",
             "required": true,
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "description": "refuse with precondition_failed if the resource changed since this version",
-            "in": "query",
-            "name": "expect_version",
-            "required": false,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
           }
         ],
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Result"
-                }
-              }
-            },
-            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          "204": {
+            "description": "Deleted"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -547,17 +443,8 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "412": {
-            "$ref": "#/components/responses/PreconditionFailed"
-          },
           "503": {
             "$ref": "#/components/responses/Unavailable"
-          },
-          "504": {
-            "$ref": "#/components/responses/Timeout"
           }
         },
         "security": [
@@ -565,67 +452,153 @@
             "bearer": []
           }
         ],
-        "summary": "Remove an app file written by hand or by app.define",
+        "summary": "Delete a app",
         "tags": [
           "apps"
         ],
-        "x-hostd-action": "app.undefine",
         "x-hostd-scope": "run"
       },
-      "put": {
-        "description": "Add or replace an app file (checked first; the catalog follows at once)",
-        "operationId": "app.define",
+      "get": {
+        "operationId": "get.app",
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The resource"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One app",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      },
+      "put": {
+        "description": "The body is TOML, or a JSON object. A resource the module rejects is not written and the previous one stays. With ?check=1 nothing is applied or written.",
+        "operationId": "apply.app",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
             "required": true,
             "schema": {
               "type": "string"
             }
           },
           {
-            "description": "refuse with precondition_failed if the resource changed since this version",
+            "description": "only check that the resource would be accepted",
             "in": "query",
-            "name": "expect_version",
+            "name": "check",
             "required": false,
             "schema": {
-              "minimum": 0,
-              "type": "integer"
+              "type": "string"
             }
           }
         ],
         "requestBody": {
           "content": {
             "application/json": {
+              "schema": {}
+            },
+            "application/toml": {
               "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "file": {
-                    "contentMediaType": "application/toml",
-                    "description": "the app file, TOML, as written by hand (docs: Apps)",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "file"
-                ],
-                "type": "object"
+                "type": "string"
               }
             }
           },
-          "required": false
+          "required": true
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "properties": {
+                    "error": {
+                      "description": "why the file on disk is not in use; spec is then the version that is",
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "spec": {},
+                    "status": {
+                      "description": "Conditions (Ready...) and the kind's own data",
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
                 }
               }
             },
-            "description": "applied, or skipped (a higher-priority hold; not an error)"
+            "description": "The resource"
           },
           "400": {
             "$ref": "#/components/responses/InvalidArgs"
@@ -639,17 +612,8 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "412": {
-            "$ref": "#/components/responses/PreconditionFailed"
-          },
           "503": {
             "$ref": "#/components/responses/Unavailable"
-          },
-          "504": {
-            "$ref": "#/components/responses/Timeout"
           }
         },
         "security": [
@@ -657,91 +621,78 @@
             "bearer": []
           }
         ],
-        "summary": "Add or replace an app file (checked first; the catalog follows at once)",
+        "summary": "Create or replace a app",
         "tags": [
           "apps"
         ],
-        "x-hostd-action": "app.define",
         "x-hostd-scope": "run"
       }
     },
-    "/v1/apps/{id}/start": {
+    "/v1/apps/{name}/file": {
+      "get": {
+        "operationId": "file.app",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/toml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "TOML"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The app's file as written",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/apps/{name}/start": {
       "post": {
-        "description": "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
         "operationId": "app.start",
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "name",
             "required": true,
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "description": "refuse with precondition_failed if the resource changed since this version",
-            "in": "query",
-            "name": "expect_version",
-            "required": false,
-            "schema": {
-              "minimum": 0,
-              "type": "integer"
-            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "action": {
-                    "description": "one of the app's actions (e.g. new-private-window): always a new instance",
-                    "type": "string"
-                  },
-                  "args": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "description": "values for the app's arguments (its file's args, such as url); a running copy is replaced",
-                    "type": "object"
-                  },
-                  "dir": {
-                    "description": "run in this directory: a release (needs scope deploy)",
-                    "type": "string"
-                  },
-                  "env": {
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "description": "extra environment, e.g. PORT (needs scope deploy)",
-                    "type": "object"
-                  },
-                  "front": {
-                    "description": "open in front even while someone is using the screen (needs scope display.front)",
-                    "type": "boolean"
-                  },
-                  "image": {
-                    "description": "a container app: run this image (needs scope deploy)",
-                    "type": "string"
-                  },
-                  "new": {
-                    "description": "always a new instance (needs scope deploy)",
-                    "type": "boolean"
-                  },
-                  "ports": {
-                    "description": "a container app: publish these ports (needs scope deploy)",
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -783,20 +734,11 @@
             "bearer": []
           }
         ],
-        "summary": "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
+        "summary": "Start the app",
         "tags": [
           "apps"
         ],
-        "x-hostd-action": "app.start",
-        "x-hostd-arg-scopes": {
-          "dir": "deploy",
-          "env": "deploy",
-          "front": "display.front",
-          "image": "deploy",
-          "new": "deploy",
-          "ports": "deploy"
-        },
-        "x-hostd-scope": "apps"
+        "x-hostd-action": "app.start"
       }
     },
     "/v1/audio": {
@@ -1351,6 +1293,161 @@
         ],
         "x-hostd-action": "audio.volume.set",
         "x-hostd-scope": "audio"
+      }
+    },
+    "/v1/catalog": {
+      "get": {
+        "operationId": "apps.apps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "The app catalog as modules and scripts read it (hostctl get apps is the same, as resources)",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
+    "/v1/catalog/rescan": {
+      "post": {
+        "description": "Read the installed apps (desktop entries) again",
+        "operationId": "app.rescan",
+        "parameters": [
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read the installed apps (desktop entries) again",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "app.rescan",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/catalog/{id}": {
+      "get": {
+        "operationId": "apps.app",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "One app of the catalog, by ID or alias",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
       }
     },
     "/v1/config/follow": {

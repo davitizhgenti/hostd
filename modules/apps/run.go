@@ -5,17 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/davitizhgenti/hostd/internal/fsx"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/modules/apps/catalog"
@@ -23,18 +19,16 @@ import (
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// Commands and app files from the API, for a token with scope run: what
-// someone at the machine could do in a terminal, done from elsewhere.
+// Commands from the API, for a token with scope run: what someone at the
+// machine could do in a terminal, done from elsewhere.
 //
 //   app.run       runs a command now, as an instance without an app file:
 //                 on the screen, or in the background
-//   app.define    writes an app file (checked first), as if written by hand
-//   app.undefine  removes one
+//
+// (An app file is written like any resource: hostctl apply, PUT /v1/apps/{name}.)
 
 const (
-	ActionRun      = "app.run"
-	ActionDefine   = "app.define"
-	ActionUndefine = "app.undefine"
+	ActionRun = "app.run"
 )
 
 var (
@@ -47,12 +41,6 @@ var (
 		"dir":{"type":"string","description":"the directory it runs in (default: the screen user's home)"},
 		"env":{"type":"object","additionalProperties":{"type":"string"},"description":"extra environment"}},
 		"required":["command"],"additionalProperties":false}`)
-	defineSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the app's ID: the file is <id>.toml in the app files"},
-		"file":{"type":"string","contentMediaType":"application/toml","description":"the app file, TOML, as written by hand (docs: Apps)"}},
-		"required":["id","file"],"additionalProperties":false}`)
-	undefineSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"an app defined by a file in the app files"}},"required":["id"],"additionalProperties":false}`)
 )
 
 func runActions() []sdk.ActionSpec {
@@ -64,12 +52,6 @@ func runActions() []sdk.ActionSpec {
 			Route:     &sdk.Route{Method: "POST", Path: "/v1/run"},
 			CLI: &sdk.CLI{Alias: []string{"run"}, Rest: "command", Wait: true, Flags: map[string]sdk.Flag{"background": {Short: "b"}},
 				Done: []string{"started {instance} ({state})"}}},
-		{Type: ActionDefine, Description: "Add or replace an app file (checked first; the catalog follows at once)",
-			Schema: defineSchema, Keys: []sdk.KeyTemplate{"appfile:{id}"}, Scope: contract.ScopeRun,
-			Route: &sdk.Route{Method: "PUT", Path: "/v1/apps/{id}/file"}},
-		{Type: ActionUndefine, Description: "Remove an app file written by hand or by app.define",
-			Schema: undefineSchema, Keys: []sdk.KeyTemplate{"appfile:{id}"}, Scope: contract.ScopeRun,
-			Route: &sdk.Route{Method: "DELETE", Path: "/v1/apps/{id}/file"}},
 	}
 }
 
@@ -130,83 +112,6 @@ func (m *Module) handleRun(ctx context.Context, a sdk.Action) (sdk.Result, error
 	}
 	return m.launch(ctx, a.ID, app, backend, contract.AppStart{ID: app.ID, Front: args.Front, Dir: args.Dir, Env: args.Env})
 }
-
-// appFile is where app.define writes an app's file; an error if the app
-// files cannot be written (none configured, or a followed repository's).
-func (m *Module) appFile(id string) (string, error) {
-	if !catalog.ValidID(id) {
-		return "", sdk.Errorf(sdk.CodeInvalidArgs, "%q cannot name an app: lowercase letters, digits, '.', '_' and '-'", id)
-	}
-	dir := m.opts.AppsDir
-	if dir == "" {
-		return "", sdk.Errorf(sdk.CodeModuleUnavailable, "this hostd has no folder of app files")
-	}
-	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-		return "", sdk.Errorf(sdk.CodePreconditionFailed, "the app files come from a followed repository (hostctl config follow): change them there")
-	}
-	return filepath.Join(dir, id+".toml"), nil
-}
-
-func (m *Module) handleDefine(a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID, File string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
-	path, err := m.appFile(args.ID)
-	if err != nil {
-		return sdk.Result{}, err
-	}
-	f, err := catalog.ParseAppFile(path, []byte(args.File))
-	if err != nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s: %v", args.ID, err)
-	}
-	if f.Extends == "" && f.ID != args.ID {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "the file defines app %q, not %q", f.ID, args.ID)
-	}
-	// The catalog as it would be: this file in place of the one it replaces.
-	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
-	discovered, _ := src.Scan()
-	files, _ := catalog.LoadAppFiles(m.opts.AppsDir)
-	others := files[:0]
-	for _, o := range files {
-		if o.Path != path {
-			others = append(others, o)
-		}
-	}
-	for _, p := range catalog.Build(discovered, append(others, f), nil).Problems {
-		if p.File == path {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s: %s", args.ID, p.Error)
-		}
-	}
-	_, statErr := os.Stat(path)
-	if err := writeAtomic(path, []byte(args.File)); err != nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "writing %s: %v", path, err)
-	}
-	m.rescan()
-	return sdk.Result{Data: sdk.MustJSON(map[string]any{"id": args.ID, "file": path, "replaced": statErr == nil})}, nil
-}
-
-func (m *Module) handleUndefine(a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
-	path, err := m.appFile(args.ID)
-	if err != nil {
-		return sdk.Result{}, err
-	}
-	if err := os.Remove(path); errors.Is(err, fs.ErrNotExist) {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app file %s (an installed app cannot be removed this way)", path)
-	} else if err != nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "%v", err)
-	}
-	m.rescan()
-	return sdk.Result{Data: sdk.MustJSON(map[string]string{"id": args.ID, "removed": path})}, nil
-}
-
-// writeAtomic writes an app file; the folder's watcher sees the old file or
-// the new one (the temporary name starts with a dot, which the catalog skips).
-func writeAtomic(path string, data []byte) error { return fsx.WriteFile(path, data, 0o644) }
 
 // withArgs is app with its {placeholders} filled in from values: every
 // argument its file declares, each checked against its kind, and nothing

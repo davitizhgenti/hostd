@@ -166,6 +166,7 @@ type Resource struct {
 	Spec       json.RawMessage    `json:"spec,omitempty"`
 	Status     sdk.ResourceStatus `json:"status"`
 	Generation uint64             `json:"generation"`
+	Source     string             `json:"source,omitempty"`
 	Error      string             `json:"error,omitempty"`
 }
 

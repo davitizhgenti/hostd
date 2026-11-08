@@ -64,10 +64,11 @@ func TestGoldenTables(t *testing.T) {
 		"/v1/controllers": `[
 			{"device":"/dev/input/event9","name":"Xbox","vendor":"045e","product":"028e","profile":"xbox","kind":"gamepad","buttons":["guide","start","select"]},
 			{"device":"/dev/hidraw5","name":"DolphinBar","vendor":"057e","product":"0306","profile":"dolphinbar","kind":"raw","raw":true,"app":"dolphin"}]`,
-		"/v1/apps": `{"apps": [
-			{"id":"firefox","name":"Firefox","source":"desktop","runner":{"type":"exec"},"surface":"window"},
-			{"id":"jelly","name":"Jellyfin","source":"file","files":["/home/screen/.config/hostd/apps/jelly.toml"],"runner":{"type":"docker"},"surface":"background"}],
-			"problems": [{"file":"bad.toml","error":"runner.type \"vm\" is not known"}]}`,
+		"/v1/apps": `[
+			{"kind":"app","name":"firefox","source":"desktop","spec":{"id":"firefox","name":"Firefox","source":"desktop","runner":{"type":"exec"},"surface":"window"},"status":{"conditions":[{"type":"Ready","status":"True"}]},"generation":0},
+			{"kind":"app","name":"jelly","file":"/home/screen/.config/hostd/apps/jelly.toml","source":"file","spec":{"id":"jelly","name":"Jellyfin","source":"file","runner":{"type":"docker"},"surface":"background"},"status":{"conditions":[{"type":"Ready","status":"True"}]},"generation":1},
+			{"kind":"app","name":"settings","source":"desktop","spec":{"id":"settings","name":"Settings","source":"desktop","runner":{"type":"exec"},"surface":"window","hidden":true},"status":{},"generation":0},
+			{"kind":"app","name":"vm","error":"runner.type \"vm\" is not known","generation":0,"status":{}}]`,
 		"/v1/tokens": `[
 			{"id":"tok_1","name":"admin","kind":"manual","scopes":["admin"],"created":"2026-10-01T10:00:00Z","last_used":"2026-10-14T09:30:00Z"},
 			{"id":"tok_2","name":"phone","kind":"manual","scopes":["read","apps"],"created":"2026-10-02T10:00:00Z","expires":"2099-01-01T00:00:00Z"},

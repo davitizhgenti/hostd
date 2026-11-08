@@ -39,6 +39,16 @@ class FakeAPI(BaseHTTPRequestHandler):
             return self.answer(200, {"action": "act_1", "status": "applied", "data": data})
         self.answer(200, {"action": "act_2", "status": "applied", "data": {}})
 
+    def do_PUT(self):
+        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        FakeAPI.sent.append(("PUT", self.path, body, self.headers.get("Content-Type")))
+        self.answer(200, {"kind": "app", "name": self.path.split("/")[3].split("?")[0], "generation": 1})
+
+    def do_DELETE(self):
+        FakeAPI.sent.append(("DELETE", self.path, None, None))
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
         FakeAPI.sent.append(("GET", self.path, None, self.headers.get("Authorization")))
         if self.path == "/v1/instances/run-tests":
@@ -46,6 +56,8 @@ class FakeAPI(BaseHTTPRequestHandler):
             if FakeAPI.polls < 3:
                 return self.answer(200, {"id": "run-tests", "state": "running"})
             return self.answer(200, {"id": "run-tests", "state": "failed", "ended": "2026-10-16T10:00:00Z", "exit_code": 1})
+        if self.path.startswith("/v1/apps"):
+            return self.answer(200, [{"name": "show", "spec": {"id": "show"}}, {"name": "broken", "error": "bad"}])
         if self.path.startswith("/v1/instances/run-tests/logs?"):
             return self.answer(200, {"lines": ["collected 2 items", "1 failed, 1 passed"]})
         self.answer(404, {"error": {"code": "not_found", "message": "no read " + self.path}})
@@ -88,10 +100,21 @@ class ClientTest(unittest.TestCase):
             self.core.get("/v1/nothing")
         self.assertEqual(e.exception.code, "not_found")
 
-    def test_define(self):
-        self.core.define("show", 'runner = { type = "exec", command = ["imv", "{file}"] }')
-        self.assertEqual(FakeAPI.sent[0][2]["type"], "app.define")
-        self.assertEqual(FakeAPI.sent[0][2]["args"]["id"], "show")
+    def test_define_and_undefine(self):
+        toml = 'runner = { type = "exec", command = ["imv", "{file}"] }'
+        self.core.define("show", toml)
+        # A resource: PUT of the file as TOML.
+        self.assertEqual(FakeAPI.sent[0], ("PUT", "/v1/apps/show", toml, "application/toml"))
+        self.core.apply("rules", "night", 'on = "display.idle"', check=True)
+        self.assertEqual(FakeAPI.sent[1][:2], ("PUT", "/v1/rules/night?check=1"))
+        self.core.undefine("show")
+        self.assertEqual(FakeAPI.sent[2][:2], ("DELETE", "/v1/apps/show"))
+
+    def test_apps_are_the_specs_of_the_resources(self):
+        # What the list holds that is not usable (a rejected file) is left out.
+        self.assertEqual(self.core.apps(), [{"id": "show"}])
+        self.assertEqual(self.core.apps(all=True), [{"id": "show"}])
+        self.assertEqual(FakeAPI.sent[1][1], "/v1/apps?all=true")
 
 
 @unittest.skipUnless(shutil.which("openssl"), "needs openssl to make a CA")

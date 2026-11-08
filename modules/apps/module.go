@@ -12,6 +12,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -56,12 +57,17 @@ type Module struct {
 	opts Options
 	log  *slog.Logger
 
-	mu       sync.Mutex
-	core     sdk.Core
-	cat      *catalog.Catalog
-	reported map[string]bool // problems already announced
-	timer    clock.Timer
-	changes  int // file changes seen by the watcher (for tests)
+	mu    sync.Mutex
+	core  sdk.Core
+	cat   *catalog.Catalog
+	files map[string]catalog.AppFile // app files in use, by name (the file name without .toml)
+	// discovered and discProblems are what the last scan of the desktop
+	// entries found; a file changes the catalog without a new scan.
+	discovered   []App
+	discProblems []catalog.Problem
+	reported     map[string]bool // problems already announced
+	timer        clock.Timer
+	changes      int // file changes seen by the watcher (for tests)
 
 	watcher *fsnotify.Watcher
 	done    chan struct{}
@@ -87,14 +93,15 @@ func New(opts Options) *Module {
 	if opts.Debounce == 0 {
 		opts.Debounce = 500 * time.Millisecond
 	}
-	return &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), reported: map[string]bool{},
+	return &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), files: map[string]catalog.AppFile{}, reported: map[string]bool{},
 		instances: map[string]*Instance{}, endedAt: map[string]time.Time{}}
 }
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: contract.AppsModule, Version: "0.1.0",
-		Owns: []string{"app.*", "instance.*", "secret.*"},
+		Owns:  []string{"app.*", "instance.*", "secret.*"},
+		Kinds: []sdk.KindSpec{appKind()},
 		Scopes: []sdk.ScopeSpec{
 			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
 			// Used by app.start and the display module's window.focus.
@@ -103,8 +110,8 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: contract.ScopeRun, Description: "Run any command as the screen user, and add or remove app files (app.run, app.define)"},
 		},
 		Actions: append([]sdk.ActionSpec{
-			{Type: "app.rescan", Description: "Read installed apps and app files again", Scope: contract.ScopeApps,
-				Route: &sdk.Route{Method: "POST", Path: "/v1/apps/rescan"}},
+			{Type: "app.rescan", Description: "Read the installed apps (desktop entries) again", Scope: contract.ScopeApps,
+				Route: &sdk.Route{Method: "POST", Path: "/v1/catalog/rescan"}},
 			{Type: "app.check", Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
 				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
 		}, append(append(instanceActions(), runActions()...), secretActions()...)...),
@@ -113,13 +120,8 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventFileRejected, Description: "An app file could not be used"},
 		}, instanceEvents()...),
 		Reads: append([]sdk.ReadSpec{
-			{Name: "apps", Description: "The app catalog, or one app (?all=true includes hidden apps)", Path: "/v1/apps",
-				CLI: &sdk.CLI{Alias: []string{"apps"}, Rows: "apps", Empty: "no apps", One: "app",
-					Params: []sdk.Param{{Name: "all", Description: "include hidden apps (settings, terminals...)"}},
-					Columns: []sdk.Column{{Title: "ID", Path: "id"}, {Title: "NAME", Path: "name"}, {Title: "RUNNER", Path: "runner.type"},
-						{Title: "SURFACE", Path: "surface"}, {Title: "FROM", Text: []string{"{source} (hidden) if hidden", "{source}"}}},
-					Notes: &sdk.Notes{Rows: "problems", Head: "\n{count} app file(s) could not be used:", Line: "  {file}: {error}"}}},
-			{Name: "app", Description: "One app, by ID or alias", Path: "/v1/apps/{id}"},
+			{Name: "apps", Description: "The app catalog as modules and scripts read it (hostctl get apps is the same, as resources)", Path: "/v1/catalog"},
+			{Name: "app", Description: "One app of the catalog, by ID or alias", Path: "/v1/catalog/{id}"},
 			{Name: "secrets", Description: "The secrets' names (never their values)", Path: "/v1/secrets"},
 		}, instanceReads()...),
 	}
@@ -130,10 +132,16 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.mu.Lock()
 	m.core = core
 	m.mu.Unlock()
+	// The app files in place at the start are read here, so that autostart
+	// and everything after it sees them; from then on the files are followed
+	// by the core (Apply, Delete), which tells the module of each change.
 	if m.opts.AppsDir != "" {
-		if err := os.MkdirAll(m.opts.AppsDir, 0o755); err != nil {
-			return err
+		files, _ := catalog.LoadAppFiles(m.opts.AppsDir)
+		m.mu.Lock()
+		for _, f := range files {
+			m.files[strings.TrimSuffix(filepath.Base(f.Path), ".toml")] = f
 		}
+		m.mu.Unlock()
 	}
 	m.rescan()
 
@@ -160,7 +168,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range append(append([]string(nil), m.opts.DesktopDirs...), m.opts.AppsDir) {
+	for _, d := range m.opts.DesktopDirs {
 		if d == "" {
 			continue
 		}
@@ -218,12 +226,27 @@ func (m *Module) watch() {
 	}
 }
 
-// rescan rebuilds the catalog and announces what changed.
+// rescan reads the desktop entries again and rebuilds the catalog.
 func (m *Module) rescan() {
 	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
 	discovered, problems := src.Scan()
-	files, fileProblems := catalog.LoadAppFiles(m.opts.AppsDir)
-	cat := catalog.Build(discovered, files, append(problems, fileProblems...))
+	m.mu.Lock()
+	m.discovered, m.discProblems = discovered, problems
+	m.mu.Unlock()
+	m.rebuild()
+}
+
+// rebuild makes the catalog from the desktop entries found last and the app
+// files in use, and announces what changed.
+func (m *Module) rebuild() {
+	m.mu.Lock()
+	files := make([]catalog.AppFile, 0, len(m.files))
+	for _, f := range m.files {
+		files = append(files, f)
+	}
+	discovered, problems := m.discovered, append([]catalog.Problem(nil), m.discProblems...)
+	m.mu.Unlock()
+	cat := catalog.Build(discovered, files, problems)
 
 	m.mu.Lock()
 	old := m.cat
@@ -276,10 +299,6 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleSecret(a)
 	case ActionRun:
 		return m.handleRun(ctx, a)
-	case ActionDefine:
-		return m.handleDefine(a)
-	case ActionUndefine:
-		return m.handleUndefine(a)
 	}
 	if a.Type == "app.check" {
 		return m.handleCheck(a)
@@ -334,12 +353,7 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 	cat := m.catalog()
 	switch name {
 	case "apps":
-		all := params["all"] == "true" || params["all"] == "1"
-		problems := cat.Problems
-		if problems == nil {
-			problems = []catalog.Problem{}
-		}
-		return AppList{Apps: cat.List(all), Problems: problems}, nil
+		return m.catalogAnswer(params["all"] == "true" || params["all"] == "1"), nil
 	case "app":
 		if a, ok := cat.Get(params["id"]); ok {
 			return a, nil

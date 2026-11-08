@@ -33,7 +33,7 @@ import (
 
 // NamePattern is what a resource's name (its file name without .toml) looks
 // like: one rule for every kind.
-var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // ValidName reports whether s can be a resource's name.
 func ValidName(s string) bool { return namePattern.MatchString(s) }
@@ -81,6 +81,8 @@ type Item struct {
 	Spec       json.RawMessage    `json:"spec,omitempty"`
 	Status     sdk.ResourceStatus `json:"status"`
 	Generation uint64             `json:"generation"`
+	// Source says where it comes from, when the owner lists it ("desktop").
+	Source string `json:"source,omitempty"`
 	// Error says why the file as it is on disk is not in use; Spec is then
 	// the version that still is, if any.
 	Error string `json:"error,omitempty"`
@@ -129,7 +131,10 @@ func (s *Store) Start(ctx context.Context) error {
 	}
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		// Out of inotify instances, say: the files read now are in use, and
+		// changes to them wait for the next start.
+		s.log.Warn("not following the resource folders; changes to them need a restart of hostd", "err", err)
+		return nil
 	}
 	byDir := map[string]core.KindOwner{}
 	watch := func() {
@@ -249,7 +254,7 @@ func (s *Store) scan(ctx context.Context, k core.KindOwner) {
 // parse turns a file into a resource, checked against the kind's schema.
 func parse(k core.KindOwner, name string, raw []byte) (sdk.Resource, error) {
 	if !ValidName(name) {
-		return sdk.Resource{}, fmt.Errorf("the name %q: use lowercase letters, digits and dashes", name)
+		return sdk.Resource{}, fmt.Errorf("the name %q: use lowercase letters, digits, '.', '_' and '-'", name)
 	}
 	var doc map[string]any
 	if _, err := toml.Decode(string(raw), &doc); err != nil {
@@ -357,24 +362,66 @@ func (s *Store) item(ctx context.Context, e *entry) Item {
 	return it
 }
 
-// List returns the resources of a kind, by name.
-func (s *Store) List(ctx context.Context, kind string) ([]Item, error) {
+// listed turns what an owner lists into an item, with what the store knows
+// of the file: its generation, and why the file on disk is not in use.
+func (s *Store) listed(l sdk.Listed, kind string) Item {
+	it := Item{Kind: kind, Name: l.Name, File: l.File, Spec: l.Spec, Status: l.Status, Source: l.Source}
+	s.mu.Lock()
+	if e := s.entries[key(kind, l.Name)]; e != nil {
+		it.Generation, it.Error = e.gen, e.problem
+		if it.File == "" {
+			it.File = e.file
+		}
+	}
+	s.mu.Unlock()
+	return it
+}
+
+// lister is the owner's Lister, if it has one.
+func (s *Store) lister(kind string) sdk.Lister {
+	if rc, ok := s.e.Registry().Reconciler(kind); ok {
+		if l, ok := rc.(sdk.Lister); ok {
+			return l
+		}
+	}
+	return nil
+}
+
+// List returns the resources of a kind, by name. params are the request's
+// query parameters, for an owner that lists the resources itself.
+func (s *Store) List(ctx context.Context, kind string, params map[string]string) ([]Item, error) {
 	if _, err := s.kind(kind); err != nil {
 		return nil, err
+	}
+	var out []Item
+	seen := map[string]bool{}
+	l := s.lister(kind)
+	if l != nil {
+		got, err := l.List(ctx, kind, params)
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range got {
+			out = append(out, s.listed(g, kind))
+			seen[g.Name] = true
+		}
 	}
 	s.mu.Lock()
 	var es []*entry
 	for _, e := range s.entries {
-		if e.kind == kind {
+		// With a lister, a file that is in use but not listed is one the
+		// owner leaves out (a hidden app); one that was rejected has nothing
+		// in use, so only the core can show it.
+		if e.kind == kind && !seen[e.name] && (l == nil || e.res.Spec == nil) {
 			es = append(es, e)
 		}
 	}
 	s.mu.Unlock()
 	sort.Slice(es, func(i, j int) bool { return es[i].name < es[j].name })
-	out := make([]Item, len(es))
-	for i, e := range es {
-		out[i] = s.item(ctx, e)
+	for _, e := range es {
+		out = append(out, s.item(ctx, e))
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
 
@@ -382,6 +429,11 @@ func (s *Store) List(ctx context.Context, kind string) ([]Item, error) {
 func (s *Store) Get(ctx context.Context, kind, name string) (Item, error) {
 	if _, err := s.kind(kind); err != nil {
 		return Item{}, err
+	}
+	if l := s.lister(kind); l != nil {
+		if g, ok := l.Get(ctx, kind, name); ok {
+			return s.listed(g, kind), nil
+		}
 	}
 	s.mu.Lock()
 	e := s.entries[key(kind, name)]
@@ -433,6 +485,10 @@ func (s *Store) Put(ctx context.Context, kind, name string, body []byte, check b
 		}
 		return Item{Kind: kind, Name: name, Spec: res.Spec, File: s.path(k, name)}, nil
 	}
+	if fi, err := os.Lstat(s.dir(k)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return Item{}, sdk.Errorf(sdk.CodePreconditionFailed,
+			"the %s folder is a link, to a followed repository: change the %s there", k.Plural, k.Plural)
+	}
 	st, err := s.apply(ctx, k, res)
 	if err != nil {
 		return Item{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s %q: %v", kind, name, err)
@@ -467,7 +523,16 @@ func (s *Store) Delete(ctx context.Context, kind, name string) error {
 	e := s.entries[key(kind, name)]
 	s.mu.Unlock()
 	if e == nil {
+		if l := s.lister(kind); l != nil {
+			if g, ok := l.Get(ctx, kind, name); ok {
+				return sdk.Errorf(sdk.CodeInvalidArgs, "the %s %q is not a file hostd can delete: it comes from %s", kind, g.Name, firstSet(g.Source, "the system"))
+			}
+		}
 		return sdk.Errorf(sdk.CodeNotFound, "no %s %q", kind, name)
+	}
+	if fi, err := os.Lstat(s.dir(k)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return sdk.Errorf(sdk.CodePreconditionFailed,
+			"the %s folder is a link, to a followed repository: change the %s there", k.Plural, k.Plural)
 	}
 	if err := os.Remove(s.path(k, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -518,4 +583,13 @@ func numbers(v any) any {
 		return f
 	}
 	return v
+}
+
+func firstSet(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -332,7 +332,8 @@ class Menu(Gtk.ApplicationWindow):
     def fetch(self):
         try:
             instances = self.api.call("GET", "/v1/instances") or []
-            apps = (self.api.call("GET", "/v1/apps") or {}).get("apps", [])
+            # Apps are resources: each item's spec is the app.
+            apps = [it["spec"] for it in (self.api.call("GET", "/v1/apps") or []) if it.get("spec")]
         except Exception as e:  # noqa: BLE001 - shown to the person
             self.show_status(f"cannot reach hostd: {e}", error=True)
             return None

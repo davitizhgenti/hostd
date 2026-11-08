@@ -38,7 +38,7 @@ http = "`+srv.URL+`"
 start = "30s"
 every = "5s"
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	data := r.start(t, "site")
 	if data["state"] != "starting" {
 		t.Fatalf("started %v: should wait for its health check", data)
@@ -109,7 +109,7 @@ runner = { type = "process", command = ["broken"] }
 tcp = "127.0.0.1:1"
 start = "10s"
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	r.start(t, "broken")
 	r.next(t) // starting
 	var failed bool
@@ -155,7 +155,7 @@ port = 8080
 [health]
 http = "http://127.0.0.1:{port}/"
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	app, _ := r.m.catalog().Get("site")
 	if app.Deploy == nil || app.Deploy.Port != 8080 {
 		t.Fatalf("deploy settings %+v", app.Deploy)

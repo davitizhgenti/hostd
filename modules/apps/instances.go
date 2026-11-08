@@ -47,7 +47,6 @@ func instanceActions() []sdk.ActionSpec {
 			ArgScopes: map[string]string{"front": contract.ScopeFront, "dir": contract.ScopeDeploy,
 				"env": contract.ScopeDeploy, "new": contract.ScopeDeploy, "image": contract.ScopeDeploy, "ports": contract.ScopeDeploy},
 			Timeout: sdk.Duration(5 * time.Minute), // pulling a container image can take a while
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/apps/{id}/start"},
 			CLI: &sdk.CLI{Alias: []string{"start"}, Flags: map[string]sdk.Flag{"args": {Name: "arg"}},
 				Done: []string{"{instance} is already running if already_running", "started {instance} ({state})"}}},
 		{Type: contract.ActionInstanceStop, Description: "Stop a running instance",

@@ -35,7 +35,7 @@ id = "incognito"
 name = "New incognito window"
 command = ["chromium", "--incognito"]
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	r.start(t, "chrome")
 	r.next(t)
 	r.next(t)
@@ -277,7 +277,7 @@ id = "bigpicture"
 name = "Big Picture"
 command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"]
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	// Steam does not run: the action starts Steam itself (its own
 	// command), then hands Steam the request.
 	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
@@ -326,7 +326,7 @@ runner = { type = "exec", command = ["steam"] }
 requires = ["steam"]
 runner = { type = "exec", command = ["game"] }
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	r.start(t, "game")
 	sd.Mu.Lock()
 	var argv []string
@@ -384,7 +384,7 @@ func TestSecrets(t *testing.T) {
 runner = { type = "exec", command = ["api"] }
 env = { DB = "postgres://app:{secret:db-pass}@db/app", MODE = "prod" }
 `)
-	r.m.rescan()
+	r.m.loadFiles()
 	if _, err := r.do(t, "app.start", "api"); sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "hostctl secret set db-pass") {
 		t.Fatalf("missing secret: %v", err)
 	}

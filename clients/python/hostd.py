@@ -107,13 +107,17 @@ class Hostd:
     # --- the API ---------------------------------------------------------------
 
     def request(self, method, path, body=None):
-        """One call to the API; the answer's JSON."""
-        data = None if body is None else json.dumps(body).encode()
+        """One call to the API; the answer's JSON. A str body is sent as TOML
+        (a resource's file), anything else as JSON."""
+        if isinstance(body, str):
+            data, content_type = body.encode(), "application/toml"
+        else:
+            data, content_type = (None if body is None else json.dumps(body).encode()), "application/json"
         req = urllib.request.Request(self.url + path, data=data, method=method)
         if self.token:
             req.add_header("Authorization", "Bearer " + self.token)
         if data is not None:
-            req.add_header("Content-Type", "application/json")
+            req.add_header("Content-Type", content_type)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout, context=self._ssl()) as res:
                 raw = res.read()
@@ -191,15 +195,36 @@ class Hostd:
 
     def define(self, app, toml):
         """Add or replace an app file (scope run): TOML, as written by hand."""
-        return self.action("app.define", id=app, file=toml)
+        return self.apply("apps", app, toml)
 
     def undefine(self, app):
         """Remove an app file (scope run)."""
-        return self.action("app.undefine", id=app)
+        self.delete("apps", app)
 
     def apps(self, all=False):
-        """The app catalog."""
-        return self.get("/v1/apps", all="true")["apps"] if all else self.get("/v1/apps")["apps"]
+        """The app catalog: every app, as its spec (all=True: hidden ones too)."""
+        items = self.resources("apps", all="true") if all else self.resources("apps")
+        return [i["spec"] for i in items if i.get("spec")]
+
+    # --- resources: apps, scenes, rules, scripts, modules... ---------------------
+
+    def resources(self, plural, **query):
+        """Every resource of a kind (by its plural: "rules"), with its status."""
+        return self.get("/v1/" + plural, **query)
+
+    def resource(self, plural, name):
+        """One resource: its spec, status and, if its file is not in use, why."""
+        return self.get("/v1/%s/%s" % (plural, urllib.parse.quote(name)))
+
+    def apply(self, plural, name, toml, check=False):
+        """Create or replace a resource from TOML (or a dict, sent as JSON); with
+        check=True only say whether it would be accepted (scope: the kind's)."""
+        path = "/v1/%s/%s" % (plural, urllib.parse.quote(name)) + ("?check=1" if check else "")
+        return self.request("PUT", path, toml)
+
+    def delete(self, plural, name):
+        """Delete a resource."""
+        self.request("DELETE", "/v1/%s/%s" % (plural, urllib.parse.quote(name)))
 
     def instances(self, all=False):
         """What runs (all=True: and what ended lately)."""

@@ -37,6 +37,10 @@ type KindSpec struct {
 	Columns []Column `json:"columns,omitempty"`
 	Empty   string   `json:"empty,omitempty"`
 
+	// Params are the query parameters a list of this kind takes (?all=true),
+	// given to the owner's Lister; hostctl offers them as switches.
+	Params []Param `json:"params,omitempty"`
+
 	// Verbs are the actions a resource of this kind takes, as
 	// POST /v1/<plural>/<name>/<verb>.
 	Verbs []VerbSpec `json:"verbs,omitempty"`
@@ -122,6 +126,33 @@ type Reconciler interface {
 // the schema.
 type Checker interface {
 	Check(ctx context.Context, r Resource) error
+}
+
+// Listed is a resource the owner lists itself: one that is not (only) a
+// file, such as an app found on the machine.
+type Listed struct {
+	// Name is the canonical name: the one a file would have.
+	Name string
+	// Spec is the resource as JSON. File is its file, "" when it has none.
+	Spec json.RawMessage
+	File string
+	// Source says where it comes from ("desktop", "file").
+	Source string
+	Status ResourceStatus
+}
+
+// Lister is implemented by a Reconciler whose kind has resources that do not
+// all come from files. The core asks it for lists and single items, and
+// adds what it knows of the files (their generation, the problem of one that
+// is not in use) to each. A file the owner rejected is still listed, from
+// the core's own index.
+type Lister interface {
+	// List returns the resources of the kind; params are the query
+	// parameters of the request.
+	List(ctx context.Context, kind string, params map[string]string) ([]Listed, error)
+	// Get returns one by name; the owner may know it by other names too
+	// (an alias), and Listed.Name is then the canonical one.
+	Get(ctx context.Context, kind, name string) (Listed, bool)
 }
 
 // StatusReporter is implemented by a Reconciler whose resources have a

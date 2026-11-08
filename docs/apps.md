@@ -1,9 +1,13 @@
 # Apps
 
-hostd's catalog has the installed desktop apps (their `.desktop` files), Flatpak apps, and the apps you describe in **app files**: `~/.config/hostd/apps/<id>.toml`. The file name is the app's ID. Changes are picked up within a second. `hostctl apps --all` lists the catalog and any file that cannot be used, with the reason.
+hostd's catalog has the installed desktop apps (their `.desktop` files), Flatpak apps, and the apps you describe in **app files**: `~/.config/hostd/apps/<id>.toml`. The file name is the app's ID. Apps are [resources](resources.md): a new or changed file is picked up within a second, and `hostctl apps --all` lists the catalog, with any file that cannot be used on a row of its own and the reason beside it (the version before it, if there was one, stays in use).
 
 ```sh
-hostctl apps                 # the catalog
+hostctl apps                 # the catalog (--all: hidden apps too)
+hostctl get apps jellyfin    # one: its file, or what hostd found
+hostctl apply -f show.toml --kind app    # add or replace an app file (--check: only check)
+hostctl edit app jellyfin    # change its file in $EDITOR
+hostctl delete app jellyfin  # remove its file
 hostctl start jellyfin       # start, or bring to the front if it runs
 hostctl ps                   # running instances
 hostctl stop jellyfin

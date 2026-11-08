@@ -9,25 +9,47 @@ waitfile $XDG_RUNTIME_DIR/hostd.sock
 exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
 
 exec hostctl apps
-stdout '^browser +Browser +exec +window +desktop$'
+stdout '^browser +Browser +exec +window +desktop +-$'
 ! stdout '^foot'
 exec hostctl apps --all
-stdout '^foot +Foot +exec +window +desktop \(hidden\)$'
+stdout '^foot +Foot +exec +window +desktop \(hidden\) +-$'
 
 # The old ID still finds a renamed app.
 exec hostctl apps firefox-esr
 stdout '"id": "browser"'
+stdout '# ready, from desktop'
 exits 4 hostctl apps nope
 
-# A new file shows up after a rescan; a broken one is reported.
+# A file dropped in the folder shows up by itself; a broken one is a problem
+# on its own row, and does not touch the rest.
 cp jellyfin.toml $XDG_CONFIG_HOME/hostd/apps/jellyfin.toml
 cp oops.toml $XDG_CONFIG_HOME/hostd/apps/oops.toml
-exec hostctl app rescan
-stdout 'applied \{"apps":3,"problems":1\}'
+waitout '(?m)^jellyfin +jellyfin +docker +background +file +-$' hostctl apps
+stdout '^oops +- +- +- +- +runner type "warp"'
+stdout '^browser '
+
+# Apps are resources like any other: apply, check, edit, delete.
+exec hostctl apply -f show.toml --kind app --check
+stdout 'app/show: would be accepted'
+exec hostctl apply -f show.toml --kind app
 exec hostctl apps
-stdout '^jellyfin +jellyfin +docker +background +file$'
-stderr '1 app file\(s\) could not be used'
-stderr 'oops.toml: runner type "warp"'
+stdout '^show +Show +exec +window +file +-$'
+exec hostctl get apps show
+stdout 'imv'
+stdout '# ready, from file, generation 1'
+! exec hostctl apply -f oops.toml --kind app --name another
+stdout 'runner type "warp"'
+exec hostctl delete app show
+! exec hostctl get apps show
+stderr 'no app "show"'
+# A file that overlays an app found on the machine: deleting it brings the
+# app back as it was found. The app itself is not a file there is to delete.
+exec hostctl delete app browser
+exec hostctl apps
+stdout '^firefox-esr +Firefox ESR +exec +window +desktop +-$'
+! stdout '^browser '
+! exec hostctl delete app firefox-esr
+stderr 'comes from desktop'
 
 kill -INT hostd
 wait hostd
@@ -49,5 +71,9 @@ id      = "browser"
 name    = "Browser"
 -- jellyfin.toml --
 runner = { type = "docker", image = "docker.io/jellyfin/jellyfin" }
+-- show.toml --
+name = "Show"
+runner = { type = "exec", command = ["imv", "{file}"] }
+args = { file = "path" }
 -- oops.toml --
 runner = { type = "warp" }

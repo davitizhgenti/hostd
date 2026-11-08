@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,15 +90,35 @@ func (a *app) addKindCommands(root *cobra.Command, manifests []sdk.Manifest) {
 				}
 				parent = root
 			}
-			cmd := &cobra.Command{Use: k.Plural + " [name]", Short: short, Args: cobra.MaximumNArgs(1)}
-			cmd.RunE = func(cmd *cobra.Command, args []string) error { return a.getKind(cmd.Context(), k, args) }
-			parent.AddCommand(cmd)
+			cmd := &cobra.Command{}
+			for _, c := range parent.Commands() {
+				if c.Name() == k.Plural { // a module's group of that name: the kind is what it lists
+					cmd = c
+				}
+			}
+			cmd.Use, cmd.Short, cmd.Args = k.Plural+" [name]", short, cobra.MaximumNArgs(1)
+			switches := map[string]*bool{}
+			for _, p := range k.Params {
+				switches[p.Name] = cmd.Flags().Bool(strings.ReplaceAll(p.Name, "_", "-"), false, p.Description)
+			}
+			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				query := url.Values{}
+				for name, on := range switches {
+					if *on {
+						query.Set(name, "true")
+					}
+				}
+				return a.getKind(cmd.Context(), k, args, query)
+			}
+			if cmd.Parent() == nil {
+				parent.AddCommand(cmd)
+			}
 		}
 	}
 	root.AddCommand(a.applyCommand(idx), a.deleteCommand(idx), a.editCommand(idx))
 }
 
-func (a *app) getKind(ctx context.Context, k sdk.KindSpec, args []string) error {
+func (a *app) getKind(ctx context.Context, k sdk.KindSpec, args []string, query url.Values) error {
 	c, err := a.client()
 	if err != nil {
 		return err
@@ -111,28 +132,43 @@ func (a *app) getKind(ctx context.Context, k sdk.KindSpec, args []string) error 
 			return a.printJSON(it)
 		}
 		file, err := c.ResourceFile(ctx, k.Plural, args[0])
-		if err != nil {
+		switch {
+		case err == nil:
+			fmt.Fprintf(a.stdout, "%s", file)
+			if len(file) > 0 && file[len(file)-1] != '\n' {
+				fmt.Fprintln(a.stdout)
+			}
+		case sdk.CodeOf(err) == sdk.CodeNotFound && it.Spec != nil:
+			// Not a file (an app found on the machine): what it is, as JSON.
+			if err := a.printJSON(it.Spec); err != nil {
+				return err
+			}
+		default:
 			return err
 		}
-		fmt.Fprintf(a.stdout, "%s", file)
-		if len(file) > 0 && file[len(file)-1] != '\n' {
-			fmt.Fprintln(a.stdout)
+		from := ""
+		if it.Source != "" {
+			from = ", from " + it.Source
 		}
-		fmt.Fprintf(a.stdout, "# %s, generation %d\n", describeStatus(it), it.Generation)
+		fmt.Fprintf(a.stdout, "# %s%s, generation %d\n", describeStatus(it), from, it.Generation)
 		if it.Error != "" {
 			fmt.Fprintf(a.stdout, "# the file is not in use: %s\n", it.Error)
 		}
 		return nil
 	}
+	listPath := "/v1/" + k.Plural
+	if len(query) > 0 {
+		listPath += "?" + query.Encode()
+	}
 	if len(k.Columns) > 0 && !a.jsonOut {
 		var raw json.RawMessage
-		if err := c.Get(ctx, "/v1/"+k.Plural, &raw); err != nil {
+		if err := c.Get(ctx, listPath, &raw); err != nil {
 			return err
 		}
 		return a.printTable(&sdk.CLI{Columns: k.Columns, Empty: k.Empty}, raw)
 	}
-	items, err := c.Resources(ctx, k.Plural)
-	if err != nil {
+	var items []client.Resource
+	if err := c.Get(ctx, listPath, &items); err != nil {
 		return err
 	}
 	if a.jsonOut {

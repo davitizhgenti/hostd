@@ -143,7 +143,7 @@ func TestStartAppliesFilesAndReportsBadOnes(t *testing.T) {
 	if txt, ok := r.o.text("hello"); !ok || txt != "hi" {
 		t.Fatalf("hello not applied: %q %v", txt, ok)
 	}
-	items, err := r.s.List(context.Background(), "note")
+	items, err := r.s.List(context.Background(), "note", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestStartAppliesFilesAndReportsBadOnes(t *testing.T) {
 	for _, it := range items {
 		got[it.Name] = it.Error
 	}
-	if len(got) != 4 || got["hello"] != "" {
+	if len(got) != 5 || got["hello"] != "" { // and "builtin", which the owner lists
 		t.Fatalf("items = %v", got)
 	}
 	for _, name := range []string{"bad", "typo", "Bad_Name"} {
@@ -169,7 +169,7 @@ func TestStartAppliesFilesAndReportsBadOnes(t *testing.T) {
 	if _, err := r.s.Get(context.Background(), "note", "nope"); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("missing: %v", err)
 	}
-	if _, err := r.s.List(context.Background(), "ghost"); sdk.CodeOf(err) != sdk.CodeNotFound {
+	if _, err := r.s.List(context.Background(), "ghost", nil); sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("unknown kind: %v", err)
 	}
 }
@@ -299,4 +299,129 @@ func TestAFolderMadeLaterIsFollowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the file in the new folder", func() bool { txt, _ := r.o.text("late"); return txt == "late" })
+}
+
+// List and Get make the owner's own items part of the kind: "builtin" is not
+// a file, and is known by an alias too.
+func (o *owner) List(_ context.Context, _ string, params map[string]string) ([]sdk.Listed, error) {
+	out := []sdk.Listed{{Name: "builtin", Spec: []byte(`{"text":"always there"}`), Source: "system"}}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for name, text := range o.applied {
+		out = append(out, sdk.Listed{Name: name, Spec: []byte(`{"text":"` + text + `"}`), Source: "file",
+			Status: sdk.ResourceStatus{Conditions: []sdk.Condition{{Type: sdk.ConditionReady, Status: sdk.ConditionTrue}}}})
+	}
+	if params["hide"] == "true" { // the owner leaves out what is not "interesting"
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (o *owner) Get(ctx context.Context, kind, name string) (sdk.Listed, bool) {
+	if name == "bi" {
+		name = "builtin"
+	}
+	items, _ := o.List(ctx, kind, nil)
+	for _, l := range items {
+		if l.Name == name {
+			return l, true
+		}
+	}
+	return sdk.Listed{}, false
+}
+
+func TestOwnerListedItems(t *testing.T) {
+	r := newRig(t, map[string]string{"hello.toml": `text = "hi"`, "bad.toml": `text = 5`})
+	ctx := context.Background()
+
+	items, err := r.s.List(ctx, "note", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, it := range items {
+		got[it.Name] = it.Source + "/" + it.Error
+	}
+	// The owner's items, the file's generation, and a rejected file the
+	// owner never saw: all in one list, by name.
+	if len(items) != 3 || got["builtin"] != "system/" || got["hello"] != "file/" || !strings.HasPrefix(got["bad"], "/") || got["bad"] == "/" {
+		t.Fatalf("items = %v", got)
+	}
+	for i := 1; i < len(items); i++ {
+		if items[i-1].Name > items[i].Name {
+			t.Fatalf("not sorted: %v", got)
+		}
+	}
+	for _, it := range items {
+		if it.Name == "hello" && (it.Generation != 1 || it.File == "") {
+			t.Errorf("hello: %+v", it)
+		}
+	}
+	// A parameter reaches the owner. What it leaves out stays out, even if it
+	// is a file in use; a file that was rejected is shown all the same.
+	hidden, _ := r.s.List(ctx, "note", map[string]string{"hide": "true"})
+	if len(hidden) != 1 || hidden[0].Name != "bad" || hidden[0].Error == "" {
+		t.Errorf("with the owner listing nothing: %+v", hidden)
+	}
+
+	// Get by an alias returns the canonical name; a missing one is not found.
+	it, err := r.s.Get(ctx, "note", "bi")
+	if err != nil || it.Name != "builtin" || it.Source != "system" {
+		t.Fatalf("alias: %+v %v", it, err)
+	}
+	if _, err := r.s.Get(ctx, "note", "nothing"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("missing: %v", err)
+	}
+	if _, err := r.s.Raw("note", "builtin"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("an item with no file has no file: %v", err)
+	}
+
+	// There is no file to delete for it, and it says why.
+	err = r.s.Delete(ctx, "note", "builtin")
+	if sdk.CodeOf(err) != sdk.CodeInvalidArgs || !strings.Contains(err.Error(), "comes from system") {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := r.s.Delete(ctx, "note", "nothing"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("delete missing: %v", err)
+	}
+}
+
+// A kind's folder that is a link (a followed repository) is read, not written.
+func TestAFolderThatIsALinkIsNotWritten(t *testing.T) {
+	root := t.TempDir()
+	repo := t.TempDir()
+	_ = os.WriteFile(filepath.Join(repo, "linked.toml"), []byte(`text = "from the repo"`), 0o644)
+	if err := os.Symlink(repo, filepath.Join(root, "notes")); err != nil {
+		t.Fatal(err)
+	}
+	o := newOwner()
+	reg := core.NewRegistry()
+	if err := reg.Add(o); err != nil {
+		t.Fatal(err)
+	}
+	e := core.New(reg, core.Options{})
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cancel(); _ = e.Stop(context.Background()) })
+	s := New(e, Options{Root: root, Debounce: 20 * time.Millisecond})
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if txt, ok := o.text("linked"); !ok || txt != "from the repo" {
+		t.Fatalf("a file in the linked folder is read: %q %v", txt, ok)
+	}
+	if _, err := s.Put(ctx, "note", "new", []byte(`text = "x"`), false); sdk.CodeOf(err) != sdk.CodePreconditionFailed || !strings.Contains(err.Error(), "followed repository") {
+		t.Fatalf("put: %v", err)
+	}
+	if err := s.Delete(ctx, "note", "linked"); sdk.CodeOf(err) != sdk.CodePreconditionFailed {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "new.toml")); err == nil {
+		t.Fatal("wrote into the repository")
+	}
+	if _, err := os.Stat(filepath.Join(repo, "linked.toml")); err != nil {
+		t.Fatal("removed a file of the repository")
+	}
 }

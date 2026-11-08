@@ -3,7 +3,6 @@ package apps
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -135,8 +134,6 @@ func TestRunNeedsItsScope(t *testing.T) {
 		args any
 	}{
 		{ActionRun, map[string]any{"command": []string{"sh", "-c", "id"}}},
-		{ActionDefine, map[string]any{"id": "x", "file": "runner = { type = \"exec\", command = [\"sh\"] }"}},
-		{ActionUndefine, map[string]any{"id": "term"}},
 	} {
 		if _, err := r.submit(try.typ, try.args, apps); sdk.CodeOf(err) != sdk.CodeForbidden {
 			t.Errorf("%s with scope apps: %v", try.typ, err)
@@ -164,75 +161,83 @@ func TestRunRefusesBadArguments(t *testing.T) {
 	}
 }
 
-func TestDefineAndUndefineAnApp(t *testing.T) {
+// defineApp puts an app file in use, as the core does when the file appears.
+func (r *rig) defineApp(id, file string) error {
+	_, err := r.m.Apply(context.Background(), sdk.Resource{Kind: "app", Name: id, Raw: []byte(file)})
+	return err
+}
+
+func TestAppFilesAreApplied(t *testing.T) {
 	r := newRig(t, unitstest.NewFakeSystemd(), podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	file := "name = \"Results\"\nrunner = { type = \"url\", url = \"http://192.168.18.60:8000/\" }\n"
-	got, err := r.submit(ActionDefine, map[string]any{"id": "results", "file": file}, runner)
-	if err != nil || got["replaced"] != false {
-		t.Fatalf("define: %v %v", got, err)
-	}
-	path := filepath.Join(r.m.opts.AppsDir, "results.toml")
-	if b, _ := os.ReadFile(path); string(b) != file {
-		t.Fatalf("file %q", b)
+	if err := r.defineApp("results", file); err != nil {
+		t.Fatal(err)
 	}
 	if a, ok := r.m.catalog().Get("results"); !ok || a.Name != "Results" || a.Runner.URL != "http://192.168.18.60:8000/" {
 		t.Fatalf("not in the catalog at once: %+v", a)
 	}
-	got, _ = r.submit(ActionDefine, map[string]any{"id": "results", "file": strings.Replace(file, "Results", "Test results", 1)}, runner)
-	if got["replaced"] != true {
-		t.Fatalf("replace: %v", got)
+	if err := r.defineApp("results", strings.Replace(file, "Results", "Test results", 1)); err != nil {
+		t.Fatal(err)
 	}
 	if a, _ := r.m.catalog().Get("results"); a.Name != "Test results" {
 		t.Fatalf("replaced app %+v", a)
 	}
 
 	// A file with a problem is refused, and the one in place stays.
-	for name, bad := range map[string]map[string]any{
-		"syntax":       {"id": "results", "file": "name = "},
-		"typo":         {"id": "results", "file": "nme = \"x\"\nrunner = { type = \"exec\", command = [\"x\"] }"},
-		"no runner":    {"id": "results", "file": "name = \"x\""},
-		"other id":     {"id": "results", "file": "id = \"other\"\nrunner = { type = \"exec\", command = [\"x\"] }"},
-		"bad id":       {"id": "../etc/x", "file": "runner = { type = \"exec\", command = [\"x\"] }"},
-		"reserved id":  {"id": "run-x", "file": "runner = { type = \"exec\", command = [\"x\"] }"},
-		"missing need": {"id": "results", "file": "requires = [\"ghost\"]\nrunner = { type = \"exec\", command = [\"x\"] }"},
+	for name, bad := range map[string]struct{ id, file string }{
+		"syntax":       {"results", "name = "},
+		"typo":         {"results", "nme = \"x\"\nrunner = { type = \"exec\", command = [\"x\"] }"},
+		"no runner":    {"results", "name = \"x\""},
+		"other id":     {"results", "id = \"other\"\nrunner = { type = \"exec\", command = [\"x\"] }"},
+		"reserved id":  {"run-x", "runner = { type = \"exec\", command = [\"x\"] }"},
+		"missing need": {"results", "requires = [\"ghost\"]\nrunner = { type = \"exec\", command = [\"x\"] }"},
 	} {
-		if _, err := r.submit(ActionDefine, bad, runner); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
-			t.Errorf("%s: %v", name, err)
+		if err := r.defineApp(bad.id, bad.file); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		if err := r.m.Check(context.Background(), sdk.Resource{Kind: "app", Name: bad.id, Raw: []byte(bad.file)}); err == nil {
+			t.Errorf("%s: check accepted it", name)
 		}
 	}
 	if a, _ := r.m.catalog().Get("results"); a == nil || a.Name != "Test results" {
 		t.Fatalf("a refused file changed the app: %+v", a)
 	}
-	entries, _ := os.ReadDir(r.m.opts.AppsDir)
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
-			t.Fatalf("left a temporary file behind: %s", e.Name())
-		}
+	if _, ok := r.m.catalog().Get("run-x"); ok {
+		t.Fatal("a refused file made an app")
 	}
 
-	if _, err := r.submit(ActionUndefine, map[string]any{"id": "results"}, runner); err != nil {
+	if err := r.m.Delete(context.Background(), "app", "results"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := r.m.catalog().Get("results"); ok {
 		t.Fatal("still in the catalog")
 	}
-	if _, err := r.submit(ActionUndefine, map[string]any{"id": "results"}, runner); sdk.CodeOf(err) != sdk.CodeNotFound {
-		t.Fatalf("again: %v", err)
-	}
 }
 
-// A followed repository owns the app files: they change there.
-func TestDefineRefusesAFollowedConfig(t *testing.T) {
+// The apps are resources: listed with where they come from, by ID or alias.
+func TestAppsAreListed(t *testing.T) {
 	r := newRig(t, unitstest.NewFakeSystemd(), podmantest.NewFakeEngine(), unitstest.FakeSession(t))
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "apps")
-	if err := os.Symlink(real, link); err != nil {
+	if err := r.defineApp("results", "name = \"Results\"\nrunner = { type = \"url\", url = \"http://x/\" }\n"); err != nil {
 		t.Fatal(err)
 	}
-	r.m.opts.AppsDir = link
-	_, err := r.submit(ActionDefine, map[string]any{"id": "x", "file": "runner = { type = \"exec\", command = [\"x\"] }"}, runner)
-	if sdk.CodeOf(err) != sdk.CodePreconditionFailed {
-		t.Fatalf("err %v", err)
+	list, err := r.m.List(context.Background(), "app", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *sdk.Listed
+	for i := range list {
+		if list[i].Name == "results" {
+			found = &list[i]
+		}
+	}
+	if found == nil || found.Source != "file" || filepath.Base(found.File) != "results.toml" || !found.Status.Ready() {
+		t.Fatalf("results = %+v", found)
+	}
+	if l, ok := r.m.Get(context.Background(), "app", "results"); !ok || l.Name != "results" || !strings.Contains(string(l.Spec), `"name":"Results"`) {
+		t.Fatalf("get: %+v %v", l, ok)
+	}
+	if _, ok := r.m.Get(context.Background(), "app", "ghost"); ok {
+		t.Fatal("found an app that is not there")
 	}
 }
 
@@ -241,7 +246,7 @@ func TestStartWithArguments(t *testing.T) {
 	r := newRig(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	waitUntil(t, func() bool { return sd.Watching() == 1 })
 	file := "name = \"Show\"\nrunner = { type = \"exec\", command = [\"imv\", \"-f\", \"{file}\"] }\nargs = { file = \"path\" }\n"
-	if _, err := r.submit(ActionDefine, map[string]any{"id": "show", "file": file}, runner); err != nil {
+	if err := r.defineApp("show", file); err != nil {
 		t.Fatal(err)
 	}
 	apps := core.Auth{Name: "phone", Scopes: []string{contract.ScopeApps}} // checked values: no run scope needed

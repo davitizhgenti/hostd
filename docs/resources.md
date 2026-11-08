@@ -46,13 +46,14 @@ A resource's status says whether it is in use, in the form Kubernetes uses: a li
 
 | Kind | Folder | Owner | What |
 | --- | --- | --- | --- |
+| `app` | `apps/` | apps | [What to run, and how it shows](apps.md); the list also holds the apps found on the machine, read-only; writing needs scope `run` |
 | `scene` | `scenes/` | automation | [A state to reach](automation.md#scenes) |
 | `rule` | `rules/` | automation | [When something happens, do something](automation.md#rules) |
 | `script` | `scripts/` | automation | [A program a rule runs](automation.md#scripts) |
 | `module` | `modules/` | hostd | [An external module](modules.md#in-any-language-an-external-module); takes effect when hostd starts |
 | `preset` | `presets/` | demo (with `-demo`) | A saved lamp setting, the example of a kind |
 
-Modules add kinds ([writing a module](modules.md)); apps follow in a later version.
+Modules add kinds ([writing a module](modules.md)).
 
 ## Moving from before 0.2
 

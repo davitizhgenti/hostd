@@ -54,8 +54,8 @@ hostctl token create laptop --scopes read,apps,display,run      # on the machine
 | | hostctl | API |
 | --- | --- | --- |
 | Run a command now: a full-screen window, or in the background | `hostctl run -- imv -f /home/screen/plot.png`<br>`hostctl run -b --name tests --wait -- pytest -q` | `POST /v1/run` `{"command": [...], "background": true}` |
-| Add or replace an app file (checked first) | `hostctl app define show @show.toml` | `PUT /v1/apps/show/file` `{"file": "..."}` |
-| Remove one | `hostctl app undefine show` | `DELETE /v1/apps/show/file` |
+| Add or replace an app file (checked first) | `hostctl apply -f show.toml --kind app` | `PUT /v1/apps/show` (the file as TOML, or a JSON object) |
+| Remove one | `hostctl delete app show` | `DELETE /v1/apps/show` |
 | Start an app with its arguments (scope `apps`) | `hostctl start show --arg file=/home/screen/plot.png` | `POST /v1/apps/show/start` `{"args": {"file": "..."}}` |
 
 A command runs as an instance: `hostctl ps` lists it, `hostctl stop` ends it, and its exit status is in its `instance.exited` or `instance.failed` event. `--wait` waits for it, prints what it wrote and exits with its status. An app's arguments are declared in its file (`args`, see [Apps](apps.md)) and checked: a URL must be http(s), a path absolute, and no value may start with `-`.

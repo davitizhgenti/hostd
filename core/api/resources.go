@@ -16,7 +16,7 @@ import (
 // Resources is the store of declared things, as the API uses it
 // (core/resources.Store).
 type Resources interface {
-	List(ctx context.Context, kind string) ([]resources.Item, error)
+	List(ctx context.Context, kind string, params map[string]string) ([]resources.Item, error)
 	Get(ctx context.Context, kind, name string) (resources.Item, error)
 	Raw(kind, name string) ([]byte, error)
 	Put(ctx context.Context, kind, name string, body []byte, check bool) (resources.Item, error)
@@ -43,7 +43,11 @@ func (s *Server) kindRoutes(k core.KindOwner) error {
 	}
 	routes := []route{
 		{"GET " + base, sdk.ScopeRead, func(w http.ResponseWriter, r *http.Request, _ store.Token) error {
-			items, err := s.res.List(r.Context(), k.Kind)
+			params := map[string]string{}
+			for name, vals := range r.URL.Query() {
+				params[name] = vals[len(vals)-1]
+			}
+			items, err := s.res.List(r.Context(), k.Kind, params)
 			if err != nil {
 				return err
 			}
