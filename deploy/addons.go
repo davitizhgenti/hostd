@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 )
 
 // An add-on installs something optional on top of hostd: an app (Steam,
@@ -68,12 +68,8 @@ func LoadAddon(name string) (Addon, error) {
 		return Addon{}, fmt.Errorf("no add-on %q; see: hostd-setup addons", name)
 	}
 	var a Addon
-	md, err := toml.Decode(string(b), &a)
-	if err != nil {
+	if _, err := tomlx.Decode(b, &a); err != nil {
 		return Addon{}, fmt.Errorf("add-on %s: %w", name, err)
-	}
-	if und := md.Undecoded(); len(und) > 0 {
-		return Addon{}, fmt.Errorf("add-on %s: unknown key %s", name, und[0])
 	}
 	a.Name = name
 	return a, nil

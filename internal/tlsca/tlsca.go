@@ -34,6 +34,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/fsx"
 )
 
 const (
@@ -456,23 +458,7 @@ func parseCert(data []byte) (*x509.Certificate, error) {
 // writeFile writes a file in one step with its mode set before it has
 // any content.
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return fsx.WriteFile(path, data, mode)
 }
 
 func interfaceAddrs() ([]netip.Addr, error) {

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/fsx"
 )
 
 // Release is one deployed version of a service.
@@ -101,11 +103,7 @@ func (m *Module) save(s *State) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsx.WriteFile(path, b, 0o644)
 }
 
 // prune removes release directories beyond the newest keep (never the

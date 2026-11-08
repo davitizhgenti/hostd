@@ -12,7 +12,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -50,16 +49,6 @@ type Options struct {
 	NoWatch  bool          // do not watch the directories (tests)
 	// Journal reads a unit's last lines (default: journalctl --user).
 	Journal func(ctx context.Context, q JournalQuery) ([]string, error)
-}
-
-// DefaultAppsDir is $XDG_CONFIG_HOME/hostd/apps.
-func DefaultAppsDir() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "hostd", "apps")
 }
 
 // Module is the apps module.

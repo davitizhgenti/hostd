@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 )
 
 // Controllers are described by profiles: how to recognise a family of
@@ -135,12 +135,8 @@ func LoadProfiles(dir string) (*Profiles, error) {
 			return err
 		}
 		p := &Profile{ID: strings.TrimSuffix(path.Base(name), ".toml")}
-		md, err := toml.Decode(string(data), p)
-		if err != nil {
+		if _, err := tomlx.Decode(data, p); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
-		}
-		if und := md.Undecoded(); len(und) > 0 {
-			return fmt.Errorf("%s: unknown key %s", name, und[0])
 		}
 		if err := p.prepare(); err != nil {
 			return fmt.Errorf("%s: %w", name, err)

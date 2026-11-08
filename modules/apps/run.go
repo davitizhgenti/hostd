@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/fsx"
+
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
@@ -202,28 +204,9 @@ func (m *Module) handleUndefine(a sdk.Action) (sdk.Result, error) {
 	return sdk.Result{Data: sdk.MustJSON(map[string]string{"id": args.ID, "removed": path})}, nil
 }
 
-// writeAtomic writes a file in one step: readers (the folder's watcher)
-// see the old file or the new one, never half of one. The temporary name
-// starts with a dot, which the catalog skips.
-func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name()) // after the rename, there is nothing to remove
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
+// writeAtomic writes an app file; the folder's watcher sees the old file or
+// the new one (the temporary name starts with a dot, which the catalog skips).
+func writeAtomic(path string, data []byte) error { return fsx.WriteFile(path, data, 0o644) }
 
 // withArgs is app with its {placeholders} filled in from values: every
 // argument its file declares, each checked against its kind, and nothing

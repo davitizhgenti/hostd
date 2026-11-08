@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/fsx"
+
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -80,11 +82,7 @@ func (m *Module) saveFollow(f *Follow) error {
 	if err != nil {
 		return err
 	}
-	tmp := m.followPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, m.followPath())
+	return fsx.WriteFile(m.followPath(), b, 0o644)
 }
 
 func (f *Follow) pollEvery() time.Duration {

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+
+	"github.com/davitizhgenti/hostd/internal/fsx"
 )
 
 var name = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
@@ -22,16 +24,6 @@ func ValidName(s string) bool { return name.MatchString(s) }
 
 // ErrNotExist is what Read and Remove return for a secret that is not there.
 var ErrNotExist = fs.ErrNotExist
-
-// DefaultDir is $XDG_CONFIG_HOME/hostd/secrets.
-func DefaultDir() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "hostd", "secrets")
-}
 
 // Store is a directory of secrets. The zero Store (no directory) holds none.
 type Store struct{ Dir string }
@@ -52,19 +44,7 @@ func (s Store) Write(n string, value []byte) error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(s.Dir, ".tmp-*") // 0600
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(value); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), filepath.Join(s.Dir, n))
+	return fsx.WriteFile(filepath.Join(s.Dir, n), value, 0o600)
 }
 
 // Remove deletes a secret; a missing one is ErrNotExist.

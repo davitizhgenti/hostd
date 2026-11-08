@@ -58,7 +58,7 @@ buttons = { guide = "BTN_START" }
 		"name = \"x\"\nmatch = { vendor = \"1\" }\nbuttons = { turbo = \"BTN_MODE\" }": `button "turbo"`,
 		"name = \"x\"\nmatch = { vendor = \"1\" }\nbuttons = { guide = \"BTN_NOPE\" }": `unknown key "BTN_NOPE"`,
 		"name = \"x\"": "match needs a vendor or a name",
-		"name = \"x\"\nmatch = { vendor = \"1\" }\ncolor = \"red\"": "unknown key color",
+		"name = \"x\"\nmatch = { vendor = \"1\" }\ncolor = \"red\"": "unknown key(s): color",
 	} {
 		bad := t.TempDir()
 		_ = os.WriteFile(filepath.Join(bad, "bad.toml"), []byte(body), 0o644)

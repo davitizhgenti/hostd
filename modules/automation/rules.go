@@ -9,11 +9,10 @@ import (
 	"os"
 	"path"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -109,17 +108,9 @@ func ParseRules(data []byte) ([]Rule, error) {
 	var f struct {
 		Rule []Rule `toml:"rule"`
 	}
-	md, err := toml.Decode(string(data), &f)
+	_, err := tomlx.Decode(data, &f)
 	if err != nil {
 		return nil, err
-	}
-	if und := md.Undecoded(); len(und) > 0 {
-		keys := make([]string, len(und))
-		for i, k := range und {
-			keys[i] = k.String()
-		}
-		sort.Strings(keys)
-		return nil, fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
 	}
 	seen := map[string]bool{}
 	for i := range f.Rule {

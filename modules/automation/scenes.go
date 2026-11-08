@@ -9,10 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -85,17 +84,9 @@ var sceneID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 // ParseScene decodes and checks one scene file.
 func ParseScene(path string, data []byte) (Scene, error) {
 	var s Scene
-	md, err := toml.Decode(string(data), &s)
+	_, err := tomlx.Decode(data, &s)
 	if err != nil {
 		return Scene{}, err
-	}
-	if und := md.Undecoded(); len(und) > 0 {
-		keys := make([]string, len(und))
-		for i, k := range und {
-			keys[i] = k.String()
-		}
-		sort.Strings(keys)
-		return Scene{}, fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
 	}
 	s.ID = strings.TrimSuffix(filepath.Base(path), ".toml")
 	if !sceneID.MatchString(s.ID) {

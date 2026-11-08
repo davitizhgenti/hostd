@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/paths"
+
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -41,16 +43,6 @@ type Options struct {
 	Tokens  Tokens
 }
 
-// DefaultConfigDir is $XDG_CONFIG_HOME/hostd.
-func DefaultConfigDir() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "hostd")
-}
-
 // Module is the automation module.
 type Module struct {
 	opts Options
@@ -72,13 +64,13 @@ type Module struct {
 // New returns the automation module.
 func New(opts Options) *Module {
 	if opts.ScenesDir == "" {
-		opts.ScenesDir = filepath.Join(DefaultConfigDir(), "scenes")
+		opts.ScenesDir = paths.Config("scenes")
 	}
 	if opts.RulesFile == "" {
-		opts.RulesFile = filepath.Join(DefaultConfigDir(), "rules.toml")
+		opts.RulesFile = paths.Config("rules.toml")
 	}
 	if opts.ScriptsDir == "" {
-		opts.ScriptsDir = filepath.Join(DefaultConfigDir(), "scripts")
+		opts.ScriptsDir = paths.Config("scripts")
 	}
 	if opts.Location == nil {
 		opts.Location = time.Local

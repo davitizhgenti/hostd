@@ -2,15 +2,13 @@ package catalog
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
@@ -152,17 +150,9 @@ func (f AppFile) applyTo(a *spec.App) {
 // such as "fulscreen" is reported instead of silently ignored.
 func ParseAppFile(path string, data []byte) (AppFile, error) {
 	var f AppFile
-	md, err := toml.Decode(string(data), &f)
+	_, err := tomlx.Decode(data, &f)
 	if err != nil {
 		return AppFile{}, err
-	}
-	if und := md.Undecoded(); len(und) > 0 {
-		keys := make([]string, len(und))
-		for i, k := range und {
-			keys[i] = k.String()
-		}
-		sort.Strings(keys)
-		return AppFile{}, fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
 	}
 	f.Path = path
 	if f.Runner != nil && f.Runner.File != "" && !filepath.IsAbs(f.Runner.File) {

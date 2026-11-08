@@ -105,13 +105,4 @@ func TestStoreEdges(t *testing.T) {
 	if _, err := (Store{Dir: file}).Names(); err == nil {
 		t.Fatal("listed a file")
 	}
-	t.Setenv("XDG_CONFIG_HOME", "/cfg")
-	if DefaultDir() != "/cfg/hostd/secrets" {
-		t.Fatalf("default %s", DefaultDir())
-	}
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", "/home/screen")
-	if DefaultDir() != "/home/screen/.config/hostd/secrets" {
-		t.Fatalf("default without XDG %s", DefaultDir())
-	}
 }

@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/davitizhgenti/hostd/internal/fsx"
+
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -152,21 +154,9 @@ func (m *Module) writeAuthorized(lines []string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".authorized_keys-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
 	text := strings.Join(lines, "\n")
 	if text != "" {
 		text += "\n"
 	}
-	if _, err := tmp.WriteString(text); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), m.opts.AuthorizedKeys)
+	return fsx.WriteFile(m.opts.AuthorizedKeys, []byte(text), 0o600)
 }

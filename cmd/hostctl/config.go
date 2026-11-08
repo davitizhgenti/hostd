@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/davitizhgenti/hostd/internal/fsx"
 
 	"github.com/BurntSushi/toml"
 )
@@ -69,21 +72,9 @@ func saveConfig(c Config) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.toml")
-	if err != nil {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c); err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := toml.NewEncoder(tmp).Encode(c); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", err
-	}
-	return path, os.Rename(tmp.Name(), path)
+	return path, fsx.WriteFile(path, buf.Bytes(), 0o600)
 }

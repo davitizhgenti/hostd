@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/paths"
+
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
@@ -40,7 +42,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		configPath = fs.String("config", DefaultConfigPath(), "config file (missing: all defaults)")
-		stateDir   = fs.String("state", defaultStateDir(), "directory for the state database")
+		stateDir   = fs.String("state", paths.State(), "directory for the state database")
 		runtimeDir = fs.String("runtime", os.Getenv("XDG_RUNTIME_DIR"), "runtime directory for the socket and the first admin token")
 		socket     = fs.String("socket", "", "unix socket path (default <runtime>/hostd.sock)")
 		listen     = fs.String("listen", ":7300", "TCP address for the home network; empty to disable (overrides the config)")
@@ -93,7 +95,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	}
 	home, _ := os.UserHomeDir()
 	h := &host.Host{RuntimeDir: *runtimeDir, StateDir: *stateDir, ConfigDir: filepath.Dir(*configPath), Socket: *socket,
-		Home: home, Log: log, Clock: clock.Real(), Secrets: secrets.Store{Dir: secrets.DefaultDir()},
+		Home: home, Log: log, Clock: clock.Real(), Secrets: secrets.Store{Dir: paths.Config("secrets")},
 		Systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}}
 	defer h.Systemd.Close()
 	var mods []sdk.Module
@@ -241,17 +243,6 @@ func defaultDocsDir() string {
 		return dir
 	}
 	return ""
-}
-
-func defaultStateDir() string {
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "hostd")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "hostd-state"
-	}
-	return filepath.Join(home, ".local", "state", "hostd")
 }
 
 // scriptTokens mints the tokens of rule scripts: automation, expiring

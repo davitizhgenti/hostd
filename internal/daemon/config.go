@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/paths"
+
 	"github.com/BurntSushi/toml"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -76,14 +78,7 @@ var movedKeys = map[string]string{
 var laterModules = map[string]string{}
 
 // DefaultConfigPath is $XDG_CONFIG_HOME/hostd/hostd.toml.
-func DefaultConfigPath() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "hostd", "hostd.toml")
-}
+func DefaultConfigPath() string { return paths.Config("hostd.toml") }
 
 // LoadConfig reads the config file; a missing file means all defaults.
 // Unknown keys and modules are errors, so a typo never goes unnoticed.

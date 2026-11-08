@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -60,12 +60,8 @@ func (m *Module) scriptPath(name string) (string, error) {
 func readSettings(p string) (scriptSettings, error) {
 	var s scriptSettings
 	if b, err := os.ReadFile(p + ".toml"); err == nil {
-		md, err := toml.Decode(string(b), &s)
-		if err != nil {
+		if _, err := tomlx.Decode(b, &s); err != nil {
 			return s, fmt.Errorf("%s.toml: %w", p, err)
-		}
-		if und := md.Undecoded(); len(und) > 0 {
-			return s, fmt.Errorf("%s.toml: unknown key %s", p, und[0])
 		}
 	} else if f, err := os.Open(p); err == nil {
 		sc := bufio.NewScanner(f)
