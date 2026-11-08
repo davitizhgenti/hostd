@@ -8,7 +8,7 @@
 - **Events:** each `lights.changed` event is tied to the action that caused it.
 - **A subscription:** the module counts the apps hostd starts.
 
-To try it, add this to `~/.config/hostd/hostd.toml` and restart hostd:
+To try it, add this to `~/.config/hostd/hostd.toml` (or a file in `hostd.d/`) and restart hostd:
 
 ```toml
 [external.lights]

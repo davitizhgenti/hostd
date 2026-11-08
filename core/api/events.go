@@ -77,7 +77,7 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request, _ store.Token
 			found = true
 		}
 		if !found {
-			if err := send(ctx, conn, sdk.Event{Type: "bus.gap", Time: time.Now().UTC(),
+			if err := send(ctx, conn, sdk.Event{Type: sdk.EventGap, Time: time.Now().UTC(),
 				Data: json.RawMessage(`{"reason":"since is older than the replay window"}`)}); err != nil {
 				return nil
 			}

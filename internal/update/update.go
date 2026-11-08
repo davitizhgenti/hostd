@@ -1,5 +1,5 @@
 // Package update installs a new hostd binary next to the running one and
-// switches to it. The layout (made by deploy/install.sh):
+// switches to it. The layout (made by hostd-setup):
 //
 //	~/.local/lib/hostd/
 //	  versions/<version>/hostd   every installed version
@@ -54,7 +54,7 @@ func FromExecutable() (Lib, error) {
 	}
 	versions := filepath.Dir(filepath.Dir(exe))
 	if filepath.Base(versions) != "versions" {
-		return Lib{}, fmt.Errorf("%s was not installed by deploy/install.sh (not in a versions/ directory)", exe)
+		return Lib{}, fmt.Errorf("%s was not installed by hostd-setup (not in a versions/ directory)", exe)
 	}
 	return Lib{Dir: filepath.Dir(versions)}, nil
 }

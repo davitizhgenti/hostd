@@ -484,7 +484,7 @@ func (m *Module) checkEarlyEnd(ctx context.Context, name string, b Backend) {
 // the action's request to it in the background: the program may take
 // minutes to be ready (Steam updates itself first).
 func (m *Module) startThenPass(ctx context.Context, p Passer, action *App, front bool) (sdk.Result, error) {
-	res, err := m.core.Do(ctx, sdk.Action{Type: "app.start", Args: sdk.MustJSON(map[string]any{"id": action.ID, "front": front})})
+	res, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]any{"id": action.ID, "front": front})})
 	if err != nil {
 		return sdk.Result{}, err
 	}
@@ -516,8 +516,8 @@ func (m *Module) startThenPass(ctx context.Context, p Passer, action *App, front
 // focusRunning brings a running instance forward. Without the display
 // module (headless, or before it exists) there is nothing to focus.
 func (m *Module) focusRunning(ctx context.Context, app *App, in Instance, front bool) (sdk.Result, error) {
-	if in.Surface == SurfaceWindow && m.core.Handles("window.focus") {
-		if _, err := m.core.Do(ctx, sdk.Action{Type: "window.focus", Args: sdk.MustJSON(map[string]any{"instance": in.ID, "front": front})}); err != nil {
+	if in.Surface == SurfaceWindow && m.core.Handles(contract.ActionWindowFocus) {
+		if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionWindowFocus, Args: sdk.MustJSON(map[string]any{"instance": in.ID, "front": front})}); err != nil {
 			return sdk.Result{}, err
 		}
 	}

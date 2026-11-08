@@ -283,14 +283,29 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 }
 
 var (
-	reModule  = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	reModule  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	reScope   = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*$`)
-	reType    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`)
-	rePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*(\.\*)?$`)
+	reType    = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$`)
+	rePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*(\.\*)?$`)
 	reParam   = regexp.MustCompile(`\{([^}]*)\}`)
 	reAlias   = regexp.MustCompile(`^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)?$`)
 	reField   = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`)
 )
+
+// Grants reports whether a set of scopes grants scope; admin grants all.
+// It is the one scope check, used for tokens and for actions in flight.
+func Grants(scopes []string, scope string) bool {
+	for _, s := range scopes {
+		if s == scope || s == ScopeAdmin {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidModuleName reports whether name is allowed for a module, built-in or
+// external: the one rule shared by hostd.toml and manifests.
+func ValidModuleName(name string) bool { return reModule.MatchString(name) }
 
 var methods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 

@@ -38,7 +38,7 @@ func (a *app) eventsCommand() *cobra.Command {
 				if err := a.printEvent(ev); err != nil {
 					return err
 				}
-				if ev.Type != "bus.gap" && ev.Type != "bus.lagged" {
+				if ev.Type != sdk.EventGap && ev.Type != sdk.EventLagged {
 					seen++
 				}
 				if count > 0 && seen >= count {

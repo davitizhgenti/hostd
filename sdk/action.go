@@ -144,6 +144,10 @@ func MustJSON(v any) json.RawMessage {
 // EventLagged tells a subscriber that it fell behind and missed events.
 const EventLagged = "bus.lagged"
 
+// EventGap tells a client that events between its position and the oldest
+// one kept were lost (sent by the API on a replay).
+const EventGap = "bus.gap"
+
 // Event is a notice that something changed, emitted by a module (or by the
 // core for action.done and action.skipped).
 type Event struct {

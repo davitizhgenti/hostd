@@ -1,5 +1,5 @@
 #!/bin/sh
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 #
 # Run by hostd-rollback.service when hostd.service fails: if the run that
 # failed was the current version, switches back to the version that ran

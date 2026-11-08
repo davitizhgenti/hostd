@@ -1,5 +1,5 @@
 #!/bin/sh
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 # Starts Sway on an NVIDIA card (greetd runs it for the screen user).
 #
 # With NVIDIA's own driver (555 and later; the nvidia add-on), Sway does

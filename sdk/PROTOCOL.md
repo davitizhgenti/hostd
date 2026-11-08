@@ -6,7 +6,7 @@ An external module is a separate program that hostd starts and talks to over a u
 
 ## Configuration and start
 
-A module is configured in `~/.config/hostd/hostd.toml`:
+A module is configured in `~/.config/hostd/hostd.toml`, or in a file of its own in `~/.config/hostd/hostd.d/` (see the configuration page):
 
 ```toml
 [external.lights]
@@ -34,7 +34,7 @@ Messages are [JSON-RPC 2.0](https://www.jsonrpc.org/specification). Each message
 
 ### Errors
 
-A failed request is answered with a JSON-RPC error. Its `data.code` is one of hostd's stable codes: `invalid_args`, `not_found`, `instance_not_running`, `precondition_failed`, `forbidden`, `timeout`, `module_unavailable`, `loop_detected`, `internal`. These codes reach API clients and scripts as they are.
+A failed request is answered with a JSON-RPC error. Its `data.code` is one of hostd's stable codes: `invalid_args`, `not_found`, `instance_not_running`, `precondition_failed`, `unauthorized`, `forbidden`, `timeout`, `module_unavailable`, `loop_detected`, `internal`. These codes reach API clients and scripts as they are.
 
 ```json
 {"jsonrpc":"2.0","id":7,"error":{"code":-32000,"message":"no light \"porch\"","data":{"code":"not_found"}}}

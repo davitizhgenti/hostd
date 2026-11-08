@@ -22,6 +22,10 @@ const (
 
 	ActionAppStart     = "app.start"     // args: AppStart
 	ActionInstanceStop = "instance.stop" // args: {"id": instance}
+
+	// The display module's window actions, which apps sends so a started
+	// app comes to the front.
+	ActionWindowFocus = "window.focus" // args: {"instance": id, "front": bool}
 	// ActionInstanceClosing tells the apps module that an instance was
 	// asked to close (its windows), so its end counts as a normal exit
 	// whatever its exit status. Args: {"id": instance}.

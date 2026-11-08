@@ -460,7 +460,7 @@ func TestPterodactylHookFirstInstall(t *testing.T) {
 
 // pteroWingsSHA256 is the Wings checksum the hook pins, for amd64.
 func pteroWingsSHA256(t *testing.T) string {
-	b, err := os.ReadFile("addons/pterodactyl/addon.sh")
+	b, err := os.ReadFile("addons/pterodactyl/hook.sh")
 	if err != nil {
 		t.Fatal(err)
 	}

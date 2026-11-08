@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/davitizhgenti/hostd/sdk"
 )
 
 // Config is ~/.config/hostd/hostd.toml, with the files in hostd.d/ beside
@@ -49,12 +51,12 @@ import (
 //	env = { LIGHTS_BRIDGE = "192.168.1.20" }
 //	transport = "stdio"   # optional: talk over the program's stdin/stdout, not a socket
 type Config struct {
-	Modules     []string            `toml:"modules"`
-	Listen      *string             `toml:"listen"`
-	HoldWindow  duration            `toml:"hold_window"`
-	HoldWindows map[string]duration `toml:"hold_windows"`
-	External    map[string]External `toml:"external"`
-	API         APIConfig           `toml:"api"`
+	Modules     []string                `toml:"modules"`
+	Listen      *string                 `toml:"listen"`
+	HoldWindow  sdk.Duration            `toml:"hold_window"`
+	HoldWindows map[string]sdk.Duration `toml:"hold_windows"`
+	External    map[string]External     `toml:"external"`
+	API         APIConfig               `toml:"api"`
 
 	path       string
 	sections   map[string]toml.Primitive // [apps], [display]...: each module's own settings
@@ -72,20 +74,6 @@ var movedKeys = map[string]string{
 // laterModules are in the design but not in this version yet; naming one
 // gets a clear message rather than "unknown".
 var laterModules = map[string]string{}
-
-type duration time.Duration
-
-func (d *duration) UnmarshalText(b []byte) error {
-	v, err := time.ParseDuration(string(b))
-	if err != nil {
-		return fmt.Errorf("%q is not a duration such as \"3m\" or \"90s\"", b)
-	}
-	if v < 0 {
-		return fmt.Errorf("%q is negative", b)
-	}
-	*d = duration(v)
-	return nil
-}
 
 // DefaultConfigPath is $XDG_CONFIG_HOME/hostd/hostd.toml.
 func DefaultConfigPath() string {
@@ -150,12 +138,20 @@ func LoadConfig(path string) (Config, error) {
 		switch {
 		case builtinNamed(name) != nil:
 			return Config{}, fmt.Errorf("%s: external module %q has a built-in module's name", path, name)
-		case !externalName.MatchString(name):
-			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and _", path, name)
+		case !sdk.ValidModuleName(name):
+			return Config{}, fmt.Errorf("%s: external module %q: use lowercase letters, digits and - (up to 32)", path, name)
 		case len(x.Command) == 0:
 			return Config{}, fmt.Errorf("%s: external module %q needs a command", path, name)
 		case x.Transport != "" && x.Transport != "socket" && x.Transport != "stdio":
 			return Config{}, fmt.Errorf("%s: external module %q: transport %q: use \"socket\" or \"stdio\"", path, name, x.Transport)
+		}
+	}
+	if c.HoldWindow < 0 {
+		return Config{}, fmt.Errorf("%s: hold_window is negative", path)
+	}
+	for name, d := range c.HoldWindows {
+		if d < 0 {
+			return Config{}, fmt.Errorf("%s: hold_windows.%s is negative", path, name)
 		}
 	}
 	if err := c.API.check(path); err != nil {
@@ -218,8 +214,6 @@ type External struct {
 	Env       map[string]string `toml:"env"`
 	Transport string            `toml:"transport"` // "socket" (default) or "stdio"
 }
-
-var externalName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 func contains(list []string, s string) bool {
 	for _, x := range list {

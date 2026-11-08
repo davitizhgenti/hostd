@@ -98,7 +98,7 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/addon.sh deploy/addons/*/hook.sh \
+	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/hook.sh \
 	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/addons/jupyter/hostd-jupyter deploy/files/start-sway
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)

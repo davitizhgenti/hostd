@@ -522,19 +522,20 @@ func (e *Engine) emit(moduleName string, ev sdk.Event) {
 	observed := false
 	depth := 0
 	e.mu.Lock()
+	r, handling := e.running[ev.Action]
 	switch {
-	case ev.Action != "":
-		if r, ok := e.running[ev.Action]; ok {
-			src := r.action.Source
-			ev.Source = &src
-			depth = r.depth
-			if ev.Resource != "" { // published with its final version when the action ends
-				r.pending = append(r.pending, ev)
-				e.mu.Unlock()
-				return
-			}
+	case ev.Action != "" && handling:
+		src := r.action.Source
+		ev.Source = &src
+		depth = r.depth
+		if ev.Resource != "" { // published with its final version when the action ends
+			r.pending = append(r.pending, ev)
+			e.mu.Unlock()
+			return
 		}
 	case ev.Resource != "":
+		// Also an event naming an action that has ended (it timed out):
+		// the change still happened, so it still gets a version.
 		// A change hostd did not make: bump the version, no hold.
 		if ev.Source == nil {
 			ev.Source = &sdk.Source{Kind: sdk.SourceExternal, Name: moduleName}

@@ -46,6 +46,6 @@ When the steps are a chain of commands (NVIDIA's driver installer, the Pterodact
 | `as_screen CMD...` | Runs a command as the screen user, in its session |
 | `addon_rescan` | hostd reads the app catalog again |
 
-and these variables: `SCREEN_USER`, `SCREEN_HOME`, `SCREEN_UID`, `ADDON_HERE` (this directory's files), `ADDON_NAMES` (the add-ons named in this run), `ADDONS_STATE` (the file listing installed add-ons) and `HOSTD_AUTO` (`1` when the update timer runs it: hold back changes to data). Setting `NEED_REBOOT=1` adds "Reboot to finish" to the summary.
+and these variables: `SCREEN_USER`, `SCREEN_HOME`, `SCREEN_UID`, `ADDON_HERE` (this directory's files), `ADDON_HOOK` (the hook script), `HOSTD_ROOT` (set only by tests: the machine is a directory), `ADDON_NAMES` (the add-ons named in this run), `ADDONS_STATE` (the file listing installed add-ons) and `HOSTD_AUTO` (`1` when the update timer runs it: hold back changes to data). Setting `NEED_REBOOT=1` adds "Reboot to finish" to the summary.
 
 `hostd-setup` has unit tests for the manifests (`deploy/addons_test.go`); the install test (`make test-install`) adds and removes the controllers add-on on a real system.

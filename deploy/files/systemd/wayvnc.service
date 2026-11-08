@@ -1,4 +1,4 @@
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 #
 # VNC server for watching the screen remotely, on localhost only (reach it
 # with ssh -L 5900:127.0.0.1:5900). Started by the Sway config once the

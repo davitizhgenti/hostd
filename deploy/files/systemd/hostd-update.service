@@ -1,4 +1,4 @@
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 #
 # Looks for a new signed hostd build and applies it, announces it or
 # leaves it, as /etc/hostd/update.conf says.

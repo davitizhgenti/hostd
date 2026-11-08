@@ -23,12 +23,7 @@ func (a Auth) Has(scope string) bool {
 	if a.trusted {
 		return true
 	}
-	for _, s := range a.Scopes {
-		if s == scope || s == sdk.ScopeAdmin {
-			return true
-		}
-	}
-	return false
+	return sdk.Grants(a.Scopes, scope)
 }
 
 // authorize checks the action's scope and its argument-dependent scopes.

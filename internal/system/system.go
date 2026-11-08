@@ -18,6 +18,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -32,6 +33,8 @@ type Options struct {
 	TLS *tlsca.Authority
 	// Every is how often quiet.wait looks again (default 1s).
 	Every time.Duration
+	// Clock times quiet.wait (default: the real one).
+	Clock clock.Clock
 }
 
 // Module is hostd's own module.
@@ -44,6 +47,9 @@ type Module struct {
 }
 
 func New(o Options) *Module {
+	if o.Clock == nil {
+		o.Clock = clock.Real()
+	}
 	if o.Every == 0 {
 		o.Every = time.Second
 	}
@@ -263,19 +269,19 @@ func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error
 		}
 		maxWait = d
 	}
-	deadline := time.Now().Add(maxWait)
+	deadline := m.o.Clock.Now().Add(maxWait)
 	for {
 		busy := m.busy(ctx, strings.Split(args.Types, ","), args.Idle)
 		if len(busy) == 0 {
 			return sdk.Result{Data: sdk.MustJSON(map[string]bool{"quiet": true})}, nil
 		}
-		if time.Now().After(deadline) {
+		if m.o.Clock.Now().After(deadline) {
 			return sdk.Result{}, sdk.Errorf(sdk.CodePreconditionFailed, "still busy after %s: %s", maxWait, strings.Join(busy, "; "))
 		}
 		select {
 		case <-ctx.Done():
 			return sdk.Result{}, ctx.Err()
-		case <-time.After(m.o.Every):
+		case <-m.o.Clock.After(m.o.Every):
 		}
 	}
 }

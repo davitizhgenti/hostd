@@ -376,6 +376,17 @@ func TestVersionsAndExpectVersion(t *testing.T) {
 	}
 }
 
+// An event naming an action that has already ended (a handler that timed out
+// and emitted late) is a change all the same: it gets a version.
+func TestLateResourceEventGetsVersion(t *testing.T) {
+	h := newHarness(t, Options{})
+	before := h.e.Version("res:vol")
+	h.res.Core().Emit(sdk.Event{Type: "res.changed", Action: "act_gone", Resource: "res:vol"})
+	if v := h.e.Version("res:vol"); v != before+1 {
+		t.Fatalf("version after late event = %d, want %d", v, before+1)
+	}
+}
+
 func TestHolds(t *testing.T) {
 	kinds := []sdk.SourceKind{sdk.SourceLocal, sdk.SourceManual, sdk.SourceAutomation}
 	for _, first := range kinds {

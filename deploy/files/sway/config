@@ -1,4 +1,4 @@
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 
 output * bg #1d2430 solid_color
 default_border none

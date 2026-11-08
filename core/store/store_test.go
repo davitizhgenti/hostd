@@ -219,23 +219,6 @@ func TestEnsureAdminTokenOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestScopesWithin(t *testing.T) {
-	for _, tc := range []struct {
-		want, have []string
-		ok         bool
-	}{
-		{[]string{"audio"}, []string{"audio", "apps"}, true},
-		{[]string{"audio", "display"}, []string{"audio"}, false},
-		{[]string{"display.front"}, []string{"admin"}, true},
-		{nil, []string{"read"}, true},
-		{[]string{"admin"}, []string{"audio"}, false},
-	} {
-		if got := ScopesWithin(tc.want, tc.have); got != tc.ok {
-			t.Errorf("ScopesWithin(%v, %v) = %v", tc.want, tc.have, got)
-		}
-	}
-}
-
 func entry(i int, typ, status string) core.AuditEntry {
 	return core.AuditEntry{
 		Time: t0.Add(time.Duration(i) * time.Second), Action: fmt.Sprintf("act_%04d", i), Type: typ,

@@ -1,4 +1,4 @@
-# Managed by hostd deploy/install.sh; changes here are overwritten.
+# Managed by hostd-setup; changes here are overwritten.
 #
 # hostd runs as the screen user, started at boot thanks to lingering.
 # Type=notify: the unit is "started" only once hostd is serving its API.

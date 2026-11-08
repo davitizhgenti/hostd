@@ -189,3 +189,16 @@ func TestManifestCLIHintsAreValid(t *testing.T) {
 		t.Fatalf("a read without hints carries cli: %s", plain)
 	}
 }
+
+func TestModuleNamesAllowHyphen(t *testing.T) {
+	for name, want := range map[string]bool{"my-lights": true, "lights": true, "my_lights": false, "Lights": false, "": false} {
+		if got := ValidModuleName(name); got != want {
+			t.Errorf("ValidModuleName(%q) = %v, want %v", name, got, want)
+		}
+	}
+	m := Manifest{Name: "my-lights", Version: "1", Owns: []string{"my-lights.*"},
+		Actions: []ActionSpec{{Type: "my-lights.set", Scope: "read"}}}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("hyphenated module should validate: %v", err)
+	}
+}

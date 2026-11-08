@@ -98,9 +98,9 @@ func SwayConnector(runtimeDir string) func(context.Context) (Backend, error) {
 
 // Module is the display module. Its files: windows.go (tracking, placing,
 // focus history), launches.go (what it learns from the apps module),
-// actions.go (actions and their checks), bindings.go and input.go (keys
-// and buttons), presence.go, match.go (whose window is it), sway.go and
-// ipc.go (the compositor).
+// actions.go (actions and their checks), bindings.go (keys and buttons),
+// match.go (whose window is it), gpu.go, controllers.go; the compositor is
+// behind wm.Backend (sway/), input, presence and notices in internal/.
 //
 // One mutex, mu, guards every field below it. It is never held while
 // calling the compositor (Backend) or the core: take what is needed under

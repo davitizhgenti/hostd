@@ -48,26 +48,7 @@ type Token struct {
 }
 
 // HasScope reports whether the token grants scope; admin grants all.
-func (t Token) HasScope(scope string) bool {
-	for _, s := range t.Scopes {
-		if s == scope || s == sdk.ScopeAdmin {
-			return true
-		}
-	}
-	return false
-}
-
-// ScopesWithin reports whether every scope in want is granted by have,
-// for minting a token no stronger than its creator.
-func ScopesWithin(want, have []string) bool {
-	t := Token{Scopes: have}
-	for _, s := range want {
-		if !t.HasScope(s) {
-			return false
-		}
-	}
-	return true
-}
+func (t Token) HasScope(scope string) bool { return sdk.Grants(t.Scopes, scope) }
 
 func hashSecret(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
