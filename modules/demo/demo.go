@@ -9,6 +9,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/davitizhgenti/hostd/internal/host"
 	"github.com/davitizhgenti/hostd/sdk"
 	"github.com/davitizhgenti/hostd/sdk/kit"
 )
@@ -65,4 +66,10 @@ func New() *kit.Module {
 		}
 		return map[string]any{"lamps": out}, nil
 	})
+}
+
+// Builtin is how hostd builds the demo module (loaded only with -demo).
+var Builtin = host.Builtin{
+	Name: "demo",
+	New:  func(*host.Host, any) (sdk.Module, error) { return New(), nil },
 }

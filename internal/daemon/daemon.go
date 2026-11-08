@@ -20,8 +20,11 @@ import (
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/extmod"
+	"github.com/davitizhgenti/hostd/internal/host"
 	"github.com/davitizhgenti/hostd/internal/sdnotify"
+	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/system"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
@@ -90,12 +93,13 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 		return 2
 	}
 	home, _ := os.UserHomeDir()
-	e := &env{runtimeDir: *runtimeDir, stateDir: *stateDir, configDir: filepath.Dir(*configPath), socket: *socket,
-		home: home, log: log, systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}}
-	defer e.systemd.Close()
+	h := &host.Host{RuntimeDir: *runtimeDir, StateDir: *stateDir, ConfigDir: filepath.Dir(*configPath), Socket: *socket,
+		Home: home, Log: log, Clock: clock.Real(), Secrets: secrets.Store{Dir: secrets.DefaultDir()},
+		Systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}}
+	defer h.Systemd.Close()
 	var mods []sdk.Module
 	for _, name := range cfg.Modules {
-		m, err := builtinNamed(name).build(e, confs[name])
+		m, err := builtinNamed(name).New(h, confs[name])
 		if err != nil {
 			fmt.Fprintf(stderr, "hostd: %s: %v\n", name, err)
 			return 2
@@ -128,7 +132,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			return &updater{lib: lib, store: st, configPath: *configPath, restart: func() error {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				return e.systemd.RestartUnit(ctx, "hostd.service")
+				return h.Systemd.RestartUnit(ctx, "hostd.service")
 			}}
 		}
 	}
