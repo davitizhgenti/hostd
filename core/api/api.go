@@ -58,6 +58,9 @@ type Options struct {
 	// Allow are networks trusted on TCP beside the private ones: a VPN's,
 	// such as Tailscale's 100.64.0.0/10.
 	Allow []netip.Prefix
+	// Resources serves the routes of the kinds of resource modules declare;
+	// nil leaves them out (a daemon with no kinds, or a test).
+	Resources Resources
 }
 
 // Updater installs a new hostd and restarts into it.
@@ -74,6 +77,7 @@ type Updater interface {
 // Server is the HTTP API.
 type Server struct {
 	engine *core.Engine
+	res    Resources
 	store  *store.Store
 	log    *slog.Logger
 	opts   Options
@@ -92,7 +96,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 	if opts.ReplayEvents == 0 {
 		opts.ReplayEvents = 1000
 	}
-	srv := &Server{engine: e, store: s, log: opts.Logger, opts: opts, mux: http.NewServeMux(), ring: newRing(opts.ReplayEvents)}
+	srv := &Server{engine: e, res: opts.Resources, store: s, log: opts.Logger, opts: opts, mux: http.NewServeMux(), ring: newRing(opts.ReplayEvents)}
 
 	routes := []struct {
 		pattern string
@@ -139,6 +143,13 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 			}
 			if err != nil {
 				return nil, fmt.Errorf("module %q, read %q: %w", m.Name, rd.Name, err)
+			}
+		}
+	}
+	if srv.res != nil {
+		for _, k := range e.Registry().Kinds() {
+			if err := srv.kindRoutes(k); err != nil {
+				return nil, fmt.Errorf("module %q: %w", k.Module, err)
 			}
 		}
 	}

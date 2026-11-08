@@ -68,6 +68,9 @@ func OpenAPI(manifests []sdk.Manifest, version string) obj {
 			}
 			add(a.Route.Method, a.Route.Path, op)
 		}
+		for _, k := range m.Kinds {
+			kindOpenAPI(m.Name, k, add)
+		}
 		for _, rd := range m.Reads {
 			scope, security := rd.Scope, []obj{{"bearer": []string{}}}
 			switch scope {

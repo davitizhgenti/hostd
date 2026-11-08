@@ -21,6 +21,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/api"
+	"github.com/davitizhgenti/hostd/core/resources"
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/extmod"
@@ -137,14 +138,14 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 			}}
 		}
 	}
-	if err := serve(ctx, log, *stateDir, *runtimeDir, *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
+	if err := serve(ctx, log, *stateDir, *runtimeDir, filepath.Dir(*configPath), *socket, *listen, *docs, cfg.API, mods, coreOpts, newUpdater, stderr); err != nil {
 		log.Error("hostd stopped", "err", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, listen, docs string, apiCfg APIConfig, mods []sdk.Module,
+func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDir, socket, listen, docs string, apiCfg APIConfig, mods []sdk.Module,
 	coreOpts core.Options, newUpdater func(*store.Store) api.Updater, stderr io.Writer) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -201,6 +202,13 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 		}
 	}()
 
+	// Resources: the files of every kind modules declare, read now that the
+	// modules run, and followed.
+	rs := resources.New(eng, resources.Options{Root: configDir, Logger: log})
+	if err := rs.Start(ctx); err != nil {
+		return fmt.Errorf("the resource folders: %w", err)
+	}
+
 	// Once the API is listening: hand over the first admin token (so
 	// whoever waits for that file can use it at once), then tell systemd
 	// hostd is ready.
@@ -215,7 +223,7 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, socket, 
 			log.Warn("telling systemd hostd is ready", "err", err)
 		}
 	}
-	apiOpts := api.Options{Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs, Allow: apiCfg.AllowPrefixes()}
+	apiOpts := api.Options{Resources: rs, Logger: log, AdminTokenFile: adminFile, OnListening: onListening, DocsDir: docs, Allow: apiCfg.AllowPrefixes()}
 	if ca != nil {
 		apiOpts.TLS, apiOpts.CA = ca.TLSConfig(), ca.CAPEM()
 	}
