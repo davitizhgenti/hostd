@@ -68,7 +68,7 @@ func (w *world) modules() []sdk.Module {
 	apps.M.Owns = []string{"app.*", "instance.*"}
 	apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}}
 	apps.M.Actions = []sdk.ActionSpec{
-		{Type: contract.ActionAppStart, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"app:{id}"}},
+		{Type: contract.ActionAppOpen, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"app:{id}"}},
 		{Type: contract.ActionInstanceStop, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"instance:{id}"}},
 	}
 	apps.M.Reads = []sdk.ReadSpec{{Name: contract.ReadInstances, Path: "/v1/instances"}}
@@ -82,7 +82,7 @@ func (w *world) modules() []sdk.Module {
 	}
 	apps.HandleFunc = w.handle(func(a sdk.Action, args map[string]any) error {
 		id := args["id"].(string)
-		if a.Type == contract.ActionAppStart {
+		if a.Type == contract.ActionAppOpen {
 			w.instances = append(w.instances, contract.Instance{ID: id, App: id, State: "running"})
 			w.focused = id
 			return nil
@@ -266,8 +266,8 @@ func TestSceneOrderAndIdempotence(t *testing.T) {
 		`audio.output.set {"output":"hdmi"}`,
 		`audio.volume.set {"percent":40}`,
 		`audio.mute.set {"muted":false}`,
-		`app.start {"id":"jellyfin"}`, // lights already runs
-		`display.power {"on":true}`,   // jellyfin came to the front when it started
+		`app.open {"id":"jellyfin"}`, // lights already runs
+		`display.power {"on":true}`,  // jellyfin came to the front when it started
 	}
 	if sent := w.takeSent(); fmt.Sprint(sent) != fmt.Sprint(want) {
 		t.Fatalf("sent\n%s\nwant\n%s", strings.Join(sent, "\n"), strings.Join(want, "\n"))

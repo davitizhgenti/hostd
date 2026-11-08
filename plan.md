@@ -135,7 +135,7 @@ Ordered by value over risk. Items are independent unless a dependency is stated.
 
 **Change:** `modules/display/apps_contract_test.go` runs the real apps module and the real display module on one core, faking only the compositor and the process runner. It checks:
 - Registering both validates every scope and dependency the actions use (including `display.front`, declared only by apps).
-- `app.start` through apps, then a window of the instance's unit turns up: display finds the instance through `contract.UnitName` and puts the window on `hostd:<instance>`.
+- `app.open` through apps, then a window of the instance's unit turns up: display finds the instance through `contract.UnitName` and puts the window on `hostd:<instance>`.
 - `window.focus` reaches that window.
 - `window.close` on a window that stays open tells apps `instance.closing`, then `instance.stop`, and the runner is asked to stop the instance.
 

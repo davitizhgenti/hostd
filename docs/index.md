@@ -10,7 +10,7 @@ hostd turns a Linux mini PC into a controllable screen and home server. It runs 
 
 ## How it works
 
-Every change is an **action**: `audio.volume.set {"percent": 40}`, `app.start {"id": "jellyfin"}`. Every action goes through the same pipeline, whether it comes from the CLI, a phone, a key on the keyboard or a rule:
+Every change is an **action**: `audio.volume.set {"percent": 40}`, `app.open {"id": "jellyfin"}`. Every action goes through the same pipeline, whether it comes from the CLI, a phone, a key on the keyboard or a rule:
 
 1. **Validated** against the action's schema, and checked against the current state when its turn comes.
 2. **Authorized** by the token's scopes.

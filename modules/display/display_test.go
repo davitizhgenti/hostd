@@ -293,7 +293,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		{Type: "instance.stop", Scope: "apps",
 			Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
 			Keys:   []sdk.KeyTemplate{"instance:{id}"}},
-		{Type: "app.start", Scope: "apps",
+		{Type: "app.open", Scope: "apps",
 			Schema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}}}`),
 			Keys:   []sdk.KeyTemplate{"app:{id}"}},
 	}
@@ -306,7 +306,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 	r.apps.HandleFunc = func(_ context.Context, a sdk.Action) (sdk.Result, error) {
 		var args struct{ ID string }
 		_ = a.DecodeArgs(&args)
-		if a.Type == "app.start" {
+		if a.Type == "app.open" {
 			r.started <- a
 			return sdk.Result{}, nil
 		}

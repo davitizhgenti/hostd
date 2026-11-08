@@ -236,7 +236,7 @@ func (m *Module) Manifest() sdk.Manifest {
 				ArgScopes: map[string]string{"front": contract.ScopeFront},
 				Timeout:   sdk.Duration(10 * time.Second),
 				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"},
-				CLI: &sdk.CLI{Alias: []string{"focus"}, Done: []string{
+				CLI: &sdk.CLI{Done: []string{
 					"not switched: someone is using the screen (they got a notice; --front switches anyway) if reason=in_use",
 					"focused {instance}"}}},
 			{Type: "window.close", Description: "Close an instance's windows politely (default: the app in front); stop the app if they stay open",

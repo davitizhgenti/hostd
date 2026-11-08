@@ -8,10 +8,11 @@ hostctl get apps jellyfin    # one: its file, or what hostd found
 hostctl apply -f show.toml --kind app    # add or replace an app file (--check: only check)
 hostctl edit app jellyfin    # change its file in $EDITOR
 hostctl delete app jellyfin  # remove its file
-hostctl start jellyfin       # start, or bring to the front if it runs
+hostctl open jellyfin        # start it, or bring it to the front if it runs (also: hostctl start)
 hostctl ps                   # running instances
-hostctl stop jellyfin
-hostctl focus firefox#2
+hostctl switch firefox#2     # bring an instance's window to the front (also: hostctl focus)
+hostctl close firefox#2      # close it as its window's button would; stop it if it stays open
+hostctl stop jellyfin        # end it now
 ```
 
 ## App files
@@ -34,7 +35,7 @@ http = "http://127.0.0.1:8096/health"
 | `surface` | `window` (on the screen) or `background`; the runner sets a default |
 | `extends` | Change a discovered app instead of defining one: `extends = "firefox-esr"` |
 | `env` | Its environment. `{secret:<name>}` takes a secret's value (see [Services](services.md#secrets)) |
-| `args` | What `app.start` fills in: `{name}` in the command or URL. `args = { file = "path" }` with `command = ["imv", "-f", "{file}"]`; the kinds are `url` (http or https), `path` (absolute) and `text`. Started with new values while it runs, the app is replaced |
+| `args` | What `app.open` fills in: `{name}` in the command or URL. `args = { file = "path" }` with `command = ["imv", "-f", "{file}"]`; the kinds are `url` (http or https), `path` (absolute) and `text`. Started with new values while it runs, the app is replaced |
 | `restart` | `always`, `on-failure` (background default) or `never` (window default) |
 | `autostart` | Background apps: `true` starts the app when hostd starts (at boot, and after an update), unless it already runs. `hostctl stop` stops it until the next start |
 | `requires` | Apps started first: `requires = ["database"]` |

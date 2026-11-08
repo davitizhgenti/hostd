@@ -48,7 +48,7 @@ func usesArg(a *spec.App, name string) bool {
 }
 
 // sampleArgs fills s's placeholders with a value of each argument's kind,
-// to check what s will be once app.start fills them in.
+// to check what s will be once app.open fills them in.
 func sampleArgs(a *spec.App, s string) string {
 	samples := map[string]string{spec.ArgURL: "http://example.invalid/", spec.ArgPath: "/x", spec.ArgText: "x"}
 	for name, kind := range a.Args {

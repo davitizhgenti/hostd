@@ -162,7 +162,7 @@ func TestStartAndStopFromTheManifest(t *testing.T) {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errs)
 	}
 	args, _ := json.Marshal(api.actions[0]["args"])
-	if api.actions[0]["type"] != "app.start" || string(args) != `{"args":{"file":"/home/screen/plot.png"},"front":true,"id":"show"}` {
+	if api.actions[0]["type"] != "app.open" || string(args) != `{"args":{"file":"/home/screen/plot.png"},"front":true,"id":"show"}` {
 		t.Fatalf("sent %s", args)
 	}
 }

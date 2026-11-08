@@ -143,6 +143,13 @@ func newRigClock(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngi
 // newRigApps is a rig with these app files (in writeApps' form).
 func newRigApps(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, runtimeDir string, clk clock.Clock, apps string) *rig {
 	t.Helper()
+	return newRigWith(t, sd, d, runtimeDir, clk, apps)
+}
+
+// newRigWith is newRigApps with more modules beside the apps module (a
+// stand-in for the display module, say).
+func newRigWith(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngine, runtimeDir string, clk clock.Clock, apps string, extra ...sdk.Module) *rig {
+	t.Helper()
 	appsDir, proc := t.TempDir(), t.TempDir()
 	writeApps(t, appsDir, apps)
 	m := New(Options{AppsDir: appsDir, NoWatch: true, Clock: clk, Backends: map[string]Backend{
@@ -152,6 +159,11 @@ func newRigApps(t *testing.T, sd *unitstest.FakeSystemd, d *podmantest.FakeEngin
 	reg := core.NewRegistry()
 	if err := reg.Add(m); err != nil {
 		t.Fatal(err)
+	}
+	for _, x := range extra {
+		if err := reg.Add(x); err != nil {
+			t.Fatal(err)
+		}
 	}
 	e := core.New(reg, core.Options{})
 	if err := e.Start(context.Background()); err != nil {
@@ -182,7 +194,7 @@ func (r *rig) do(t *testing.T, typ, id string) (map[string]any, error) {
 
 func (r *rig) start(t *testing.T, app string) map[string]any {
 	t.Helper()
-	data, err := r.do(t, "app.start", app)
+	data, err := r.do(t, "app.open", app)
 	if err != nil {
 		t.Fatalf("start %s: %v", app, err)
 	}
@@ -332,11 +344,11 @@ func TestStartRefusalsAndFailures(t *testing.T) {
 		"ghost": sdk.CodeNotFound,
 		"stack": sdk.CodeModuleUnavailable, // compose runner not there yet (M4)
 	} {
-		if _, err := r.do(t, "app.start", app); sdk.CodeOf(err) != code {
+		if _, err := r.do(t, "app.open", app); sdk.CodeOf(err) != code {
 			t.Errorf("%s: %v, want %s", app, err, code)
 		}
 	}
-	_, err := r.do(t, "app.start", "broken")
+	_, err := r.do(t, "app.open", "broken")
 	if sdk.CodeOf(err) != sdk.CodeInternal || !strings.Contains(err.Error(), "starting missing") {
 		t.Fatalf("broken: %v", err)
 	}
@@ -349,7 +361,7 @@ func TestStartRefusalsAndFailures(t *testing.T) {
 	}
 
 	noSession := newRig(t, unitstest.NewFakeSystemd(), podmantest.NewFakeEngine(), t.TempDir())
-	if _, err := noSession.do(t, "app.start", "term"); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
+	if _, err := noSession.do(t, "app.open", "term"); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
 		t.Fatalf("without Sway: %v", err)
 	}
 }

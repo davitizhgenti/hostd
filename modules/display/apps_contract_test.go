@@ -96,7 +96,7 @@ func TestDisplayWithTheRealAppsModule(t *testing.T) {
 
 	// An app starts, and its window turns up: it goes to the instance's
 	// own workspace and is shown, found through the unit name.
-	submit(contract.ActionAppStart, contract.AppStart{ID: "term"})
+	submit(contract.ActionAppOpen, contract.AppStart{ID: "term"})
 	b.open(1, pid)
 	waitFor(t, "the window placed", func() bool {
 		ws, _ := b.Windows(context.Background())

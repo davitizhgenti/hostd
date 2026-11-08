@@ -35,7 +35,7 @@ curl --unix-socket $XDG_RUNTIME_DIR/hostd.sock -H "Authorization: Bearer $T" \
      -d '{"percent": 40}' http://x/v1/audio/volume
 ```
 
-Each action that declares a route has one, such as `POST /v1/audio/volume` or `POST /v1/apps/{id}/start`. Any action can also be sent to `POST /v1/actions` as `{"type": "audio.volume.set", "args": {"percent": 40}}`.
+Each action that declares a route has one, such as `POST /v1/audio/volume` or `POST /v1/apps/{name}/open`. Any action can also be sent to `POST /v1/actions` as `{"type": "audio.volume.set", "args": {"percent": 40}}`.
 
 The result is `{"action": "act_...", "status": "applied", "version": 18, "data": ...}`. A change held by a higher-priority source is `"status": "skipped"`, with `held_by` and `until`. A skip is not an error, so scripts carry on.
 
@@ -44,6 +44,20 @@ The result is `{"action": "act_...", "status": "applied", "version": 18, "data":
 **Versions.** Every resource has a version that goes up on each change. A strict caller passes `?expect_version=N`, and the action is refused with `precondition_failed` if the resource has changed since then.
 
 ## Control from a script
+
+## Opening, switching, closing, stopping
+
+Five verbs cover every instance, whatever runs it (a desktop app, a container, a command from `app.run`):
+
+| Verb | hostctl | API | Does |
+| --- | --- | --- | --- |
+| open | `hostctl open show` (or `start`) | `POST /v1/apps/show/open` | Start the app, or bring it forward, start another copy or restart it if it runs, as its file says |
+| switch | `hostctl switch show` (or `focus`) | `POST /v1/instances/show/switch` | Bring the instance's window to the front; with someone at the screen it says so and does nothing, unless `front` (scope `display.front`) |
+| close | `hostctl close show` | `POST /v1/instances/show/close` | Ask its windows to close, as the close button would; stop it if one stays open. An instance with no window (a service) is stopped |
+| stop | `hostctl stop show` | `POST /v1/instances/show/stop` | End it now |
+| run | `hostctl run -- imv plot.png` | `POST /v1/run` | A command as an instance of its own; the other verbs work on it |
+
+All of them need scope `apps`, and each takes an instance (`show`, `show#2`, `run-tests`) except open, which takes an app.
 
 A token with `run` can do on the machine what someone at it could do in a terminal:
 
@@ -56,7 +70,7 @@ hostctl token create laptop --scopes read,apps,display,run      # on the machine
 | Run a command now: a full-screen window, or in the background | `hostctl run -- imv -f /home/screen/plot.png`<br>`hostctl run -b --name tests --wait -- pytest -q` | `POST /v1/run` `{"command": [...], "background": true}` |
 | Add or replace an app file (checked first) | `hostctl apply -f show.toml --kind app` | `PUT /v1/apps/show` (the file as TOML, or a JSON object) |
 | Remove one | `hostctl delete app show` | `DELETE /v1/apps/show` |
-| Start an app with its arguments (scope `apps`) | `hostctl start show --arg file=/home/screen/plot.png` | `POST /v1/apps/show/start` `{"args": {"file": "..."}}` |
+| Start an app with its arguments (scope `apps`) | `hostctl start show --arg file=/home/screen/plot.png` | `POST /v1/apps/show/open` `{"args": {"file": "..."}}` |
 
 A command runs as an instance: `hostctl ps` lists it, `hostctl stop` ends it, and its exit status is in its `instance.exited` or `instance.failed` event. `--wait` waits for it, prints what it wrote and exits with its status. An app's arguments are declared in its file (`args`, see [Apps](apps.md)) and checked: a URL must be http(s), a path absolute, and no value may start with `-`.
 

@@ -228,7 +228,7 @@ func entry(i int, typ, status string) core.AuditEntry {
 
 func TestAuditWriteAndQuery(t *testing.T) {
 	s, _, _ := open(t, Options{})
-	types := []string{"audio.volume.set", "app.start", "audio.mute.set", "window.focus"}
+	types := []string{"audio.volume.set", "app.open", "audio.mute.set", "window.focus"}
 	for i := 0; i < 40; i++ {
 		s.Record(entry(i, types[i%4], "applied"))
 	}
@@ -264,7 +264,7 @@ func TestAuditWriteAndQuery(t *testing.T) {
 			t.Fatalf("audio.* matched %s", r.Type)
 		}
 	}
-	exact, _ := s.QueryAudit(ctx, AuditQuery{Type: "app.start"})
+	exact, _ := s.QueryAudit(ctx, AuditQuery{Type: "app.open"})
 	one, _ := s.QueryAudit(ctx, AuditQuery{Action: "act_0007"})
 	if len(exact) != 10 || len(one) != 1 || one[0].Type != "window.focus" {
 		t.Fatalf("exact %d, by action %+v", len(exact), one)
@@ -304,7 +304,7 @@ func TestAuditWrittenOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 25; i++ {
-		s.Record(entry(i, "app.start", "applied"))
+		s.Record(entry(i, "app.open", "applied"))
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)

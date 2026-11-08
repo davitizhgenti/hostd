@@ -76,7 +76,7 @@ func TestGoldenTables(t *testing.T) {
 			{"id":"tok_4","name":"gone","kind":"local","scopes":["read"],"created":"2026-01-01T10:00:00Z","revoked":"2026-03-01T00:00:00Z"}]`,
 		"/v1/actions?limit=50": `[
 			{"seq":3,"time":"2026-10-14T10:02:00Z","action":"act_3","type":"audio.volume.set","args":{"percent":70},"summary":"70","source":{"kind":"automation","name":"evening"},"status":"skipped","held_by":"manual","until":"2026-10-14T10:05:00Z"},
-			{"seq":2,"time":"2026-10-14T10:01:00Z","action":"act_2","type":"app.start","args":{"id":"nope"},"summary":"nope","source":{"kind":"manual","name":"phone"},"status":"failed","code":"not_found","reason":"no app \"nope\""},
+			{"seq":2,"time":"2026-10-14T10:01:00Z","action":"act_2","type":"app.open","args":{"id":"nope"},"summary":"nope","source":{"kind":"manual","name":"phone"},"status":"failed","code":"not_found","reason":"no app \"nope\""},
 			{"seq":1,"time":"2026-10-14T10:00:00Z","action":"act_1","type":"audio.volume.set","args":{"percent":40},"summary":"40","source":{"kind":"manual","name":"admin"},"status":"applied","version":3}]`,
 		"/v1/rules": `[
 			{"kind":"rule","name":"evening","spec":{"on":"display.idle","do":{"scene":"dim"}},"generation":1,

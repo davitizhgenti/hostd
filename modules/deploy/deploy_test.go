@@ -119,7 +119,7 @@ func (f *fakeApps) module(t *testing.T) *testutil.Module {
 	apps.M.Owns = []string{"app.*", "instance.*"}
 	apps.M.Scopes = []sdk.ScopeSpec{{Name: "apps"}, {Name: contract.ScopeDeploy}}
 	apps.M.Actions = []sdk.ActionSpec{
-		{Type: "app.start", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`), Keys: []sdk.KeyTemplate{"app:{id}"}},
+		{Type: "app.open", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`), Keys: []sdk.KeyTemplate{"app:{id}"}},
 		{Type: "instance.stop", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`), Keys: []sdk.KeyTemplate{"instance:{id}"}},
 		{Type: "app.check", Scope: "apps", Schema: json.RawMessage(`{"type":"object","additionalProperties":true}`)},
 		{Type: "app.rescan", Scope: "apps"},
@@ -159,7 +159,7 @@ func (f *fakeApps) module(t *testing.T) *testutil.Module {
 			f.rescans++
 			f.mu.Unlock()
 			return sdk.Result{}, nil
-		case "app.start":
+		case "app.open":
 			var args contract.AppStart
 			_ = a.DecodeArgs(&args)
 			id, err := f.start(args)

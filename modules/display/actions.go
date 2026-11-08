@@ -670,10 +670,10 @@ func (m *Module) handleMenu(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	if inFront {
 		return m.handleBack(ctx, a)
 	}
-	if core == nil || !core.Handles(contract.ActionAppStart) {
+	if core == nil || !core.Handles(contract.ActionAppOpen) {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "the apps module is not running")
 	}
-	return core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(contract.AppStart{ID: m.opts.Menu})})
+	return core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(contract.AppStart{ID: m.opts.Menu})})
 }
 
 // frontWindow returns the focused window and its instance ("" for a window

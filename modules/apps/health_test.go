@@ -161,7 +161,7 @@ http = "http://127.0.0.1:{port}/"
 		t.Fatalf("deploy settings %+v", app.Deploy)
 	}
 	start := func(dir string) map[string]any {
-		res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start",
+		res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.open",
 			Args:   sdk.MustJSON(contract.AppStart{ID: "site", New: true, Dir: dir, Env: map[string]string{"PORT": port}}),
 			Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 		if err != nil {

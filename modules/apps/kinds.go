@@ -25,7 +25,7 @@ func appKind() sdk.KindSpec {
 			{Title: "SURFACE", Path: "spec.surface"}, {Title: "FROM", Text: []string{"{spec.source} (hidden) if spec.hidden", "{spec.source}"}},
 			{Title: "PROBLEM", Path: "error"}},
 		Empty: "no apps",
-		Verbs: []sdk.VerbSpec{{Name: "start", Description: "Start the app", Action: contract.ActionAppStart, Arg: "id"}},
+		Verbs: []sdk.VerbSpec{{Name: "open", Description: "Open the app: start it, or bring it forward if it runs", Action: contract.ActionAppOpen, Arg: "id"}},
 	}
 }
 

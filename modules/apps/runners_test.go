@@ -41,7 +41,7 @@ command = ["chromium", "--incognito"]
 	r.next(t)
 	// The app runs (single, if_running focus): its action is still a new
 	// instance, with the action's command.
-	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"chrome","action":"incognito"}`),
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.open", Args: json.RawMessage(`{"id":"chrome","action":"incognito"}`),
 		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ command = ["chromium", "--incognito"]
 	if ev := r.next(t); !strings.Contains(string(ev.Data), `"action":"incognito"`) {
 		t.Fatalf("event %s", ev.Data)
 	}
-	_, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"chrome","action":"nope"}`),
+	_, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.open", Args: json.RawMessage(`{"id":"chrome","action":"nope"}`),
 		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 	if sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "it has: incognito") {
 		t.Fatalf("unknown action: %v", err)
@@ -280,7 +280,7 @@ command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture
 	r.m.loadFiles()
 	// Steam does not run: the action starts Steam itself (its own
 	// command), then hands Steam the request.
-	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.open", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
 		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 	if err != nil || !strings.Contains(string(res.Data), `"instance":"steam"`) {
 		t.Fatalf("start for an action: %s %v", res.Data, err)
@@ -296,7 +296,7 @@ command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture
 	if argv := <-ran; argv[len(argv)-1] != "steam://open/bigpicture" {
 		t.Fatalf("passed %q", argv)
 	}
-	res, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
+	res, err = r.e.Submit(context.Background(), sdk.Action{Type: "app.open", Args: json.RawMessage(`{"id":"steam","action":"bigpicture"}`),
 		Source: sdk.Source{Kind: sdk.SourceManual}}, admin)
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ runner = { type = "exec", command = ["api"] }
 env = { DB = "postgres://app:{secret:db-pass}@db/app", MODE = "prod" }
 `)
 	r.m.loadFiles()
-	if _, err := r.do(t, "app.start", "api"); sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "hostctl secret set db-pass") {
+	if _, err := r.do(t, "app.open", "api"); sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "hostctl secret set db-pass") {
 		t.Fatalf("missing secret: %v", err)
 	}
 	put := func(name, value string) error {
@@ -502,7 +502,7 @@ func TestReleaseArgsNeedDeployScope(t *testing.T) {
 	r := newRig(t, unitstest.NewFakeSystemd(), podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	appsOnly := core.Auth{Scopes: []string{contract.ScopeApps}}
 	start := func(args string, auth core.Auth) error {
-		_, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.start", Args: json.RawMessage(args),
+		_, err := r.e.Submit(context.Background(), sdk.Action{Type: "app.open", Args: json.RawMessage(args),
 			Source: sdk.Source{Kind: sdk.SourceManual}}, auth)
 		return err
 	}

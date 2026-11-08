@@ -42,12 +42,12 @@ var (
 
 func instanceActions() []sdk.ActionSpec {
 	return []sdk.ActionSpec{
-		{Type: contract.ActionAppStart, Description: "Start an app (if it already runs: focus, a new copy, or restart, per its settings)",
+		{Type: contract.ActionAppOpen, Description: "Open an app: start it, or, if it already runs, bring it forward, start a new copy or restart it, per its settings",
 			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: contract.ScopeApps,
 			ArgScopes: map[string]string{"front": contract.ScopeFront, "dir": contract.ScopeDeploy,
 				"env": contract.ScopeDeploy, "new": contract.ScopeDeploy, "image": contract.ScopeDeploy, "ports": contract.ScopeDeploy},
 			Timeout: sdk.Duration(5 * time.Minute), // pulling a container image can take a while
-			CLI: &sdk.CLI{Alias: []string{"start"}, Flags: map[string]sdk.Flag{"args": {Name: "arg"}},
+			CLI: &sdk.CLI{Alias: []string{"open", "start"}, Flags: map[string]sdk.Flag{"args": {Name: "arg"}},
 				Done: []string{"{instance} is already running if already_running", "started {instance} ({state})"}}},
 		{Type: contract.ActionInstanceStop, Description: "Stop a running instance",
 			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
@@ -158,7 +158,7 @@ func (m *Module) validateStop(a sdk.Action) error {
 	return nil
 }
 
-// startResult is the data of an app.start result.
+// startResult is the data of an app.open result.
 type startResult struct {
 	Instance       string `json:"instance"`
 	App            string `json:"app"`
@@ -199,7 +199,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 		if up {
 			continue
 		}
-		if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]any{"id": req})}); err != nil {
+		if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(map[string]any{"id": req})}); err != nil {
 			return sdk.Result{}, sdk.Errorf(sdk.CodeOf(err), "%s requires %s: %v", app.ID, req, err)
 		}
 	}
@@ -250,7 +250,7 @@ func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, err
 	return m.launch(ctx, a.ID, app, backend, args)
 }
 
-// launch starts a new instance of app: app.start's, and app.run's for a
+// launch starts a new instance of app: app.open's, and app.run's for a
 // command with no app file.
 func (m *Module) launch(ctx context.Context, actionID string, app *App, backend Backend, args contract.AppStart) (sdk.Result, error) {
 	m.mu.Lock()
@@ -370,7 +370,7 @@ func (m *Module) autostart(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]string{"id": id})}); err != nil {
+		if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(map[string]string{"id": id})}); err != nil {
 			m.log.Warn("autostart", "app", id, "err", err)
 		} else {
 			m.log.Info("started at hostd's start", "app", id)
@@ -483,7 +483,7 @@ func (m *Module) checkEarlyEnd(ctx context.Context, name string, b Backend) {
 // the action's request to it in the background: the program may take
 // minutes to be ready (Steam updates itself first).
 func (m *Module) startThenPass(ctx context.Context, p Passer, action *App, front bool) (sdk.Result, error) {
-	res, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(map[string]any{"id": action.ID, "front": front})})
+	res, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(map[string]any{"id": action.ID, "front": front})})
 	if err != nil {
 		return sdk.Result{}, err
 	}

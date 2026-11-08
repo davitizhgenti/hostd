@@ -104,7 +104,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Kinds: []sdk.KindSpec{appKind()},
 		Scopes: []sdk.ScopeSpec{
 			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
-			// Used by app.start and the display module's window.focus.
+			// Used by app.open and the display module's window.focus.
 			{Name: contract.ScopeFront, Description: "Bring an app to the front even while someone is using the screen"},
 			{Name: contract.ScopeDeploy, Description: "Start an app as a release of a service: its own directory and environment (deploys)"},
 			{Name: contract.ScopeRun, Description: "Run any command as the screen user, and add or remove app files (app.run, app.define)"},
@@ -114,7 +114,7 @@ func (m *Module) Manifest() sdk.Manifest {
 				Route: &sdk.Route{Method: "POST", Path: "/v1/catalog/rescan"}},
 			{Type: "app.check", Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
 				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
-		}, append(append(instanceActions(), runActions()...), secretActions()...)...),
+		}, append(append(append(instanceActions(), verbActions()...), runActions()...), secretActions()...)...),
 		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
 			{Type: EventFileRejected, Description: "An app file could not be used"},
@@ -279,9 +279,9 @@ func (m *Module) rebuild() {
 
 func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 	switch a.Type {
-	case contract.ActionAppStart:
+	case contract.ActionAppOpen:
 		return m.validateStart(a)
-	case contract.ActionInstanceStop, contract.ActionInstanceClosing:
+	case contract.ActionInstanceStop, contract.ActionInstanceClosing, contract.ActionInstanceSwitch, contract.ActionInstanceClose:
 		return m.validateStop(a)
 	}
 	return nil
@@ -289,10 +289,14 @@ func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	switch a.Type {
-	case contract.ActionAppStart:
+	case contract.ActionAppOpen:
 		return m.handleStart(ctx, a)
 	case contract.ActionInstanceStop:
 		return m.handleStop(ctx, a)
+	case contract.ActionInstanceSwitch:
+		return m.handleSwitch(ctx, a)
+	case contract.ActionInstanceClose:
+		return m.handleClose(ctx, a)
 	case contract.ActionInstanceClosing:
 		return m.handleClosing(a)
 	case "secret.set", "secret.remove":

@@ -65,7 +65,7 @@ type App struct {
 	// update), unless it already runs. Background apps only.
 	Autostart bool              `json:"autostart,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
-	// Args are what app.start may fill in: {name} in the command or URL,
+	// Args are what app.open may fill in: {name} in the command or URL,
 	// by name, with the kind of value each takes (ArgURL, ArgPath, ArgText).
 	Args   map[string]string `json:"args,omitempty"`
 	Health Health            `json:"health,omitzero"`
@@ -97,7 +97,7 @@ type Deploy struct {
 	Auth          string `json:"auth,omitempty" toml:"auth"`
 }
 
-// AppAction is an extra way to start an app: app.start with action=<id>
+// AppAction is an extra way to start an app: app.open with action=<id>
 // runs Command as a new instance.
 type AppAction struct {
 	ID      string   `json:"id" toml:"id"`
@@ -194,7 +194,7 @@ type Instance struct {
 	// Fullscreen is the app's window preference, for the display module.
 	Fullscreen bool `json:"fullscreen"`
 	// Front: the start asked to be shown even while someone is using the
-	// screen (app.start front=true).
+	// screen (app.open front=true).
 	Front bool `json:"front,omitempty"`
 	// Action is the app action it was started with ("" for the app itself).
 	Action string `json:"action,omitempty"`

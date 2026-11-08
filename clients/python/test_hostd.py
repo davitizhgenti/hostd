@@ -34,7 +34,7 @@ class FakeAPI(BaseHTTPRequestHandler):
         FakeAPI.sent.append(("POST", self.path, body, self.headers.get("Authorization")))
         if body["type"] == "app.run" and body["args"]["command"][0] == "forbidden":
             return self.answer(403, {"error": {"code": "forbidden", "message": "the token lacks scope run"}})
-        if body["type"] in ("app.run", "app.start"):
+        if body["type"] in ("app.run", "app.open"):
             data = {"instance": "run-tests", "state": "running"}
             return self.answer(200, {"action": "act_1", "status": "applied", "data": data})
         self.answer(200, {"action": "act_2", "status": "applied", "data": {}})
@@ -89,7 +89,7 @@ class ClientTest(unittest.TestCase):
 
     def test_start_with_arguments(self):
         self.assertEqual(self.core.start("show", file="/home/screen/plot.png"), "run-tests")
-        want = {"type": "app.start", "args": {"id": "show", "args": {"file": "/home/screen/plot.png"}}}
+        want = {"type": "app.open", "args": {"id": "show", "args": {"file": "/home/screen/plot.png"}}}
         self.assertEqual(FakeAPI.sent[0][2], want)
 
     def test_refusals_raise(self):
@@ -109,6 +109,20 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(FakeAPI.sent[1][:2], ("PUT", "/v1/rules/night?check=1"))
         self.core.undefine("show")
         self.assertEqual(FakeAPI.sent[2][:2], ("DELETE", "/v1/apps/show"))
+
+    def test_the_instance_verbs(self):
+        self.assertEqual(self.core.open("show"), "run-tests")
+        self.assertEqual(self.core.start("show"), "run-tests")  # the old word
+        self.core.switch("show", front=True)
+        self.core.close("show#2")
+        self.core.stop("show#2")
+        self.assertEqual([s[2] for s in FakeAPI.sent], [
+            {"type": "app.open", "args": {"id": "show"}},
+            {"type": "app.open", "args": {"id": "show"}},
+            {"type": "instance.switch", "args": {"id": "show", "front": True}},
+            {"type": "instance.close", "args": {"id": "show#2"}},
+            {"type": "instance.stop", "args": {"id": "show#2"}},
+        ])
 
     def test_apps_are_the_specs_of_the_resources(self):
         # What the list holds that is not usable (a rejected file) is left out.

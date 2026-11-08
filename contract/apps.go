@@ -20,12 +20,18 @@ const (
 	// written over the API (app.define), which can name any command.
 	ScopeRun = "run"
 
-	ActionAppStart     = "app.start"     // args: AppStart
+	ActionAppOpen      = "app.open"      // args: AppStart
 	ActionInstanceStop = "instance.stop" // args: {"id": instance}
+	// ActionInstanceSwitch brings an instance's window to the front;
+	// ActionInstanceClose closes it (stopping it if it stays open). Args:
+	// {"id": instance} (switch also {"front": bool}).
+	ActionInstanceSwitch = "instance.switch"
+	ActionInstanceClose  = "instance.close"
 
 	// The display module's window actions, which apps sends so a started
 	// app comes to the front.
 	ActionWindowFocus = "window.focus" // args: {"instance": id, "front": bool}
+	ActionWindowClose = "window.close" // args: {"instance": id}
 	// ActionInstanceClosing tells the apps module that an instance was
 	// asked to close (its windows), so its end counts as a normal exit
 	// whatever its exit status. Args: {"id": instance}.
@@ -40,7 +46,7 @@ const (
 	ReadInstances = "instances" // running instances: []Instance
 )
 
-// AppStart is the arguments of app.start.
+// AppStart is the arguments of app.open.
 type AppStart struct {
 	ID     string `json:"id"`
 	Front  bool   `json:"front,omitempty"`

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/davitizhgenti/hostd/internal/system"
+	"github.com/davitizhgenti/hostd/modules/apps"
 	"github.com/davitizhgenti/hostd/modules/audio"
 	"github.com/davitizhgenti/hostd/modules/display"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -31,7 +32,7 @@ func newFakeHostd(t *testing.T) *fakeHostd {
 	t.Helper()
 	f := &fakeHostd{answers: map[string]string{}, versions: []string{`{"version":"v1","arch":"amd64"}`}}
 	mux := http.NewServeMux()
-	manifests, _ := json.Marshal([]sdk.Manifest{system.New(system.Options{}).Manifest(), audio.New(audio.Options{}).Manifest(), display.New(display.Options{}).Manifest()})
+	manifests, _ := json.Marshal([]sdk.Manifest{system.New(system.Options{}).Manifest(), audio.New(audio.Options{}).Manifest(), display.New(display.Options{}).Manifest(), apps.New(apps.Options{}).Manifest()})
 	mux.HandleFunc("GET /v1/manifests", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(manifests) })
 	mux.HandleFunc("POST /v1/actions", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
@@ -152,17 +153,44 @@ func TestVolumeAndMute(t *testing.T) {
 	}
 }
 
-func TestFocus(t *testing.T) {
+func TestSwitch(t *testing.T) {
 	f := newFakeHostd(t)
-	if out, _, code := hostctl(t, "focus", "firefox", "--front"); code != 0 || out != "focused firefox\n" {
-		t.Fatalf("focus: %d %q", code, out)
+	f.answers["instance.switch"] = `{"status":"applied","data":{"instance":"firefox","front":true}}`
+	for _, word := range []string{"switch", "focus"} { // one verb, two names
+		if out, _, code := hostctl(t, word, "firefox", "--front"); code != 0 || out != "switched to firefox\n" {
+			t.Fatalf("%s: %d %q", word, code, out)
+		}
+		if typ, args := f.last(t); typ != "instance.switch" || args != `{"front":true,"id":"firefox"}` {
+			t.Fatalf("sent %s %s", typ, args)
+		}
 	}
-	if typ, args := f.last(t); typ != "window.focus" || args != `{"front":true,"instance":"firefox"}` {
-		t.Fatalf("sent %s %s", typ, args)
-	}
-	f.answers["window.focus"] = `{"status":"skipped","reason":"in_use"}`
-	if out, _, _ := hostctl(t, "focus", "firefox"); !strings.Contains(out, "someone is using the screen") {
+	f.answers["instance.switch"] = `{"status":"skipped","reason":"in_use"}`
+	if out, _, _ := hostctl(t, "switch", "firefox"); !strings.Contains(out, "someone is using the screen") {
 		t.Fatalf("in use: %q", out)
+	}
+}
+
+func TestOpenCloseStop(t *testing.T) {
+	f := newFakeHostd(t)
+	for _, c := range []struct {
+		args      []string
+		typ, want string
+	}{
+		{[]string{"open", "jellyfin"}, "app.open", `{"id":"jellyfin"}`},
+		{[]string{"start", "jellyfin"}, "app.open", `{"id":"jellyfin"}`}, // the old word
+		{[]string{"close", "firefox#2"}, "instance.close", `{"id":"firefox#2"}`},
+		{[]string{"stop", "firefox#2"}, "instance.stop", `{"id":"firefox#2"}`},
+	} {
+		if _, errs, code := hostctl(t, c.args...); code != 0 {
+			t.Fatalf("%v: exit %d %s", c.args, code, errs)
+		}
+		if typ, args := f.last(t); typ != c.typ || args != c.want {
+			t.Errorf("%v sent %s %s, want %s %s", c.args, typ, args, c.typ, c.want)
+		}
+	}
+	f.answers["instance.close"] = `{"status":"applied","data":{"instance":"firefox","stopped":true}}`
+	if out, _, _ := hostctl(t, "close", "firefox"); out != "stopped firefox (it did not close)\n" {
+		t.Errorf("close that had to stop: %q", out)
 	}
 }
 

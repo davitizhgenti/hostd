@@ -43,7 +43,7 @@ The core's whole job: load modules, check and route each action to the module th
 
 | Module | Owns | Namespaces | Example actions |
 | --- | --- | --- | --- |
-| `apps` | App catalog and running instances, window or background | `app.*`, `instance.*` | `app.start`, `instance.stop` |
+| `apps` | App catalog and running instances, window or background | `app.*`, `instance.*` | `app.open`, `instance.stop` |
 | `display` | Outputs, windows, focus, presence | `display.*`, `window.*` | `window.focus`, `display.power` |
 | `audio` | Sinks, per-app streams, media players | `audio.*`, `media.*` | `audio.volume.set`, `media.pause` |
 | `deploy` | git repos and releases of background apps | `deploy.*` | `deploy.run`, `deploy.rollback` |
@@ -98,7 +98,7 @@ type Core interface {
 3. A module declares what it `requires` (`deploy` requires `apps`); the core starts modules in dependency order and refuses a missing dependency at startup.
 4. Extension points inside a module follow the same pattern: the `apps` module accepts runners and catalog sources, `display` and `audio` accept backends, each as a Go interface for built-ins or the socket contract for external ones.
 
-**Conditional scopes.** An action names the scope it needs, plus `arg_scopes` for scopes needed only when a boolean argument is true: `app.start` declares `{"front": "display.front"}`.
+**Conditional scopes.** An action names the scope it needs, plus `arg_scopes` for scopes needed only when a boolean argument is true: `app.open` declares `{"front": "display.front"}`.
 
 **Resource keys** for each action are declared in the manifest as templates over its arguments (`"instance:{id}"`, `"audio.stream:{instance}"`), so built-in and external modules declare them the same way. `Validate` exists so the core can refuse a stale target with a uniform error code before `Handle` runs, and so the audit trail can tell a refused action from a failed one.
 
@@ -112,7 +112,7 @@ modules = ["apps", "display", "audio", "deploy", "automation"]
 exec = "/opt/hostd-lights/run.py"
 ```
 
-From a manifest the core generates everything else: API routes, CLI commands (`hostctl <module> <action>`), token scopes and OpenAPI entries. The core itself defines only the `read` and `admin` scopes; every other scope is declared by a module's manifest, and each action names the scope it needs (`app.start` needs `apps`, plus `display.front` to force a window to the front). A new module needs no change to the core, the API or the CLI.
+From a manifest the core generates everything else: API routes, CLI commands (`hostctl <module> <action>`), token scopes and OpenAPI entries. The core itself defines only the `read` and `admin` scopes; every other scope is declared by a module's manifest, and each action names the scope it needs (`app.open` needs `apps`, plus `display.front` to force a window to the front). A new module needs no change to the core, the API or the CLI.
 
 ## Module: apps
 
@@ -128,7 +128,7 @@ The app catalog is built automatically from what is installed, then merged with 
 
 **IDs.** Each app gets a stable, readable ID: the desktop file name (`firefox`) or the Flatpak ID's last part (`retroarch`). Files can set an alias (`id = "dota2"`).
 
-**App actions.** An app can have extra ways to start it, such as a private browser window. They come from the desktop entry's `[Desktop Action]` groups, so most browsers and editors bring their own. App files add or replace them with `[[actions]]` (`id`, `name`, `command`). `app.start` with `action = "<id>"` runs one as a new instance, recorded in the instance (`action`). The menu shows them in a small box at the entry: right click, the Menu key, or the controller's X button. The box also has focus and close for a running app, and start for one that is not running.
+**App actions.** An app can have extra ways to start it, such as a private browser window. They come from the desktop entry's `[Desktop Action]` groups, so most browsers and editors bring their own. App files add or replace them with `[[actions]]` (`id`, `name`, `command`). `app.open` with `action = "<id>"` runs one as a new instance, recorded in the instance (`action`). The menu shows them in a small box at the entry: right click, the Menu key, or the controller's X button. The box also has focus and close for a running app, and start for one that is not running.
 
 **No app is built in.** Steam, a browser or an emulator is an app like any other; hostd has no code for any one of them. Launchers fit through two generic features: **handoff** (`runner.handoff = "KEY=value"`) for commands that hand the app to another program and exit, so the instance runs while processes with that variable exist; and **match rules** for windows that are not in the instance's unit. Flatpak moves each app into a scope of its own, so a single-instance Flatpak app hands off by default to `FLATPAK_ID=<id>`, which every process in its sandbox has. When several instances' rules match a window, the one matching most rules wins (a Steam game's window has Steam's `FLATPAK_ID` too). An action of a handoff app that already runs (Steam's Big Picture) is passed to the running program rather than becoming an instance of its own. An app with no window of its own can name the app whose window shows it (`[window] shown_by`, a game drawn inside Steam's gamescope session): focusing it brings that window, starting it in front brings that window forward, and closing it stops only it. An app can be listed under another one (`under = "steam"`, a Steam game under Steam): menus show it in that app's actions box, not on its own, and find it when filtering by name. An action of a handoff app that is not running starts the app first, then passes the request; an app file can drop the desktop entry's actions (`replace_actions = true`). The Steam add-on runs Steam's Big Picture as an ordinary fullscreen app (an earlier version ran it in gamescope; Steam's interface then ignored the keyboard and mouse, and the session needed a watchdog). Discovering a game library (Steam's, say) can be an optional external module.
 
@@ -397,7 +397,7 @@ Every action locks one or more resource keys, declared in the module's manifest 
 
 Actions on the same key run strictly in arrival order; actions on different keys run in parallel. An action needing several keys takes them in sorted order, which rules out deadlocks. Each sender receives its own result, and the events show the final state, so a sender whose change was later replaced can see it.
 
-**Child actions reuse their parent's keys.** A module keeps its keys while its `Handle` runs, and it may call `core.Do` from there. Without a rule for this, a child needing a key its parent holds would wait for the parent forever. Example: `app.start firefox` with `if_running = "restart"` holds `instance:firefox` and sends `instance.stop firefox`, which needs the same key. So a child action (one with `parent` set) does not queue for keys already held by its parent chain; it queues only for the keys it adds. This applies only along `parent`, never along `cause`: actions sent in reaction to an event run on their own and queue normally.
+**Child actions reuse their parent's keys.** A module keeps its keys while its `Handle` runs, and it may call `core.Do` from there. Without a rule for this, a child needing a key its parent holds would wait for the parent forever. Example: `app.open firefox` with `if_running = "restart"` holds `instance:firefox` and sends `instance.stop firefox`, which needs the same key. So a child action (one with `parent` set) does not queue for keys already held by its parent chain; it queues only for the keys it adds. This applies only along `parent`, never along `cause`: actions sent in reaction to an event run on their own and queue normally.
 
 #### 2. Sources disagree: priority with a hold window
 
@@ -418,7 +418,7 @@ After the window expires, any source can change the resource again. A human ther
 
 #### 3. Screen in use: focus protection
 
-Presence means keyboard, mouse or controller input within the last 5 minutes. While someone is present, any non-`local` action that would change focus (`app.start`, `window.focus`) runs with `front = false`: the app starts on a background workspace and the screen shows a short notice. Forcing it to the front requires `front = true` and the `display.front` scope. When nobody is present, remote launches come to the front as usual. Details are in the display module section.
+Presence means keyboard, mouse or controller input within the last 5 minutes. While someone is present, any non-`local` action that would change focus (`app.open`, `window.focus`) runs with `front = false`: the app starts on a background workspace and the screen shows a short notice. Forcing it to the front requires `front = true` and the `display.front` scope. When nobody is present, remote launches come to the front as usual. Details are in the display module section.
 
 #### 4. Stale state: validate at execution, versions, clear errors
 
@@ -546,7 +546,7 @@ One HTTP API (`/v1`) with JSON bodies, plus a WebSocket for events. Reads are pl
 | --- | --- | --- |
 | `GET /v1/apps` · `GET /v1/apps/{id}` | Catalog | `read` |
 | `POST /v1/apps/rescan` | Re-run discovery | `apps` |
-| `POST /v1/apps/{id}/start` | `app.start` (`front`, `args`, `fullscreen`) | `apps` |
+| `POST /v1/apps/{id}/start` | `app.open` (`front`, `args`, `fullscreen`) | `apps` |
 | `GET /v1/instances` | Everything running, window and background | `read` |
 | `POST /v1/instances/{id}/stop` | `instance.stop` | `apps` |
 | `GET /v1/windows` | All windows, including unowned | `read` |

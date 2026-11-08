@@ -179,18 +179,35 @@ class Hostd:
         return Finished(instance=instance, exit_code=info.get("exit_code") or 0, state=info.get("state", ""),
                         lines=logs.get("lines", []), error=info.get("error", ""))
 
-    def start(self, app, front=False, **args):
-        """Start an app (scope apps); keyword arguments fill in its args
-        (an app file's args = { file = "path" }). Returns the instance's ID."""
+    def open(self, app, front=False, **args):
+        """Open an app (scope apps): start it, or bring it forward if it runs;
+        keyword arguments fill in its args (an app file's args = { file = "path" }).
+        Returns the instance's ID."""
         body = {"id": app}
         if front:
             body["front"] = True
         if args:
             body["args"] = args
-        return self.action("app.start", **body)["instance"]
+        return self.action("app.open", **body)["instance"]
+
+    start = open  # the word before 0.2
+
+    def switch(self, instance, front=False):
+        """Bring an instance's window to the front (scope apps). Returns the
+        answer's data: with someone at the screen and front=False, "reason" is
+        "in_use" and nothing changed."""
+        args = {"id": instance}
+        if front:
+            args["front"] = True
+        return self.action("instance.switch", **args)
+
+    def close(self, instance):
+        """Close an instance as its window's close button would; it is stopped
+        if it stays open (scope apps). Returns the answer's data."""
+        return self.action("instance.close", id=instance)
 
     def stop(self, instance):
-        """Stop an instance (scope apps)."""
+        """End an instance now (scope apps)."""
         self.action("instance.stop", id=instance)
 
     def define(self, app, toml):

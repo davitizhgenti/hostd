@@ -251,7 +251,7 @@ func TestStartWithArguments(t *testing.T) {
 	}
 	apps := core.Auth{Name: "phone", Scopes: []string{contract.ScopeApps}} // checked values: no run scope needed
 	start := func(args map[string]string) (map[string]any, error) {
-		return r.submit(contract.ActionAppStart, map[string]any{"id": "show", "args": args}, apps)
+		return r.submit(contract.ActionAppOpen, map[string]any{"id": "show", "args": args}, apps)
 	}
 	if _, err := start(map[string]string{"file": "/home/screen/plot.png"}); err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestStartWithArguments(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := r.submit(contract.ActionAppStart, map[string]any{"id": "term", "args": map[string]string{"x": "1"}}, apps); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+	if _, err := r.submit(contract.ActionAppOpen, map[string]any{"id": "term", "args": map[string]string{"x": "1"}}, apps); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
 		t.Errorf("an app without arguments: %v", err)
 	}
 }

@@ -352,7 +352,7 @@ func (m *Module) launch(ctx context.Context, s service, r Release) (instance str
 		start.Dir, start.Image = "", r.Image
 		start.Ports = []string{fmt.Sprintf("127.0.0.1:%d:%d", port, s.Deploy.ContainerPort)}
 	}
-	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppStart, Args: sdk.MustJSON(start)})
+	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(start)})
 	if err != nil {
 		return "", 0, fmt.Errorf("starting the release: %w", err)
 	}

@@ -680,9 +680,9 @@
         "x-hostd-scope": "read"
       }
     },
-    "/v1/apps/{name}/start": {
+    "/v1/apps/{name}/open": {
       "post": {
-        "operationId": "app.start",
+        "operationId": "app.open",
         "parameters": [
           {
             "in": "path",
@@ -734,11 +734,11 @@
             "bearer": []
           }
         ],
-        "summary": "Start the app",
+        "summary": "Open the app: start it, or bring it forward if it runs",
         "tags": [
           "apps"
         ],
-        "x-hostd-action": "app.start"
+        "x-hostd-action": "app.open"
       }
     },
     "/v1/audio": {
@@ -2659,6 +2659,79 @@
         "x-hostd-scope": "read"
       }
     },
+    "/v1/instances/{id}/close": {
+      "post": {
+        "description": "Close an instance as its window's close button would; stop it if it stays open",
+        "operationId": "instance.close",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Close an instance as its window's close button would; stop it if it stays open",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "instance.close",
+        "x-hostd-scope": "apps"
+      }
+    },
     "/v1/instances/{id}/logs": {
       "get": {
         "operationId": "apps.logs",
@@ -2779,6 +2852,99 @@
           "apps"
         ],
         "x-hostd-action": "instance.stop",
+        "x-hostd-scope": "apps"
+      }
+    },
+    "/v1/instances/{id}/switch": {
+      "post": {
+        "description": "Bring an instance's window to the front",
+        "operationId": "instance.switch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "front": {
+                    "description": "switch even while someone is using the screen (needs scope display.front)",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bring an instance's window to the front",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "instance.switch",
+        "x-hostd-arg-scopes": {
+          "front": "display.front"
+        },
         "x-hostd-scope": "apps"
       }
     },

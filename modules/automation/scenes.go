@@ -246,7 +246,7 @@ func (m *Module) apply(ctx context.Context, s Scene) Applied {
 				if len(cur.live(app)) > 0 {
 					continue
 				}
-				run("start", contract.ActionAppStart, map[string]string{"id": app})
+				run("start", contract.ActionAppOpen, map[string]string{"id": app})
 			}
 		}
 	}
@@ -255,7 +255,7 @@ func (m *Module) apply(ctx context.Context, s Scene) Applied {
 		if err := m.read(ctx, "display", "display", &cur.display); err != nil {
 			failed("focus", err)
 		} else if focused := cur.display.Focused; appOf(focused) != a.Focus {
-			// An app started just now is not in the list: app.start
+			// An app started just now is not in the list: app.open
 			// brings it to the front (unless someone uses the screen).
 			if live := cur.live(a.Focus); len(live) > 0 {
 				run("focus", "window.focus", map[string]string{"instance": live[0]})

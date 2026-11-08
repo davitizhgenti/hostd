@@ -3,7 +3,7 @@
 
 hostd runs it as the hidden app "hostd-menu" and brings it forward with
 the display.menu action (Super, holding a controller's Guide button). Choosing an
-entry sends window.focus or app.start with the "local" token, so it counts
+entry sends window.focus or app.open with the "local" token, so it counts
 as someone at the screen. An entry's actions (right click, the Menu key,
 controller X) open in a small box at the entry.
 
@@ -396,7 +396,7 @@ class Menu(Gtk.ApplicationWindow):
         for inst in running:
             self._row(self.list, [("*", "mark", False), (inst.get("name") or inst["id"], "name", False),
                                   (inst["id"], "id", True), (inst.get("action") or inst.get("state", ""), "meta", False)],
-                      ("POST", f"/v1/windows/{inst['id']}/focus", None), instance=inst["id"], app=inst.get("app"))
+                      ("POST", f"/v1/instances/{inst['id']}/switch", None), instance=inst["id"], app=inst.get("app"))
         self._row(self.list, [("apps", "id", True)], header=True)
         for app in listed:
             n, k = len(app.get("actions") or []), len(self.children.get(app["id"], []))
@@ -404,12 +404,12 @@ class Menu(Gtk.ApplicationWindow):
             more += [f"{k} app{'s' if k > 1 else ''}"] if k else []
             self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
                                   (app["id"], "id", True), ("  ".join(more), "meta", False)],
-                      ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"])
+                      ("POST", f"/v1/apps/{app['id']}/open", None), app=app["id"])
         for app in nested:
             parent = self.apps.get(app["under"], {}).get("name") or app["under"]
             self._row(self.list, [(" ", "mark", False), (app.get("name") or app["id"], "name", False),
                                   (app["id"], "id", True), (parent, "meta", False)],
-                      ("POST", f"/v1/apps/{app['id']}/start", None), app=app["id"], under=True)
+                      ("POST", f"/v1/apps/{app['id']}/open", None), app=app["id"], under=True)
         self.count.set_text(f"{len(running)} running  {len(listed)} apps")
         self.entry.set_text(text)
         self.filter_changed()
@@ -433,16 +433,16 @@ class Menu(Gtk.ApplicationWindow):
         if row.instance:
             self._row(self.actions, [(" ", "mark", False), ("focus", "name", True)], row.action)
             self._row(self.actions, [(" ", "mark", False), ("close", "name", True)],
-                      ("POST", f"/v1/windows/{row.instance}/close", None))
+                      ("POST", f"/v1/instances/{row.instance}/close", None))
         else:
             self._row(self.actions, [(" ", "mark", False), ("start", "name", True)], row.action)
         for act in app.get("actions") or []:
             self._row(self.actions, [("+", "mark", False), (act["name"], "name", True), (act["id"], "id", False)],
-                      ("POST", f"/v1/apps/{app['id']}/start", {"action": act["id"]}))
+                      ("POST", f"/v1/apps/{app['id']}/open", {"action": act["id"]}))
         for child in self.children.get(app.get("id"), []):
             self._row(self.actions, [(">", "mark", False), (child.get("name") or child["id"], "name", True),
                                      (child["id"], "id", False)],
-                      ("POST", f"/v1/apps/{child['id']}/start", None), app=child["id"])
+                      ("POST", f"/v1/apps/{child['id']}/open", None), app=child["id"])
         # No focus inside the box: its keys are the window's (on_key), so
         # nothing else moves the selection or runs an entry too.
         entry = self.actions.get_first_child()
@@ -586,7 +586,7 @@ class Menu(Gtk.ApplicationWindow):
         """Closes a running app (its row's instance), then lists again."""
         if row is None or row.instance is None:
             return
-        if self.call("POST", f"/v1/windows/{row.instance}/close") is not None:
+        if self.call("POST", f"/v1/instances/{row.instance}/close") is not None:
             self.refresh()
 
     def on_key(self, _ctl, keyval, _code, state):
