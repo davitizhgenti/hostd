@@ -409,15 +409,19 @@ func TestInstallMigratesTheConfig(t *testing.T) {
 		t.Errorf("the migration is not reported:\n%s", out.String())
 	}
 
+	// A migration that fails is a warning: hostd then refuses to start, and
+	// the update's rollback deals with it as with any build that does not start.
 	bad := newFakeMachine(t)
 	bad.migrateFails = true
+	out.Reset()
 	s = &Setup{Root: bad.root, Run: bad, Out: NewOutput(&out, true), Chown: func(string, string) error { return nil }}
-	err := s.Install(context.Background(), o)
-	s.Out.Close()
-	if err == nil || !strings.Contains(err.Error(), "could not move the config") || !strings.Contains(err.Error(), "a rule has no name") {
-		t.Fatalf("a failed migration: %v", err)
+	if err := s.Install(context.Background(), o); err != nil {
+		t.Fatalf("a failed migration should not stop the installer: %v", err)
 	}
-	if bad.restarts != 0 {
-		t.Error("hostd was restarted after a failed migration")
+	s.Out.Close()
+	for _, want := range []string{"warning: config: hostd: rules.toml: a rule has no name", "could not move the config to the new layout"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
 	}
 }

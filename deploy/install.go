@@ -661,15 +661,21 @@ func (in *installer) installHostd(ctx context.Context) error {
 	}
 
 	// The new hostd refuses an older config layout; move it before any
-	// restart. It changes nothing when there is nothing to move.
-	if out, err := in.asScreen(ctx, filepath.Join(in.work, "hostd"), "-migrate"); err != nil {
-		return fmt.Errorf("could not move the config to the new layout (hostd would not start): %s", strings.TrimSpace(string(out)))
-	} else {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line = strings.TrimSpace(line); line != "" && line != "nothing to migrate" {
+	// restart. It changes nothing when there is nothing to move. If it
+	// cannot, hostd will not start and the update is rolled back, as for any
+	// build that does not start; the warning says why.
+	mout, merr := in.asScreen(ctx, filepath.Join(in.work, "hostd"), "-migrate")
+	for _, line := range strings.Split(strings.TrimSpace(string(mout)), "\n") {
+		if line = strings.TrimSpace(line); line != "" && line != "nothing to migrate" {
+			if merr != nil {
+				in.Out.Warn("warning: config: %s", line)
+			} else {
 				in.Out.Changed("config: %s", line)
 			}
 		}
+	}
+	if merr != nil {
+		in.Out.Warn("warning: could not move the config to the new layout; hostd may not start")
 	}
 
 	if ch, err := in.installFile(file("rollback.sh"), lib+"/rollback.sh", 0o755, in.user.name); err != nil {
