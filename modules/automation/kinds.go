@@ -23,6 +23,11 @@ func kinds() []sdk.KindSpec {
 				{Title: "SETS", Path: "status.data.sets", Format: "list"}, {Title: "PROBLEM", Path: "error"}},
 			Empty: "no scenes",
 			Verbs: []sdk.VerbSpec{{Name: "apply", Description: "Reach the scene", Action: "scene.apply", Arg: "id"}}},
+		{Kind: "script", Plural: "scripts", Description: "A program a rule runs, with a token of its own for the scopes it names",
+			Columns: []sdk.Column{{Title: "SCRIPT", Path: "name"}, {Title: "COMMAND", Path: "spec.command", Format: "list"},
+				{Title: "SCOPES", Path: "spec.scopes", Format: "list"}, {Title: "TIMEOUT", Path: "spec.timeout"}, {Title: "PROBLEM", Path: "error"}},
+			Empty: "no scripts",
+			Verbs: []sdk.VerbSpec{{Name: "run", Description: "Run the script now", Action: "script.run"}}},
 		{Kind: "rule", Plural: "rules", Description: "When something happens, do something",
 			Columns: []sdk.Column{{Title: "RULE", Path: "name"}, {Title: "ON", Path: "spec.on"},
 				{Title: "DO", Text: []string{"script {spec.do.script} if spec.do.script", "action {spec.do.action} if spec.do.action", "scene {spec.do.scene} if spec.do.scene", "-"}},
@@ -91,6 +96,8 @@ func parseResource(r sdk.Resource) (any, error) {
 		return ParseScene(r.Name+".toml", r.Raw)
 	case "rule":
 		return ParseRule(r.Name, r.Raw)
+	case "script":
+		return ParseScript(r.Raw)
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "automation has no kind %q", r.Kind)
 }
@@ -109,6 +116,11 @@ func (m *Module) Apply(_ context.Context, r sdk.Resource) (sdk.ResourceStatus, e
 		m.scenes[v.ID] = v
 		m.mu.Unlock()
 		return sdk.ResourceStatus{Conditions: []sdk.Condition{ready}, Data: sdk.MustJSON(map[string]any{"sets": v.sets()})}, nil
+	case scriptSpec:
+		m.mu.Lock()
+		m.scripts[r.Name] = v
+		m.mu.Unlock()
+		return sdk.ResourceStatus{Conditions: []sdk.Condition{ready}}, nil
 	case Rule:
 		m.mu.Lock()
 		replaced := false
@@ -147,6 +159,8 @@ func (m *Module) Delete(_ context.Context, kind, name string) error {
 	switch kind {
 	case "scene":
 		delete(m.scenes, name)
+	case "script":
+		delete(m.scripts, name)
 	case "rule":
 		for i := range m.rules {
 			if m.rules[i].Name == name {

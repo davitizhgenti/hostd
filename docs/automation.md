@@ -85,22 +85,27 @@ A rule does one of three things: applies a `scene`, runs a `script`, or sends on
 
 ## Scripts
 
-A script is any executable in `~/.config/hostd/scripts/`. It declares the scopes it needs in a comment near the top, or in `<script>.toml` beside it:
+A script is a file in `~/.config/hostd/scripts/` that says what to run and which scopes it needs. Its name is the file's (`scripts/evening.toml` is the script `evening`, which a rule names in `do = { script = "evening" }`). It is either a command, started in the scripts folder, or shell commands written in place:
 
-```sh
-#!/bin/sh
-# hostd-scopes: audio display
-hostctl audio volume set 40
-hostctl start jellyfin-tv
+```toml
+# scripts/evening.toml
+command = ["python3", "evening.py"]   # or ["./evening.sh"]; a file beside this one
+scopes  = ["audio", "display"]
+timeout = "2m"                        # default 60s
 ```
 
 ```toml
-# evening.sh.toml (instead of the comment)
-scopes  = ["audio", "display"]
-timeout = "2m"                     # default 60s
+# scripts/quiet.toml
+run    = """
+hostctl audio volume set 40
+hostctl start jellyfin-tv
+"""
+scopes = ["audio", "apps"]
 ```
 
-Each run gets a token of its own, with only those scopes; `admin` is never allowed. The token expires when the run ends. The run has these environment variables:
+`command` and `run` are two ways to say the same thing: give one. `run` is a shell script (`sh`). `hostctl scripts` lists them, and `hostctl script run <name>` runs one now, as a rule would, with an empty event, which is how to try one.
+
+Each run gets a token of its own, with only those scopes; `admin` is never allowed (the file is refused). The token expires when the run ends. The run has these environment variables:
 
 | Variable | Value |
 | --- | --- |

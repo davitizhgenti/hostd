@@ -48,10 +48,11 @@ A resource's status says whether it is in use, in the form Kubernetes uses: a li
 | --- | --- | --- | --- |
 | `scene` | `scenes/` | automation | [A state to reach](automation.md#scenes) |
 | `rule` | `rules/` | automation | [When something happens, do something](automation.md#rules) |
+| `script` | `scripts/` | automation | [A program a rule runs](automation.md#scripts) |
 | `preset` | `presets/` | demo (with `-demo`) | A saved lamp setting, the example of a kind |
 
-Modules add kinds ([writing a module](modules.md)); apps, scripts and external modules follow in later versions.
+Modules add kinds ([writing a module](modules.md)); apps and external modules follow in later versions.
 
 ## Moving from before 0.2
 
-Until 0.2 all rules were in one file, `rules.toml`. hostd now refuses to start with that file, and says to run `hostd -migrate`: it writes one file per rule in `rules/` (the file name is the rule's name made into a file name, `gaming audio` becoming `gaming-audio`) and keeps the old file in `~/.config/hostd/.pre-0.2/`. Running it again changes nothing. `sudo hostd-setup update` runs it for you before it restarts hostd.
+Until 0.2 all rules were in one file, `rules.toml`, and a script was just an executable with a comment. hostd now refuses to start on those, and says to run `hostd -migrate`. It writes one file per rule in `rules/` (the file name is the rule's name made into a file name, `gaming audio` becoming `gaming-audio`), and a script file for every executable in `scripts/` (`evening.sh` gets `evening.sh.toml` with `command = ["./evening.sh"]` and the scopes from its comment or its old sidecar, so rules that name it keep working). The old files are kept in `~/.config/hostd/.pre-0.2/`. Running it again changes nothing. `sudo hostd-setup update` runs it for you before it restarts hostd.

@@ -46,6 +46,23 @@ stdout '^later '
 exec hostctl delete rule later
 ! exec hostctl get rules later
 stderr 'no rule "later"'
+# Scripts: a file says what to run; it runs now, with a token of its own.
+exec hostctl apply -f hello.toml --kind script
+exec hostctl scripts
+stdout '^hello +- +audio +- +-$'
+exec hostctl script run hello
+stdout 'ran: exit 0'
+! exec hostctl script run nothing
+stderr 'no script "nothing"'
+! exec hostctl apply -f admin.toml --kind script --name boss
+stdout 'cannot have scope admin'
+
+-- hello.toml --
+run    = "echo hi"
+scopes = ["audio"]
+-- admin.toml --
+command = ["true"]
+scopes  = ["admin"]
 -- quiet.toml --
 name = "Quiet"
 [apps]

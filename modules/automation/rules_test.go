@@ -286,33 +286,58 @@ func TestRuleScript(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("evening.sh", "#!/bin/sh\n# hostd-scopes: audio display\necho \"$HOSTD_URL $HOSTD_TOKEN $HOSTD_RULE\" > "+out+"\necho \"$HOSTD_EVENT\" >> "+out+"\n")
+	script := func(name, spec string) error {
+		_, err := r.m.Apply(context.Background(), sdk.Resource{Kind: "script", Name: name, Raw: []byte(spec)})
+		return err
+	}
+	write("evening.sh", "#!/bin/sh\necho \"$HOSTD_URL $HOSTD_TOKEN $HOSTD_RULE\" > "+out+"\necho \"$HOSTD_EVENT\" >> "+out+"\n")
 	write("slow.sh", "#!/bin/sh\nsleep 30 &\necho $! > "+out+".child\nsleep 30\n")
-	_ = os.WriteFile(filepath.Join(scripts, "slow.sh.toml"), []byte("scopes = [\"audio\"]\ntimeout = \"300ms\"\n"), 0o644)
-	write("boss.sh", "#!/bin/sh\n# hostd-scopes: admin\n")
 	write("fails.sh", "#!/bin/sh\necho oh no\nexit 3\n")
+	for name, spec := range map[string]string{
+		"evening": "command = [\"./evening.sh\"]\nscopes = [\"audio\", \"display\"]\n",
+		"slow":    "command = [\"./slow.sh\"]\nscopes = [\"audio\"]\ntimeout = \"300ms\"\n",
+		"fails":   "command = [\"./fails.sh\"]\n",
+		"inline":  "run = \"echo $HOSTD_RULE > " + out + ".inline\"\n",
+	} {
+		if err := script(name, spec); err != nil {
+			t.Fatalf("script %s: %v", name, err)
+		}
+	}
+	// What a script file may not be.
+	for spec, want := range map[string]string{
+		"command = [\"x\"]\nscopes = [\"admin\"]": "cannot have scope admin",
+		"command = [\"x\"]\nrun = \"y\"":          "give one",
+		"scopes = [\"audio\"]":                    "needs command",
+		"command = [\"x\"]\ntimeout = \"soon\"":   "a duration",
+		"command = [\"x\"]\nbogus = 1":            "unknown key",
+		"command = [\"\"]":                        "first word is empty",
+	} {
+		if err := script("bad", spec); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", spec, err, want)
+		}
+	}
 	r.m.opts.URL = "unix:///run/hostd.sock"
 	r.rules(t, `
 [[rule]]
 name = "evening"
 on   = "instance.started"
-do   = { script = "evening.sh" }
+do   = { script = "evening" }
 [[rule]]
 name = "slow"
 on   = "instance.exited"
-do   = { script = "slow.sh" }
+do   = { script = "slow" }
 [[rule]]
-name = "boss"
+name = "inline"
 on   = "instance.failed"
-do   = { script = "boss.sh" }
+do   = { script = "inline" }
 [[rule]]
 name = "fails"
 on   = "instance.starting"
-do   = { script = "fails.sh" }
+do   = { script = "fails" }
 [[rule]]
 name = "escape"
 on   = "instance.closing"
-do   = { script = "../rules.toml" }
+do   = { script = "ghost" }
 `)
 	r.emit(t, contract.EventInstanceStarted, contract.Instance{ID: "tv", App: "tv"})
 	waitFor(t, "the script", func() bool { return r.state(t, "evening").LastResult != "" })
@@ -340,13 +365,38 @@ do   = { script = "../rules.toml" }
 		t.Fatalf("the script's child %s still runs", pid)
 	}
 
-	for name, want := range map[string]string{"boss": "cannot have scope admin", "fails": "exit status 3", "escape": "a file in"} {
-		typ := map[string]string{"boss": "instance.failed", "fails": "instance.starting", "escape": "instance.closing"}[name]
+	for name, want := range map[string]string{"inline": "ran: exit 0", "fails": "exit status 3", "escape": `no script "ghost"`} {
+		typ := map[string]string{"inline": "instance.failed", "fails": "instance.starting", "escape": "instance.closing"}[name]
 		r.emit(t, typ, contract.Instance{ID: "x", App: "x"})
 		waitFor(t, name, func() bool { return r.state(t, name).LastResult != "" })
 		if res := r.state(t, name).LastResult; !strings.Contains(res, want) {
 			t.Errorf("%s: %q, want %q", name, res, want)
 		}
+	}
+	if b, _ := os.ReadFile(out + ".inline"); strings.TrimSpace(string(b)) != "inline" {
+		t.Errorf("the inline script saw HOSTD_RULE %q", b)
+	}
+
+	// By hand: the same script, with no rule and an empty event.
+	res, err := r.e.Submit(context.Background(), sdk.Action{Type: "script.run", Args: sdk.MustJSON(map[string]string{"name": "evening"}),
+		Source: sdk.Source{Kind: sdk.SourceManual, Name: "test"}}, adminAuth)
+	if err != nil || !strings.Contains(string(res.Data), "ran: exit 0") {
+		t.Fatalf("script.run: %v %s", err, res.Data)
+	}
+	b, _ = os.ReadFile(out)
+	if lines := strings.Split(string(b), "\n"); strings.TrimSpace(lines[0]) != "unix:///run/hostd.sock hostd_secret" || lines[1] != "{}" {
+		t.Fatalf("a manual run saw %q", b)
+	}
+	if _, err := r.e.Submit(context.Background(), sdk.Action{Type: "script.run", Args: sdk.MustJSON(map[string]string{"name": "ghost"}),
+		Source: sdk.Source{Kind: sdk.SourceManual, Name: "test"}}, adminAuth); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("script.run of a missing script: %v", err)
+	}
+	if err := r.m.Delete(context.Background(), "script", "evening"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.Submit(context.Background(), sdk.Action{Type: "script.run", Args: sdk.MustJSON(map[string]string{"name": "evening"}),
+		Source: sdk.Source{Kind: sdk.SourceManual, Name: "test"}}, adminAuth); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("a deleted script still runs: %v", err)
 	}
 }
 

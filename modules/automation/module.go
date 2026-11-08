@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,8 +47,9 @@ type Module struct {
 
 	mu         sync.Mutex
 	core       sdk.Core
-	scenes     map[string]Scene // in use, from the scenes kind
-	rules      []Rule           // in use, from the rules kind, by name
+	scenes     map[string]Scene      // in use, from the scenes kind
+	scripts    map[string]scriptSpec // in use, from the scripts kind
+	rules      []Rule                // in use, from the rules kind, by name
 	runs       map[string]*ruleRun
 	scriptRuns int
 
@@ -69,11 +71,14 @@ func New(opts Options) *Module {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	return &Module{opts: opts, log: opts.Logger, runs: map[string]*ruleRun{}, scenes: map[string]Scene{}}
+	return &Module{opts: opts, log: opts.Logger, runs: map[string]*ruleRun{}, scenes: map[string]Scene{}, scripts: map[string]scriptSpec{}}
 }
 
 var ruleSchema = json.RawMessage(`{"type":"object","properties":{
 	"name":{"type":"string","description":"the rule"}},"required":["name"],"additionalProperties":false}`)
+
+var scriptNameSchema = json.RawMessage(`{"type":"object","properties":{
+	"name":{"type":"string","description":"the script"}},"required":["name"],"additionalProperties":false}`)
 
 var sceneSchema = json.RawMessage(`{"type":"object","properties":{
 	"id":{"type":"string","description":"the scene"}},"required":["id"],"additionalProperties":false}`)
@@ -81,10 +86,11 @@ var sceneSchema = json.RawMessage(`{"type":"object","properties":{
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "automation", Version: "0.1.0",
-		Owns: []string{"scene.*", "rule.*"},
+		Owns: []string{"scene.*", "rule.*", "script.*"},
 		Scopes: []sdk.ScopeSpec{
 			{Name: "scenes", Description: "Apply scenes"},
 			{Name: "rules", Description: "Pause and resume rules"},
+			{Name: "scripts", Description: "Run scripts"},
 		},
 		Kinds: kinds(),
 		Actions: []sdk.ActionSpec{
@@ -93,6 +99,9 @@ func (m *Module) Manifest() sdk.Manifest {
 				Timeout: sdk.Duration(10 * time.Minute)}, // starting apps can take a while
 			{Type: "rule.pause", Description: "Stop a rule from firing until it is resumed",
 				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules"},
+			{Type: "script.run", Description: "Run a script now, as a rule would (with an empty event)",
+				Schema: scriptNameSchema, Keys: []sdk.KeyTemplate{"script:{name}"}, Scope: "scripts",
+				Timeout: sdk.Duration(10 * time.Minute)},
 			{Type: "rule.resume", Description: "Let a paused rule fire again",
 				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules"},
 		},
@@ -144,6 +153,21 @@ func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	if a.Type == "rule.pause" || a.Type == "rule.resume" {
 		return m.handleRule(a)
+	}
+	if a.Type == "script.run" {
+		var args struct{ Name string }
+		if err := a.DecodeArgs(&args); err != nil {
+			return sdk.Result{}, err
+		}
+		out, err := m.script(ctx, args.Name, args.Name, "", json.RawMessage("{}"))
+		if err != nil {
+			code := sdk.CodeInternal
+			if strings.HasPrefix(err.Error(), "no script") {
+				code = sdk.CodeNotFound
+			}
+			return sdk.Result{}, sdk.Errorf(code, "%v", err)
+		}
+		return sdk.Result{Data: sdk.MustJSON(map[string]string{"result": out})}, nil
 	}
 	if a.Type != "scene.apply" {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "automation module has no action %q", a.Type)

@@ -62,3 +62,24 @@ do   = { action = "audio.mute.set", args = { muted = true } }
 		m.mu.Unlock()
 	}
 }
+
+// Script files the migrator wrote are accepted, and run.
+func TestMigratedScriptsAreAccepted(t *testing.T) {
+	dir := t.TempDir()
+	scripts := filepath.Join(dir, "scripts")
+	_ = os.MkdirAll(scripts, 0o755)
+	if err := os.WriteFile(filepath.Join(scripts, "evening.sh"), []byte("#!/bin/sh\n# hostd-scopes: audio display\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrate.Run(dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(scripts, "evening.sh.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := ParseScript(raw)
+	if err != nil || len(spec.Command) != 1 || spec.Command[0] != "./evening.sh" || len(spec.Scopes) != 2 {
+		t.Fatalf("%+v %v", spec, err)
+	}
+}

@@ -100,3 +100,60 @@ func TestMigrateRefusesWhatItCannotRead(t *testing.T) {
 		t.Fatalf("an empty config: %v %v", did, err)
 	}
 }
+
+func TestScriptsGetScriptFiles(t *testing.T) {
+	dir := t.TempDir()
+	scripts := filepath.Join(dir, "scripts")
+	_ = os.MkdirAll(scripts, 0o755)
+	write := func(name, body string, mode os.FileMode) {
+		if err := os.WriteFile(filepath.Join(scripts, name), []byte(body), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("evening.sh", "#!/bin/sh\n# hostd-scopes: audio display\necho hi\n", 0o755) // scopes in the header
+	write("slow.sh", "#!/bin/sh\nsleep 1\n", 0o755)                                   // scopes in a sidecar
+	write("slow.sh.toml", "scopes = [\"audio\"]\ntimeout = \"2m\"\n", 0o644)
+	write("done.py", "print(1)\n", 0o755) // already described
+	write("done.py.toml", "command = [\"python3\", \"done.py\"]\n", 0o644)
+	write("helper.txt", "not a script\n", 0o644) // not executable: left alone
+	write("Loud.sh", "#!/bin/sh\n", 0o755)       // a name no script can have: left alone
+
+	if err := Needed(dir); err == nil || !strings.Contains(err.Error(), "scripts/evening.sh") && !strings.Contains(err.Error(), "scripts/slow.sh") {
+		t.Fatalf("Needed = %v", err)
+	}
+	did, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(did) != 2 {
+		t.Fatalf("did = %q", did)
+	}
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(scripts, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if got := read("evening.sh.toml"); !strings.Contains(got, `command = ["./evening.sh"]`) || !strings.Contains(got, `scopes = ["audio", "display"]`) {
+		t.Errorf("evening.sh.toml:\n%s", got)
+	}
+	if got := read("slow.sh.toml"); !strings.Contains(got, `scopes = ["audio"]`) || !strings.Contains(got, `timeout = "2m"`) || !strings.Contains(got, `command = ["./slow.sh"]`) {
+		t.Errorf("slow.sh.toml:\n%s", got)
+	}
+	if got := read("done.py.toml"); got != "command = [\"python3\", \"done.py\"]\n" {
+		t.Errorf("an already described script was rewritten:\n%s", got)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, BackupDir, "slow.sh.toml")); err != nil || !strings.Contains(string(b), `timeout = "2m"`) {
+		t.Errorf("the old sidecar is not kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scripts, "helper.txt.toml")); err == nil {
+		t.Error("a file that is not executable got a script file")
+	}
+	if err := Needed(dir); err != nil {
+		t.Fatalf("still needed: %v", err)
+	}
+	if did, err := Run(dir); err != nil || len(did) != 0 {
+		t.Fatalf("second run: %q %v", did, err)
+	}
+}

@@ -1,14 +1,13 @@
 package automation
 
 import (
-	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -32,64 +31,47 @@ type Tokens interface {
 	Mint(ctx context.Context, name string, scopes []string, ttl time.Duration) (secret string, revoke func(), err error)
 }
 
-// scriptSettings are a script's scopes and timeout.
-type scriptSettings struct {
-	Scopes  []string `toml:"scopes"`
-	Timeout string   `toml:"timeout"`
+// scriptSpec is a script file: what to run, with which scopes. A script is
+// either a command (argv, started in the scripts folder) or inline shell.
+type scriptSpec struct {
+	Command []string `toml:"command" json:"command,omitempty"`
+	Run     string   `toml:"run" json:"run,omitempty"`
+	Scopes  []string `toml:"scopes" json:"scopes,omitempty"`
+	Timeout string   `toml:"timeout" json:"timeout,omitempty"`
 	timeout time.Duration
 }
 
-// scriptPath is a rule's script, which must be inside the scripts folder.
-func (m *Module) scriptPath(name string) (string, error) {
-	dir := m.opts.ScriptsDir
-	p := filepath.Clean(filepath.Join(dir, name))
-	if filepath.IsAbs(name) || !strings.HasPrefix(p, filepath.Clean(dir)+string(os.PathSeparator)) {
-		return "", fmt.Errorf("script %q: a file in %s", name, dir)
+// ParseScript decodes and checks one script file.
+func ParseScript(raw []byte) (scriptSpec, error) {
+	var s scriptSpec
+	if _, err := tomlx.Decode(raw, &s); err != nil {
+		return s, err
 	}
-	fi, err := os.Stat(p)
-	if err != nil {
-		return "", fmt.Errorf("script %q: %w", name, err)
-	}
-	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
-		return "", fmt.Errorf("script %s is not an executable file (chmod +x)", p)
-	}
-	return p, nil
-}
-
-// readSettings reads the sidecar <script>.toml, else the header comment.
-func readSettings(p string) (scriptSettings, error) {
-	var s scriptSettings
-	if b, err := os.ReadFile(p + ".toml"); err == nil {
-		if _, err := tomlx.Decode(b, &s); err != nil {
-			return s, fmt.Errorf("%s.toml: %w", p, err)
-		}
-	} else if f, err := os.Open(p); err == nil {
-		sc := bufio.NewScanner(f)
-		for n := 0; n < 20 && sc.Scan(); n++ {
-			if rest, ok := strings.CutPrefix(strings.TrimSpace(sc.Text()), "# hostd-scopes:"); ok {
-				s.Scopes = strings.Fields(rest)
-				break
-			}
-		}
-		f.Close()
+	switch {
+	case len(s.Command) > 0 && s.Run != "":
+		return s, errors.New("command and run are two ways to say what to run: give one")
+	case len(s.Command) == 0 && strings.TrimSpace(s.Run) == "":
+		return s, errors.New(`needs command (["python3", "evening.py"]) or run (shell commands)`)
+	case len(s.Command) > 0 && s.Command[0] == "":
+		return s, errors.New("command: the first word is empty")
 	}
 	s.timeout = 60 * time.Second
 	if s.Timeout != "" {
 		d, err := time.ParseDuration(s.Timeout)
 		if err != nil || d <= 0 {
-			return s, fmt.Errorf("%s.toml: timeout %q: a duration such as 60s", p, s.Timeout)
+			return s, fmt.Errorf("timeout %q: a duration such as 60s", s.Timeout)
 		}
 		s.timeout = d
 	}
 	if slices.Contains(s.Scopes, sdk.ScopeAdmin) {
-		return s, fmt.Errorf("%s: scripts cannot have scope admin", p)
+		return s, errors.New("scripts cannot have scope admin")
 	}
 	return s, nil
 }
 
 // runScript runs a rule's script and returns how it went.
 func (m *Module) runScript(ctx context.Context, r Rule, ev sdk.Event) string {
-	result, err := m.script(ctx, r, ev)
+	result, err := m.script(ctx, r.Do.Script, r.Name, r.Name, sdk.MustJSON(ev))
 	if err != nil {
 		m.log.Warn("a rule's script failed", "rule", r.Name, "script", r.Do.Script, "err", err)
 		return "failed: " + err.Error()
@@ -97,23 +79,24 @@ func (m *Module) runScript(ctx context.Context, r Rule, ev sdk.Event) string {
 	return result
 }
 
-func (m *Module) script(ctx context.Context, r Rule, ev sdk.Event) (string, error) {
-	p, err := m.scriptPath(r.Do.Script)
-	if err != nil {
-		return "", err
-	}
-	set, err := readSettings(p)
-	if err != nil {
-		return "", err
+// script runs the script a name stands for. label names the run in its
+// token and the log (the rule's name, or the script's); rule is what the
+// script sees as HOSTD_RULE, empty when someone runs it by hand.
+func (m *Module) script(ctx context.Context, name, label, rule string, event json.RawMessage) (string, error) {
+	m.mu.Lock()
+	set, ok := m.scripts[name]
+	m.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("no script %q (hostctl get scripts)", name)
 	}
 	if m.opts.Tokens == nil {
 		return "", errors.New("scripts cannot run here (no token service)")
 	}
 	m.mu.Lock()
 	m.scriptRuns++
-	name := fmt.Sprintf("script %s #%d", r.Name, m.scriptRuns)
+	token := fmt.Sprintf("script %s #%d", label, m.scriptRuns)
 	m.mu.Unlock()
-	secret, revoke, err := m.opts.Tokens.Mint(ctx, name, set.Scopes, set.timeout+30*time.Second)
+	secret, revoke, err := m.opts.Tokens.Mint(ctx, token, set.Scopes, set.timeout+30*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("a token for the script: %w", err)
 	}
@@ -128,7 +111,7 @@ func (m *Module) script(ctx context.Context, r Rule, ev sdk.Event) (string, erro
 	go func() {
 		defer close(done)
 		for e := range events {
-			if e.Source != nil && e.Source.Name == name && e.Action != "" {
+			if e.Source != nil && e.Source.Name == token && e.Action != "" {
 				mu.Lock()
 				if !slices.Contains(actions, e.Action) {
 					actions = append(actions, e.Action)
@@ -140,10 +123,15 @@ func (m *Module) script(ctx context.Context, r Rule, ev sdk.Event) (string, erro
 
 	run, cancel := context.WithTimeout(ctx, set.timeout)
 	defer cancel()
-	cmd := exec.CommandContext(run, p)
+	var cmd *exec.Cmd
+	if len(set.Command) > 0 {
+		cmd = exec.CommandContext(run, set.Command[0], set.Command[1:]...)
+	} else {
+		cmd = exec.CommandContext(run, "sh", "-c", set.Run)
+	}
 	cmd.Dir = m.opts.ScriptsDir
 	cmd.Env = append(os.Environ(), "HOSTD_URL="+m.opts.URL, "HOSTD_TOKEN="+secret,
-		"HOSTD_EVENT="+string(sdk.MustJSON(ev)), "HOSTD_RULE="+r.Name)
+		"HOSTD_EVENT="+string(event), "HOSTD_RULE="+rule)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // the whole group
 	cmd.WaitDelay = 5 * time.Second
@@ -164,7 +152,7 @@ func (m *Module) script(ctx context.Context, r Rule, ev sdk.Event) (string, erro
 	var exit *exec.ExitError
 	switch {
 	case run.Err() == context.DeadlineExceeded:
-		m.log.Warn("a rule's script ran out of time and was stopped", "rule", r.Name, "timeout", set.timeout, "actions", sent)
+		m.log.Warn("a script ran out of time and was stopped", "script", name, "rule", rule, "timeout", set.timeout, "actions", sent)
 		return "", fmt.Errorf("timed out after %s (%d action(s) sent)", set.timeout, len(sent))
 	case errors.As(err, &exit):
 		code = exit.ExitCode()
@@ -175,7 +163,7 @@ func (m *Module) script(ctx context.Context, r Rule, ev sdk.Event) (string, erro
 	if len(tail) > 2000 {
 		tail = tail[len(tail)-2000:]
 	}
-	m.log.Info("a rule's script ran", "rule", r.Name, "script", r.Do.Script, "exit", code, "actions", sent, "output", tail)
+	m.log.Info("a script ran", "script", name, "rule", rule, "exit", code, "actions", sent, "output", tail)
 	if code != 0 {
 		return "", fmt.Errorf("exit status %d (%d action(s) sent): %s", code, len(sent), lastLine(tail))
 	}
