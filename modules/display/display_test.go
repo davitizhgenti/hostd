@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	procs "github.com/davitizhgenti/hostd/internal/proc"
+
 	"go.uber.org/goleak"
 
 	"github.com/davitizhgenti/hostd/contract"
@@ -56,7 +58,7 @@ func TestInstanceOf(t *testing.T) {
 	cgs[12] = `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd.service`
 	root := fakeProc(t, cgs)
 	for pid, want := range map[int]string{662: "", 683: "foot", 10: "firefox#2", 11: "steam", 12: "", 99: "", 0: ""} {
-		if got := instanceOf(root, pid); got != want {
+		if got := procs.InstanceOfPID(root, pid); got != want {
 			t.Errorf("instanceOf(%d) = %q, want %q", pid, got, want)
 		}
 	}
@@ -339,7 +341,7 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 			r.b.mu.Lock()
 			left := false
 			for _, w := range r.b.wins {
-				if instanceOf(proc, w.PID) == tw.Instance {
+				if procs.InstanceOfPID(proc, w.PID) == tw.Instance {
 					left = true
 				}
 			}

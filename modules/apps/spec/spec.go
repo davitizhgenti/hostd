@@ -7,7 +7,6 @@ package spec
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
@@ -256,7 +255,4 @@ type Ended struct {
 }
 
 // AppOf returns the app part of an instance ID ("firefox#2" is firefox).
-func AppOf(instanceID string) string {
-	app, _, _ := strings.Cut(instanceID, "#")
-	return app
-}
+func AppOf(instanceID string) string { return contract.AppOf(instanceID) }

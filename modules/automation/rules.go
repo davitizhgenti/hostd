@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
+
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -119,7 +121,7 @@ func eventApp(ev sdk.Event) string {
 		return app
 	}
 	if inst, ok := d["instance"].(string); ok {
-		return appOf(inst)
+		return contract.AppOf(inst)
 	}
 	return ""
 }

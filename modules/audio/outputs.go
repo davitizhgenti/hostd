@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
+	"github.com/davitizhgenti/hostd/internal/proc"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -100,55 +100,14 @@ func (m *Module) liveInstances(ctx context.Context) []contract.Instance {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	if core == nil {
-		return nil
-	}
-	raw, err := core.Read(ctx, contract.AppsModule, contract.ReadInstances, nil)
-	if err != nil {
-		return nil
-	}
-	var all []contract.Instance
-	if json.Unmarshal(raw, &all) != nil {
-		return nil
-	}
-	return slices.DeleteFunc(all, func(in contract.Instance) bool { return in.Ended() })
+	return contract.LiveInstances(ctx, core)
 }
 
-// instanceOf finds the instance a stream's process belongs to: by its
-// unit, or by an instance's env rule (Flatpak apps and Steam games run
-// outside hostd's units). When several match (a game's process has
-// Steam's FLATPAK_ID too), the instance with more match rules wins.
+// instanceOf finds the instance a stream's process belongs to (see
+// proc.Resolve): by its unit, or by an instance's rules (Flatpak apps and
+// Steam games run outside hostd's units).
 func (m *Module) instanceOf(pid int, live []contract.Instance) string {
-	if pid <= 0 {
-		return ""
-	}
-	if id := contract.InstanceOfPID(m.opts.ProcRoot, pid); id != "" {
-		return id
-	}
-	best, top := "", 0
-	for _, in := range live {
-		if in.Match == nil || in.Match.Env == "" || !contract.ProcessHasEnv(m.opts.ProcRoot, pid, in.Match.Env) {
-			continue
-		}
-		n := 0
-		for _, r := range []string{in.Match.Class, in.Match.AppID, in.Match.Title, in.Match.Env} {
-			if r != "" {
-				n++
-			}
-		}
-		if n > top {
-			best, top = in.ID, n
-		}
-	}
-	if best != "" {
-		return best
-	}
-	for _, in := range live { // an app that moved itself out of its unit
-		if contract.ProcessDescends(m.opts.ProcRoot, pid, in.PID) {
-			return in.ID
-		}
-	}
-	return ""
+	return proc.Resolve(m.opts.ProcRoot, proc.Subject{PID: pid}, live)
 }
 
 // followGraph notes the outputs and streams after a change: it announces

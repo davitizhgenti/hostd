@@ -7,7 +7,44 @@
 // behaviour. External modules (M6) get the same contract as JSON.
 package contract
 
-import "strings"
+import (
+	"context"
+	"encoding/json"
+	"sort"
+	"strings"
+
+	"github.com/davitizhgenti/hostd/sdk"
+)
+
+// AppOf is the app part of an instance ID ("foot#2" is the app "foot").
+func AppOf(instanceID string) string {
+	app, _, _ := strings.Cut(instanceID, "#")
+	return app
+}
+
+// LiveInstances asks the apps module what runs (instances that have not
+// ended), by ID. Nothing without the module, or without a Core.
+func LiveInstances(ctx context.Context, core sdk.Core) []Instance {
+	if core == nil {
+		return nil
+	}
+	raw, err := core.Read(ctx, AppsModule, ReadInstances, nil)
+	if err != nil {
+		return nil
+	}
+	var all []Instance
+	if json.Unmarshal(raw, &all) != nil {
+		return nil
+	}
+	live := all[:0]
+	for _, in := range all {
+		if !in.Ended() {
+			live = append(live, in)
+		}
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].ID < live[j].ID })
+	return live
+}
 
 // The apps module: the app catalog and running instances.
 const (

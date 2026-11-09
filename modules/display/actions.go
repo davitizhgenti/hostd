@@ -2,7 +2,6 @@ package display
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -330,25 +329,7 @@ func (m *Module) liveInstances(ctx context.Context) []contract.Instance {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	if core == nil {
-		return nil
-	}
-	raw, err := core.Read(ctx, contract.AppsModule, contract.ReadInstances, nil)
-	if err != nil {
-		return nil
-	}
-	var all []contract.Instance
-	if json.Unmarshal(raw, &all) != nil {
-		return nil
-	}
-	out := all[:0]
-	for _, in := range all {
-		if !in.Ended() {
-			out = append(out, in)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	return contract.LiveInstances(ctx, core)
 }
 
 // --- window.place ----------------------------------------------------------------
@@ -623,7 +604,7 @@ func (m *Module) cycleTarget(step int) *trackedWindow {
 	m.mu.Lock()
 	first := map[string]*trackedWindow{}
 	for _, t := range m.windows {
-		if t.Instance == "" || appOfInstance(t.Instance) == m.opts.Menu {
+		if t.Instance == "" || contract.AppOf(t.Instance) == m.opts.Menu {
 			continue
 		}
 		if cur, ok := first[t.Instance]; !ok || t.ID < cur.ID {

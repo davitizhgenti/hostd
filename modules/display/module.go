@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -493,10 +492,4 @@ func (m *Module) State(ctx context.Context) (any, error) {
 	out := st.(map[string]any)
 	out["windows"] = wins
 	return out, nil
-}
-
-// appOfInstance is the app part of an instance ID ("foot#2" -> "foot").
-func appOfInstance(id string) string {
-	app, _, _ := strings.Cut(id, "#")
-	return app
 }

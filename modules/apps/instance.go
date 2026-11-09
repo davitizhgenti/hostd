@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/davitizhgenti/hostd/modules/apps/spec"
+	"github.com/davitizhgenti/hostd/contract"
 )
 
 // change is something that happens to an instance.
@@ -57,4 +57,4 @@ func nextID(app string, inUse func(string) bool) string {
 }
 
 // appOf returns the app part of an instance ID.
-func appOf(instanceID string) string { return spec.AppOf(instanceID) }
+func appOf(instanceID string) string { return contract.AppOf(instanceID) }
