@@ -12,7 +12,7 @@ import (
 var builtins = map[string]bool{
 	"login": true, "version": true, "events": true,
 	"action": true, "update": true, "git-shell": true,
-	"help": true, "completion": true,
+	"help": true, "completion": true, "context": true,
 }
 
 func (a *app) rootCommand() *cobra.Command {
@@ -28,9 +28,10 @@ see them all.`,
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
+	root.PersistentFlags().StringVar(&a.context, "context", "", "which saved login to use (hostctl context lists them; HOSTD_CONTEXT)")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(),
-		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand())
+		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand(), a.contextCommand())
 	return root
 }
 
@@ -41,9 +42,9 @@ func (a *app) needsModules(args []string) bool {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
-		case arg == "--url":
+		case arg == "--url" || arg == "--context":
 			i++ // skip its value
-		case arg == "--json" || strings.HasPrefix(arg, "--url="):
+		case arg == "--json" || strings.HasPrefix(arg, "--url=") || strings.HasPrefix(arg, "--context="):
 		case strings.HasPrefix(arg, "-"):
 			return isHelp([]string{arg})
 		default:

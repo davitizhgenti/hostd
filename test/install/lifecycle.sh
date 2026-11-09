@@ -23,6 +23,23 @@ t "the installer's update keeps the data for a rollback" 'l=/home/screen/.local/
 t "hostd runs the updated build" 'hostd_up && [ "$(as_screen hostctl version | awk "/^hostd /{print \$2}" | tr -d ,)" = "$(sudo runuser -u screen -- /home/screen/.local/lib/hostd/current/hostd -version 2>&1 | awk "{print \$2}")" ]'
 t "a second update changes nothing" "sudo hostd-setup update --source $dist --from $dist --gpu other | grep -q 'No changes needed'"
 
+echo "more users"
+as_alice() { sudo runuser -u alice -- env HOME=/home/alice XDG_RUNTIME_DIR="/run/user/$(id -u alice)" "$@"; }
+alice_up() {
+	for _ in $(seq 1 30); do as_alice hostctl version 2>/dev/null | grep -q "^hostd " && return 0; sleep 1; done
+	return 1
+}
+as_screen hostctl token create firstuser --scopes read >/dev/null
+t "hostd-setup user add alice" "sudo hostd-setup user add alice --from $dist --gpu other"
+t "alice's hostd runs" 'alice_up'
+t "on a port of its own" 'sudo grep -q "listen = \":7301\"" /home/alice/.config/hostd/hostd.toml && bash -c "exec 3<>/dev/tcp/127.0.0.1/7301"'
+t "with tokens of its own" 'as_alice hostctl token list | grep -q admin && ! as_alice hostctl token list | grep -q firstuser'
+t "the first user's hostd is untouched" 'as_screen hostctl token list | grep -q firstuser'
+t "user list" 'hostd-setup user list | grep -q "^alice"'
+t "an update brings alice's hostd along" "sudo hostd-setup update --source $dist --from $dist --gpu other && alice_up"
+t "user remove --purge" 'sudo hostd-setup user remove alice --purge && ! hostd-setup user list | grep -q alice && ! sudo test -e /home/alice/.config/hostd && ! as_alice systemctl --user cat hostd.service'
+t "alice is still a user" 'id alice && sudo test -d /home/alice'
+
 echo "signed updates"
 # A build like CI's, signed with a key of the test's own.
 rel=$(mktemp -d)

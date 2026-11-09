@@ -1,0 +1,42 @@
+# Several saved logins: for the users of a machine that each have a hostd
+# (hostd-setup user add), or several machines. Here two tokens of one hostd,
+# an admin and a reader, stand for two of them.
+exec hostd -listen= &hostd&
+waitfile $XDG_RUNTIME_DIR/hostd.sock
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_DIR/hostd-admin-token
+exec hostctl token create reader --scopes read --json
+envfrom READER '"secret": "(hostd_[A-Za-z0-9_-]+)"'
+exec sh -c 'echo $READER > reader.txt'
+exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file reader.txt --name reader
+stdout 'Logged in to hostd .* as reader'
+
+# The named login is the current one now; the default is still there.
+exec hostctl context
+stdout '^\* +reader '
+stdout '^ +default '
+! exec hostctl token list
+stderr 'forbidden'
+exec hostctl --context default token list
+stdout 'admin'
+
+# Choosing one for good, by name, and going back.
+exec hostctl context default
+stdout 'using default'
+exec hostctl token list
+stdout 'reader'
+exec hostctl context reader
+! exec hostctl token list
+env HOSTD_CONTEXT=default
+exec hostctl token list
+env HOSTD_CONTEXT=
+
+# A name that is not saved, or cannot be one.
+! exec hostctl context nobody
+stderr 'no context "nobody"'
+! exec hostctl --context nobody version
+stderr 'no context "nobody"'
+! exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file reader.txt --name 'a b'
+stderr 'cannot name a context'
+
+kill -INT hostd
+wait hostd

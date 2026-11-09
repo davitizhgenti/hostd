@@ -42,6 +42,28 @@ sudo loginctl enable-linger $USER     # start at boot, without logging in
 
 Then list the modules you want in `~/.config/hostd/hostd.toml`, such as `modules = ["apps", "deploy", "automation"]`. With the package, apt updates hostd; `hostctl update` is off.
 
+## More users
+
+The user the installer makes (`screen`) has the screen and the machine's first hostd, on port 7300. Any other user can have a hostd of their own: their apps, their audio, their tokens, their files, and a certificate authority of their own, on a port of their own. One user's hostd cannot touch another's.
+
+```sh
+sudo hostd-setup user add alice            # creates alice if needed; her hostd gets port 7301
+sudo hostd-setup user add bob --port 7400
+sudo hostd-setup user list
+sudo hostd-setup user remove alice [--purge]   # stop her hostd (--purge: and delete its data); alice stays
+```
+
+Each one is installed the way the first is (from the same signed build), starts at boot, and is brought up to date by every `sudo hostd-setup update`. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. A second screen with its own user needs a second graphics device and a logind seat, which hostd-setup does not set up yet.
+
+To use them from a laptop, save a login for each under a name; `hostctl context` lists them and chooses one:
+
+```sh
+hostctl login core.local:7301 --name alice
+hostctl context                  # * marks the current one
+hostctl context default          # the login saved without a name
+hostctl --context alice apps     # for one command (or HOSTD_CONTEXT=alice)
+```
+
 ## Other devices
 
 Every other device or script uses the API at `https://<machine>:7300`, which is open to the home network only. It is HTTPS with a certificate authority the machine made for itself at its first start, so no domain or outside CA is needed. Each device gets its own token, limited to what it needs:

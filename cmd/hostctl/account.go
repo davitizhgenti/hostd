@@ -21,7 +21,7 @@ import (
 // --- login ----------------------------------------------------------------
 
 func (a *app) loginCommand() *cobra.Command {
-	var tokenFile, pin string
+	var tokenFile, pin, name string
 	cmd := &cobra.Command{
 		Use:   "login <address>",
 		Short: "Save the address and token of a hostd machine",
@@ -35,8 +35,14 @@ on. --ca-fingerprint gives it instead, for scripts.
 
 The token is read from --token-file, or from standard input: paste the
 admin token that hostd printed on its first start, or one made with
-hostctl token create.`,
+hostctl token create.
+
+A machine can have a hostd for each of its users, each on a port of its own
+(sudo hostd-setup user add NAME). --name saves a login under a name instead
+of as the default; it becomes the current one, and --context NAME (or
+HOSTD_CONTEXT) uses another for one command.`,
 		Example: `  hostctl login core.local
+  hostctl login core.local:7301 --name alice
   hostctl login 192.168.18.33:7300 --ca-fingerprint 1f2e3d4c... --token-file token.txt`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -85,15 +91,20 @@ hostctl token create.`,
 			if err != nil {
 				return err
 			}
-			path, err := saveConfig(Config{URL: addr, Token: token, CAFingerprint: pin})
+			path, err := saveLogin(name, Context{URL: addr, Token: token, CAFingerprint: pin})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(a.stdout, "Logged in to hostd %s at %s (saved in %s)\n", v.Version, addr, path)
+			as := ""
+			if name != "" {
+				as = " as " + name
+			}
+			fmt.Fprintf(a.stdout, "Logged in to hostd %s at %s%s (saved in %s)\n", v.Version, addr, as, path)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "read the token from this file")
+	cmd.Flags().StringVar(&name, "name", "", "save this login as a named context, and make it the current one")
 	cmd.Flags().StringVar(&pin, "ca-fingerprint", "", "the machine's CA fingerprint (hostctl tls on the machine), instead of confirming it")
 	return cmd
 }

@@ -39,6 +39,7 @@ type fakeMachine struct {
 	aptFails       int               // apt-get install fails this many times (stale package lists)
 	migrateOut     string            // what hostd -migrate says (default: nothing to migrate)
 	migrateFails   bool              // hostd -migrate fails
+	alice          bool              // the user alice exists (useradd made her)
 }
 
 func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
@@ -109,6 +110,23 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 	case strings.HasPrefix(line, "flatpak uninstall --system "):
 		delete(f.flatpaks, argv[len(argv)-1])
 		return nil, nil
+	case line == "id alice":
+		if !f.alice {
+			return nil, fail
+		}
+		return nil, nil
+	case strings.HasPrefix(line, "useradd ") && strings.HasSuffix(line, " alice"):
+		f.alice = true
+		os.MkdirAll(filepath.Join(f.root, "home/alice"), 0o755)
+		os.MkdirAll(filepath.Join(f.root, "run/user/1002"), 0o755)
+		os.WriteFile(filepath.Join(f.root, "run/user/1002/bus"), nil, 0o644)
+		return nil, nil
+	case line == "id -nG alice":
+		return []byte("alice\n"), nil
+	case line == "id -u alice":
+		return []byte("1002\n"), nil
+	case line == "getent passwd alice":
+		return []byte("alice:x:1002:1002::/home/alice:/bin/bash\n"), nil
 	case line == "id screen", strings.HasPrefix(line, "getent group "):
 		return nil, nil
 	case line == "id -nG screen":

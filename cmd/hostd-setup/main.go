@@ -6,6 +6,7 @@
 //	sudo hostd-setup auto-update          what hostd-update.timer runs
 //	sudo hostd-setup uninstall [--purge] [--all]
 //	sudo hostd-setup addons | add NAME... | remove NAME...
+//	sudo hostd-setup user add NAME [--port N] | remove NAME [--purge] | list
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -32,6 +34,9 @@ const usage = `hostd-setup: install hostd on a Debian 13 machine, update it, rem
   sudo hostd-setup addons                list the add-ons, and which are installed
   sudo hostd-setup add NAME...           install add-ons (with what they need), as an update
   sudo hostd-setup remove NAME...        remove add-ons
+  sudo hostd-setup user add NAME [--port N]   give another user a hostd of their own (own port, tokens, CA)
+  sudo hostd-setup user remove NAME [--purge] stop it (--purge: and delete its hostd data)
+  sudo hostd-setup user list             the users that have one
 
 Options:
   --gpu auto|nvidia|other   GPU setup (default: auto, from the PCI devices)
@@ -42,7 +47,9 @@ Options:
                             the admin running sudo has an SSH key)
   --all                     update: run every installed add-on; uninstall: also undo the base
                             setup (autologin to Sway, managed configs, lingering)
-  --purge                   uninstall: also delete hostd's data (tokens, audit trail, app files)
+  --purge                   uninstall: also delete hostd's data (tokens, audit trail, app files);
+                            user remove: delete that user's hostd data
+  --port N                  user add: the API port (default: the next free one from 7301)
   -v, --verbose             print every step, changed or not
 `
 
@@ -59,6 +66,7 @@ type args struct {
 	sshPasswords        string
 	source              string
 	purge, all, verbose bool
+	port                int
 	names               []string
 	pass                []string // options handed to the newer installer by update
 }
@@ -67,7 +75,7 @@ func parse(argv []string) (args, error) {
 	a := args{cmd: "install"}
 	if len(argv) > 0 {
 		switch argv[0] {
-		case "install", "update", "auto-update", "uninstall", "addons", "add", "remove":
+		case "install", "update", "auto-update", "uninstall", "addons", "add", "remove", "user":
 			a.cmd, argv = argv[0], argv[1:]
 		}
 	}
@@ -79,7 +87,7 @@ func parse(argv []string) (args, error) {
 	}
 	for i := 0; i < len(argv); i++ {
 		switch arg := argv[i]; arg {
-		case "--gpu", "--user", "--from", "--source", "--ssh-passwords":
+		case "--gpu", "--user", "--from", "--source", "--ssh-passwords", "--port":
 			v, err := value(i)
 			if err != nil {
 				return a, err
@@ -97,13 +105,19 @@ func parse(argv []string) (args, error) {
 				a.from = v
 			case "--source":
 				a.source = v
+			case "--port":
+				n, err := strconv.Atoi(v)
+				if err != nil {
+					return a, errors.New("--port needs a number")
+				}
+				a.port = n
 			case "--ssh-passwords":
 				if v != "keep" && v != "off" {
 					return a, errors.New("--ssh-passwords must be keep or off")
 				}
 				a.sshPasswords = v
 			}
-			if arg != "--source" {
+			if arg != "--source" && arg != "--port" {
 				a.pass = append(a.pass, arg, v)
 			}
 		case "--purge":
@@ -119,15 +133,36 @@ func parse(argv []string) (args, error) {
 				return a, fmt.Errorf("unknown option: %s (see --help)", arg)
 			}
 			switch a.cmd {
-			case "add", "remove", "update":
+			case "add", "remove", "update", "user":
 				a.names = append(a.names, arg)
 			default:
 				return a, fmt.Errorf("unexpected argument: %s (see --help)", arg)
 			}
 		}
 	}
-	if a.purge && a.cmd != "uninstall" {
-		return a, errors.New("--purge goes with uninstall")
+	if a.purge && a.cmd != "uninstall" && a.cmd != "user" {
+		return a, errors.New("--purge goes with uninstall or user remove")
+	}
+	if a.port != 0 && a.cmd != "user" {
+		return a, errors.New("--port goes with user add")
+	}
+	if a.cmd == "user" {
+		sub := ""
+		if len(a.names) > 0 {
+			sub = a.names[0]
+		}
+		switch {
+		case sub == "list" && len(a.names) == 1:
+		case (sub == "add" || sub == "remove") && len(a.names) == 2:
+		default:
+			return a, errors.New("use: user add NAME [--port N] | user remove NAME [--purge] | user list")
+		}
+		if a.port != 0 && sub != "add" {
+			return a, errors.New("--port goes with user add")
+		}
+		if a.purge && sub != "remove" {
+			return a, errors.New("--purge goes with user remove")
+		}
 	}
 	if a.all && a.cmd != "uninstall" && a.cmd != "update" {
 		return a, errors.New("--all goes with update or uninstall")
@@ -145,7 +180,8 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return 0
 	}
-	if a.cmd != "addons" && geteuid() != 0 {
+	readOnly := a.cmd == "addons" || (a.cmd == "user" && a.names[0] == "list")
+	if !readOnly && geteuid() != 0 {
 		fmt.Fprintf(stderr, "\033[31merror:\033[0m run as root: sudo hostd-setup %s\n", a.cmd)
 		return 1
 	}
@@ -201,6 +237,15 @@ func do(ctx context.Context, a args, s *deploy.Setup, opts deploy.Options, up de
 		err = s.RemoveAddons(ctx, a.user, a.names)
 	case "addons":
 		err = s.ListAddons(stdout)
+	case "user":
+		switch a.names[0] {
+		case "add":
+			err = s.AddUser(ctx, opts, a.names[1], a.port)
+		case "remove":
+			err = s.RemoveUser(ctx, a.names[1], a.purge)
+		case "list":
+			err = s.ListUsers(stdout)
+		}
 	case "uninstall":
 		err = s.Uninstall(ctx, deploy.UninstallArgs{ScreenUser: a.user, Purge: a.purge, All: a.all})
 	}

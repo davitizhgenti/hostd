@@ -59,6 +59,8 @@ type installer struct {
 	needReboot  bool
 	work        string // downloads
 	version     string // the hostd being installed
+	extra       bool   // another user's hostd, not the first's (see users.go)
+	port        int    // extra: the API port
 	hostdChange bool   // hostd must restart
 	menuChange  bool   // the menu must restart
 	vncChanged  bool   // the VNC server must restart
@@ -98,7 +100,8 @@ func (s *Setup) Install(ctx context.Context, o Options) error {
 		}
 	}
 	in.summary(ctx)
-	return nil
+	// The other users' hostds follow the first's.
+	return s.updateUsers(ctx, o)
 }
 
 // --- helpers --------------------------------------------------------------

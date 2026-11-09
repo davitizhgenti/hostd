@@ -12,6 +12,7 @@ Global flags:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
+| `--context` |  | which saved login to use (hostctl context lists them; HOSTD_CONTEXT) |
 | `--json` |  | print JSON instead of text |
 | `--url` |  | hostd address, overriding the config (unix:///path or host:port) |
 
@@ -42,6 +43,22 @@ hostctl action <type> [json-args] [flags]
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--expect-version` | `-1` | refuse if the resource is not at this version |
+
+## hostctl context
+
+List the saved logins, or choose the one hostctl uses
+
+```
+hostctl context [name]
+```
+
+A machine can have a hostd for each of its users, and you may use several
+machines. hostctl login ADDRESS --name NAME saves each under a name.
+
+  hostctl context            list them; * marks the current one
+  hostctl context NAME       use NAME from now on
+  hostctl context default    use the login saved without a name
+  hostctl --context NAME ... use NAME for this command only
 
 ## hostctl events
 
@@ -77,9 +94,15 @@ The token is read from --token-file, or from standard input: paste the
 admin token that hostd printed on its first start, or one made with
 hostctl token create.
 
+A machine can have a hostd for each of its users, each on a port of its own
+(sudo hostd-setup user add NAME). --name saves a login under a name instead
+of as the default; it becomes the current one, and --context NAME (or
+HOSTD_CONTEXT) uses another for one command.
+
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--ca-fingerprint` |  | the machine's CA fingerprint (hostctl tls on the machine), instead of confirming it |
+| `--name` |  | save this login as a named context, and make it the current one |
 | `--token-file` |  | read the token from this file |
 
 ## hostctl update
