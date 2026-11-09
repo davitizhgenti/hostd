@@ -43,6 +43,9 @@ type Manifest struct {
 	// Reconciler to make them real (see resource.go).
 	Kinds []KindSpec `json:"kinds,omitempty"`
 
+	// Facets are the parts of a scene the module plans (see Planner).
+	Facets []FacetSpec `json:"facets,omitempty"`
+
 	// Reads are GET routes serving parts of the module's state, such as
 	// the app catalog. The module implements Reader to answer them.
 	Reads []ReadSpec `json:"reads,omitempty"`
@@ -610,6 +613,21 @@ func (m *Manifest) Validate() error {
 	}
 
 	m.checkKinds(bad, owned)
+	facets := map[string]bool{}
+	for _, f := range m.Facets {
+		switch {
+		case !reKind.MatchString(f.Name):
+			bad("facet %q: use a lowercase word such as \"audio\"", f.Name)
+		case f.Name == "name" || f.Name == "do":
+			bad("facet %q: the name is a scene's own key", f.Name)
+		case facets[f.Name]:
+			bad("facet %q declared twice", f.Name)
+		}
+		facets[f.Name] = true
+		if _, err := CompileArgsSchema(f.Schema); err != nil {
+			bad("facet %q: schema: %v", f.Name, err)
+		}
+	}
 
 	seen = map[string]bool{}
 	for _, e := range m.Events {

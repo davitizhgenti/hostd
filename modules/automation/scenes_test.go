@@ -161,7 +161,14 @@ func (w *world) modules() []sdk.Module {
 	}
 	lights.HandleFunc = w.handle(func(sdk.Action, map[string]any) error { return nil })
 	w.mods = map[string]*testutil.Module{"apps": apps, "audio": audio, "display": display, "lights": lights}
-	return []sdk.Module{apps, audio, display, lights}
+	// Each of the three plans its section the way the real module does; the
+	// lights module (an external one's stand-in) plans nothing.
+	return []sdk.Module{
+		&planning{Module: apps, facet: "apps", schema: appsFacet, plan: w.planApps, check: checkApps},
+		&planning{Module: audio, facet: "audio", schema: audioFacet, plan: w.planAudio},
+		&planning{Module: display, facet: "display", schema: displayFacet, plan: w.planDisplay},
+		lights,
+	}
 }
 
 func (w *world) takeSent() []string {
@@ -339,8 +346,8 @@ func TestSceneFiles(t *testing.T) {
 		t.Fatalf("movie: %+v %v", st, err)
 	}
 	for name, c := range map[string]struct{ body, want string }{
-		"bad":   {"[audio]\nvolume = 400\n", "0-150"},
-		"typo":  {"[audoi]\nvolume = 4\n", "unknown key"},
+		"bad":   {"[audio]\nvolume = 400\n", "maximum"},
+		"typo":  {"[audoi]\nvolume = 4\n", "no module plans it"},
 		"clash": {"[apps]\nstop = [\"a\"]\nrunning = [\"a\"]\n", "both in stop and in running"},
 	} {
 		if _, err := r.m.Apply(ctx, sdk.Resource{Kind: "scene", Name: name, Raw: []byte(c.body)}); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -422,4 +429,134 @@ func TestParseSceneDo(t *testing.T) {
 			t.Errorf("%q: %v, want %q", body, err, want)
 		}
 	}
+}
+
+// planning makes a stand-in module plan a facet.
+type planning struct {
+	*testutil.Module
+	facet  string
+	schema string
+	plan   func(desired json.RawMessage) ([]sdk.PlannedAction, error)
+	check  func(desired json.RawMessage) error
+}
+
+func (p *planning) Manifest() sdk.Manifest {
+	man := p.Module.Manifest()
+	man.Facets = []sdk.FacetSpec{{Name: p.facet, Schema: json.RawMessage(p.schema)}}
+	return man
+}
+
+func (p *planning) Plan(_ context.Context, _ string, desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	return p.plan(desired)
+}
+
+func (p *planning) CheckFacet(_ string, desired json.RawMessage) error {
+	if p.check == nil {
+		return nil
+	}
+	return p.check(desired)
+}
+
+const (
+	audioFacet   = `{"type":"object","properties":{"output":{"type":"string"},"volume":{"type":"integer","minimum":0,"maximum":150},"muted":{"type":"boolean"}},"additionalProperties":false}`
+	appsFacet    = `{"type":"object","properties":{"stop":{"type":"array","items":{"type":"string"}},"running":{"type":"array","items":{"type":"string"}},"focus":{"type":"string"}},"additionalProperties":false}`
+	displayFacet = `{"type":"object","properties":{"power":{"type":"string","enum":["on","off"]}},"additionalProperties":false}`
+)
+
+func checkApps(desired json.RawMessage) error {
+	var a struct {
+		Stop, Running []string
+		Focus         string
+	}
+	_ = json.Unmarshal(desired, &a)
+	for _, id := range a.Running {
+		if contains(a.Stop, id) {
+			return fmt.Errorf("%q is both in stop and in running", id)
+		}
+	}
+	if a.Focus != "" && contains(a.Stop, a.Focus) {
+		return fmt.Errorf("focus %q is in stop", a.Focus)
+	}
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *world) liveIDs(app string) []string {
+	var ids []string
+	for _, in := range w.instances {
+		if in.App == app && !in.Ended() {
+			ids = append(ids, in.ID)
+		}
+	}
+	return ids
+}
+
+func (w *world) planApps(desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	var a struct {
+		Stop, Running []string
+		Focus         string
+	}
+	_ = json.Unmarshal(desired, &a)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []sdk.PlannedAction
+	for _, app := range a.Stop {
+		for _, id := range w.liveIDs(app) {
+			out = append(out, sdk.PlannedAction{Step: "stop", Action: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": id}), Order: 10})
+		}
+	}
+	need := append([]string(nil), a.Running...)
+	if a.Focus != "" && !contains(need, a.Focus) {
+		need = append(need, a.Focus)
+	}
+	for _, app := range need {
+		if len(w.liveIDs(app)) == 0 {
+			out = append(out, sdk.PlannedAction{Step: "start", Action: contract.ActionAppOpen, Args: sdk.MustJSON(map[string]string{"id": app}), Order: 50})
+		}
+	}
+	if live := w.liveIDs(a.Focus); a.Focus != "" && contract.AppOf(w.focused) != a.Focus && len(live) > 0 {
+		out = append(out, sdk.PlannedAction{Step: "focus", Action: "window.focus", Args: sdk.MustJSON(map[string]string{"instance": live[0]}), Order: 60})
+	}
+	return out, nil
+}
+
+func (w *world) planAudio(desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	var a struct {
+		Output string
+		Volume *int
+		Muted  *bool
+	}
+	_ = json.Unmarshal(desired, &a)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []sdk.PlannedAction
+	if a.Output != "" && w.output != a.Output {
+		out = append(out, sdk.PlannedAction{Step: "output", Action: "audio.output.set", Args: sdk.MustJSON(map[string]string{"output": a.Output}), Order: 20})
+	}
+	if a.Volume != nil && w.volume != *a.Volume {
+		out = append(out, sdk.PlannedAction{Step: "volume", Action: "audio.volume.set", Args: sdk.MustJSON(map[string]int{"percent": *a.Volume}), Order: 30})
+	}
+	if a.Muted != nil && w.muted != *a.Muted {
+		out = append(out, sdk.PlannedAction{Step: "mute", Action: "audio.mute.set", Args: sdk.MustJSON(map[string]bool{"muted": *a.Muted}), Order: 40})
+	}
+	return out, nil
+}
+
+func (w *world) planDisplay(desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	var d struct{ Power string }
+	_ = json.Unmarshal(desired, &d)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if d.Power != "" && w.power != (d.Power == "on") {
+		return []sdk.PlannedAction{{Step: "power", Action: "display.power", Args: sdk.MustJSON(map[string]bool{"on": d.Power == "on"}), Order: 70}}, nil
+	}
+	return nil, nil
 }

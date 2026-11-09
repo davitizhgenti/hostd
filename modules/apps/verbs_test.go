@@ -20,12 +20,21 @@ import (
 type windows struct {
 	mu   sync.Mutex
 	seen []string
+	// focused is the instance the display says is in front.
+	focused string
 	// closeEnds: closing the windows ends the app, as a polite close does.
 	closeEnds func(instance string)
 }
 
 func (w *windows) module() *testutil.Module {
-	m := testutil.NewModule("window", nil, []string{"window.focus", "window.close"}, nil)
+	m := testutil.NewModule("display", nil, []string{"window.focus", "window.close"}, nil)
+	m.M.Owns = []string{"display.*", "window.*"}
+	m.M.Reads = []sdk.ReadSpec{{Name: "display", Path: "/v1/display"}}
+	m.ReadFunc = func(context.Context, string, map[string]string) (any, error) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return map[string]any{"focused_instance": w.focused}, nil
+	}
 	for i := range m.M.Actions {
 		m.M.Actions[i].Schema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 	}

@@ -155,6 +155,55 @@ type Lister interface {
 	Get(ctx context.Context, kind, name string) (Listed, bool)
 }
 
+// A facet is a part of a scene (a state to reach) that a module knows how to
+// reach: `[audio]`, `[apps]`, `[display]` in a scene file, or `[lights]` for
+// an external module. The module declares it in its manifest (Facets) and
+// implements Planner; automation knows none of them, it only asks the core.
+
+// FacetSpec declares a facet a module plans.
+type FacetSpec struct {
+	// Name is the section's name in a scene file ("audio").
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Schema is the JSON Schema of the section: a scene whose section does
+	// not fit is rejected, with the schema's message.
+	Schema json.RawMessage `json:"schema,omitempty"`
+}
+
+// FacetInfo is a facet and the module that plans it.
+type FacetInfo struct {
+	FacetSpec
+	Module string `json:"module"`
+}
+
+// PlannedAction is one step of reaching a state: an action to send.
+type PlannedAction struct {
+	// Step names it in the result ("volume").
+	Step   string          `json:"step"`
+	Action string          `json:"action"`
+	Args   json.RawMessage `json:"args,omitempty"`
+	// Order sorts the steps of all facets of a scene together: the lower
+	// first, equal ones in the facets' order. The steps the built-in modules
+	// use are 10 stop apps, 20 audio output, 30 volume, 40 mute, 50 start
+	// apps, 60 focus, 70 display power; a module with no opinion uses 50.
+	Order int `json:"order"`
+}
+
+// Planner is implemented by a module that declares facets. Plan compares
+// the wish (the facet's section, already checked against its schema) with
+// the module's own state and returns the actions still needed, none when it
+// is reached already.
+type Planner interface {
+	Plan(ctx context.Context, facet string, desired json.RawMessage) ([]PlannedAction, error)
+}
+
+// FacetChecker is implemented by a Planner whose facets have rules a schema
+// cannot say (an app is not both stopped and running). It is asked when a
+// scene file is applied, so such a file is refused then, not when reached.
+type FacetChecker interface {
+	CheckFacet(facet string, desired json.RawMessage) error
+}
+
 // StatusReporter is implemented by a Reconciler whose resources have a
 // status that changes after Apply (a rule that fired, an app that runs).
 // The core asks it when the resource is read.

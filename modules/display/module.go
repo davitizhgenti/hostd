@@ -226,6 +226,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		// focuses and closes (see contract).
 		Requires: []string{contract.AppsModule},
 		Owns:     []string{"display.*", "window.*", "controller.*"},
+		Facets:   facets(),
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
 		},

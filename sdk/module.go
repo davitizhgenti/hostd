@@ -33,8 +33,9 @@ type Module interface {
 // CoreVersion numbers the Core interface below. It is frozen between
 // versions: adding, removing or changing a method is a new version, recorded
 // in the module protocol docs. Version 2 added Tokens, Limiter and
-// Introspect, which in-process modules used to be wired with by hand.
-const CoreVersion = 2
+// Introspect, which in-process modules used to be wired with by hand;
+// version 3 added Facets and Plan, with which scenes reach other modules.
+const CoreVersion = 3
 
 // Core is what the core gives every module (version CoreVersion).
 type Core interface {
@@ -77,6 +78,19 @@ type Core interface {
 	// Introspect shows what is running and which scopes exist. Only hostd's
 	// own module gets it; every other module gets nil.
 	Introspect() Introspector
+
+	// Facets lists the parts of a scene the running modules plan.
+	Facets() []FacetInfo
+
+	// CheckFacet says whether a section would be accepted by the module that
+	// plans the facet: its schema, and its own rules if it has some. It
+	// fails if no running module plans the facet.
+	CheckFacet(facet string, desired json.RawMessage) error
+
+	// Plan asks the module that plans a facet for the actions that bring
+	// its state to desired (the facet's section of a scene, checked against
+	// the facet's schema first). It fails if no running module plans it.
+	Plan(ctx context.Context, facet string, desired json.RawMessage) ([]PlannedAction, error)
 }
 
 // TokenMinter creates tokens that end with a run.

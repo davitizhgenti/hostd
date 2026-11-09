@@ -102,6 +102,7 @@ func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "audio", Version: "0.1.0",
 		Owns:   []string{"audio.*", "media.*"},
+		Facets: facets(),
 		Scopes: []sdk.ScopeSpec{{Name: "audio", Description: "Volume, mute, outputs, per-app audio, media keys"}},
 		Actions: append([]sdk.ActionSpec{
 			{Type: "audio.volume.set", Description: "Set the volume (0-150) or change it (\"+5\", \"-5\")",

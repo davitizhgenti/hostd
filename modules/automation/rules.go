@@ -181,11 +181,8 @@ func (m *Module) consider(ctx context.Context, r Rule, ev sdk.Event) {
 
 // idleFor is how long nobody has used the screen.
 func (m *Module) idleFor(ctx context.Context) (time.Duration, error) {
-	var st struct {
-		Present   bool      `json:"present"`
-		LastInput time.Time `json:"last_input"`
-	}
-	if err := m.read(ctx, "display", "display", &st); err != nil {
+	st, err := contract.ReadDisplayState(ctx, m.core)
+	if err != nil {
 		return 0, err
 	}
 	if st.LastInput.IsZero() {

@@ -100,8 +100,9 @@ func New(opts Options) *Module {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: contract.AppsModule, Version: "0.1.0",
-		Owns:  []string{"app.*", "instance.*", "secret.*"},
-		Kinds: []sdk.KindSpec{appKind()},
+		Owns:   []string{"app.*", "instance.*", "secret.*"},
+		Kinds:  []sdk.KindSpec{appKind()},
+		Facets: facets(),
 		Scopes: []sdk.ScopeSpec{
 			{Name: contract.ScopeApps, Description: "Start and stop apps, focus and close their windows"},
 			// Used by app.open and the display module's window.focus.

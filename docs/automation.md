@@ -29,6 +29,8 @@ action = "lights.scene.set"
 args   = { name = "movie_mode" }
 ```
 
+Each section (`[audio]`, `[apps]`, `[display]`) belongs to the module that plans it; automation only collects what they ask for. A scene file whose section its module refuses is not used, with the module's reason (`hostctl scenes` shows it), and so is one with a section no module plans, naming the sections there are. A module of your own can add a section the same way (see [writing a module](modules.md)).
+
 An output's name stays the same while it is plugged in or out, so a scene can name it. A desktop board's analog card is one output, `speakers`, whichever of its jacks is in use; the `PORT` column of `hostctl get audio` says which one (`Headphones`, `Line Out`).
 
 The parts above (`audio`, `apps`, `display`) are compared with the current state, and only what differs is sent. A `[[do]]` action is sent every time the scene is applied: a scene cannot know what another module's action changes, so it does not try to tell whether it is needed. Use `[[do]]` for actions that are safe to repeat. An action that no loaded module handles fails its own step, and the rest still run. A scene cannot apply another scene.

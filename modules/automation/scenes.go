@@ -6,41 +6,41 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
-	"github.com/davitizhgenti/hostd/internal/tomlx"
+	"github.com/BurntSushi/toml"
 
-	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
 // Scene is a state to reach: a file in the scenes folder, named by its
-// ID (scenes/movie.toml is "movie"). Every part is optional.
+// ID (scenes/movie.toml is "movie"). Besides its name and its [[do]] actions
+// a scene is sections, one for each facet a module plans ([audio], [apps],
+// [display], or an external module's own): automation does not know what
+// they say, it hands each to the module that plans it and runs what comes
+// back.
 type Scene struct {
-	ID      string        `json:"id" toml:"-"`
-	Name    string        `json:"name,omitempty" toml:"name"`
-	Audio   *SceneAudio   `json:"audio,omitempty" toml:"audio"`
-	Apps    *SceneApps    `json:"apps,omitempty" toml:"apps"`
-	Display *SceneDisplay `json:"display,omitempty" toml:"display"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	// Facets are the sections, by facet, as JSON.
+	Facets map[string]json.RawMessage `json:"facets,omitempty"`
 	// Do are actions of any module, sent last and in file order. Unlike the
-	// parts above they are not compared with the current state first: the
+	// sections they are not compared with the current state first: the
 	// scene cannot know what an action of another module changes, so each
 	// is sent every time the scene is applied.
-	Do []SceneDo `json:"do,omitempty" toml:"do"`
-	// Sets are the parts it has, in a fixed order (apps, audio, display,
-	// do): for lists of scenes.
-	Sets []string `json:"sets,omitempty" toml:"-"`
+	Do []SceneDo `json:"do,omitempty"`
 }
 
+// sets are the parts the scene has: its facets by name, then "do".
 func (s Scene) sets() []string {
-	var out []string
-	for _, p := range []struct {
-		name string
-		has  bool
-	}{{"apps", s.Apps != nil}, {"audio", s.Audio != nil}, {"display", s.Display != nil}, {"do", len(s.Do) > 0}} {
-		if p.has {
-			out = append(out, p.name)
-		}
+	out := make([]string, 0, len(s.Facets)+1)
+	for name := range s.Facets {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	if len(s.Do) > 0 {
+		out = append(out, "do")
 	}
 	return out
 }
@@ -51,56 +51,60 @@ type SceneDo struct {
 	Args   map[string]any `json:"args,omitempty" toml:"args"`
 }
 
-// SceneAudio is where sound goes and how loud.
-type SceneAudio struct {
-	Output string `json:"output,omitempty" toml:"output"` // an output name: hdmi, speakers, bt-...
-	Volume *int   `json:"volume,omitempty" toml:"volume"` // 0-150
-	Muted  *bool  `json:"muted,omitempty" toml:"muted"`
-}
-
-// SceneApps are the apps that run, and the one in front.
-type SceneApps struct {
-	Stop    []string `json:"stop,omitempty" toml:"stop"`       // stopped (every instance)
-	Running []string `json:"running,omitempty" toml:"running"` // started if not running
-	Focus   string   `json:"focus,omitempty" toml:"focus"`     // in front
-}
-
-// SceneDisplay is whether the screens are on.
-type SceneDisplay struct {
-	Power string `json:"power,omitempty" toml:"power"` // on, off
-}
-
 var sceneID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
-// ParseScene decodes and checks one scene file.
+// ParseScene decodes one scene file and checks what automation can check:
+// its name, its [[do]] actions, and that every other key is a section. Whether
+// a section is right is for the module that plans it (the core asks it, when
+// the scene is applied as a resource).
 func ParseScene(path string, data []byte) (Scene, error) {
-	var s Scene
-	_, err := tomlx.Decode(data, &s)
-	if err != nil {
+	var doc map[string]any
+	if _, err := toml.Decode(string(data), &doc); err != nil {
 		return Scene{}, err
 	}
-	s.ID = strings.TrimSuffix(filepath.Base(path), ".toml")
+	s := Scene{ID: strings.TrimSuffix(filepath.Base(path), ".toml")}
 	if !sceneID.MatchString(s.ID) {
 		return Scene{}, fmt.Errorf("file name %q: use lowercase letters, digits, '.', '_' and '-'", filepath.Base(path))
 	}
-	if a := s.Audio; a != nil && a.Volume != nil && (*a.Volume < 0 || *a.Volume > 150) {
-		return Scene{}, fmt.Errorf("audio.volume %d: 0-150", *a.Volume)
+	keys := make([]string, 0, len(doc))
+	for k := range doc {
+		keys = append(keys, k)
 	}
-	if d := s.Display; d != nil && d.Power != "" && d.Power != "on" && d.Power != "off" {
-		return Scene{}, fmt.Errorf("display.power %q: on or off", d.Power)
-	}
-	if a := s.Apps; a != nil {
-		stop := map[string]bool{}
-		for _, id := range a.Stop {
-			stop[id] = true
-		}
-		for _, id := range a.Running {
-			if stop[id] {
-				return Scene{}, fmt.Errorf("apps: %q is both in stop and in running", id)
+	sort.Strings(keys)
+	for _, k := range keys {
+		switch v := doc[k].(type) {
+		case string:
+			if k != "name" {
+				return Scene{}, fmt.Errorf("unknown key %s (a scene's parts are sections such as [audio], and name)", k)
 			}
-		}
-		if stop[a.Focus] {
-			return Scene{}, fmt.Errorf("apps.focus %q is in stop", a.Focus)
+			s.Name = v
+		case map[string]any:
+			if k == "name" || k == "do" {
+				return Scene{}, fmt.Errorf("%s: not a section", k)
+			}
+			raw, err := json.Marshal(v)
+			if err != nil {
+				return Scene{}, fmt.Errorf("[%s]: %w", k, err)
+			}
+			if s.Facets == nil {
+				s.Facets = map[string]json.RawMessage{}
+			}
+			s.Facets[k] = raw
+		case []map[string]any, []any:
+			if k != "do" {
+				return Scene{}, fmt.Errorf("unknown key %s (a scene's parts are sections such as [audio], and [[do]])", k)
+			}
+			raw, _ := json.Marshal(v)
+			dec := json.NewDecoder(strings.NewReader(string(raw)))
+			dec.DisallowUnknownFields()
+			// json tags are the toml names here, so this checks do's keys.
+			var list []SceneDo
+			if err := dec.Decode(&list); err != nil {
+				return Scene{}, fmt.Errorf("do: unknown key or wrong type: %w", err)
+			}
+			s.Do = list
+		default:
+			return Scene{}, fmt.Errorf("unknown key %s (a scene's parts are sections such as [audio], and name)", k)
 		}
 	}
 	for i, d := range s.Do {
@@ -114,9 +118,45 @@ func ParseScene(path string, data []byte) (Scene, error) {
 	return s, nil
 }
 
+// checkFacets asks the core whether the module that plans each section
+// accepts it. A section no module plans is refused, naming the ones there are.
+func (m *Module) checkFacets(s Scene) error {
+	m.mu.Lock()
+	core := m.core
+	m.mu.Unlock()
+	if core == nil {
+		return nil
+	}
+	known := map[string]bool{}
+	var names []string
+	for _, f := range core.Facets() {
+		known[f.Name] = true
+		names = append(names, f.Name)
+	}
+	sort.Strings(names)
+	for _, name := range s.sortedFacets() {
+		if !known[name] {
+			return fmt.Errorf("[%s]: no module plans it (the sections are: %s)", name, strings.Join(names, ", "))
+		}
+		if err := core.CheckFacet(name, s.Facets[name]); err != nil {
+			return fmt.Errorf("[%s]: %s", name, strings.TrimPrefix(sdk.AsError(err).Message, "/: "))
+		}
+	}
+	return nil
+}
+
+func (s Scene) sortedFacets() []string {
+	names := make([]string, 0, len(s.Facets))
+	for name := range s.Facets {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Step is one action a scene needed, and what became of it.
 type Step struct {
-	Step   string          `json:"step"` // stop, output, volume, mute, start, focus, power, do
+	Step   string          `json:"step"` // stop, output, volume, mute, start, focus, power, do; or a section's name for one that failed to plan
 	Action string          `json:"action"`
 	Args   json.RawMessage `json:"args"`
 	// Status: applied, skipped (a higher-priority source holds the
@@ -132,53 +172,19 @@ type Applied struct {
 	Steps []Step `json:"steps"` // empty: it was reached already
 }
 
-// current is what a scene compares against.
-type current struct {
-	instances []contract.Instance
-	audio     *struct {
-		Percent int  `json:"percent"`
-		Muted   bool `json:"muted"`
-		Outputs []struct {
-			Name    string `json:"name"`
-			Default bool   `json:"default"`
-		} `json:"outputs"`
-	}
-	display *struct {
-		Focused string `json:"focused_instance"`
-		Outputs []struct {
-			Name   string `json:"name"`
-			Active bool   `json:"active"`
-			Power  bool   `json:"power"`
-		} `json:"outputs"`
-	}
+// planned is a step with the position of its facet, for ordering.
+type planned struct {
+	sdk.PlannedAction
+	facet int
 }
 
-func (m *Module) read(ctx context.Context, module, name string, into any) error {
-	raw, err := m.core.Read(ctx, module, name, nil)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, into)
-}
-
-func (c *current) live(app string) []string {
-	var ids []string
-	for _, in := range c.instances {
-		if in.App == app && !in.Ended() {
-			ids = append(ids, in.ID)
-		}
-	}
-	return ids
-}
-
-// apply reaches the scene: only the actions still needed, in a fixed
-// order (stop apps, audio output, volume, start apps, focus, display
-// power, then the scene's own do actions). A failed step does not stop the later ones, nor undo the earlier
-// ones. Reads of a module that is not there fail that module's steps.
+// apply reaches the scene: it asks the module of each section for the
+// actions still needed, puts the steps of all sections in their order, and
+// sends them, then the scene's own do actions. A failed step does not stop
+// the later ones, nor undo the earlier ones. A section whose module cannot
+// say (it is not running, or cannot read its state) is one failed step.
 func (m *Module) apply(ctx context.Context, s Scene) Applied {
 	out := Applied{Scene: s.ID, Steps: []Step{}}
-	var cur current
-	appsErr := m.read(ctx, contract.AppsModule, contract.ReadInstances, &cur.instances)
 	run := func(step, action string, args any) {
 		st := Step{Step: step, Action: action, Args: sdk.MustJSON(args)}
 		res, err := m.core.Do(ctx, sdk.Action{Type: action, Args: st.Args})
@@ -195,89 +201,32 @@ func (m *Module) apply(ctx context.Context, s Scene) Applied {
 		}
 		out.Steps = append(out.Steps, st)
 	}
-	failed := func(step string, err error) {
-		out.Steps = append(out.Steps, Step{Step: step, Status: "failed", Error: err.Error(), Args: json.RawMessage("null")})
-	}
 
-	if a := s.Apps; a != nil && len(a.Stop) > 0 {
-		if appsErr != nil {
-			failed("stop", appsErr)
-		}
-		for _, app := range a.Stop {
-			for _, id := range cur.live(app) {
-				run("stop", contract.ActionInstanceStop, map[string]string{"id": id})
-			}
-		}
+	// The sections in the order the modules that plan them are in, so
+	// that equal steps come out the same way every time.
+	position := map[string]int{}
+	for i, f := range m.core.Facets() {
+		position[f.Name] = i
 	}
-
-	if a := s.Audio; a != nil {
-		if err := m.read(ctx, "audio", "audio", &cur.audio); err != nil {
-			failed("audio", err)
-		} else {
-			if a.Output != "" {
-				def := ""
-				for _, o := range cur.audio.Outputs {
-					if o.Default {
-						def = o.Name
-					}
-				}
-				if def != a.Output {
-					run("output", "audio.output.set", map[string]string{"output": a.Output})
-				}
-			}
-			if a.Volume != nil && cur.audio.Percent != *a.Volume {
-				run("volume", "audio.volume.set", map[string]int{"percent": *a.Volume})
-			}
-			if a.Muted != nil && cur.audio.Muted != *a.Muted {
-				run("mute", "audio.mute.set", map[string]bool{"muted": *a.Muted})
-			}
+	names := s.sortedFacets()
+	sort.SliceStable(names, func(i, j int) bool { return position[names[i]] < position[names[j]] })
+	var steps []planned
+	for i, name := range names {
+		acts, err := m.core.Plan(ctx, name, s.Facets[name])
+		for _, a := range acts {
+			steps = append(steps, planned{a, i})
+		}
+		if err != nil {
+			out.Steps = append(out.Steps, Step{Step: name, Status: "failed", Error: strings.TrimPrefix(sdk.AsError(err).Message, "/: "), Args: json.RawMessage("null")})
 		}
 	}
-
-	if a := s.Apps; a != nil && (len(a.Running) > 0 || a.Focus != "") {
-		if appsErr != nil {
-			failed("start", appsErr)
-		} else {
-			need := append([]string(nil), a.Running...)
-			if a.Focus != "" && !contains(need, a.Focus) {
-				need = append(need, a.Focus) // in front means running
-			}
-			for _, app := range need {
-				if len(cur.live(app)) > 0 {
-					continue
-				}
-				run("start", contract.ActionAppOpen, map[string]string{"id": app})
-			}
+	sort.SliceStable(steps, func(i, j int) bool { return steps[i].Order < steps[j].Order })
+	for _, st := range steps {
+		var args any = json.RawMessage("{}")
+		if len(st.Args) > 0 {
+			args = st.Args
 		}
-	}
-
-	if a := s.Apps; a != nil && a.Focus != "" {
-		if err := m.read(ctx, "display", "display", &cur.display); err != nil {
-			failed("focus", err)
-		} else if focused := cur.display.Focused; contract.AppOf(focused) != a.Focus {
-			// An app started just now is not in the list: app.open
-			// brings it to the front (unless someone uses the screen).
-			if live := cur.live(a.Focus); len(live) > 0 {
-				run("focus", "window.focus", map[string]string{"instance": live[0]})
-			}
-		}
-	}
-
-	if d := s.Display; d != nil && d.Power != "" {
-		if cur.display == nil {
-			if err := m.read(ctx, "display", "display", &cur.display); err != nil {
-				failed("power", err)
-			}
-		}
-		if cur.display != nil {
-			want := d.Power == "on"
-			for _, o := range cur.display.Outputs {
-				if o.Active && o.Power != want {
-					run("power", "display.power", map[string]bool{"on": want})
-					break
-				}
-			}
-		}
+		run(st.Step, st.Action, args)
 	}
 
 	for _, d := range s.Do {
@@ -289,13 +238,4 @@ func (m *Module) apply(ctx context.Context, s Scene) Applied {
 		run("do", d.Action, args)
 	}
 	return out
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

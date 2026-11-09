@@ -697,6 +697,49 @@ func (i introspect) Scopes() []string {
 	return slices.Compact(out)
 }
 
+func (mc moduleCore) Facets() []sdk.FacetInfo { return mc.e.reg.Facets() }
+
+// CheckFacet checks a section against the facet's schema and, if its planner
+// has rules of its own, those.
+func (mc moduleCore) CheckFacet(facet string, desired json.RawMessage) error {
+	p, info, ok := mc.e.reg.Planner(facet)
+	if !ok {
+		return sdk.Errorf(sdk.CodeNotFound, "no running module plans %q", facet)
+	}
+	schema, err := sdk.CompileArgsSchema(info.Schema)
+	if err != nil {
+		return err
+	}
+	if len(desired) == 0 {
+		desired = json.RawMessage("{}")
+	}
+	if err := schema.Validate(desired); err != nil {
+		return err
+	}
+	if c, ok := p.(sdk.FacetChecker); ok {
+		return c.CheckFacet(facet, desired)
+	}
+	return nil
+}
+
+// Plan asks the module that plans a facet for the actions that reach desired.
+// The section is checked against the facet's schema first, so a planner only
+// ever sees what it declared.
+func (mc moduleCore) Plan(ctx context.Context, facet string, desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	p, info, ok := mc.e.reg.Planner(facet)
+	if !ok {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "no running module plans %q", facet)
+	}
+	if err := mc.CheckFacet(facet, desired); err != nil {
+		return nil, err
+	}
+	if len(desired) == 0 {
+		desired = json.RawMessage("{}")
+	}
+	_ = info
+	return p.Plan(ctx, facet, desired)
+}
+
 func (mc moduleCore) Handles(actionType string) bool {
 	m, _, ok := mc.e.reg.lookup(actionType)
 	return ok && mc.e.reg.started(m)

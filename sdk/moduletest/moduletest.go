@@ -38,6 +38,10 @@ type Core struct {
 	TokenMinter  sdk.TokenMinter
 	RuleLimiter  sdk.Limiter
 	Introspector sdk.Introspector
+	// FacetInfos and Planned script Facets and Plan: Planned maps a facet
+	// to the steps Plan returns for it.
+	FacetInfos []sdk.FacetInfo
+	Planned    map[string][]sdk.PlannedAction
 }
 
 type sub struct {
@@ -188,5 +192,19 @@ func (c *Core) Limiter() sdk.Limiter { return c.RuleLimiter }
 
 // Introspect implements sdk.Core.
 func (c *Core) Introspect() sdk.Introspector { return c.Introspector }
+
+// Facets implements sdk.Core.
+func (c *Core) Facets() []sdk.FacetInfo { return c.FacetInfos }
+
+// CheckFacet implements sdk.Core: every section is accepted.
+func (c *Core) CheckFacet(string, json.RawMessage) error { return nil }
+
+// Plan implements sdk.Core: the scripted steps, or not_found.
+func (c *Core) Plan(_ context.Context, facet string, _ json.RawMessage) ([]sdk.PlannedAction, error) {
+	if steps, ok := c.Planned[facet]; ok {
+		return steps, nil
+	}
+	return nil, sdk.Errorf(sdk.CodeNotFound, "no scripted plan for %q", facet)
+}
 
 var _ sdk.Core = (*Core)(nil)

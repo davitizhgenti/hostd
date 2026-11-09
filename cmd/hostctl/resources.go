@@ -258,7 +258,7 @@ kinds: ` + idx.words(),
 				switch {
 				case err != nil:
 					failed++
-					fmt.Fprintf(a.stdout, "%s/%s: rejected: %s\n", f.kind.Kind, f.name, oneLine(err.Error()))
+					fmt.Fprintf(a.stdout, "%s/%s: rejected: %s\n", f.kind.Kind, f.name, strings.Join(strings.Fields(err.Error()), " "))
 				case check:
 					fmt.Fprintf(a.stdout, "%s/%s: would be accepted\n", f.kind.Kind, f.name)
 				default:

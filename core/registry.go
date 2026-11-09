@@ -94,6 +94,21 @@ func (r *Registry) Add(m sdk.Module) error {
 		}
 	}
 
+	if len(man.Facets) > 0 {
+		if _, ok := m.(sdk.Planner); !ok {
+			return fmt.Errorf("module %q declares facets but does not implement sdk.Planner", man.Name)
+		}
+		for _, f := range man.Facets {
+			for _, other := range r.modules {
+				for _, of := range other.man.Facets {
+					if of.Name == f.Name {
+						return fmt.Errorf("module %q: facet %q is already planned by module %q", man.Name, f.Name, other.man.Name)
+					}
+				}
+			}
+		}
+	}
+
 	entry := &module{mod: m, man: man, schemas: make(map[string]*sdk.ArgsSchema, len(man.Actions))}
 	for _, a := range man.Actions {
 		s, err := sdk.CompileArgsSchema(a.Schema)
@@ -351,4 +366,39 @@ func (r *Registry) Reconciler(kind string) (sdk.Reconciler, bool) {
 		}
 	}
 	return nil, false
+}
+
+// Facets lists the facets of the modules that are running, in module order.
+func (r *Registry) Facets() []sdk.FacetInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	list := r.order
+	if list == nil {
+		list = r.modules
+	}
+	var out []sdk.FacetInfo
+	for _, m := range list {
+		if m.state != stateStarted {
+			continue
+		}
+		for _, f := range m.man.Facets {
+			out = append(out, sdk.FacetInfo{FacetSpec: f, Module: m.man.Name})
+		}
+	}
+	return out
+}
+
+// Planner returns the module that plans a facet, if it is running.
+func (r *Registry) Planner(facet string) (sdk.Planner, sdk.FacetInfo, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, m := range r.modules {
+		for _, f := range m.man.Facets {
+			if f.Name == facet && m.state == stateStarted {
+				p, ok := m.mod.(sdk.Planner)
+				return p, sdk.FacetInfo{FacetSpec: f, Module: m.man.Name}, ok
+			}
+		}
+	}
+	return nil, sdk.FacetInfo{}, false
 }

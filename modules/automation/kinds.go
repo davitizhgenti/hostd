@@ -112,6 +112,9 @@ func (m *Module) Apply(_ context.Context, r sdk.Resource) (sdk.ResourceStatus, e
 	}
 	switch v := v.(type) {
 	case Scene:
+		if err := m.checkFacets(v); err != nil {
+			return sdk.ResourceStatus{}, err
+		}
 		m.mu.Lock()
 		m.scenes[v.ID] = v
 		m.mu.Unlock()
@@ -148,7 +151,10 @@ func (m *Module) Apply(_ context.Context, r sdk.Resource) (sdk.ResourceStatus, e
 
 // Check implements sdk.Checker: the file would be accepted, nothing is kept.
 func (m *Module) Check(_ context.Context, r sdk.Resource) error {
-	_, err := parseResource(r)
+	v, err := parseResource(r)
+	if sc, ok := v.(Scene); ok && err == nil {
+		err = m.checkFacets(sc)
+	}
 	return err
 }
 

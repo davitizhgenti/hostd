@@ -57,6 +57,37 @@ stderr 'no script "nothing"'
 ! exec hostctl apply -f admin.toml --kind script --name boss
 stdout 'cannot have scope admin'
 
+# A scene's sections belong to the modules that plan them: each is checked by
+# its module, and one no module plans is refused with the ones there are.
+exec hostctl apply -f all.toml --kind scene
+stdout 'scene/all: applied'
+exec hostctl scenes
+stdout '^all +All three +apps, audio, display +-$'
+! exec hostctl apply -f loud.toml --kind scene
+stdout '\[audio\]: .*maximum'
+! exec hostctl apply -f typo.toml --kind scene
+stdout 'no module plans it .the sections are: apps, audio, display'
+! exec hostctl apply -f clash.toml --kind scene
+stdout 'is both in stop and in running'
+
+-- all.toml --
+name = "All three"
+[audio]
+volume = 40
+[apps]
+running = ["jellyfin"]
+[display]
+power = "on"
+-- loud.toml --
+[audio]
+volume = 400
+-- typo.toml --
+[audoi]
+volume = 4
+-- clash.toml --
+[apps]
+stop    = ["a"]
+running = ["a"]
 -- hello.toml --
 run    = "echo hi"
 scopes = ["audio"]

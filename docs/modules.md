@@ -64,7 +64,9 @@ Under the kit, a module is an `sdk.Module` (`Manifest`, `Start`, `Validate`, `Ha
 
 Modules never import each other. When one uses another's actions, events or reads, it declares that in its manifest (`requires`), and both take the names and data shapes from the `contract` package.
 
-What the core offers a module (`sdk.Core`): `Emit`, `Do`, `Subscribe`, `Handles`, `Read`, and, for the built-in modules that need them, `Tokens` (short-lived tokens for scripts), `Limiter` (the rule limit) and `Introspect` (only hostd's own module gets it).
+A module can also add a **section to scenes**: it declares a facet (`Manifest.Facets`: a name and a schema from a Go type) and implements `sdk.Planner`. A scene with `[lights]` is handed to the module that plans `lights`, which compares the wish with its own state and returns the actions still needed, each with an order number (the built-in ones are 10 stop apps, 20 audio output, 30 volume, 40 mute, 50 start apps, 60 focus, 70 display power). A rule of the facet that a schema cannot say goes in `CheckFacet`, which is asked when the scene file is applied. Facets are Go-only for now; an external module sends its steps with `[[do]]` actions.
+
+What the core offers a module (`sdk.Core`): `Emit`, `Do`, `Subscribe`, `Handles`, `Read`, and, for the built-in modules that need them, `Tokens` (short-lived tokens for scripts), `Limiter` (the rule limit), `Introspect` (only hostd's own module gets it), and `Facets`, `CheckFacet` and `Plan` (scenes reaching the modules that plan their sections).
 
 To test a module on its own, `sdk/moduletest` has a fake `Core` that records what the module emits and sends, answers its reads from a script and feeds it events. To test through the real pipeline (schema, locks, priority), build a registry and an engine with `core.New`, as `sdk/kit/kit_test.go` does.
 
