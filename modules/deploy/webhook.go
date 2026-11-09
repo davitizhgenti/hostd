@@ -58,8 +58,8 @@ func (m *Module) Hook(ctx context.Context, name string, req sdk.HookRequest) (an
 	if err := json.Unmarshal(req.Body, &push); err != nil {
 		return nil, sdk.Errorf(sdk.CodeInvalidArgs, "push event: %v", err)
 	}
-	if push.Ref != "refs/heads/"+s.branch() {
-		return map[string]string{"status": "ignored", "reason": "a push to " + push.Ref + ", not " + s.branch()}, nil
+	if push.Ref != "refs/heads/"+branchOf(s.Deploy) {
+		return map[string]string{"status": "ignored", "reason": "a push to " + push.Ref + ", not " + branchOf(s.Deploy)}, nil
 	}
 	if strings.Trim(push.After, "0") == "" {
 		return map[string]string{"status": "ignored", "reason": "the branch was deleted"}, nil

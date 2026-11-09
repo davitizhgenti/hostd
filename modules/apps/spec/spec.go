@@ -76,25 +76,8 @@ type App struct {
 	Deploy *Deploy `json:"deploy,omitempty"`
 }
 
-// Deploy is a service's [source]: where new versions come from, how they
-// are built, and the public port hostd serves them on.
-type Deploy struct {
-	Type   string   `json:"type" toml:"type"`               // push: git push to the box; remote: hostd polls url
-	Build  []string `json:"build,omitempty" toml:"build"`   // run in the release's directory
-	Port   int      `json:"port,omitempty" toml:"port"`     // public port; each release gets PORT
-	Branch string   `json:"branch,omitempty" toml:"branch"` // default main
-	Keep   int      `json:"keep,omitempty" toml:"keep"`     // releases kept (default 5)
-	URL    string   `json:"url,omitempty" toml:"url"`       // remote: the repository
-	Poll   string   `json:"poll,omitempty" toml:"poll"`     // remote: how often to look (default 60s)
-	Secret string   `json:"secret,omitempty" toml:"secret"` // webhook: the secret's name (hostctl secret set)
-	// image: the image (ghcr.io/me/blog), its tag (default latest), the
-	// port the container listens on, and a secret with registry
-	// credentials (user:token) for a private image.
-	Image         string `json:"image,omitempty" toml:"image"`
-	Tag           string `json:"tag,omitempty" toml:"tag"`
-	ContainerPort int    `json:"container_port,omitempty" toml:"container_port"`
-	Auth          string `json:"auth,omitempty" toml:"auth"`
-}
+// Deploy is a service's [source] (see contract.Deploy).
+type Deploy = contract.Deploy
 
 // AppAction is an extra way to start an app: app.open with action=<id>
 // runs Command as a new instance.

@@ -28,7 +28,7 @@ import (
 
 // Events the module emits.
 const (
-	EventCatalogChanged = "app.catalog.changed"
+	EventCatalogChanged = contract.EventCatalogChanged
 	EventFileRejected   = "app.file.rejected"
 )
 
@@ -111,9 +111,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: contract.ScopeRun, Description: "Run any command as the screen user, and add or remove app files (app.run, app.define)"},
 		},
 		Actions: append([]sdk.ActionSpec{
-			{Type: "app.rescan", Description: "Read the installed apps (desktop entries) again", Scope: contract.ScopeApps,
+			{Type: contract.ActionAppRescan, Description: "Read the installed apps (desktop entries) again", Scope: contract.ScopeApps,
 				Route: &sdk.Route{Method: "POST", Path: "/v1/catalog/rescan"}},
-			{Type: "app.check", Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
+			{Type: contract.ActionAppCheck, Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
 				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
 		}, append(append(append(instanceActions(), verbActions()...), runActions()...), secretActions()...)...),
 		Events: append([]sdk.EventSpec{
@@ -305,10 +305,10 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	case ActionRun:
 		return m.handleRun(ctx, a)
 	}
-	if a.Type == "app.check" {
+	if a.Type == contract.ActionAppCheck {
 		return m.handleCheck(a)
 	}
-	if a.Type == "app.rescan" {
+	if a.Type == contract.ActionAppRescan {
 		m.rescan()
 		cat := m.catalog()
 		return sdk.Result{Data: sdk.MustJSON(map[string]int{"apps": cat.Len(), "problems": len(cat.Problems)})}, nil

@@ -857,11 +857,11 @@ func TestSmallEdges(t *testing.T) {
 	var s, plain service
 	_ = json.Unmarshal([]byte(`{"id":"site","deploy":{"type":"remote","poll":"15s"}}`), &s)
 	_ = json.Unmarshal([]byte(`{"id":"site","deploy":{"type":"remote"}}`), &plain)
-	if s.pollEvery() != 15*time.Second || plain.pollEvery() != time.Minute {
-		t.Errorf("poll %v %v", s.pollEvery(), plain.pollEvery())
+	if pollEvery(s.Deploy) != 15*time.Second || pollEvery(plain.Deploy) != time.Minute {
+		t.Errorf("poll %v %v", pollEvery(s.Deploy), pollEvery(plain.Deploy))
 	}
-	if s.branch() != "main" {
-		t.Errorf("default branch %q", s.branch())
+	if branchOf(s.Deploy) != "main" {
+		t.Errorf("default branch %q", branchOf(s.Deploy))
 	}
 	m := New(Options{Root: t.TempDir()})
 	if _, err := m.readFollow(); sdk.CodeOf(err) != sdk.CodeNotFound {

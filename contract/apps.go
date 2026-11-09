@@ -81,6 +81,18 @@ const (
 	EventInstanceFailed   = "instance.failed"
 
 	ReadInstances = "instances" // running instances: []Instance
+	ReadInstance  = "instance"  // one instance, by id
+	ReadCatalog   = "apps"      // the app catalog: {"apps": [...], "problems": [...]}; ?all=true adds hidden apps
+
+	// ActionAppCheck builds the catalog as it would be with a folder as the
+	// app files and reports the files' problems (args: {"dir": path}; scope
+	// admin): what a followed config is checked with before it is used.
+	// ActionAppRescan reads the machine's desktop entries again.
+	ActionAppCheck  = "app.check"
+	ActionAppRescan = "app.rescan"
+
+	// EventCatalogChanged: apps were added, removed or changed.
+	EventCatalogChanged = "app.catalog.changed"
 )
 
 // AppStart is the arguments of app.open.

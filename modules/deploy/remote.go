@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
+
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -61,10 +63,10 @@ func (m *Module) gitEnv(app string) []string {
 
 // fetch brings the remote's branch into the service's repository.
 func (m *Module) fetch(ctx context.Context, s service) error {
-	if _, err := m.initRepo(ctx, s.ID, s.branch()); err != nil {
+	if _, err := m.initRepo(ctx, s.ID, branchOf(s.Deploy)); err != nil {
 		return err
 	}
-	ref := "+refs/heads/" + s.branch() + ":refs/heads/" + s.branch()
+	ref := "+refs/heads/" + branchOf(s.Deploy) + ":refs/heads/" + branchOf(s.Deploy)
 	if _, err := m.gitWith(ctx, m.gitEnv(s.ID), "--git-dir", m.repo(s.ID), "fetch", "--quiet", "--no-tags", s.Deploy.URL, ref); err != nil {
 		return fmt.Errorf("fetching %s: %w", s.Deploy.URL, err)
 	}
@@ -73,19 +75,19 @@ func (m *Module) fetch(ctx context.Context, s service) error {
 
 // head is the commit at the tip of the remote's branch.
 func (m *Module) head(ctx context.Context, s service) (string, error) {
-	out, err := m.gitWith(ctx, m.gitEnv(s.ID), "ls-remote", s.Deploy.URL, "refs/heads/"+s.branch())
+	out, err := m.gitWith(ctx, m.gitEnv(s.ID), "ls-remote", s.Deploy.URL, "refs/heads/"+branchOf(s.Deploy))
 	if err != nil {
 		return "", err
 	}
 	sha, _, _ := strings.Cut(out, "\t")
 	if sha == "" {
-		return "", fmt.Errorf("%s has no branch %s", s.Deploy.URL, s.branch())
+		return "", fmt.Errorf("%s has no branch %s", s.Deploy.URL, branchOf(s.Deploy))
 	}
 	return sha, nil
 }
 
-func (s service) pollEvery() time.Duration {
-	if d, err := time.ParseDuration(s.Deploy.Poll); err == nil && d > 0 {
+func pollEvery(d *contract.Deploy) time.Duration {
+	if d, err := time.ParseDuration(d.Poll); err == nil && d > 0 {
 		return d
 	}
 	return 60 * time.Second
@@ -103,7 +105,7 @@ func (m *Module) pollLoop(ctx context.Context) {
 		if svcs, err := m.services(ctx); err == nil {
 			now := m.opts.Clock.Now()
 			for id, s := range svcs {
-				if (s.Deploy.Type != "remote" && s.Deploy.Type != "image") || now.Sub(last[id]) < s.pollEvery() {
+				if (s.Deploy.Type != "remote" && s.Deploy.Type != "image") || now.Sub(last[id]) < pollEvery(s.Deploy) {
 					continue
 				}
 				last[id] = now

@@ -163,28 +163,12 @@ func (m *Module) Manifest() sdk.Manifest {
 	}
 }
 
-// service is what the deploy module needs of an app.
-type service struct {
-	ID     string `json:"id"`
-	Deploy *struct {
-		Type          string   `json:"type"`
-		URL           string   `json:"url"`
-		Poll          string   `json:"poll"`
-		Secret        string   `json:"secret"`
-		Image         string   `json:"image"`
-		Tag           string   `json:"tag"`
-		ContainerPort int      `json:"container_port"`
-		Auth          string   `json:"auth"`
-		Build         []string `json:"build"`
-		Port          int      `json:"port"`
-		Branch        string   `json:"branch"`
-		Keep          int      `json:"keep"`
-	} `json:"deploy"`
-}
+// service is an app with a [source].
+type service = contract.Service
 
-func (s service) branch() string {
-	if s.Deploy.Branch != "" {
-		return s.Deploy.Branch
+func branchOf(d *contract.Deploy) string {
+	if d.Branch != "" {
+		return d.Branch
 	}
 	return "main"
 }
@@ -194,23 +178,7 @@ func (m *Module) services(ctx context.Context) (map[string]service, error) {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	raw, err := core.Read(ctx, contract.AppsModule, "apps", map[string]string{"all": "true"})
-	if err != nil {
-		return nil, err
-	}
-	var list struct {
-		Apps []service `json:"apps"`
-	}
-	if err := json.Unmarshal(raw, &list); err != nil {
-		return nil, err
-	}
-	out := map[string]service{}
-	for _, a := range list.Apps {
-		if a.Deploy != nil {
-			out[a.ID] = a
-		}
-	}
-	return out, nil
+	return contract.ReadServices(ctx, core)
 }
 
 func (m *Module) service(ctx context.Context, app string) (service, error) {
@@ -235,7 +203,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	m.mu.Lock()
 	m.stop, m.life = cancel, ctx
 	m.mu.Unlock()
-	events := core.Subscribe(ctx, "app.catalog.changed")
+	events := core.Subscribe(ctx, contract.EventCatalogChanged)
 	m.done.Add(1)
 	go func() {
 		defer m.done.Done()
@@ -326,7 +294,7 @@ func (m *Module) instanceState(ctx context.Context, id string) (state, errText s
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	raw, err := core.Read(ctx, contract.AppsModule, "instance", map[string]string{"id": id})
+	raw, err := core.Read(ctx, contract.AppsModule, contract.ReadInstance, map[string]string{"id": id})
 	if err != nil {
 		return "", err.Error()
 	}
@@ -467,16 +435,16 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		}
 		return sdk.Result{Data: sdk.MustJSON(map[string]string{"public_key": pub, "path": m.keyPath(s.ID)})}, nil
 	case "deploy.init":
-		dir, err := m.initRepo(ctx, s.ID, s.branch())
+		dir, err := m.initRepo(ctx, s.ID, branchOf(s.Deploy))
 		if err != nil {
 			return sdk.Result{}, err
 		}
 		m.sync(ctx) // the public port opens now, before the first push
 		if s.Deploy.Type != "push" {
-			return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": s.branch(), "url": s.Deploy.URL})}, nil
+			return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": branchOf(s.Deploy), "url": s.Deploy.URL})}, nil
 		}
 		host, _ := os.Hostname()
-		return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": s.branch(),
+		return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": branchOf(s.Deploy),
 			"remote": "ssh://" + os.Getenv("USER") + "@" + host + dir})}, nil
 	case "deploy.run":
 		return m.run(ctx, s, args.Rev)
@@ -524,7 +492,7 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 				return fail(Release{}, err)
 			}
 		}
-		sha, dir, err := m.export(ctx, s.ID, rev, s.branch())
+		sha, dir, err := m.export(ctx, s.ID, rev, branchOf(s.Deploy))
 		if err != nil {
 			return fail(Release{}, err)
 		}

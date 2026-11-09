@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
+
 	"github.com/davitizhgenti/hostd/internal/fsx"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -214,7 +216,7 @@ func (m *Module) configSync(ctx context.Context) (sdk.Result, error) {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	res, err := core.Do(ctx, sdk.Action{Type: "app.check", Args: sdk.MustJSON(map[string]string{"dir": apps})})
+	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppCheck, Args: sdk.MustJSON(map[string]string{"dir": apps})})
 	if err != nil {
 		return sdk.Result{}, err
 	}
@@ -228,7 +230,7 @@ func (m *Module) configSync(ctx context.Context) (sdk.Result, error) {
 	if err := m.pointAppsAt(apps); err != nil {
 		return sdk.Result{}, err
 	}
-	if _, err := core.Do(ctx, sdk.Action{Type: "app.rescan"}); err != nil {
+	if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppRescan}); err != nil {
 		m.log.Warn("reading the new config", "err", err)
 	}
 	f.Applied, f.Rejected, f.Error, f.Problems, f.At = sha, "", "", nil, m.opts.Clock.Now().UTC()
