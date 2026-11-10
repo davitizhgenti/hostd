@@ -105,6 +105,35 @@ HOSTD_CONTEXT) uses another for one command.
 | `--name` |  | save this login as a named context, and make it the current one |
 | `--token-file` |  | read the token from this file |
 
+## hostctl new
+
+Start something new: hostctl new module NAME
+
+```
+hostctl new
+```
+
+## hostctl new module
+
+Write the files of a new module to start from (--python, or --go)
+
+```
+hostctl new module NAME [flags]
+```
+
+Write a working module to start from, into ./NAME:
+
+  --python   a program in Python's standard library that speaks the module
+             protocol: one action, NAME.hello
+  --go       a package built with sdk/kit, for hostd's source tree, with a test
+
+It says how to run it.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--go` |  | a Go module built with sdk/kit |
+| `--python` |  | a Python module (standard library only) |
+
 ## hostctl update
 
 Update hostd on the machine

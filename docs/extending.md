@@ -27,6 +27,8 @@ The same words everywhere: the CLI, the API, the Python client, the menu, scenes
 | Control hardware or a service hostd does not know | an **external module**, in any language | a program speaking JSON-RPC, plus `modules/<name>.toml` ([writing a module](modules.md)) |
 | The same, inside hostd, with typed actions | a **built-in module** in Go with `sdk/kit` | a package with one `Builtin` value; start from `modules/demo` |
 | A new kind of declared thing | a **kind** in a module (`kit.Kind`) | a Go type for its spec and an Apply function; it gets the folder, API routes, CLI and status for free |
+| A module to start from | `hostctl new module NAME --python` (or `--go`) | writes a working module, with a test or a config file |
+| A new section for scenes (`[lights]`) | a **facet** (`kit.Facet`) | a Go type for the section and a plan function that returns the steps still needed |
 | Another kind of app runner | a **runner** (`spec.Backend`) | a package that passes `spec/conformance` |
 | Install software or system config, optionally with hostd resources | an **add-on** | a directory with `addon.toml` and `resources = [...]` ([add-ons](install.md)) |
 | Control hostd from my own program | a **client**: HTTP, or `clients/python/hostd.py` | `h.audio.volume.set(percent=40)`; any module's actions work with no list in the client |

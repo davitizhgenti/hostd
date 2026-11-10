@@ -7,7 +7,7 @@ FUZZTIME ?= 30s
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
-	check-server test-install e2e-bins docs-stub m1-gate m1-gate-server
+	check-server test-install e2e-bins docs-stub m1-gate m1-gate-server run run-env
 
 all: lint test build
 
@@ -146,6 +146,17 @@ devbox: devbox-build build
 
 # Runs hostd in the devbox as on the real machine (service, menu, sample
 # apps). Again after `make build` to restart it on the new binary.
+# A hostd of your own to try things on, in a temporary home, with the demo
+# module. make run; then, in another terminal: eval "$(make -s run-env)"
+RUN_DIR ?= /tmp/hostd-run-dev
+run: build
+	@mkdir -p $(RUN_DIR)/config $(RUN_DIR)/state $(RUN_DIR)/run
+	@echo 'hostd is starting; in another terminal: eval "$$(make -s run-env)"'
+	XDG_CONFIG_HOME=$(RUN_DIR)/config XDG_STATE_HOME=$(RUN_DIR)/state XDG_RUNTIME_DIR=$(RUN_DIR)/run HOME=$(RUN_DIR) ./bin/hostd -listen= -demo
+
+run-env:
+	@echo "export XDG_CONFIG_HOME=$(RUN_DIR)/config XDG_STATE_HOME=$(RUN_DIR)/state XDG_RUNTIME_DIR=$(RUN_DIR)/run HOME=$(RUN_DIR) PATH=$(CURDIR)/bin:\$$PATH; [ -f $(RUN_DIR)/config/hostctl/config.toml ] || { for i in 1 2 3 4 5 6 7 8 9 10; do [ -f $(RUN_DIR)/run/hostd-admin-token ] && break; sleep 0.5; done; hostctl login unix://$(RUN_DIR)/run/hostd.sock --token-file $(RUN_DIR)/run/hostd-admin-token; }"
+
 devbox-hostd: build
 	$(PODMAN) exec -i -u screen -w /home/screen $(DEVBOX) bash -s < test/devbox/setup-hostd.sh
 

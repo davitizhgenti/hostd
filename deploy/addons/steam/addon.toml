@@ -4,7 +4,7 @@
 # handoff to Steam, followed by SteamAppId, under = "steam"), kept current
 # by a user path unit when the library changes.
 description = "Steam (Flatpak) in Big Picture, with its games listed under it"
-requires = ["flatpak", "controllers"]
+needs = ["flatpak", "controllers"]
 flatpaks = ["com.valvesoftware.Steam"]
 resources = ["apps/steam.toml"]
 files = [

@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"go/parser"
+	"go/token"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -289,6 +291,21 @@ func TestLoginAddress(t *testing.T) {
 	} {
 		if got := loginAddress(in); got != want {
 			t.Errorf("%s: %s, want %s", in, got, want)
+		}
+	}
+}
+
+// The Go module a scaffold writes is Go source that parses, with the name in
+// the right places.
+func TestNewGoModuleParses(t *testing.T) {
+	for _, name := range []string{"garden", "my-lights"} {
+		for file, src := range goModule(name) {
+			if _, err := parser.ParseFile(token.NewFileSet(), file, src, parser.AllErrors); err != nil {
+				t.Errorf("%s %s: %v", name, file, err)
+			}
+			if strings.Contains(src, "@") && strings.Contains(src, "@NAME@") || strings.Contains(src, "@PKG@") {
+				t.Errorf("%s %s: a placeholder is left", name, file)
+			}
 		}
 	}
 }

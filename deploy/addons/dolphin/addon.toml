@@ -3,7 +3,7 @@
 # mode 4) and the GameCube controller adapter. Set up controllers in Dolphin
 # itself (Controllers > Wii Remote: "Real Wii Remote").
 description = "Dolphin (Flatpak): GameCube and Wii games, real Wii Remotes through a DolphinBar"
-requires = ["flatpak", "controllers"]
+needs = ["flatpak", "controllers"]
 flatpaks = ["org.DolphinEmu.dolphin-emu"]
 rescan = true
 keeps = "Dolphin's own data (settings, saves) stays in ~/.var/app/org.DolphinEmu.dolphin-emu"

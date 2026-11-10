@@ -79,6 +79,7 @@ type Module struct {
 	validators map[string]func(context.Context, Ctx, sdk.Action) error
 	reads      map[string]func(context.Context, Ctx, map[string]string) (any, error)
 	kinds      map[string]*kindHandler
+	facets     map[string]*facetHandler
 	starts     []func(context.Context, Ctx) error
 	stops      []func(context.Context) error
 	state      func(context.Context, Ctx) (any, error)
@@ -458,6 +459,71 @@ func (m *Module) Delete(ctx context.Context, kind, name string) error {
 func (m *Module) Check(ctx context.Context, r sdk.Resource) error {
 	if h := m.kinds[r.Kind]; h != nil && h.check != nil {
 		return h.check(ctx, m.ctx(sdk.Action{}), r)
+	}
+	return nil
+}
+
+type facetHandler struct {
+	plan  func(context.Context, Ctx, json.RawMessage) ([]sdk.PlannedAction, error)
+	check func(json.RawMessage) error
+}
+
+// Facet declares a part of a scene (a section such as [lights]) this module
+// plans. The section's schema comes from the Go type S; plan compares the
+// wish with the module's own state and returns the actions still needed (none
+// when it is reached already), each with an order number (sdk.PlannedAction).
+// check, if not nil, refuses what the schema cannot say; it is asked when a
+// scene file is applied. The module then implements sdk.Planner.
+func Facet[S any](m *Module, name, description string,
+	plan func(ctx context.Context, c Ctx, want S) ([]sdk.PlannedAction, error), check func(want S) error) {
+	if m.facets == nil {
+		m.facets = map[string]*facetHandler{}
+	}
+	if _, dup := m.facets[name]; dup {
+		panic(fmt.Sprintf("kit: facet %q declared twice", name))
+	}
+	m.man.Facets = append(m.man.Facets, sdk.FacetSpec{Name: name, Description: description, Schema: sdk.SchemaOf[S]()})
+	decode := func(raw json.RawMessage) (S, error) {
+		var s S
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return s, err
+			}
+		}
+		return s, nil
+	}
+	h := &facetHandler{plan: func(ctx context.Context, c Ctx, raw json.RawMessage) ([]sdk.PlannedAction, error) {
+		s, err := decode(raw)
+		if err != nil {
+			return nil, err
+		}
+		return plan(ctx, c, s)
+	}}
+	if check != nil {
+		h.check = func(raw json.RawMessage) error {
+			s, err := decode(raw)
+			if err != nil {
+				return err
+			}
+			return check(s)
+		}
+	}
+	m.facets[name] = h
+}
+
+// Plan implements sdk.Planner.
+func (m *Module) Plan(ctx context.Context, facet string, desired json.RawMessage) ([]sdk.PlannedAction, error) {
+	h := m.facets[facet]
+	if h == nil {
+		return nil, sdk.Errorf(sdk.CodeNotFound, "%s plans no %q", m.man.Name, facet)
+	}
+	return h.plan(ctx, m.ctx(sdk.Action{}), desired)
+}
+
+// CheckFacet implements sdk.FacetChecker.
+func (m *Module) CheckFacet(facet string, desired json.RawMessage) error {
+	if h := m.facets[facet]; h != nil && h.check != nil {
+		return h.check(desired)
 	}
 	return nil
 }

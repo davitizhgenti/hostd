@@ -12,7 +12,7 @@ import (
 var builtins = map[string]bool{
 	"login": true, "version": true, "events": true,
 	"action": true, "update": true, "git-shell": true,
-	"help": true, "completion": true, "context": true,
+	"help": true, "completion": true, "context": true, "new": true,
 }
 
 func (a *app) rootCommand() *cobra.Command {
@@ -31,7 +31,7 @@ see them all.`,
 	root.PersistentFlags().StringVar(&a.context, "context", "", "which saved login to use (hostctl context lists them; HOSTD_CONTEXT)")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
 	root.AddCommand(a.loginCommand(), a.versionCommand(),
-		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand(), a.contextCommand())
+		a.eventsCommand(), a.actionCommand(), a.updateCommand(), a.gitShellCommand(), a.contextCommand(), a.newCommand())
 	return root
 }
 

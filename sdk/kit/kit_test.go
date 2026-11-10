@@ -293,3 +293,51 @@ func TestKindsAreReconciled(t *testing.T) {
 		t.Fatalf("unknown kind delete: %v", err)
 	}
 }
+
+type lightsFacet struct {
+	Scene string `json:"scene" enum:"day,night"`
+}
+
+func TestFacetsArePlanned(t *testing.T) {
+	cur := "day"
+	m := kit.New("lamps", "1").Owns("lamps.*")
+	kit.Facet(m, "lamps", "The lamps' scene",
+		func(_ context.Context, _ kit.Ctx, want lightsFacet) ([]sdk.PlannedAction, error) {
+			if want.Scene == cur {
+				return nil, nil
+			}
+			return []sdk.PlannedAction{{Step: "scene", Action: "lamps.scene.set", Args: sdk.MustJSON(map[string]string{"name": want.Scene}), Order: 50}}, nil
+		}, func(want lightsFacet) error {
+			if want.Scene == "night" && cur == "locked" {
+				return errors.New("locked")
+			}
+			return nil
+		})
+	man := m.Manifest()
+	if err := man.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(man.Facets) != 1 || man.Facets[0].Name != "lamps" || !strings.Contains(string(man.Facets[0].Schema), `"enum":["day","night"]`) {
+		t.Fatalf("facets = %+v", man.Facets)
+	}
+	ctx := context.Background()
+	if got, err := m.Plan(ctx, "lamps", json.RawMessage(`{"scene":"day"}`)); err != nil || len(got) != 0 {
+		t.Fatalf("reached: %+v %v", got, err)
+	}
+	got, err := m.Plan(ctx, "lamps", json.RawMessage(`{"scene":"night"}`))
+	if err != nil || len(got) != 1 || got[0].Action != "lamps.scene.set" {
+		t.Fatalf("plan: %+v %v", got, err)
+	}
+	cur = "locked"
+	if err := m.CheckFacet("lamps", json.RawMessage(`{"scene":"night"}`)); err == nil {
+		t.Fatal("check should refuse")
+	}
+	if _, err := m.Plan(ctx, "ghost", nil); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown facet: %v", err)
+	}
+	// The core accepts it: a planner and a facet it declares.
+	reg := core.NewRegistry()
+	if err := reg.Add(m); err != nil {
+		t.Fatal(err)
+	}
+}

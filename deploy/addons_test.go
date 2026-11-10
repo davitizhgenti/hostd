@@ -27,7 +27,7 @@ func TestAddonsLoad(t *testing.T) {
 		if a.Description == "" {
 			t.Errorf("%s: no description", n)
 		}
-		for _, r := range a.Requires {
+		for _, r := range a.Needs {
 			if !slices.Contains(names, r) {
 				t.Errorf("%s requires %s, which does not exist", n, r)
 			}

@@ -4,7 +4,7 @@ An add-on puts something optional on a hostd machine: an app (Steam, Dolphin), a
 
 ```toml
 description = "Dolphin (Flatpak): GameCube and Wii games"   # shown by hostd-setup addons
-requires = ["flatpak", "controllers"]   # add-ons installed first, and kept while this one is
+needs = ["flatpak", "controllers"]   # add-ons installed first, and kept while this one is
 
 packages = ["chromium"]                 # Debian packages
 purge = true                            # removed again with the add-on

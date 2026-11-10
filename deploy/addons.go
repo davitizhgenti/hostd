@@ -28,7 +28,7 @@ import (
 type Addon struct {
 	Name        string
 	Description string   `toml:"description"`
-	Requires    []string `toml:"requires"` // add-ons it needs, installed first
+	Needs       []string `toml:"needs"` // add-ons it needs, installed first
 
 	Packages []string `toml:"packages"` // Debian packages
 	Purge    bool     `toml:"purge"`    // remove them again when the add-on goes
@@ -140,7 +140,7 @@ func addonOrder(names []string) ([]Addon, error) {
 		if err != nil {
 			return err
 		}
-		for _, r := range a.Requires {
+		for _, r := range a.Needs {
 			if err := visit(r); err != nil {
 				return err
 			}
@@ -511,8 +511,8 @@ func (s *Setup) ListAddons(w io.Writer) error {
 			mark = "*"
 		}
 		fmt.Fprintf(w, "%s %-12s %s\n", mark, n, a.Description)
-		if len(a.Requires) > 0 {
-			fmt.Fprintf(w, "  %-12s (with: %s)\n", "", strings.Join(a.Requires, " "))
+		if len(a.Needs) > 0 {
+			fmt.Fprintf(w, "  %-12s (with: %s)\n", "", strings.Join(a.Needs, " "))
 		}
 	}
 	fmt.Fprintln(w, "(* installed)  sudo hostd-setup add NAME | remove NAME")
@@ -553,7 +553,7 @@ func (s *Setup) RemoveAddons(ctx context.Context, user string, names []string) e
 				continue
 			}
 			o, err := LoadAddon(other)
-			if err == nil && slices.Contains(o.Requires, n) {
+			if err == nil && slices.Contains(o.Needs, n) {
 				return fmt.Errorf("%s needs %s: remove %s first", other, n, other)
 			}
 		}
