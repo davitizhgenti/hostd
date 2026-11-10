@@ -49,6 +49,12 @@ func TestArgumentsAsRoot(t *testing.T) {
 		"prepare --port":      1,
 		"user add --purge":    2,
 		"remove --all --user": 1,
+		"seats list":          0,
+		"seats":               2,
+		"seats add alice":     2,
+		"seats add alice x":   1,
+		"seats remove":        2,
+		"uninstall --bogus":   1,
 	} {
 		out.Reset()
 		errs.Reset()
