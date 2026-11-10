@@ -296,3 +296,39 @@ Stages: (1) the engine: output, runner, files, release verification; (2) the bas
 **Done (2026-10-15), stages 1–5:** `deploy/*.go` (engine, install, update, auto-update, uninstall, add-ons; unit-tested with a fake runner and a temp root) and `cmd/hostd-setup`. `deploy/install.sh` is a 95-line bootstrap. Six add-ons are now only an `addon.toml`; steam keeps a small `hook.sh` (gamescope, VRAM cap), nvidia and pterodactyl keep theirs. An update runs the add-ons only when the build's add-on files changed (a stamp in `/etc/hostd/addons.applied`), or when named, or with `--all`. Checked: `go test -race ./...`, golangci-lint, shellcheck, `make test-install` (90 checks) and `make test-e2e` (35 checks, including `sudo hostd-setup update` in the VM). Core moves over at its next update: the installed bash `hostd-setup update` fetches the build's `install.sh`, now the bootstrap, which runs the Go installer.
 
 Core moved over at its first update (2026-10-15, edge-5252e4f): the bash `hostd-setup` fetched the bootstrap, which ran the Go installer. Checked on core: `hostd-setup` is the binary and the old shell files are gone, the previous version keeps its state backup, the 8 add-ons are recorded with their stamp, the NVIDIA driver (580) and the Pterodactyl panel still work, and no unit failed.
+
+---
+
+# Not done: the 1.0 plan, as of 2026-11-10
+
+A note for the next replan. The 1.0 plan (resources, kit, instance verbs, facets, users, devices, add-on bundles) is built and pushed except what is listed here. State: `edge` follows `main` (56ec8b3); v0.2.0 is tagged but its release is not published (the tag's `test` job failed once, a flake not reproduced locally; re-run it on GitHub).
+
+## Needs the user (screen, hardware, accounts)
+- **Publish v0.2.0:** re-run the failed jobs of the tag's CI run.
+- **The menu:** only seen to start and close on core. Its list and its `open` rows were not seen; the redesign (one screen, five verbs, design tokens, driven by the opening controller, on the generic Python client) is not started.
+- **Two controllers on core:** holding Guide on each, to confirm only that pad is grabbed. Opening a real app and a Steam game after the update.
+- **VM test** (`make test-e2e`, about 10 minutes) and `mkdocs build --strict`: not run since the changes.
+
+## Decisions
+- `hostd-setup user add|remove|list` (a hostd per extra user, without the screen) is built and tested, but the direction is now one user per system: keep or remove.
+- Key bindings are the same for every keyboard (keys come from Sway, which does not say which keyboard). Per-keyboard bindings would need hostd to read keyboards, which keeps the `input` group.
+
+## Dropped
+- Seats and a second screen for another user (the spike): one user per system.
+- Removing the `input` group: keyboards and mice are still read for presence.
+
+## Code not done
+- **config.follow** is still in `deploy` (uses `app.check`, `app.rescan` and the apps-folder symlink); the plan moves it to the core as `resources.follow`.
+- **Instance lifecycle:** one state machine with timeouts on every edge; splitting `modules/apps/instances.go` and display's 25-field `Module`; runners registered as plug-ins by name (adding a runner is still several edits). The conformance suite covers exec and docker, not compose. `window.focus`/`window.close` are still public actions.
+- **Protocol:** manifest `Hooks` to `Webhooks` (changes the external protocol); external modules' `do`/`read` carry no caller deadline; optional interfaces are not declared in the manifest; external modules cannot plan facets or use Core v2/v3 calls (Tokens, Limiter, Introspect, Facets, Plan are Go-only).
+- **Devices:** per-seat presence not built; keyboards and mice have identity but no bindings; no `input` module split out of display.
+- **Add-ons:** Steam's game list is still a Python script with systemd path/timer units (plan: an external module that generates `app` resources); TLS reload units not turned into a rule plus a script; WireGuard peers still outside the API (plan: an external module plus a sudoers-scoped helper); no `hostd-setup add ./dir`; resources go to the first user only; the `deploy/` installer package is not renamed `setup/`.
+- **Developer experience:** generated reference pages (kinds, modules, CLI hints); `docs/users-and-seats.md` (moot if users are dropped).
+- **Facets in the CLI/docs:** `kit.Facet` exists; no example in `examples/`, and no Go example module beside `hostctl new module --go`.
+
+## Known limits
+- Migration (`hostd -migrate`) is tested in unit tests and the container, not on a machine that had rules, scripts or `[external.X]`; core had none.
+- Coverage-floor exceptions: `internal/fsx` (55%) and the conformance suite (75%), with reasons in `scripts/coverage-floors.txt`.
+- A changed `modules/<name>.toml` takes effect at the next hostd start (status says so).
+- Player slots are saved, but a controller away from hostd's start can lose its slot to a newcomer.
+- The `ID` column of `hostctl controllers` is vendor:product; the unique ID is in `--json` and in `hostctl devices`.
