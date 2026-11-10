@@ -276,8 +276,9 @@ func do(ctx context.Context, a args, s *deploy.Setup, opts deploy.Options, up de
 // exitCode is how hostd-setup ends after err: with the newer installer's
 // status when that is what failed (it said why already).
 func exitCode(err error, stderr io.Writer) int {
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	// Only the newer installer's own exit (not a command of this one that
+	// failed, which is wrapped and says what it was).
+	if exit, ok := err.(*exec.ExitError); ok { //nolint:errorlint // wrapped ones must be reported
 		return exit.ExitCode()
 	}
 	if err != nil {

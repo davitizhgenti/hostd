@@ -138,7 +138,9 @@ func (s *Setup) stream(ctx context.Context, env []string, argv ...string) error 
 func (in *installer) asScreen(ctx context.Context, argv ...string) ([]byte, error) {
 	rt := in.user.runtime()
 	if in.User != nil { // the user's own session: no other user to run as
-		return in.run(ctx, append([]string{"env", "XDG_RUNTIME_DIR=" + rt, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + rt + "/bus"}, argv...)...)
+		// hostctl and what add-ons put in ~/.local/bin are found by name.
+		path := in.user.home + "/.local/bin:" + os.Getenv("PATH")
+		return in.run(ctx, append([]string{"env", "PATH=" + path, "XDG_RUNTIME_DIR=" + rt, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + rt + "/bus"}, argv...)...)
 	}
 	full := append([]string{"runuser", "-u", in.user.name, "--", "env", "HOME=" + in.user.home, "USER=" + in.user.name,
 		"XDG_RUNTIME_DIR=" + rt, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + rt + "/bus"}, argv...)

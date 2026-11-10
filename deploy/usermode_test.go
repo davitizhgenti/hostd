@@ -62,7 +62,7 @@ func TestUserModeNeedsNoRoot(t *testing.T) {
 	for _, line := range m.ran {
 		fields := strings.Fields(line)
 		bad := slices.ContainsFunc(fields, func(f string) bool {
-			return slices.Contains([]string{"apt-get", "useradd", "usermod", "groupadd", "runuser", "sudo", "update-initramfs", "modprobe", "chown", "enable-linger"}, f)
+			return slices.Contains([]string{"apt-get", "useradd", "usermod", "groupadd", "runuser", "sudo", "update-initramfs", "modprobe", "chown", "enable-linger", "--system"}, f)
 		})
 		if bad || (slices.Contains(fields, "systemctl") && !slices.Contains(fields, "--user")) {
 			t.Errorf("user mode ran a root command: %s", line)

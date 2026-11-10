@@ -273,6 +273,9 @@ func forcedOf(u *UpdateOptions) []string {
 
 func (in *installer) runAddons(ctx context.Context, order []Addon) error {
 	for _, a := range order {
+		if in.User != nil && a.Privileged() {
+			continue // an admin's (hostd-admin): not run, nor changed, by a user
+		}
 		in.Out.Step("Add-on: " + a.Name)
 		if err := in.installAddon(ctx, a); err != nil {
 			return fmt.Errorf("add-on %s: %w", a.Name, err)
