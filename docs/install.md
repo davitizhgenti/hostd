@@ -71,7 +71,7 @@ hostd-setup user list
 sudo hostd-admin user remove alice [--purge]   # stop her hostd (--purge: and delete its data); alice stays
 ```
 
-Each one is installed the way the first is (from the same signed build), starts at boot, and updates itself with its own update timer. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. Giving the screen to another user's hostd, one at a time, is not built yet.
+The admin makes the account and gives it a port (`hostd-admin user add`); then that user installs hostd themselves, with no root (`hostd-setup`, as in step 2 above), and it reads its port from the admin's list. Each one starts at boot and updates itself with its own update timer. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. Giving the screen to another user's hostd, one at a time, is not built yet.
 
 To use them from a laptop, save a login for each under a name; `hostctl context` lists them and chooses one:
 

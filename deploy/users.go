@@ -103,22 +103,66 @@ func (s *Setup) ListUsers(w io.Writer) error {
 // takes the next free one. The first user (o.ScreenUser) keeps the screen
 // and the machine's setup; this only does what a user needs.
 func (s *Setup) AddUser(ctx context.Context, o Options, name string, port int) error {
+	port, list, err := s.planUser(o, name, port)
+	if err != nil {
+		return err
+	}
+	o.ScreenUser = name
+	if err := s.runExtra(ctx, o, port); err != nil {
+		return err
+	}
+	if err := s.listUser(list, name, port); err != nil {
+		return err
+	}
+	s.Out.Info("hostd for %s is on port %d: hostctl login <this machine>:%d", name, port, port)
+	return nil
+}
+
+// AdminAddUser is hostd-admin's user add: it makes the account and what a
+// user's hostd needs from root (groups, subordinate IDs, lingering) and
+// gives the user a port, and nothing more. The user installs hostd
+// themselves, with no root: hostd-setup reads the port from the list.
+func (s *Setup) AdminAddUser(ctx context.Context, o Options, name string, port int) error {
+	port, list, err := s.planUser(o, name, port)
+	if err != nil {
+		return err
+	}
+	o.ScreenUser = name
+	if o.GPU == "" {
+		o.GPU = "auto"
+	}
+	in := &installer{Setup: s, o: o, extra: true, port: port}
+	for _, step := range []func(context.Context) error{in.checkSystem, in.screenUser} {
+		if err := step(ctx); err != nil {
+			return err
+		}
+	}
+	if err := s.listUser(list, name, port); err != nil {
+		return err
+	}
+	s.Out.Info("%s may have a hostd on port %d. As %s (no root): ./deploy/install.sh   (hostd-setup)", name, port, name)
+	return nil
+}
+
+// planUser checks a new user's name and port against the list and picks the
+// port (0: the next free one, or the one the user has already).
+func (s *Setup) planUser(o Options, name string, port int) (_ int, list []hostdUser, _ error) {
 	first := o.ScreenUser
 	if first == "" {
 		first = "screen"
 	}
-	list := s.users()
+	list = s.users()
 	switch {
 	case !reUserName.MatchString(name):
-		return fmt.Errorf("%q cannot be a user name: lowercase letters, digits, '_' and '-'", name)
+		return 0, nil, fmt.Errorf("%q cannot be a user name: lowercase letters, digits, '_' and '-'", name)
 	case name == first:
-		return fmt.Errorf("%s is the machine's first user: it has hostd already", name)
+		return 0, nil, fmt.Errorf("%s is the machine's first user: it has hostd already", name)
 	case port != 0 && (port < 1024 || port > 65535):
-		return fmt.Errorf("port %d: use 1024-65535", port)
+		return 0, nil, fmt.Errorf("port %d: use 1024-65535", port)
 	}
 	for _, u := range list {
 		if u.Port == port && u.Name != name {
-			return fmt.Errorf("port %d is hostd's for %s", port, u.Name)
+			return 0, nil, fmt.Errorf("port %d is hostd's for %s", port, u.Name)
 		}
 	}
 	if port == 0 {
@@ -130,23 +174,20 @@ func (s *Setup) AddUser(ctx context.Context, o Options, name string, port int) e
 		}
 	}
 	if port == 7300 {
-		return fmt.Errorf("port 7300 is the first user's")
+		return 0, nil, fmt.Errorf("port 7300 is the first user's")
 	}
-	o.ScreenUser = name
-	if err := s.runExtra(ctx, o, port); err != nil {
-		return err
-	}
+	return port, list, nil
+}
+
+// listUser records name's port in the list.
+func (s *Setup) listUser(list []hostdUser, name string, port int) error {
 	kept := list[:0:0]
 	for _, u := range list {
 		if u.Name != name {
 			kept = append(kept, u)
 		}
 	}
-	if err := s.saveUsers(append(kept, hostdUser{Name: name, Port: port})); err != nil {
-		return err
-	}
-	s.Out.Info("hostd for %s is on port %d: hostctl login <this machine>:%d", name, port, port)
-	return nil
+	return s.saveUsers(append(kept, hostdUser{Name: name, Port: port}))
 }
 
 // runExtra does what one more user needs, for the user in o.ScreenUser.
@@ -251,5 +292,17 @@ func (in *installer) userConfig(context.Context) error {
 		return err
 	}
 	in.Out.Changed("hostd for %s listens on port %d", in.user.name, in.port)
+	return nil
+}
+
+// userPort is user mode's step for a user the admin gave a port (hostd-admin
+// user add): their hostd listens there, not on the first user's 7300.
+func (in *installer) userPort(ctx context.Context) error {
+	for _, u := range in.users() {
+		if u.Name == in.user.name && u.Port > 0 {
+			in.port = u.Port
+			return in.userConfig(ctx)
+		}
+	}
 	return nil
 }

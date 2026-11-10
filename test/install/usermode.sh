@@ -31,6 +31,16 @@ t "a root add-on is refused, with the admin command" "as_u hostd-setup add compo
 t "the admin adds it" "hostd-admin add compose --user $U"
 t "now the user's list shows it as installed" "as_u hostd-setup addons | grep -q '^\\* compose'"
 
+echo "a second user, on a port of their own"
+A=alice
+as_a() { runuser -u $A -- env HOME=/home/$A XDG_RUNTIME_DIR="/run/user/$(id -u "$A")" PATH="/home/$A/.local/bin:/usr/local/bin:/usr/bin:/bin" "$@"; }
+t "hostd-admin user add alice" "hostd-admin user add $A --gpu other && grep -qx 'alice 7301' /etc/hostd/users"
+t "the admin installed no hostd for her" "! test -e /home/$A/.local/lib/hostd/current"
+for _ in $(seq 1 30); do test -S "/run/user/$(id -u "$A")/bus" && break; sleep 1; done
+t "alice installs, with no root" "as_a $dist/hostd-setup-linux-amd64 install --from $dist --gpu other"
+t "her hostd listens on 7301" "grep -q 'listen = \":7301\"' /home/$A/.config/hostd/hostd.toml && timeout 40 bash -c 'until (exec 3<>/dev/tcp/127.0.0.1/7301) 2>/dev/null; do sleep 1; done'"
+t "hostctl systems lists both" "as_u hostctl systems | grep -q '^alice  *7301' && as_u hostctl systems | grep -q '^$U '"
+
 echo "update and uninstall (no root)"
 t "hostd-setup update" "as_u hostd-setup update --source $dist --from $dist --gpu other"
 t "hostd still runs" 'hostd_up'

@@ -162,3 +162,31 @@ func TestRemoveAUser(t *testing.T) {
 		t.Error("her home went")
 	}
 }
+
+// hostd-admin makes the account and the port; the user installs hostd.
+func TestAdminAddUserThenTheUserInstalls(t *testing.T) {
+	m, s, o, out := installed(t)
+	ctx := context.Background()
+	if err := s.AdminAddUser(ctx, o, "alice", 0); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if got := s.users(); len(got) != 1 || got[0] != (hostdUser{"alice", 7301}) {
+		t.Fatalf("users = %+v", got)
+	}
+	if _, err := os.Lstat(filepath.Join(m.root, "home/alice/.local/lib/hostd/current")); err == nil {
+		t.Fatal("the admin installed hostd for alice")
+	}
+	if err := s.AdminAddUser(ctx, o, "bob", 7301); err == nil {
+		t.Fatal("two users on one port")
+	}
+	// Alice, with no root: her hostd takes the port the admin gave her.
+	as := &Setup{Root: m.root, Run: m, Out: NewOutput(out, true), User: &screenUser{name: "alice", home: "/home/alice", uid: 1002}}
+	o.Self = ""
+	if err := as.Install(ctx, Options{GPU: "other", From: o.From, Self: o.Self}); err != nil && !strings.Contains(err.Error(), "reading this hostd-setup") {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	b, _ := os.ReadFile(filepath.Join(m.root, "home/alice/.config/hostd/hostd.toml"))
+	if !strings.Contains(string(b), `listen = ":7301"`) {
+		t.Errorf("alice's config:\n%s", b)
+	}
+}

@@ -99,7 +99,7 @@ func (s *Setup) Install(ctx context.Context, o Options) error {
 		in.user = *s.User
 		in.o.ScreenUser = s.User.name
 		steps = []func(context.Context) error{
-			in.checkSystem, in.prerequisites, in.sessionConfig, in.installHostd, in.installSelf, in.addons, in.updates,
+			in.checkSystem, in.prerequisites, in.sessionConfig, in.userPort, in.installHostd, in.installSelf, in.addons, in.updates,
 		}
 	}
 	for _, step := range steps {

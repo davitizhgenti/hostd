@@ -146,7 +146,7 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 	case "user":
 		switch {
 		case len(names) == 2 && names[0] == "add":
-			err = s.AddUser(ctx, o, names[1], port)
+			err = s.AdminAddUser(ctx, o, names[1], port)
 		case len(names) == 2 && names[0] == "remove":
 			err = s.RemoveUser(ctx, names[1], purge)
 		case len(names) == 1 && names[0] == "list":
