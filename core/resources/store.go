@@ -54,7 +54,7 @@ type Store struct {
 	opts Options
 	log  *slog.Logger
 
-	done    chan struct{} // closed when the follower has ended (see Wait)
+	done chan struct{} // closed when the follower has ended (see Wait)
 
 	applyMu sync.Mutex // one change at a time: the watcher, Put and Delete
 
