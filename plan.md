@@ -332,3 +332,19 @@ A note for the next replan. The 1.0 plan (resources, kit, instance verbs, facets
 - A changed `modules/<name>.toml` takes effect at the next hostd start (status says so).
 - Player slots are saved, but a controller away from hostd's start can lose its slot to a newcomer.
 - The `ID` column of `hostctl controllers` is vendor:product; the unique ID is in `--json` and in `hostctl devices`.
+
+
+# Replan, 2026-11-10: root-free core, privileged add-ons, one seat holder
+
+Done (core runs it: hostd as `serve`, no `screen` user):
+- Add-on privilege (`root`, derived from what is declared); user add-ons use Flatpak `--user`; Steam and Chromium (Flatpak) are user add-ons. Jupyter is removed for now (its hook needs root; it is in git history).
+- `hostd-setup` run as a user installs, updates and uninstalls in the user's home with no root (`make test-install-user` runs it as a user without sudo, after `hostd-admin prepare`).
+- `hostd-admin`: `prepare`, root add-ons, users, uninstall. `deploy/install.sh admin ...` fetches it.
+- `hostctl systems`; docs (install, security, extending).
+
+Not done:
+- **Seats (Phase 4):** one holder at a time, switched by a root helper add-on; starts with a spike on core (two Sway sessions, NVIDIA, controllers and audio following). `hostctl systems` shows no seat holder yet.
+- `hostd-admin user add` still runs the whole install for the new user from root (the plan: each user installs themselves).
+- Run as root, `hostd-setup install` is still the old all-in-one install (it now prints a note).
+- Jupyter as a user add-on (its hook run as the user; python3-venv and git as checked prerequisites).
+- The e2e VM test (`make test-e2e`) has not run on the new flow.

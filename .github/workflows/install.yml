@@ -34,7 +34,10 @@ jobs:
           go-version-file: go.mod
       - name: Install test
         shell: bash
-        run: make test-install 2>&1 | tee install.log; exit ${PIPESTATUS[0]}
+        run: |
+          make test-install 2>&1 | tee install.log; r=${PIPESTATUS[0]}
+          make test-install-user 2>&1 | tee -a install.log; u=${PIPESTATUS[0]}
+          exit $((r || u))
       - name: Show failed checks
         if: failure()
         shell: bash

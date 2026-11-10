@@ -50,7 +50,7 @@ Add-ons say which they are (`root = true|false`, or it follows from what they in
 ## Updates
 
 - **Every build is signed** (Ed25519). The installer and the update timer check the signature with the key in the installer, and the checksums of every file they use, before installing anything.
-- **The edge channel** installs every build of `main` that passed CI, within hours. Whoever can push to `main` can therefore change the machine. Protect that: two-factor authentication on the GitHub account, the signing key in the `release` environment (usable from `main` and `v*` tags only), and CI actions pinned by commit (dependabot proposes updates, which CI tests). The **stable** channel (`CHANNEL=stable` in `/etc/hostd/update.conf`) installs tagged releases only.
+- **The edge channel** installs every build of `main` that passed CI, within hours. Whoever can push to `main` can therefore change the machine. Protect that: two-factor authentication on the GitHub account, the signing key in the `release` environment (usable from `main` and `v*` tags only), and CI actions pinned by commit (dependabot proposes updates, which CI tests). The **stable** channel (`CHANNEL=stable` in `~/.config/hostd/update.conf`) installs tagged releases only.
 - **Every update can be rolled back**: hostd keeps the previous version and a copy of its state, and a version that does not start is rolled back by itself.
 
 ## Reporting a problem

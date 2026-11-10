@@ -190,9 +190,12 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	// Run as a user, hostd-setup works in that user's home and needs no
 	// root; run as root it sets up the machine (until hostd-admin takes that over).
 	userMode := geteuid() != 0
-	if userMode && a.cmd == "user" {
+	if userMode && a.cmd == "user" && a.names[0] != "list" {
 		fmt.Fprintf(stderr, "\033[31merror:\033[0m user needs root: sudo hostd-setup user %s\n", a.names[0])
 		return 1
+	}
+	if !userMode && a.cmd == "install" && os.Getenv("HOSTD_UPDATE_MODE") == "" && os.Getenv("HOSTD_FILTERED") == "" {
+		fmt.Fprintln(stderr, "note: as root this is the old all-in-one install. Prefer: sudo hostd-admin prepare, then hostd-setup as the user (no root).")
 	}
 	// Quiet for updates, unless asked; the installer run by an update is
 	// told so by HOSTD_UPDATE_MODE. One run by the shell installer of

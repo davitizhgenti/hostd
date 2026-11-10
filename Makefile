@@ -7,7 +7,7 @@ FUZZTIME ?= 30s
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
-	check-server test-install e2e-bins docs-stub m1-gate m1-gate-server run run-env
+	check-server test-install test-install-user e2e-bins docs-stub m1-gate m1-gate-server run run-env
 
 all: lint test build
 
@@ -218,6 +218,20 @@ test-install: dist e2e-bins docs-stub
 	$(PODMAN) exec -u admin -w /home/admin $(INSTALL_TEST) bash /opt/hostd-test/lifecycle.sh
 	$(PODMAN) rm -f $(INSTALL_TEST) >/dev/null
 	@echo "install test passed"
+
+# The no-root path: an admin prepares a fresh container once (hostd-admin),
+# then a user without sudo installs, updates and removes hostd.
+test-install-user: dist e2e-bins docs-stub
+	$(PODMAN) build -q -t $(INSTALL_TEST) test/install >/dev/null
+	-@$(PODMAN) rm -f $(INSTALL_TEST)-user >/dev/null 2>&1
+	$(PODMAN) run -d --name $(INSTALL_TEST)-user --systemd=always --privileged \
+		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro -v $(CURDIR)/test/install:/opt/hostd-test:ro \
+		-v $(CURDIR)/dist:/opt/hostd-dist:ro -v $(CURDIR)/bin/e2e:/opt/hostd-test-bins:ro \
+		$(INSTALL_TEST) >/dev/null
+	@$(PODMAN) exec $(INSTALL_TEST)-user systemctl is-system-running --wait >/dev/null || true
+	$(PODMAN) exec $(INSTALL_TEST)-user bash /opt/hostd-test/usermode.sh
+	$(PODMAN) rm -f $(INSTALL_TEST)-user >/dev/null
+	@echo "no-root install test passed"
 
 # The M1 gate (deploy/m1-gate.sh): on the devbox, and on the real machine.
 m1-gate:

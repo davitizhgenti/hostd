@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
 )
 
 // The add-on hooks (bash) run here for real, against a machine in a

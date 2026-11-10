@@ -76,7 +76,7 @@ External modules are not configured here: each is a file in `~/.config/hostd/mod
 | `~/.config/hostd/secrets/` | [Secrets](services.md#secrets) (0600) |
 | `~/.local/state/hostd/state.db` | Tokens and the audit trail |
 | `~/hostd/git/`, `~/hostd/releases/`, `~/hostd/keys/` | [Services](services.md): repositories, releases, deploy keys |
-| `/etc/hostd/update.conf` | [Updates](install.md#updates) |
+| `~/.config/hostd/update.conf` | [Updates](install.md#updates) |
 
 ## Several devices
 

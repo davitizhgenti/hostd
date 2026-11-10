@@ -30,7 +30,8 @@ The same words everywhere: the CLI, the API, the Python client, the menu, scenes
 | A module to start from | `hostctl new module NAME --python` (or `--go`) | writes a working module, with a test or a config file |
 | A new section for scenes (`[lights]`) | a **facet** (`kit.Facet`) | a Go type for the section and a plan function that returns the steps still needed |
 | Another kind of app runner | a **runner** (`spec.Backend`) | a package that passes `spec/conformance` |
-| Install software or system config, optionally with hostd resources | an **add-on** | a directory with `addon.toml` and `resources = [...]` ([add-ons](install.md)) |
+| Install software in the user's home (a Flatpak, a helper, hostd resources) | a **user add-on** (`root = false`) | a directory with `addon.toml` and `resources = [...]` ([add-ons](install.md)) |
+| Install something that needs root (a driver, a package, a udev rule) | a **root add-on**: `root = true`, or implied by `packages`, `kernel_modules`, `on_change`, files outside `~` or a hook | the same `addon.toml`; only an admin installs it: `sudo hostd-admin add NAME` |
 | Control hostd from my own program | a **client**: HTTP, or `clients/python/hostd.py` | `h.audio.volume.set(percent=40)`; any module's actions work with no list in the client |
 
 ## Rules of the interface

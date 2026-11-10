@@ -2,23 +2,30 @@
 
 ## A screen machine (the full setup)
 
-You need a fresh **Debian 13 (trixie)** install: minimal, with only "SSH server" and "standard system utilities" selected, and an admin user with sudo. If you log in to the admin user with an SSH key, the installer copies the key to the `screen` user too.
+You need a fresh **Debian 13 (trixie)** install: minimal, with only "SSH server" and "standard system utilities" selected, and an admin user with sudo. Two steps: the admin prepares the machine once (the only time root is used), then the user that will run hostd installs it, with no root.
 
-On the machine, as the admin user:
+**1. The admin, once.** On the machine:
 
 ```sh
 wget -qO- https://github.com/davitizhgenti/hostd/archive/refs/heads/main.tar.gz | tar xz
-sudo ./hostd-main/deploy/install.sh
-sudo reboot
+sudo ./hostd-main/deploy/install.sh admin prepare --user screen
 ```
 
-The installer is safe to run again; it changes only what is missing. It sets up:
+`hostd-admin prepare` installs the packages (and the NVIDIA driver when an NVIDIA GPU is present), makes the user (`screen` here; the admin's own name works too), gives it the video, render and input groups, subordinate IDs for Podman and lingering, turns SSH password login off once the admin has a key, and logs the user into Sway at boot. It installs no hostd. Reboot when it says so.
 
-- the NVIDIA driver when an NVIDIA GPU is present; Sway, PipeWire, Podman and greetd; and the `screen` user, logged into Sway at boot;
-- **hostd**, from the newest signed build, running as a service that starts at boot;
-- **hostctl** in `/usr/local/bin`, already logged in for the `screen` user;
-- `hostd-setup`, to update, add and remove add-ons, and uninstall;
+**2. The user, no root.** Log in as that user (`ssh screen@<machine>`) and run:
+
+```sh
+./hostd-main/deploy/install.sh        # or, as the same user: hostd-setup
+```
+
+It is safe to run again; it changes only what is missing. It puts in the user's home:
+
+- **hostd**, from the newest signed build, running as a user service that starts at boot;
+- **hostctl** and **hostd-setup** in `~/.local/bin` (put it on your `PATH`), hostctl already logged in;
 - the update timer (see below).
+
+Add-ons that need no root come next (`hostd-setup add steam chromium`); the ones that do (`hostd-setup addons` marks them `[root]`) are the admin's: `sudo hostd-admin add NAME`.
 
 These docs come with every build. The machine serves them at `http://<machine>:7300/docs/`, on the home network and without a token.
 
@@ -57,13 +64,14 @@ Then list the modules you want in `~/.config/hostd/hostd.toml`, such as `modules
 The user the installer makes (`screen`) has the screen and the machine's first hostd, on port 7300. Any other user can have a hostd of their own: their apps, their audio, their tokens, their files, and a certificate authority of their own, on a port of their own. One user's hostd cannot touch another's.
 
 ```sh
-sudo hostd-setup user add alice            # creates alice if needed; her hostd gets port 7301
-sudo hostd-setup user add bob --port 7400
-sudo hostd-setup user list
-sudo hostd-setup user remove alice [--purge]   # stop her hostd (--purge: and delete its data); alice stays
+sudo hostd-admin user add alice            # creates alice if needed; her hostd gets port 7301
+sudo hostd-admin user add bob --port 7400
+hostctl systems                          # every hostd on the machine
+hostd-setup user list
+sudo hostd-admin user remove alice [--purge]   # stop her hostd (--purge: and delete its data); alice stays
 ```
 
-Each one is installed the way the first is (from the same signed build), starts at boot, and is brought up to date by every `sudo hostd-setup update`. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. A second screen with its own user needs a second graphics device and a logind seat, which hostd-setup does not set up yet.
+Each one is installed the way the first is (from the same signed build), starts at boot, and updates itself with its own update timer. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. Giving the screen to another user's hostd, one at a time, is not built yet.
 
 To use them from a laptop, save a login for each under a name; `hostctl context` lists them and chooses one:
 
@@ -108,7 +116,7 @@ The router forwards UDP 51820 (`HOSTD_WIREGUARD_PORT` changes it) to the machine
 **Tailscale** (`tailscale`): nothing to forward, but Tailscale's service introduces your devices to each other, and you log in with an account.
 
 ```sh
-sudo hostd-setup add tailscale                               # prints a URL to approve the machine at
+sudo hostd-admin add tailscale                               # prints a URL to approve the machine at
 sudo HOSTD_TAILSCALE_AUTHKEY=tskey-auth-... hostd-setup add tailscale   # or join with an auth key
 hostctl login 100.x.y.z                                      # on the laptop: the machine's tailnet address
 ```
@@ -119,7 +127,7 @@ The add-on adds the tailnet's addresses to `[api] allow` (in a drop-in file it r
 
 Every build is signed. The installer checks the signature with the key it carries (`deploy/release-key.pem`), and refuses a build that does not match.
 
-`hostd-update.timer` looks for a new build every few hours, as `/etc/hostd/update.conf` says:
+`hostd-update.timer` looks for a new build every few hours, as `~/.config/hostd/update.conf` says:
 
 ```sh
 CHANNEL=edge    # edge: every build of main that passed CI; stable: tagged releases
@@ -129,14 +137,14 @@ APPLY=auto      # auto | notify (a notice on the screen) | manual
 With `auto`, the update starts once no deploy or scene is in progress and nobody is using the screen. If the machine is busy, the next check tries again. Updates restart hostd and the menu, but never the apps.
 
 ```sh
-sudo hostd-setup update                       # the newest signed build, now; prints only what changed
-sudo hostd-setup update --verbose             # ...every step, changed or not
-sudo hostd-setup update steam                 # ...and run that add-on again now
-sudo hostd-setup update --all                 # ...and run every installed add-on again now
-sudo hostd-setup addons                       # optional extras: Steam, Dolphin, compose, pterodactyl...
-sudo hostd-setup add steam
-sudo hostd-setup uninstall                    # removes hostd; keeps its data
-sudo hostd-setup uninstall --purge --all      # ...and its data, and the base setup
+hostd-setup update                       # the newest signed build, now; prints only what changed
+hostd-setup update --verbose             # ...every step, changed or not
+hostd-setup update steam                 # ...and run that add-on again now
+hostd-setup update --all                 # ...and run every installed add-on again now
+hostd-setup addons                       # optional extras: Steam, Dolphin, compose, pterodactyl...
+hostd-setup add steam
+hostd-setup uninstall                    # removes hostd; keeps its data
+hostd-setup uninstall --purge --all      # ...and its data, and the base setup
 ```
 
 An update checks the whole machine setup (packages, the screen user, the Sway and mako configs, hostd, the menu, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes, the Pterodactyl panel) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on, except that it never upgrades the Pterodactyl panel (its migrations change data).
