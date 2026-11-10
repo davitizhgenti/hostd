@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/davitizhgenti/hostd/core/store"
-	"github.com/davitizhgenti/hostd/sdk"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/sdk"
 
 	"github.com/davitizhgenti/hostd/internal/client"
 	"github.com/davitizhgenti/hostd/modules/apps"
