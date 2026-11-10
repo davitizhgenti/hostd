@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/testutil"
 
 	"github.com/davitizhgenti/hostd/core"
 	"github.com/davitizhgenti/hostd/core/store"
@@ -138,5 +141,56 @@ func TestQuietRunningAndTLS(t *testing.T) {
 	}
 	if man := m.Manifest(); man.Reads[len(man.Reads)-1].Scope != sdk.ScopePublic {
 		t.Fatal("tls is not public")
+	}
+}
+
+// quiet.wait counts what modules mark Busy, whatever its name: a module
+// of the test's own holds it, and a plain action of another does not.
+func TestQuietWaitsForBusyActions(t *testing.T) {
+	ctx := context.Background()
+	sys, _ := newModule(t, Options{Every: 5 * time.Millisecond})
+	release := make(chan struct{})
+	started := make(chan struct{}, 2)
+	work := testutil.NewModule("work", nil, nil, nil)
+	work.M.Actions = []sdk.ActionSpec{
+		{Type: "work.long", Scope: sdk.ScopeAdmin, Busy: true},
+		{Type: "work.brief", Scope: sdk.ScopeAdmin},
+	}
+	work.HandleFunc = func(_ context.Context, a sdk.Action) (sdk.Result, error) {
+		started <- struct{}{}
+		<-release
+		return sdk.Result{}, nil
+	}
+	reg := core.NewRegistry()
+	for _, mod := range []sdk.Module{sys, work} {
+		if err := reg.Add(mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := core.New(reg, core.Options{Privileged: []string{Name}})
+	if err := e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Stop(ctx) })
+	admin := core.Auth{Scopes: []string{sdk.ScopeAdmin}}
+	submit := func(typ, args string) (sdk.Result, error) {
+		return e.Submit(ctx, sdk.Action{Type: typ, Args: json.RawMessage(args), Source: sdk.Source{Kind: sdk.SourceManual, Name: "t"}}, admin)
+	}
+	quiet := func() error { _, err := submit("quiet.wait", `{"max":"60ms"}`); return err }
+
+	go func() { _, _ = submit("work.brief", `{}`) }()
+	<-started
+	if err := quiet(); err != nil {
+		t.Fatalf("an action nobody marked busy held quiet.wait: %v", err)
+	}
+	release <- struct{}{}
+	go func() { _, _ = submit("work.long", `{}`) }()
+	<-started
+	if err := quiet(); sdk.CodeOf(err) != sdk.CodePreconditionFailed || !strings.Contains(err.Error(), "work.long") {
+		t.Fatalf("a busy action did not hold quiet.wait: %v", err)
+	}
+	release <- struct{}{}
+	if err := quiet(); err != nil {
+		t.Fatalf("after it ended: %v", err)
 	}
 }

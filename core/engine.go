@@ -686,6 +686,19 @@ type introspect struct{ e *Engine }
 
 func (i introspect) Running() []sdk.RunningAction { return i.e.Running() }
 
+func (i introspect) BusyTypes() []string {
+	var out []string
+	for _, man := range i.e.Registry().Manifests() {
+		for _, a := range man.Actions {
+			if a.Busy {
+				out = append(out, a.Type)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (i introspect) Scopes() []string {
 	var out []string
 	for _, man := range i.e.Registry().Manifests() {

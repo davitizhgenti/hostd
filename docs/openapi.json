@@ -3829,7 +3829,7 @@
                     "type": "string"
                   },
                   "types": {
-                    "description": "action types that count as busy, comma-separated (default deploy.*,scene.*)",
+                    "description": "action types that count as busy, comma-separated (default: the actions modules mark busy: deploys, scenes)",
                     "type": "string"
                   }
                 },

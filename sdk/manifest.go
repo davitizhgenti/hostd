@@ -243,6 +243,11 @@ type ActionSpec struct {
 	// event with the action ID.
 	Slow bool `json:"slow,omitempty"`
 
+	// Busy marks an action that must not be interrupted by an update or a
+	// restart of hostd while it runs (a deploy, a scene): quiet.wait, which
+	// the installer waits on, counts it as work in progress.
+	Busy bool `json:"busy,omitempty"`
+
 	// Route is the friendly API route for this action, if any. Path
 	// parameters are merged into the arguments.
 	Route *Route `json:"route,omitempty"`

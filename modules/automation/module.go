@@ -96,7 +96,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Actions: []sdk.ActionSpec{
 			{Type: "scene.apply", Description: "Reach a scene: send only the actions still needed, in a fixed order",
 				Schema: sceneSchema, Keys: []sdk.KeyTemplate{"scene:{id}"}, Scope: "scenes",
-				Timeout: sdk.Duration(10 * time.Minute)}, // starting apps can take a while
+				Timeout: sdk.Duration(10 * time.Minute), Busy: true}, // starting apps can take a while
 			{Type: "rule.pause", Description: "Stop a rule from firing until it is resumed",
 				Schema: ruleSchema, Keys: []sdk.KeyTemplate{"rule:{name}"}, Scope: "rules"},
 			{Type: "script.run", Description: "Run a script now, as a rule would (with an empty event)",

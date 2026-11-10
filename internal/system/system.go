@@ -72,7 +72,7 @@ var (
 	revokeSchema = json.RawMessage(`{"type":"object","properties":{
 		"id":{"type":"string","description":"the token's ID (tok_...) or name"}},"required":["id"],"additionalProperties":false}`)
 	quietSchema = json.RawMessage(`{"type":"object","properties":{
-		"types":{"type":"string","description":"action types that count as busy, comma-separated (default deploy.*,scene.*)"},
+		"types":{"type":"string","description":"action types that count as busy, comma-separated (default: the actions modules mark busy: deploys, scenes)"},
 		"idle":{"type":"boolean","description":"also wait until nobody is using the screen"},
 		"max":{"type":"string","description":"how long to wait at most (default 10m)"}},"additionalProperties":false}`)
 )
@@ -253,8 +253,11 @@ func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
 	}
-	if args.Types == "" {
-		args.Types = "deploy.*,scene.*"
+	m.mu.Lock()
+	in := m.intro
+	m.mu.Unlock()
+	if args.Types == "" && in != nil {
+		args.Types = strings.Join(in.BusyTypes(), ",")
 	}
 	maxWait := 10 * time.Minute
 	if args.Max != "" {

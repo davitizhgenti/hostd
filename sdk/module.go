@@ -111,6 +111,8 @@ type Limiter interface {
 type Introspector interface {
 	// Running lists the actions being handled, oldest first.
 	Running() []RunningAction
+	// BusyTypes lists the action types modules marked Busy (ActionSpec.Busy).
+	BusyTypes() []string
 	// Scopes lists every token scope some module declares, besides the
 	// core's own, sorted.
 	Scopes() []string
