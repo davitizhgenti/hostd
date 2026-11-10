@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/user"
@@ -9,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/davitizhgenti/hostd/internal/seat"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +22,7 @@ type hostSystem struct {
 	Name    string
 	Port    int
 	Running bool
+	Holds   bool // has the screen (logind's active session on seat0)
 }
 
 // machineSystems finds them: every user that has a hostd socket in /run/user,
@@ -54,13 +58,14 @@ func machineSystems(runDir, usersFile string) []hostSystem {
 	for n := range running {
 		names[n] = true
 	}
+	holder := seatHolder()
 	var out []hostSystem
 	for n := range names {
 		port, listed := ports[n]
 		if !listed {
 			port = 7300 // not in the list: the first user's
 		}
-		out = append(out, hostSystem{n, port, running[n]})
+		out = append(out, hostSystem{n, port, running[n], holder != "" && n == holder})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Port < out[j].Port || (out[i].Port == out[j].Port && out[i].Name < out[j].Name)
@@ -86,6 +91,12 @@ with: hostctl login https://<machine>:PORT --name NAME`,
 			return writeTable(a.stdout, tableStyle{}, []column[hostSystem]{
 				{"USER", func(r hostSystem) string { return r.Name }},
 				{"PORT", func(r hostSystem) string { return strconv.Itoa(r.Port) }},
+				{"SEAT", func(r hostSystem) string {
+					if r.Holds {
+						return "yes"
+					}
+					return ""
+				}},
 				{"RUNNING", func(r hostSystem) string {
 					if r.Running {
 						return "yes"
@@ -96,3 +107,6 @@ with: hostctl login https://<machine>:PORT --name NAME`,
 		},
 	}
 }
+
+// seatHolder is the user whose session is active on seat0 (logind), "" if unknown.
+func seatHolder() string { return seat.Holder(context.Background()) }

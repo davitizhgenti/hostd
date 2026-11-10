@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""hostd's seat module (standard library only): who holds the screen, and
+switching it.
+
+    hostctl seat                      who holds the seat, and who could
+    hostctl seat switch USER          give the screen, keyboard and controllers to USER's hostd
+
+It reads logind itself (no root) and asks the seat helper, a root process
+with a socket at /run/hostd/seat.sock, to switch. hostd runs as a user: only
+the helper has root, and it serves only the users listed in /etc/hostd/seats.
+"""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+HELPER = os.environ.get("HOSTD_SEAT_SOCK", "/run/hostd/seat.sock")
+
+MANIFEST = {
+    "name": "seat",
+    "version": "0.1.0",
+    "owns": ["seat.*"],
+    "scopes": [{"name": "seat", "description": "Switch which user's hostd holds the screen"}],
+    "actions": [
+        {
+            "type": "seat.switch",
+            "description": "Give the screen, keyboard and controllers to this user's session",
+            "schema": {
+                "type": "object",
+                "properties": {"user": {"type": "string", "description": "a user listed in /etc/hostd/seats"}},
+                "required": ["user"],
+                "additionalProperties": False,
+            },
+            "keys": ["seat"],
+            "scope": "seat",
+            "timeout": "15s",
+            "route": {"method": "POST", "path": "/v1/seat/{user}/switch"},
+        }
+    ],
+    "events": [{"type": "seat.switched", "description": "The seat went to another user"}],
+    "reads": [
+        {
+            "name": "seat",
+            "description": "The users that may hold the seat, and who does",
+            "path": "/v1/seat",
+            "cli": {
+                "columns": [{"title": "USER", "path": "user"}, {"title": "VT", "path": "vt"}, {"title": "HOLDS", "path": "holds"}]
+            },
+        }
+    ],
+}
+
+
+class HostdError(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def helper(req):
+    """One request to the root helper."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(15)
+    try:
+        s.connect(HELPER)
+        s.sendall((json.dumps(req) + "\n").encode())
+        answer = json.loads(s.makefile("r", encoding="utf-8").readline() or "{}")
+    except (OSError, ValueError) as e:
+        raise HostdError("module_unavailable", "the seat helper does not answer (%s): sudo hostd-admin add seats" % e) from e
+    finally:
+        s.close()
+    if "error" in answer:
+        raise HostdError("failed_precondition", answer["error"])
+    return answer
+
+
+def holder():
+    """The user whose session is active on seat0 (no root needed)."""
+    def ask(*args):
+        return subprocess.run(["loginctl", *args], capture_output=True, text=True, timeout=5).stdout.strip()
+
+    try:
+        sid = ask("show-seat", "seat0", "-p", "ActiveSession", "--value")
+        return ask("show-session", sid, "-p", "Name", "--value") if sid else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def send(msg):
+    msg["jsonrpc"] = "2.0"
+    sys.stdout.write(json.dumps(msg) + "\n")
+    sys.stdout.flush()
+
+
+def watch(stop):
+    """Says seat.switched when the holder changes, whoever changed it."""
+    last = holder()
+    while not stop.wait(2):
+        now = holder()
+        if now and now != last:
+            event = {"type": "seat.switched", "data": {"user": now, "from": last}}
+            send({"id": "e%d" % time.time_ns(), "method": "emit", "params": {"event": event}})
+            last = now
+
+
+def handle(method, params):
+    if method == "hostd.handshake":
+        if params.get("protocol") != 1:
+            raise HostdError("invalid_args", "this module speaks protocol 1")
+        return {"protocol": 1}
+    if method == "manifest":
+        return MANIFEST
+    if method == "start":
+        threading.Thread(target=watch, args=(threading.Event(),), daemon=True).start()
+        return {}
+    if method in ("stop", "validate"):
+        return {}
+    if method == "read":
+        if params.get("name") != "seat":
+            raise HostdError("not_found", "no read %r" % params.get("name"))
+        return helper({"verb": "list"})["seats"]
+    if method == "state":
+        return {"holder": holder()}
+    if method == "handle":
+        action = params["action"]
+        if action["type"] != "seat.switch":
+            raise HostdError("not_found", "no action %r" % action["type"])
+        user = (action.get("args") or {}).get("user")
+        if not user:
+            raise HostdError("invalid_args", "user is required")
+        return {"status": "applied", "data": helper({"verb": "switch", "user": user})}
+    raise HostdError("not_found", "no method " + method)
+
+
+def main():
+    for line in sys.stdin:
+        msg = json.loads(line)
+        if "method" not in msg:
+            continue  # an answer to the emit calls: nothing waits for them
+        try:
+            reply = {"result": handle(msg["method"], msg.get("params") or {})}
+        except HostdError as e:
+            reply = {"error": {"code": -32000, "message": str(e), "data": {"code": e.code}}}
+        except Exception as e:  # noqa: BLE001
+            message = "%s: %s" % (type(e).__name__, e)
+            reply = {"error": {"code": -32000, "message": message, "data": {"code": "internal"}}}
+        if "id" in msg:
+            reply["id"] = msg["id"]
+            send(reply)
+
+
+if __name__ == "__main__":
+    main()

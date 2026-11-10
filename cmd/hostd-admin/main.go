@@ -30,6 +30,8 @@ const usage = `hostd-admin: what hostd needs root for, done once.
   sudo hostd-admin user add NAME [--port N]   a user with a hostd of their own
   sudo hostd-admin user remove NAME [--purge]
   sudo hostd-admin user list
+  sudo hostd-admin seats add USER VT  let USER hold the screen, with a session on that VT
+  sudo hostd-admin seats remove USER | list    (needs: hostd-admin add seats)
   sudo hostd-admin uninstall [--purge] [--all]   take hostd off the machine
 
 Options:
@@ -73,7 +75,7 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 	}
 	cmd, rest := argv[0], argv[1:]
 	switch cmd {
-	case "prepare", "addons", "add", "remove", "user", "uninstall":
+	case "prepare", "addons", "add", "remove", "user", "seats", "uninstall":
 	default:
 		return errUsage
 	}
@@ -114,7 +116,7 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 			names = append(names, a)
 		}
 	}
-	readOnly := cmd == "addons" || (cmd == "user" && len(names) == 1 && names[0] == "list")
+	readOnly := cmd == "addons" || ((cmd == "user" || cmd == "seats") && len(names) == 1 && names[0] == "list")
 	if !readOnly && geteuid() != 0 {
 		return fmt.Errorf("run as root: sudo hostd-admin %s", cmd)
 	}
@@ -151,6 +153,21 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 			err = s.RemoveUser(ctx, names[1], purge)
 		case len(names) == 1 && names[0] == "list":
 			err = s.ListUsers(stdout)
+		default:
+			return errUsage
+		}
+	case "seats":
+		switch {
+		case len(names) == 3 && names[0] == "add":
+			vt, e := strconv.Atoi(names[2])
+			if e != nil {
+				return errors.New("seats add USER VT: VT is a number")
+			}
+			err = s.AddSeat(ctx, names[1], vt)
+		case len(names) == 2 && names[0] == "remove":
+			err = s.RemoveSeat(ctx, names[1])
+		case len(names) == 1 && names[0] == "list":
+			err = s.ListSeats(stdout)
 		default:
 			return errUsage
 		}

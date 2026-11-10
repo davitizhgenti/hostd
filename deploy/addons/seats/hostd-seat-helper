@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""hostd's seat helper: the one root process of the seats add-on.
+
+It listens on /run/hostd/seat.sock and does two things, for the users listed
+in /etc/hostd/seats ("USER VT" per line) and nobody else (the caller is
+identified by the kernel, SO_PEERCRED): list the seat's sessions, and switch
+the seat to a user's session (logind's activate). One JSON request per
+connection, one JSON answer.
+"""
+
+import json
+import os
+import pwd
+import socket
+import struct
+import subprocess
+
+SOCK = os.environ.get("HOSTD_SEAT_SOCK", "/run/hostd/seat.sock")
+SEATS = os.environ.get("HOSTD_SEATS", "/etc/hostd/seats")
+
+
+def read_seats(path=SEATS):
+    """{user: vt} from the list."""
+    seats = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                fields = line.split("#")[0].split()
+                if len(fields) >= 2 and fields[1].isdigit():
+                    seats[fields[0]] = int(fields[1])
+    except FileNotFoundError:
+        pass
+    return seats
+
+
+def loginctl(*args):
+    return subprocess.run(["loginctl", *args], check=True, capture_output=True, text=True, timeout=10).stdout
+
+
+def sessions():
+    """The sessions on seat0: [{id, user, vt, active}]."""
+    out = []
+    for line in loginctl("list-sessions", "--no-legend").splitlines():
+        f = line.split()
+        if len(f) < 4 or f[3] != "seat0":
+            continue
+        shown = loginctl("show-session", f[0], "-p", "VTNr", "-p", "Active", "-p", "Name", "-p", "Class")
+        props = dict(kv.split("=", 1) for kv in shown.splitlines() if "=" in kv)
+        if props.get("Class") != "user":
+            continue
+        vt = int(props.get("VTNr") or 0)
+        out.append({"id": f[0], "user": props.get("Name", f[2]), "vt": vt, "active": props.get("Active") == "yes"})
+    return out
+
+
+def handle(req, caller, seats, list_sessions=sessions, activate=lambda sid: loginctl("activate", sid)):
+    """Answers one request from the user caller (a name)."""
+    if caller not in seats:
+        return {"error": "%s may not use the seat" % caller}
+    verb = req.get("verb")
+    live = list_sessions()
+    if verb == "list":
+        rows = []
+        for user, vt in sorted(seats.items(), key=lambda kv: kv[1]):
+            mine = [s for s in live if s["user"] == user and s["vt"] == vt]
+            session = mine[0] if mine else {}
+            rows.append({"user": user, "vt": vt, "session": session.get("id", ""), "holds": bool(session.get("active"))})
+        return {"ok": True, "seats": rows}
+    if verb == "switch":
+        user = req.get("user")
+        if user not in seats:
+            return {"error": "%s is not a seat user" % user}
+        mine = [s for s in live if s["user"] == user and s["vt"] == seats[user]]
+        if not mine:
+            return {"error": "%s has no session on VT %d (is hostd-session-%s running?)" % (user, seats[user], user)}
+        if not mine[0]["active"]:
+            activate(mine[0]["id"])
+        return {"ok": True, "user": user, "session": mine[0]["id"]}
+    return {"error": "no verb %r" % verb}
+
+
+def serve():
+    os.makedirs(os.path.dirname(SOCK), exist_ok=True)
+    if os.path.exists(SOCK):
+        os.unlink(SOCK)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(SOCK)
+    os.chmod(SOCK, 0o666)  # anyone may connect; the kernel says who they are
+    srv.listen(8)
+    while True:
+        conn, _ = srv.accept()
+        with conn:
+            try:
+                conn.settimeout(15)
+                pid, uid, gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
+                try:
+                    caller = pwd.getpwuid(uid).pw_name
+                except KeyError:
+                    caller = ""
+                req = json.loads(conn.makefile("r", encoding="utf-8").readline() or "{}")
+                answer = handle(req, caller, read_seats())
+            except Exception as e:  # noqa: BLE001 - one bad request must not end the helper
+                answer = {"error": "%s: %s" % (type(e).__name__, e)}
+            conn.sendall((json.dumps(answer) + "\n").encode())
+
+
+if __name__ == "__main__":
+    serve()

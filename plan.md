@@ -343,7 +343,7 @@ Done (core runs it: hostd as `serve`, no `screen` user):
 - `hostctl systems`; docs (install, security, extending).
 
 Not done:
-- **Seats (Phase 4):** one holder at a time, switched by a root helper add-on; starts with a spike on core (two Sway sessions, NVIDIA, controllers and audio following). `hostctl systems` shows no seat holder yet.
+- **Seats (Phase 4):** the spike passed on core (10 round trips, NVIDIA 580, no frozen screen). Built: `seats` add-on (root helper, `seat` module, session units), `hostd-admin seats`, input gated by session, `hostctl systems` SEAT column. Not yet tried on core with the real add-on.
 - `hostd-admin user add` still runs the whole install for the new user from root (the plan: each user installs themselves).
 - Run as root, `hostd-setup install` is still the old all-in-one install (it now prints a note).
 - Jupyter as a user add-on (its hook run as the user; python3-venv and git as checked prerequisites).

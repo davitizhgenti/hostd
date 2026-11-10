@@ -166,7 +166,7 @@ fi
 
 # --- an update while an app runs -----------------------------------------
 echo "update"
-gs 'mkdir -p ~/.config/hostd/apps && printf "name = \"E2E sleeper\"\nrunner = { type = \"process\", command = [\"sleep\", \"3600\"] }\nrestart = \"never\"\n" > ~/.config/hostd/apps/e2e-sleep.toml && hostctl app rescan >/dev/null && hostctl start e2e-sleep >/dev/null'
+gs 'mkdir -p ~/.config/hostd/apps && printf "name = \"E2E sleeper\"\nrunner = { type = \"process\", command = [\"sleep\", \"3600\"] }\nrestart = \"never\"\n" > ~/.config/hostd/apps/e2e-sleep.toml && for _ in $(seq 1 30); do hostctl apps --all | grep -q "^e2e-sleep " && break; sleep 1; done && hostctl start e2e-sleep >/dev/null'
 t "a background app runs" gs 'hostctl ps | grep -q "^e2e-sleep .*running"'
 # A command that ends at once: systemd announces its unit already ended.
 t "run --wait returns for a command that ends at once" gs 'timeout 30 hostctl run -b --wait -- echo e2e-ok | grep -q e2e-ok'

@@ -1,0 +1,3 @@
+# Managed by hostd's seats add-on: the seat module (hostctl seat ...).
+command = ["python3", "/usr/local/lib/hostd/seats/hostd-seat"]
+transport = "stdio"

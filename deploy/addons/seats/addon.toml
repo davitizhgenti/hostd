@@ -1,0 +1,20 @@
+# Seats: the screen, keyboard and controllers go to one hostd user at a time,
+# and can be switched (hostctl seat switch USER). Every user that may hold
+# the seat has a graphical session of their own on a VT (hostd-admin seats
+# add USER VT); switching is logind's activate, done by a small root helper
+# that only the listed users may ask. hostd itself never runs as root: each
+# hostd reads input only while its user's session is the active one.
+description = "Switch the screen between users' hostds, one at a time (hostctl seat switch USER)"
+resources = ["modules/seat.toml"]
+files = [
+  { src = "hostd-seat-helper", dest = "/usr/local/lib/hostd/seats/hostd-seat-helper", mode = "755" },
+  { src = "hostd-seat-helper.service", dest = "/etc/systemd/system/hostd-seat-helper.service" },
+  { src = "hostd-seat", dest = "/usr/local/lib/hostd/seats/hostd-seat", mode = "755" },
+  { src = "hostd-session.service", dest = "/usr/local/lib/hostd/seats/hostd-session.service.tmpl" },
+]
+on_change = [
+  ["systemctl", "daemon-reload"],
+  ["systemctl", "enable", "hostd-seat-helper.service"],
+  ["systemctl", "restart", "hostd-seat-helper.service"],
+]
+keeps = "the list of seat users (/etc/hostd/seats) and their session units stay: hostd-admin seats remove USER"

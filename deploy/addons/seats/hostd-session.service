@@ -1,0 +1,25 @@
+# Managed by hostd-admin (seats add): a graphical session for @USER@ on VT @VT@.
+[Unit]
+Description=hostd graphical session for @USER@ (VT @VT@)
+After=systemd-user-sessions.service systemd-logind.service getty@tty@VT@.service
+Conflicts=getty@tty@VT@.service
+
+[Service]
+User=@USER@
+PAMName=login
+TTYPath=/dev/tty@VT@
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+UtmpIdentifier=tty@VT@
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_SESSION_CLASS=user
+Environment=XDG_VTNR=@VT@
+ExecStart=@SWAY@
+Restart=no
+
+[Install]
+WantedBy=graphical.target

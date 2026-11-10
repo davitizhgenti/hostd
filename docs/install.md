@@ -71,7 +71,7 @@ hostd-setup user list
 sudo hostd-admin user remove alice [--purge]   # stop her hostd (--purge: and delete its data); alice stays
 ```
 
-The admin makes the account and gives it a port (`hostd-admin user add`); then that user installs hostd themselves, with no root (`hostd-setup`, as in step 2 above), and it reads its port from the admin's list. Each one starts at boot and updates itself with its own update timer. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. Giving the screen to another user's hostd, one at a time, is not built yet.
+The admin makes the account and gives it a port (`hostd-admin user add`); then that user installs hostd themselves, with no root (`hostd-setup`, as in step 2 above), and it reads its port from the admin's list. Each one starts at boot and updates itself with its own update timer. The port is written once to `~/.config/hostd/hostd.toml` as `listen`, which you can change later. These users are for services and for logging in over SSH or the API: the screen, its Sway session and the on-screen menu belong to the first user. The screen goes to one user's hostd at a time (below).
 
 To use them from a laptop, save a login for each under a name; `hostctl context` lists them and chooses one:
 
@@ -81,6 +81,21 @@ hostctl context                  # * marks the current one
 hostctl context default          # the login saved without a name
 hostctl --context alice apps     # for one command (or HOSTD_CONTEXT=alice)
 ```
+
+## One screen, several users
+
+The screen, keyboard and controllers belong to one user's hostd at a time, and can be switched. Each user that may hold them has a graphical session of their own on a VT; switching is logind's own (a VT switch), done by a small root helper that only those users may ask. hostd itself stays without root, and a hostd whose session is not in front reads no input, so it takes nothing from the one that is.
+
+```sh
+sudo hostd-admin add seats --user screen        # the helper, and the `seat` module for that user's hostd
+sudo hostd-admin seats add screen 7             # the user greetd logs in is on VT 7
+sudo hostd-admin seats add alice 8              # alice gets a session on VT 8 (started at boot)
+hostctl seat                                    # who holds the seat, and who could
+hostctl seat switch alice                       # the screen goes to alice's session
+hostctl systems                                 # every hostd on the machine; SEAT shows the holder
+```
+
+Tried on the real machine with NVIDIA's own driver: ten round trips between two Sway sessions without a frozen screen or a driver message. Controllers and HDMI audio follow the active session through logind.
 
 ## Other devices
 

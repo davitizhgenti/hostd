@@ -99,17 +99,20 @@ lint:
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
 	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/hook.sh \
-	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway
+	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway deploy/addons/chromium/chromium
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
-	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py
+	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py \
+		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
 	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py \
-		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py examples/python-module/lights.py \
+		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
+		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
 		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
+	python3 -m unittest discover -s deploy/addons/seats -p "test_*.py"
 	python3 -m unittest discover -s clients/python -p "test_*.py"
-	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__ clients/python/__pycache__
+	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
 
 # Coverage per package, counting every test binary, against the floors in
 # scripts/coverage-floors.txt: fails if a package is below its floor.

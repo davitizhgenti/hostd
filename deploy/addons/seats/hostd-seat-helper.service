@@ -1,0 +1,15 @@
+# Managed by hostd's seats add-on.
+[Unit]
+Description=hostd seat helper: switches the seat between users' sessions
+After=systemd-logind.service
+
+[Service]
+ExecStart=/usr/local/lib/hostd/seats/hostd-seat-helper
+Restart=on-failure
+RuntimeDirectory=hostd
+RuntimeDirectoryPreserve=yes
+# It only asks logind to switch sessions.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
