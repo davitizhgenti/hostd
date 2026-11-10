@@ -117,7 +117,7 @@ class ClientTest(unittest.TestCase):
             {"type": "audio.volume.set", "args": {"percent": 40}},
             {"type": "lights.set", "args": {"id": "porch", "brightness": 40}}])
         with self.assertRaises(AttributeError):
-            self.core._private
+            _ = self.core._private
         self.assertEqual(repr(self.core.scene.apply), "<hostd action scene.apply>")
 
     def test_the_instance_verbs(self):

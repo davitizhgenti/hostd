@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/sdk"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -344,5 +346,32 @@ func TestRunRefusesTheOldLayoutAndMigrates(t *testing.T) {
 	errb.Reset()
 	if code := Run(context.Background(), []string{"-config", cfg, "-migrate"}, &errb); code != 0 || !strings.Contains(errb.String(), "nothing to migrate") {
 		t.Fatalf("second migrate: exit %d: %s", code, errb.String())
+	}
+}
+
+// The tokens of a rule's script: made for the run, gone when it ends.
+func TestScriptTokensAreRevokedWithTheRun(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "state.db"), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	secret, revoke, err := scriptTokens{st}.Mint(ctx, "script night #1", []string{"audio"}, time.Minute)
+	if err != nil || !strings.HasPrefix(secret, "hostd_") {
+		t.Fatalf("mint: %q %v", secret, err)
+	}
+	if tok, err := st.VerifyToken(ctx, secret); err != nil || tok.Kind != sdk.SourceAutomation {
+		t.Fatalf("verify: %+v %v", tok, err)
+	}
+	revoke()
+	if _, err := st.VerifyToken(ctx, secret); err == nil {
+		t.Fatal("the token works after the run")
+	}
+}
+
+func TestContains(t *testing.T) {
+	if !contains([]string{"a", "demo"}, "demo") || contains([]string{"a"}, "demo") || contains(nil, "x") {
+		t.Fatal("contains is wrong")
 	}
 }

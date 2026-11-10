@@ -1,6 +1,9 @@
 package evdev
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestPlayersTakeTheLowestFreeSlot(t *testing.T) {
 	var p Players
@@ -53,5 +56,42 @@ func TestDeviceIDIsStable(t *testing.T) {
 		if got := DeviceID(c.d, c.dev); got != c.want {
 			t.Errorf("DeviceID = %q, want %q", got, c.want)
 		}
+	}
+}
+
+func TestEvdevGrabAndDevicesWithNoControllers(t *testing.T) {
+	e := &Evdev{}
+	if err := e.Grab("", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Grab("045e:028e-x", true); err != nil {
+		t.Fatal(err)
+	}
+	if !e.grabbed[""] || !e.grabbed["045e:028e-x"] {
+		t.Fatalf("grabbed = %v", e.grabbed)
+	}
+	// A controller that appears later is taken when it was asked for.
+	if err := e.Grab("", false); err != nil {
+		t.Fatal(err)
+	}
+	if e.grabbed[""] || !e.grabbed["045e:028e-x"] {
+		t.Fatalf("grabbed after giving back all = %v", e.grabbed)
+	}
+	if got := e.Devices(); len(got) != 0 {
+		t.Fatalf("devices = %v", got)
+	}
+	f, err := os.CreateTemp(t.TempDir(), "pad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	e.pad("/dev/input/event1", "045e:028e-x", f) // a regular file cannot be grabbed: ignored
+	e.players().Connect("045e:028e-x")
+	if got := e.Devices(); got["045e:028e-x"] != 1 {
+		t.Fatalf("devices = %v", got)
+	}
+	e.pad("/dev/input/event1", "045e:028e-x", nil)
+	if len(e.Devices()) != 0 {
+		t.Fatal("an unplugged pad is still listed")
 	}
 }

@@ -37,3 +37,17 @@ func TestWriteFileFailsWithoutLeavingFiles(t *testing.T) {
 		t.Fatal("writing under a file should fail")
 	}
 }
+
+func TestWriteFileOverADirectoryFails(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "d")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(target, []byte("x"), 0o644); err == nil {
+		t.Fatal("replaced a directory")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("temporary file left: %v", entries)
+	}
+}
