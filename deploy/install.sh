@@ -7,6 +7,7 @@
 #   ./deploy/install.sh [options]           first install, as the user who runs it, in their
 #                                           home, with no root (see hostd-setup --help)
 #   ./deploy/install.sh --from DIR          with a build in DIR (make dist)
+#   sudo ./deploy/install.sh admin prepare  what only root can do, once (hostd-admin; see its --help)
 #   sudo ./deploy/install.sh [options]      as root: the machine's setup (packages, the
 #                                           screen user, autologin), as before
 #
@@ -39,7 +40,14 @@ for a in "$@"; do
 done
 
 ARCH=$(dpkg --print-architecture)
-NAME=hostd-setup-linux-$ARCH
+# "install.sh admin ARGS" runs hostd-admin (root, once) instead of hostd-setup.
+PROG=hostd-setup
+if [ "${1:-}" = admin ]; then
+	PROG=hostd-admin
+	shift
+	[ "$(id -u)" -eq 0 ] || die "hostd-admin needs root: sudo $0 admin $*"
+fi
+NAME=$PROG-linux-$ARCH
 
 # A build at hand (--from): its hostd-setup is the one to run.
 if [ -n "$FROM" ] && [ -x "$FROM/$NAME" ]; then

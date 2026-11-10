@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +30,13 @@ func (s *Setup) Prepare(ctx context.Context, o Options) error {
 	} {
 		if err := step(ctx); err != nil {
 			return err
+		}
+	}
+	if o.Self != "" { // stays on the machine, for add-ons and users
+		if self, err := os.ReadFile(o.Self); err == nil {
+			if _, err := s.installFile(self, "/usr/local/sbin/hostd-admin", 0o755, "root"); err != nil {
+				return err
+			}
 		}
 	}
 	s.Out.Done()
