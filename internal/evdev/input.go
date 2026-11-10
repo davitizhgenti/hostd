@@ -38,8 +38,8 @@ type Grabber interface {
 
 // InputEvent is a batch of input from one device.
 type InputEvent struct {
-	// Device is the controller's ID (see DeviceID) and Player its slot;
-	// empty and 0 for a device that is not a controller.
+	// Device is the ID of the device (see DeviceID) and Player a controller's
+	// slot, 0 for a keyboard or a mouse.
 	Device string
 	Player int
 	// Buttons pressed and let go, by name (see Buttons), for the
@@ -262,7 +262,10 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 			e.pad(path, id, f)
 		}
 		emit := fn
-		if codes != nil {
+		if codes == nil {
+			did := DeviceID(info, path) // a keyboard or a mouse: told apart, with no player
+			emit = func(ev InputEvent) { ev.Device = did; fn(ev) }
+		} else {
 			emit = func(ev InputEvent) {
 				ev.Device = id
 				e.mu.Lock()

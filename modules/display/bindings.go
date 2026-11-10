@@ -6,6 +6,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,6 +120,11 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 // onInput is called for every input from every device.
 func (m *Module) onInput(ev evdev.InputEvent) {
 	m.presence.Touch()
+	if ev.Device != "" {
+		m.mu.Lock()
+		m.lastBy[ev.Device] = m.opts.Clock.Now()
+		m.mu.Unlock()
+	}
 	if len(ev.Released) > 0 || len(ev.Buttons) > 0 {
 		m.mu.Lock()
 		for _, b := range ev.Released {
@@ -134,7 +140,7 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 		m.release(ev.Device, b)
 	}
 	for _, b := range ev.Buttons {
-		m.hold(ev.Device, b)
+		m.hold(ev.Device, ev.Player, b)
 	}
 	if len(ev.Nav) > 0 {
 		m.mu.Lock()
@@ -211,15 +217,15 @@ func (m *Module) syncGrab() {
 
 // hold runs a controller button's action once it has been held for
 // HoldFor; letting go sooner leaves the press to the app.
-func (m *Module) hold(device, name string) {
-	if _, ok := m.buttons[name]; !ok {
+func (m *Module) hold(device string, player int, name string) {
+	if _, ok := m.buttonAction(player, name); !ok {
 		return
 	}
 	if m.opts.HoldFor < 0 {
 		m.mu.Lock()
 		m.lastPad = device
 		m.mu.Unlock()
-		m.press("controller", name)
+		m.press("controller", player, name)
 		return
 	}
 	key := device + "/" + name
@@ -250,7 +256,7 @@ func (m *Module) hold(device, name string) {
 		}
 		m.lastPad = device
 		m.mu.Unlock()
-		m.press("controller", name)
+		m.press("controller", player, name)
 	}()
 }
 
@@ -268,12 +274,14 @@ func (m *Module) release(device, name string) {
 // press runs the action bound to an input. A press while the previous
 // press of the same input is still being handled is dropped (a held or
 // bouncing button).
-func (m *Module) press(device, name string) {
-	table := m.keys
+func (m *Module) press(device string, player int, name string) {
+	var action string
+	var ok bool
 	if device == "controller" {
-		table = m.buttons
+		action, ok = m.buttonAction(player, name)
+	} else {
+		action, ok = m.keys[name]
 	}
-	action, ok := table[name]
 	if !ok {
 		return
 	}
@@ -307,4 +315,51 @@ func (m *Module) bind(ctx context.Context, b Backend) {
 	if err := b.Bind(ctx, keys); err != nil {
 		m.log.Warn("installing key bindings", "err", err)
 	}
+}
+
+// PlayerBindings gives each player slot the button bindings it differs in:
+// base (the defaults and [display.buttons]) with that player's changes on
+// top. It checks the slot's number and every name and action.
+func PlayerBindings(base map[string]string, players map[string]PlayerConfig) (map[int]map[string]string, error) {
+	out := map[int]map[string]string{}
+	for slot, pc := range players {
+		n, err := strconv.Atoi(slot)
+		if err != nil || n < 1 || n > 16 {
+			return nil, fmt.Errorf("players.%s: a player slot is a number from 1 to 16", slot)
+		}
+		_, merged, err := Bindings(nil, mergeButtons(base, pc.Buttons))
+		if err != nil {
+			return nil, fmt.Errorf("players.%d.buttons: %w", n, err)
+		}
+		out[n] = merged
+	}
+	return out, nil
+}
+
+// mergeButtons returns the overrides to hand Bindings so that base plus over
+// is what comes out (Bindings starts from the defaults, which base already
+// has changed): every binding of base, then over, a removal being "".
+func mergeButtons(base, over map[string]string) map[string]string {
+	out := map[string]string{}
+	for name := range DefaultButtons {
+		out[name] = "" // start from nothing: base says what is left
+	}
+	for name, action := range base {
+		out[name] = action
+	}
+	for name, action := range over {
+		out[name] = action
+	}
+	return out
+}
+
+// buttonAction is what a controller button does for a player: the player's
+// own binding if the slot has a table, else the common one.
+func (m *Module) buttonAction(player int, name string) (string, bool) {
+	if t, ok := m.playerButtons[player]; ok {
+		a, ok := t[name]
+		return a, ok
+	}
+	a, ok := m.buttons[name]
+	return a, ok
 }

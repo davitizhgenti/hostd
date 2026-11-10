@@ -34,6 +34,9 @@ const (
 	EventGPUOK   = "display.gpu.ok"
 	EventOutputs = "display.output.changed"
 
+	EventDeviceConnected        = "device.connected"
+	EventDeviceDisconnected     = "device.disconnected"
+	EventDeviceAssigned         = "device.assigned"
 	EventControllerConnected    = "controller.connected"
 	EventControllerDisconnected = "controller.disconnected"
 )
@@ -62,9 +65,15 @@ type Options struct {
 	// controller list.
 	Profiles *evdev.Profiles
 	SysRoot  string
+	// Players are the controllers' slots, shared with the Input that reads
+	// them (nil: none are reported or assigned).
+	Players *evdev.Players
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
+	// PlayerButtons are the buttons that differ for a player slot (see
+	// PlayerBindings); a slot with a table uses it instead of Buttons.
+	PlayerButtons map[int]map[string]string
 	// GPU reads video memory, watched every GPUEvery (default 15s) so the
 	// person is told before it is full (nil: not watched).
 	GPU      gpu.Reader
@@ -108,33 +117,35 @@ type Module struct {
 	opts Options
 	log  *slog.Logger
 
-	mu         sync.Mutex
-	core       sdk.Core
-	backend    Backend                  // nil while no compositor is attached
-	windows    map[int64]*trackedWindow // by window ID
-	stack      []string                 // instances by focus, most recent last
-	prefs      map[string]bool          // instance -> wants fullscreen
-	closeWait  map[int64]chan struct{}
-	launches   map[string]*launch       // by instance
-	ending     map[string]chan struct{} // instance -> closed when it ends
-	gone       map[string]bool          // instances that ended (until the ID is reused)
-	focusSeq   uint64                   // counts focus changes
-	keys       map[string]string        // key name -> action
-	buttons    map[string]string        // controller button -> action
-	pressing   map[string]bool          // inputs whose action is being handled
-	holds      map[string]chan struct{} // controller buttons held down; closed on release
-	menuFront  bool                     // hostd's menu has the focus: controllers are taken for it
-	menuOwner  string                   // the controller that opened the menu ("": any)
-	lastPad    string                   // the controller whose binding fired last
-	grabbedDev string                   // whose grab is held
-	grabbed    bool                     // the controllers are taken (evdev.Grabber)
-	down       map[string]bool          // controller buttons held down
-	gpuUsed    int64                    // video memory in use, bytes (GPU)
-	gpuTotal   int64
-	life       context.Context      // ends when the module stops
-	failed     int                  // compositor commands that failed
-	warned     map[string]time.Time // when each kind of failure was last logged as a warning
-	presence   *presence.Tracker
+	mu            sync.Mutex
+	core          sdk.Core
+	backend       Backend                  // nil while no compositor is attached
+	windows       map[int64]*trackedWindow // by window ID
+	stack         []string                 // instances by focus, most recent last
+	prefs         map[string]bool          // instance -> wants fullscreen
+	closeWait     map[int64]chan struct{}
+	launches      map[string]*launch       // by instance
+	ending        map[string]chan struct{} // instance -> closed when it ends
+	gone          map[string]bool          // instances that ended (until the ID is reused)
+	focusSeq      uint64                   // counts focus changes
+	keys          map[string]string        // key name -> action
+	buttons       map[string]string        // controller button -> action
+	pressing      map[string]bool          // inputs whose action is being handled
+	holds         map[string]chan struct{} // controller buttons held down; closed on release
+	menuFront     bool                     // hostd's menu has the focus: controllers are taken for it
+	menuOwner     string                   // the controller that opened the menu ("": any)
+	playerButtons map[int]map[string]string
+	lastBy        map[string]time.Time // when each device last did something
+	lastPad       string               // the controller whose binding fired last
+	grabbedDev    string               // whose grab is held
+	grabbed       bool                 // the controllers are taken (evdev.Grabber)
+	down          map[string]bool      // controller buttons held down
+	gpuUsed       int64                // video memory in use, bytes (GPU)
+	gpuTotal      int64
+	life          context.Context      // ends when the module stops
+	failed        int                  // compositor commands that failed
+	warned        map[string]time.Time // when each kind of failure was last logged as a warning
+	presence      *presence.Tracker
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -178,8 +189,8 @@ func New(opts Options) *Module {
 	if opts.HoldFor == 0 {
 		opts.HoldFor = 600 * time.Millisecond
 	}
-	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{}, down: map[string]bool{},
-		keys: opts.Keys, buttons: opts.Buttons,
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{}, down: map[string]bool{}, lastBy: map[string]time.Time{},
+		keys: opts.Keys, buttons: opts.Buttons, playerButtons: opts.PlayerButtons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
 	if m.opts.Profiles == nil {
@@ -203,6 +214,10 @@ var (
 		"instance":{"type":"string","description":"the instance to place"},
 		"beside":{"type":"string","description":"the instance to place it next to"},
 		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance","beside"]}`)
+	assignArg = json.RawMessage(`{"type":"object","properties":{
+		"id":{"type":"string","description":"the controller's ID (hostctl devices)"},
+		"player":{"type":"integer","minimum":1,"maximum":16,"description":"the slot"}},
+		"required":["id","player"],"additionalProperties":false}`)
 	noticeArg = json.RawMessage(`{"type":"object","properties":{
 		"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}`)
 	powerArg = json.RawMessage(`{"type":"object","properties":{
@@ -228,7 +243,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		// The apps module's instances are what the display module places,
 		// focuses and closes (see contract).
 		Requires: []string{contract.AppsModule},
-		Owns:     []string{"display.*", "window.*", "controller.*"},
+		Owns:     []string{"display.*", "window.*", "controller.*", "device.*"},
 		Facets:   facets(),
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
@@ -270,6 +285,9 @@ func (m *Module) Manifest() sdk.Manifest {
 				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
 				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/place"}},
+			{Type: "device.assign", Description: "Give a controller a player slot (the controller that has it gets this one's old slot)",
+				Schema: assignArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/assign"}},
 			{Type: "display.notice", Description: "Show a short notice on the screen, above any app",
 				Schema: noticeArg, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/display/notice"}},
@@ -297,6 +315,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
 			{Type: EventNav, Description: "evdev.Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
+			{Type: EventDeviceConnected, Description: "A keyboard, mouse or controller was plugged in (see GET /v1/devices)"},
+			{Type: EventDeviceDisconnected, Description: "An input device was unplugged"},
+			{Type: EventDeviceAssigned, Description: "A controller was given another player slot"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
 			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},
 		},
@@ -306,6 +327,11 @@ func (m *Module) Manifest() sdk.Manifest {
 					{Title: "INSTANCE", Path: "instance"}, {Title: "APP ID", Path: "app_id|class"}, {Title: "WORKSPACE", Path: "workspace"},
 					{Title: "FOCUSED", Path: "focused"}, {Title: "FULLSCREEN", Path: "fullscreen"}, {Title: "TITLE", Path: "title", Max: 40}}}},
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
+			{Name: "devices", Description: "Every input device: keyboards, mice and controllers, each with an ID of its own, the player slot of a controller, and when it was last used",
+				Path: "/v1/devices",
+				CLI: &sdk.CLI{Alias: []string{"devices"}, Empty: "no input devices", Columns: []sdk.Column{{Title: "PLAYER", Text: []string{"{player} if player", "-"}},
+					{Title: "KIND", Path: "kind"}, {Title: "NAME", Path: "name", Max: 40}, {Title: "ID", Path: "id"},
+					{Title: "LAST USED", Text: []string{"{last_input:time} if last_input", "-"}}}}},
 			{Name: "controllers", Description: "Connected game controllers: their profile, and the buttons hostd.toml can bind ([display.buttons]); a raw device is read by its app only",
 				Path: "/v1/controllers",
 				CLI: &sdk.CLI{Alias: []string{"controllers"}, Empty: "no controllers connected", Columns: []sdk.Column{{Title: "PLAYER", Text: []string{"{player} if player", "-"}}, {Title: "DEVICE", Path: "device"},
@@ -465,6 +491,8 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	switch name {
 	case "windows":
 		return wins, nil
+	case "devices":
+		return m.readDevices(), nil
 	case "controllers":
 		pads := evdev.Scan(m.opts.SysRoot, m.opts.Profiles)
 		if d, ok := m.opts.Input.(interface{ Devices() map[string]int }); ok {

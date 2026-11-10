@@ -32,6 +32,10 @@ func (m *Module) followControllers(ctx context.Context) {
 	for _, c := range evdev.Scan(m.opts.SysRoot, m.opts.Profiles) {
 		known[c.Device] = c
 	}
+	devs := map[string]evdev.Device{}
+	for _, d := range evdev.ScanDevices(m.opts.SysRoot, m.opts.Profiles, nil) {
+		devs[d.ID] = d
+	}
 	var settle <-chan time.Time
 	for {
 		select {
@@ -61,6 +65,12 @@ func (m *Module) followControllers(ctx context.Context) {
 				}
 			}
 			known = now
+			nowDevs := map[string]evdev.Device{}
+			for _, d := range evdev.ScanDevices(m.opts.SysRoot, m.opts.Profiles, m.opts.Players) {
+				nowDevs[d.ID] = d
+			}
+			m.announceDevices(devs, nowDevs)
+			devs = nowDevs
 		}
 	}
 }

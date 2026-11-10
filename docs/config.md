@@ -78,7 +78,21 @@ External modules are not configured here: each is a file in `~/.config/hostd/mod
 | `~/hostd/git/`, `~/hostd/releases/`, `~/hostd/keys/` | [Services](services.md): repositories, releases, deploy keys |
 | `/etc/hostd/update.conf` | [Updates](install.md#updates) |
 
-## Several controllers
+## Several devices
 
-Each controller has a stable ID (vendor:product and its serial or USB port, shown by `hostctl controllers`) and a **player** slot: the first controller is player 1, the next takes the lowest free slot, and a controller keeps its slot while hostd runs, also if it is switched off and on again. Holding Guide opens the menu **for that controller**: only it is taken from the apps (the others keep playing) and only its buttons move the menu. The `display.nav` events say which device and player. Keyboards and mice are never taken.
+Every keyboard, mouse and controller is a **device** with an ID of its own (vendor:product and its serial or USB port): two keyboards or two controllers of one model are two devices. `hostctl devices` lists them with their kind, a controller's player slot, and when each was last used; `device.connected` and `device.disconnected` events say when one comes or goes.
+
+**Players.** The first controller is player 1, the next takes the lowest free slot, and a controller keeps its slot while hostd runs and across restarts (slots are saved in hostd's state folder). `hostctl device assign <id> <player>` moves one; the controller that had the slot gets the other's old one. A device that is not a controller has no slot.
+
+**The menu belongs to the controller that opened it.** Holding Guide opens it for that controller: only it is taken from the apps (the others keep playing) and only its buttons move the menu. The `display.nav` events say which device and player.
+
+**Bindings per player.** `[display.buttons]` binds controller buttons for everyone; a player's own table changes that for one slot:
+
+```toml
+[display.players.2.buttons]
+guide = ""                  # player 2's Guide does nothing
+select = "window.next"      # and Select goes to the next app
+```
+
+Keyboards and mice are never taken from the apps. (Keys come from the compositor, which does not say which keyboard sent them, so key bindings are the same for every keyboard.)
 

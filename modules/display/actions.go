@@ -105,6 +105,8 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	switch a.Type {
+	case "device.assign":
+		return m.handleAssign(a)
 	case "display.notice":
 		var args struct{ Text string }
 		if err := a.DecodeArgs(&args); err != nil {

@@ -1,6 +1,12 @@
 package evdev
 
-import "sync"
+import (
+	"encoding/json"
+	"os"
+	"sync"
+
+	"github.com/davitizhgenti/hostd/internal/fsx"
+)
 
 // Players gives each connected controller a slot, 1, 2, 3...: the first
 // controller is player 1, the next takes the lowest free slot. A controller
@@ -8,9 +14,44 @@ import "sync"
 // (its ID is the same); the slot of one that is away is given to a newcomer
 // only when no free one is lower.
 type Players struct {
+	// File, if set, keeps the slots across restarts of hostd: read by Load,
+	// written when they change.
+	File string
+
 	mu        sync.Mutex
 	slot      map[string]int  // ID -> slot, for every controller seen
 	connected map[string]bool // IDs now plugged in
+}
+
+// Load reads the slots from File (none: nothing to read). Call it before use.
+func (p *Players) Load() error {
+	if p.File == "" {
+		return nil
+	}
+	b, err := os.ReadFile(p.File)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var m map[string]int
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.slot, p.connected = m, map[string]bool{}
+	return nil
+}
+
+// save writes the slots; p.mu is held.
+func (p *Players) save() {
+	if p.File == "" {
+		return
+	}
+	b, _ := json.Marshal(p.slot)
+	_ = fsx.WriteFile(p.File, b, 0o644)
 }
 
 // Connect notes a controller and returns its slot.
@@ -36,6 +77,7 @@ func (p *Players) Connect(id string) int {
 				delete(p.slot, held) // its owner is away: the slot is free
 			}
 			p.slot[id] = n
+			p.save()
 			return n
 		}
 	}
@@ -74,4 +116,5 @@ func (p *Players) Assign(id string, n int) {
 		}
 	}
 	p.slot[id] = n
+	p.save()
 }

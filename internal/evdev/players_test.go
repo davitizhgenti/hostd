@@ -2,6 +2,7 @@ package evdev
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -93,5 +94,34 @@ func TestEvdevGrabAndDevicesWithNoControllers(t *testing.T) {
 	e.pad("/dev/input/event1", "045e:028e-x", nil)
 	if len(e.Devices()) != 0 {
 		t.Fatal("an unplugged pad is still listed")
+	}
+}
+
+func TestPlayersSurviveARestart(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "players.json")
+	a := &Players{File: file}
+	if err := a.Load(); err != nil { // nothing yet: not an error
+		t.Fatal(err)
+	}
+	a.Connect("pad-1")
+	a.Connect("pad-2")
+	a.Assign("pad-2", 1)
+	b := &Players{File: file} // hostd starts again
+	if err := b.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if b.Slot("pad-2") != 1 || b.Slot("pad-1") != 2 {
+		t.Fatalf("slots after a restart: pad-1 %d, pad-2 %d", b.Slot("pad-1"), b.Slot("pad-2"))
+	}
+	b.Connect("pad-1") // the controllers are found again as hostd starts
+	b.Connect("pad-2")
+	if got := b.Connect("pad-3"); got != 3 {
+		t.Fatalf("a newcomer after a restart gets %d", got)
+	}
+	if err := os.WriteFile(file, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Players{File: file}).Load(); err == nil {
+		t.Fatal("a broken file was read")
 	}
 }

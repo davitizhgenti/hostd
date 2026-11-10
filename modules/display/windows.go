@@ -25,7 +25,7 @@ func (m *Module) onEvent(ev Event) {
 	switch ev.Change {
 	case "binding":
 		m.presence.Touch() // a key in the session: someone is there (VNC too)
-		m.press("keyboard", ev.Binding)
+		m.press("keyboard", 0, ev.Binding)
 	case "reload": // the compositor dropped hostd's bindings
 		m.mu.Lock()
 		b := m.backend
