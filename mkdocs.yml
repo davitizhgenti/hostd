@@ -20,6 +20,7 @@ nav:
   - Configuration: config.md
   - The API: api.md
   - The CLI: cli.md
+  - Extending hostd: extending.md
   - Writing a module: modules.md
   - The module protocol: protocol.md
   - Security: security.md

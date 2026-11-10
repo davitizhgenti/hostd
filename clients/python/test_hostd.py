@@ -110,6 +110,16 @@ class ClientTest(unittest.TestCase):
         self.core.undefine("show")
         self.assertEqual(FakeAPI.sent[2][:2], ("DELETE", "/v1/apps/show"))
 
+    def test_any_action_by_name(self):
+        self.core.audio.volume.set(percent=40)
+        self.core.lights.set(id="porch", brightness=40)
+        self.assertEqual([x[2] for x in FakeAPI.sent], [
+            {"type": "audio.volume.set", "args": {"percent": 40}},
+            {"type": "lights.set", "args": {"id": "porch", "brightness": 40}}])
+        with self.assertRaises(AttributeError):
+            self.core._private
+        self.assertEqual(repr(self.core.scene.apply), "<hostd action scene.apply>")
+
     def test_the_instance_verbs(self):
         self.assertEqual(self.core.open("show"), "run-tests")
         self.assertEqual(self.core.start("show"), "run-tests")  # the old word

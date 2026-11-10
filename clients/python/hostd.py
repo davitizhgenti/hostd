@@ -141,6 +141,21 @@ class Hostd:
             path += "?" + urllib.parse.urlencode(query)
         return self.request("GET", path)
 
+    # --- any module, by name -------------------------------------------------
+
+    def manifests(self):
+        """What the machine's modules declare: actions, reads, kinds, facets."""
+        return self.get("/v1/manifests")
+
+    def __getattr__(self, name):
+        """h.audio.volume.set(percent=40) sends the action audio.volume.set;
+        h.lights.set(id="porch", brightness=40) works for a module you wrote.
+        Any module's actions are here, as they are on hostctl, with no list of
+        them in this file. (The methods below are shortcuts for common ones.)"""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return _Namespace(self, name)
+
     # --- apps and commands -----------------------------------------------------
 
     def run(self, command, name=None, background=False, fullscreen=True, front=False, dir=None, env=None,
@@ -261,3 +276,22 @@ class Hostd:
     def volume(self, percent):
         """Set the volume (0-150), or change it: "+5", "-5" (scope audio)."""
         return self.action("audio.volume.set", percent=percent)
+
+
+class _Namespace:
+    """A dotted action name being built: h.audio -> h.audio.volume -> ...set(...)."""
+
+    def __init__(self, client, path):
+        self._client, self._path = client, path
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return _Namespace(self._client, self._path + "." + name)
+
+    def __call__(self, **args):
+        return self._client.action(self._path, **args)
+
+    def __repr__(self):
+        return "<hostd action %s>" % self._path
+
