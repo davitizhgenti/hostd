@@ -348,3 +348,10 @@ Not done:
 - Run as root, `hostd-setup install` is still the old all-in-one install (it now prints a note).
 - Jupyter as a user add-on (its hook run as the user; python3-venv and git as checked prerequisites).
 - The e2e VM test (`make test-e2e`) has not run on the new flow.
+
+
+# Screen sharing, 2026-11-11
+
+Built (add-ons, no hostd code): `sunshine` (root; the pinned LizardByte/SunshineStream Debian package, user service, LAN-only web UI), `moonlight` (user Flatpak), `phones` (root; UxPlay for iPhone/iPad, scrcpy over wireless adb for Android), `docs/sharing.md`. Checked on core: Sunshine captures Sway with the unprivileged wlroots capture and encodes with NVENC (H.264, HEVC) as the package, not as a Flatpak (the sandbox hides Sway's capture protocols); pairing from a PC worked.
+
+Not done: UxPlay and scrcpy untested on core and with the phones; Moonlight on core against a PC running Sunshine untested; the add-ons are not installed through hostd-admin on core (Sunshine runs there as a test service); the cast-in/cast-out scenes were dropped (nothing needs them); the Super key through Moonlight (client setting) is documented, not solved by a binding.

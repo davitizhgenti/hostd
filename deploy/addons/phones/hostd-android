@@ -1,0 +1,50 @@
+#!/bin/sh
+# Managed by hostd's phones add-on: an Android phone on core's screen.
+#
+#   hostd-android                      show the phone (scrcpy), as the "Android phone" app does
+#   hostd-android pair HOST:PORT CODE  once: Android's Developer options > Wireless debugging >
+#                                      Pair device with pairing code gives the address and the code
+#   hostd-android connect HOST:PORT    save the phone's address (the one on the Wireless debugging
+#                                      screen, not the pairing one) and connect
+#   hostd-android help
+#
+# After pairing, adb finds the phone by itself on the same network (mDNS); the saved address
+# is the fallback when it does not.
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/hostd/android.addr
+
+say() { printf 'hostd-android: %s\n' "$*" >&2; }
+
+case "${1:-}" in
+help | -h | --help)
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	exit 0
+	;;
+pair)
+	[ $# -eq 3 ] || { say "use: hostd-android pair HOST:PORT CODE"; exit 2; }
+	exec adb pair "$2" "$3"
+	;;
+connect)
+	[ $# -eq 2 ] || { say "use: hostd-android connect HOST:PORT"; exit 2; }
+	mkdir -p "$(dirname "$CONF")"
+	printf '%s\n' "$2" >"$CONF"
+	exec adb connect "$2"
+	;;
+"") ;;
+*)
+	say "no command $1 (hostd-android help)"
+	exit 2
+	;;
+esac
+
+adb start-server >/dev/null 2>&1
+if ! adb devices | awk 'NR > 1 && $2 == "device" { found = 1 } END { exit !found }'; then
+	if [ -s "$CONF" ]; then
+		adb connect "$(cat "$CONF")" >/dev/null 2>&1
+	fi
+fi
+if ! adb devices | awk 'NR > 1 && $2 == "device" { found = 1 } END { exit !found }'; then
+	say "no phone found. Pair it once: Developer options > Wireless debugging > Pair device with pairing code,"
+	say "then: hostd-android pair HOST:PORT CODE   and   hostd-android connect HOST:PORT"
+	exit 1
+fi
+exec scrcpy --fullscreen --stay-awake

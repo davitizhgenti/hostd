@@ -1,0 +1,15 @@
+# Phones on core's screen. An iPhone or iPad mirrors through AirPlay
+# (UxPlay: core shows up under Screen Mirroring). An Android phone is shown by
+# scrcpy over Wi-Fi, and core's keyboard and mouse control it. Both are apps
+# like any other: open them from the menu, a phone, or hostctl.
+description = "Phones on core's screen: iPhone/iPad mirroring (AirPlay) and Android (scrcpy, controlled from core)"
+packages = [
+  "uxplay", "scrcpy", "adb",
+  "gstreamer1.0-plugins-good", "gstreamer1.0-plugins-bad", "gstreamer1.0-libav", "gstreamer1.0-pipewire",
+]
+resources = ["apps/airplay.toml", "apps/android.toml"]
+files = [
+  { src = "hostd-android", dest = "/usr/local/lib/hostd/phones/hostd-android", mode = "755" },
+]
+rescan = true
+keeps = "the packages (uxplay, scrcpy, adb) and the phone's paired address in ~/.config/hostd/android.addr"

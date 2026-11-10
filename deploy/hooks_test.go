@@ -3,6 +3,7 @@ package deploy
 import (
 	"bytes"
 	"context"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -344,6 +345,76 @@ func TestSteamHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.mustNotCall("flatpak override --user --env")
+}
+
+// --- sunshine ----------------------------------------------------------------
+
+func sunshineMachine(t *testing.T) *hookRig {
+	r := newHookRig(t)
+	r.stub("dpkg", "amd64\n", 0)
+	r.stub("hostname", "core\n", 0)
+	return r
+}
+
+func TestSunshineHook(t *testing.T) {
+	r := sunshineMachine(t)
+	// The screen user's session runs (its bus socket exists).
+	sock := filepath.Join(r.root, "run/user/1000/bus")
+	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Skipf("unix socket: %v", err)
+	}
+	t.Cleanup(func() { l.Close() })
+	if _, err := r.run("sunshine", "addon_install", Options{Adding: []string{"sunshine"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	r.mustCall("curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o",
+		"sha256sum --check --quiet -", "apt-get install -y -q", "systemctl --user enable app-dev.lizardbyte.app.Sunshine.service",
+		"systemctl --user restart app-dev.lizardbyte.app.Sunshine.service")
+	if !strings.Contains(r.calls(), "SunshineStream/Sunshine/releases/download/v2026.914.233613/sunshine_2026.914.233613-1+debiantrixie_amd64.deb") {
+		t.Errorf("the pinned package was not fetched:\n%s", r.calls())
+	}
+	conf := r.read("home/screen/.config/sunshine/sunshine.conf")
+	for _, want := range []string{"capture = wlr", "origin_web_ui_allowed = lan", "origin_pin_allowed = lan", "https://core.local:47990"} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("sunshine.conf lacks %q:\n%s", want, conf)
+		}
+	}
+	if apps := r.read("home/screen/.config/sunshine/apps.json"); !strings.Contains(apps, `"Desktop"`) || strings.Contains(apps, "Steam") {
+		t.Errorf("apps.json:\n%s", apps)
+	}
+
+	// A person's settings stay; the package is current, so nothing is fetched.
+	r.write(filepath.Join(r.root, "home/screen/.config/sunshine/sunshine.conf"), "capture = kms\n", 0o644)
+	r.script("dpkg-query", `[ "$1" = -W ] && [ "$2" = '-f=${Version}' ] && { printf '2026.914.233613-1+debiantrixie'; exit 0; }`)
+	r.script("systemctl", `[ "$*" = "--user is-active --quiet app-dev.lizardbyte.app.Sunshine.service" ] && exit 0`)
+	if _, err := r.run("sunshine", "addon_install", Options{}); err != nil {
+		t.Fatalf("second run: %v\n%s", err, r.out.String())
+	}
+	r.mustNotCall("curl", "apt-get install", "systemctl --user restart")
+	if got := r.read("home/screen/.config/sunshine/sunshine.conf"); got != "capture = kms\n" {
+		t.Errorf("a person's settings were replaced:\n%s", got)
+	}
+}
+
+func TestSunshineHookRefusesAWrongFile(t *testing.T) {
+	r := sunshineMachine(t)
+	r.script("sha256sum", `exit 1`)
+	if _, err := r.run("sunshine", "addon_install", Options{}); err == nil || !strings.Contains(err.Error(), "not the file this add-on pins") {
+		t.Fatalf("a package with the wrong checksum: %v", err)
+	}
+	r.mustNotCall("apt-get install")
+}
+
+func TestSunshineHookRemove(t *testing.T) {
+	r := sunshineMachine(t)
+	if _, err := r.run("sunshine", "addon_remove", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	r.mustCall("systemctl --user disable --now app-dev.lizardbyte.app.Sunshine.service", "apt-get remove -y -q sunshine")
 }
 
 // --- tailscale -----------------------------------------------------------
