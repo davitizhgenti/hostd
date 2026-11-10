@@ -10,4 +10,4 @@ StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 ExecStartPre=/bin/sleep 5
-ExecStart=/usr/local/lib/hostd/addons/hostd-steam-games
+ExecStart=%h/.local/lib/hostd/addons/hostd-steam-games

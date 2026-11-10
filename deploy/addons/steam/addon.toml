@@ -5,10 +5,11 @@
 # by a user path unit when the library changes.
 description = "Steam (Flatpak) in Big Picture, with its games listed under it"
 needs = ["flatpak", "controllers"]
+root = false # everything in the user's home; Flatpak and the controllers' rules come from the add-ons it needs
 flatpaks = ["com.valvesoftware.Steam"]
 resources = ["apps/steam.toml"]
 files = [
-  { src = "hostd-steam-games", dest = "/usr/local/lib/hostd/addons/hostd-steam-games", mode = "755" },
+  { src = "hostd-steam-games", dest = "~/.local/lib/hostd/addons/hostd-steam-games", owner = "screen", mode = "755" },
   { src = "hostd-steam-games.service", dest = "~/.config/systemd/user/hostd-steam-games.service", owner = "screen" },
   { src = "hostd-steam-games.path", dest = "~/.config/systemd/user/hostd-steam-games.path", owner = "screen" },
   { src = "hostd-steam-games.timer", dest = "~/.config/systemd/user/hostd-steam-games.timer", owner = "screen" },
@@ -17,5 +18,5 @@ user_units = ["hostd-steam-games.path", "hostd-steam-games.timer"]
 user_start = ["hostd-steam-games.service"]
 rescan = true
 keeps = "Steam's own data (logins, saves, games) stays in ~/.var/app/com.valvesoftware.Steam"
-# Games' video memory limit, and clearing up an earlier gamescope session.
+# The games' video memory limit.
 hook = "hook.sh"

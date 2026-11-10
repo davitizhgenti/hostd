@@ -552,17 +552,12 @@ func TestPterodactylHookRemove(t *testing.T) {
 
 func TestSteamHook(t *testing.T) {
 	r := newHookRig(t)
-	r.file("/usr/local/bin/hostd-steam-session", "#!/bin/sh\n") // from a version that ran Steam in gamescope
 	r.stub("nvidia-smi", "4096\n", 0)
-	r.stub("flatpak", "[Context]\nfilesystems=xdg-run/gamescope-0:ro;\n", 0)
+	r.stub("flatpak", "", 0)
 	if _, err := r.run("steam", "addon_install", Options{}); err != nil {
 		t.Fatalf("%v\n%s", err, r.out.String())
 	}
-	if r.exists("/usr/local/bin/hostd-steam-session") {
-		t.Error("the gamescope session stays")
-	}
-	r.mustCall("flatpak override --system --reset com.valvesoftware.Steam",
-		"flatpak override --system --env=DXVK_CONFIG=dxgi.maxDeviceMemory = 3328 com.valvesoftware.Steam")
+	r.mustCall("flatpak override --user --env=DXVK_CONFIG=dxgi.maxDeviceMemory = 3328 com.valvesoftware.Steam")
 	r.says("games see 3328 of 4096 MiB video memory")
 
 	// The limit in place, the session gone: nothing to do.
@@ -577,7 +572,7 @@ func TestSteamHook(t *testing.T) {
 	if _, err := r.run("steam", "addon_install", Options{}); err != nil {
 		t.Fatal(err)
 	}
-	r.mustNotCall("flatpak override --system --env")
+	r.mustNotCall("flatpak override --user --env")
 }
 
 // --- tailscale -----------------------------------------------------------

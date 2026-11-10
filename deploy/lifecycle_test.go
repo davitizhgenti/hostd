@@ -22,7 +22,13 @@ func newSetup(t *testing.T, m *fakeMachine) (*Setup, *bytes.Buffer) {
 func (f *fakeMachine) didRun(prefix string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return slices.ContainsFunc(f.ran, func(l string) bool { return strings.HasPrefix(l, prefix) })
+	return slices.ContainsFunc(f.ran, func(l string) bool {
+		// A command run as the screen user is logged with runuser and its env in front.
+		if _, rest, ok := strings.Cut(l, "DBUS_SESSION_BUS_ADDRESS="); ok && strings.HasPrefix(l, "runuser ") && !strings.HasPrefix(prefix, "runuser") {
+			_, l, _ = strings.Cut(rest, " ")
+		}
+		return strings.HasPrefix(l, prefix)
+	})
 }
 
 func TestAddonEngine(t *testing.T) {
@@ -56,7 +62,7 @@ func TestAddonEngine(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{"apt-get install -y -q flatpak", "flatpak remote-add --system --if-not-exists flathub",
-		"flatpak install --system -y --noninteractive flathub org.DolphinEmu.dolphin-emu", "modprobe uinput"} {
+		"flatpak install --user -y --noninteractive flathub org.DolphinEmu.dolphin-emu", "modprobe uinput"} {
 		if !m.didRun(want) {
 			t.Errorf("did not run %q\n%q", want, m.ran)
 		}
@@ -80,7 +86,7 @@ func TestAddonEngine(t *testing.T) {
 	m.ran = nil
 	_ = os.WriteFile(in.path(addonsStamp), []byte("an older build\n"), 0o644)
 	in = &installer{Setup: s, o: Options{Update: &UpdateOptions{}}, user: screen}
-	if err := in.addons(ctx); err != nil || !m.didRun("flatpak info --system org.DolphinEmu.dolphin-emu") || !m.didRun("modprobe uinput") {
+	if err := in.addons(ctx); err != nil || !m.didRun("flatpak info --user org.DolphinEmu.dolphin-emu") || !m.didRun("modprobe uinput") {
 		t.Fatalf("changed files: ran %q, %v", m.ran, err)
 	}
 
@@ -94,7 +100,7 @@ func TestAddonEngine(t *testing.T) {
 	if err := s.RemoveAddons(ctx, "screen", []string{"dolphin"}); err != nil {
 		t.Fatal(err)
 	}
-	if !m.didRun("flatpak uninstall --system -y --noninteractive org.DolphinEmu.dolphin-emu") {
+	if !m.didRun("flatpak uninstall --user -y --noninteractive org.DolphinEmu.dolphin-emu") {
 		t.Errorf("the app stays: %q", m.ran)
 	}
 	if got := s.installedAddons(); !slices.Equal(got, []string{"flatpak", "controllers"}) {
@@ -310,12 +316,12 @@ func TestSteamAddonEngine(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, f := range []string{"/home/screen/.config/hostd/apps/steam.toml", "/home/screen/.config/systemd/user/hostd-steam-games.path",
-		"/usr/local/lib/hostd/addons/hostd-steam-games"} {
+		"/home/screen/.local/lib/hostd/addons/hostd-steam-games"} {
 		if !in.exists(f) {
 			t.Errorf("missing %s", f)
 		}
 	}
-	for _, want := range []string{"flatpak install --system -y --noninteractive flathub com.valvesoftware.Steam"} {
+	for _, want := range []string{"flatpak install --user -y --noninteractive flathub com.valvesoftware.Steam"} {
 		if !m.didRun(want) {
 			t.Errorf("did not run %q", want)
 		}

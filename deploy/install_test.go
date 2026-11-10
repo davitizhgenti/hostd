@@ -96,18 +96,18 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		return nil, nil
 	case argv[0] == "hostctl" && len(argv) > 1 && argv[1] == "wait-quiet" && f.busy:
 		return nil, fail
-	case strings.HasPrefix(line, "flatpak info --system "):
-		if !f.flatpaks[argv[3]] {
+	case argv[0] == "flatpak" && argv[1] == "info":
+		if !f.flatpaks[argv[len(argv)-1]] {
 			return nil, fail
 		}
 		return nil, nil
-	case strings.HasPrefix(line, "flatpak install --system "):
+	case argv[0] == "flatpak" && argv[1] == "install":
 		if f.flatpaks == nil {
 			f.flatpaks = map[string]bool{}
 		}
 		f.flatpaks[argv[len(argv)-1]] = true
 		return nil, nil
-	case strings.HasPrefix(line, "flatpak uninstall --system "):
+	case argv[0] == "flatpak" && argv[1] == "uninstall":
 		delete(f.flatpaks, argv[len(argv)-1])
 		return nil, nil
 	case line == "id alice":

@@ -1,8 +1,12 @@
-# Chromium, the web browser (Debian's package): an app (its app file adds an
+# Chromium (Flatpak), the web browser: an app (its app file adds an
 # incognito-window action), and the browser hostd's web-page apps (runner
-# url) open in.
+# url) open in, through a small "chromium" command in ~/.local/bin.
 description = "Chromium web browser (also opens hostd's web-page apps)"
-packages = ["chromium"]
-purge = true
+needs = ["flatpak"]
+root = false
+flatpaks = ["org.chromium.Chromium"]
 resources = ["apps/chromium.toml"]
-keeps = "Chromium's own data (profile, history) stays in ~/.config/chromium"
+files = [
+  { src = "chromium", dest = "~/.local/bin/chromium", mode = "755", owner = "screen" },
+]
+keeps = "Chromium's own data (profile, history) stays in ~/.var/app/org.chromium.Chromium"

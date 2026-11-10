@@ -5,6 +5,10 @@ An add-on puts something optional on a hostd machine: an app (Steam, Dolphin), a
 ```toml
 description = "Dolphin (Flatpak): GameCube and Wii games"   # shown by hostd-setup addons
 needs = ["flatpak", "controllers"]   # add-ons installed first, and kept while this one is
+root = false                         # needs no root: everything is in the user's home, Flatpaks go in the
+                                     # user's own installation (--user). Left out, it follows from what is
+                                     # declared: packages, kernel_modules, on_change, files outside ~, or a
+                                     # hook mean root, and only an admin installs it
 
 packages = ["chromium"]                 # Debian packages
 purge = true                            # removed again with the add-on
@@ -23,7 +27,7 @@ kernel_modules = ["uinput"]             # loaded now and at boot
 # "screen" is the screen user (default root); mode is octal (default 644).
 files = [
   { src = "steam.toml", dest = "~/.config/hostd/apps/steam.toml", owner = "screen" },
-  { src = "hostd-steam-games", dest = "/usr/local/lib/hostd/addons/hostd-steam-games", mode = "755" },
+  { src = "hostd-steam-games", dest = "~/.local/lib/hostd/addons/hostd-steam-games", mode = "755", owner = "screen" },
 ]
 on_change = [["udevadm", "control", "--reload"]]   # run when one of the files changed
 

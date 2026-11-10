@@ -29,6 +29,10 @@ type Addon struct {
 	Name        string
 	Description string   `toml:"description"`
 	Needs       []string `toml:"needs"` // add-ons it needs, installed first
+	// Root says the add-on changes the machine (packages, kernel modules,
+	// files outside the user's home): only hostd-admin installs it. Left out,
+	// it follows from what the add-on does; say it only to override that.
+	Root *bool `toml:"root"`
 
 	Packages []string `toml:"packages"` // Debian packages
 	Purge    bool     `toml:"purge"`    // remove them again when the add-on goes
@@ -78,6 +82,9 @@ func LoadAddon(name string) (Addon, error) {
 		return Addon{}, fmt.Errorf("add-on %s: %w", name, err)
 	}
 	a.Name = name
+	if a.Root != nil && !*a.Root && a.needsRoot() {
+		return Addon{}, fmt.Errorf("add-on %s: root = false, but it installs packages, kernel modules or files outside the home", name)
+	}
 	for _, r := range a.Resources {
 		plural, file, ok := strings.Cut(r, "/")
 		if !ok || strings.Contains(file, "/") || !strings.HasSuffix(file, ".toml") || !resourceFolders[plural] {
@@ -85,6 +92,48 @@ func LoadAddon(name string) (Addon, error) {
 		}
 	}
 	return a, nil
+}
+
+// needsRoot is what the add-on's declaration asks of the machine: packages,
+// kernel modules, on-change commands, files outside the home. A hook may do
+// anything, so one without a root = false of its own is taken to need root.
+func (a Addon) needsRoot() bool {
+	if len(a.Packages) > 0 || len(a.KernelModules) > 0 || len(a.OnChange) > 0 {
+		return true
+	}
+	for _, f := range a.Files {
+		if !strings.HasPrefix(f.Dest, "~/") {
+			return true
+		}
+	}
+	return false
+}
+
+// Privileged reports whether the add-on needs root.
+func (a Addon) Privileged() bool {
+	if a.Root != nil {
+		return *a.Root
+	}
+	return a.needsRoot() || a.Hook != ""
+}
+
+// flatpakScope is the Flatpak installation the add-on's apps go into: the
+// system one for a root add-on, the user's own for the others.
+func (a Addon) flatpakScope() string {
+	if a.Privileged() {
+		return "--system"
+	}
+	return "--user"
+}
+
+// flatpak runs flatpak for an add-on, as root for the system installation,
+// as the user for their own.
+func (in *installer) flatpak(ctx context.Context, a Addon, argv ...string) ([]byte, error) {
+	full := append([]string{"flatpak", argv[0], a.flatpakScope()}, argv[1:]...)
+	if a.Privileged() {
+		return in.run(ctx, full...)
+	}
+	return in.asScreen(ctx, full...)
 }
 
 // resourceFolders are the kinds an add-on may ship.
@@ -245,11 +294,11 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 		}
 	}
 	if a.Flathub {
-		out, _ := in.run(ctx, "flatpak", "remotes", "--system", "--columns=name")
+		out, _ := in.flatpak(ctx, a, "remotes", "--columns=name")
 		if slices.Contains(strings.Fields(string(out)), "flathub") {
 			in.Out.Info("Flathub is set up")
 		} else {
-			if err := in.stream(ctx, nil, "flatpak", "remote-add", "--system", "--if-not-exists", "flathub",
+			if _, err := in.flatpak(ctx, a, "remote-add", "--if-not-exists", "flathub",
 				"https://dl.flathub.org/repo/flathub.flatpakrepo"); err != nil {
 				return err
 			}
@@ -257,21 +306,31 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 		}
 	}
 	if a.FlatpakUpdate {
-		if out, _ := in.run(ctx, "flatpak", "list", "--system", "--columns=application"); strings.TrimSpace(string(out)) != "" {
+		if out, _ := in.flatpak(ctx, a, "list", "--columns=application"); strings.TrimSpace(string(out)) != "" {
 			in.Out.Info("updating Flatpak apps and runtimes")
-			if _, err := in.run(ctx, "flatpak", "update", "--system", "-y", "--noninteractive"); err != nil {
+			if _, err := in.flatpak(ctx, a, "update", "-y", "--noninteractive"); err != nil {
 				return err
 			}
 			in.Out.Info("Flatpak apps up to date")
 		}
 	}
+	if len(a.Flatpaks) > 0 && !a.Flathub && !a.Privileged() {
+		// A user's apps come from the user's own Flathub remote.
+		out, _ := in.flatpak(ctx, a, "remotes", "--columns=name")
+		if !slices.Contains(strings.Fields(string(out)), "flathub") {
+			if _, err := in.flatpak(ctx, a, "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"); err != nil {
+				return err
+			}
+			in.Out.Changed("added the Flathub repository for the user")
+		}
+	}
 	for _, id := range a.Flatpaks {
-		if in.ok(ctx, "flatpak", "info", "--system", id) {
+		if _, err := in.flatpak(ctx, a, "info", id); err == nil {
 			in.Out.Info("%s is installed", id)
 			continue
 		}
 		in.Out.Info("installing %s from Flathub", id)
-		if _, err := in.run(ctx, "flatpak", "install", "--system", "-y", "--noninteractive", "flathub", id); err != nil {
+		if _, err := in.flatpak(ctx, a, "install", "-y", "--noninteractive", "flathub", id); err != nil {
 			return err
 		}
 		in.Out.Changed("installed %s", id)
@@ -314,6 +373,7 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 		if err != nil {
 			return fmt.Errorf("no resource %s", r)
 		}
+		b = bytes.ReplaceAll(b, []byte("@HOME@"), []byte(in.user.home))
 		dest := in.user.home + "/.config/hostd/" + r
 		if in.exists(dest) {
 			if cur, _ := os.ReadFile(in.path(dest)); !bytes.Equal(cur, b) {
@@ -405,7 +465,7 @@ func (in *installer) removeAddon(ctx context.Context, a Addon) error {
 		_, _ = in.asScreen(ctx, "systemctl", "--user", "daemon-reload")
 	}
 	for _, id := range a.Flatpaks {
-		if _, err := in.run(ctx, "flatpak", "uninstall", "--system", "-y", "--noninteractive", id); err == nil {
+		if _, err := in.flatpak(ctx, a, "uninstall", "-y", "--noninteractive", id); err == nil {
 			in.Out.Changed("removed %s", id)
 		}
 	}
@@ -510,7 +570,11 @@ func (s *Setup) ListAddons(w io.Writer) error {
 		if slices.Contains(installed, n) {
 			mark = "*"
 		}
-		fmt.Fprintf(w, "%s %-12s %s\n", mark, n, a.Description)
+		kind := "user"
+		if a.Privileged() {
+			kind = "root"
+		}
+		fmt.Fprintf(w, "%s %-12s [%s] %s\n", mark, n, kind, a.Description)
 		if len(a.Needs) > 0 {
 			fmt.Fprintf(w, "  %-12s (with: %s)\n", "", strings.Join(a.Needs, " "))
 		}

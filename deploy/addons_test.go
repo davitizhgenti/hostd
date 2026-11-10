@@ -90,3 +90,32 @@ func TestBundledResourcesAreValid(t *testing.T) {
 		}
 	}
 }
+
+func TestAddonPrivilege(t *testing.T) {
+	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false,
+		"compose": true, "controllers": true, "flatpak": true, "jupyter": true, "nvidia": true, "pterodactyl": true, "tailscale": true, "wireguard": true}
+	for name, root := range want {
+		a, err := LoadAddon(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.Privileged() != root {
+			t.Errorf("%s: root = %v, want %v", name, a.Privileged(), root)
+		}
+		if !root && a.needsRoot() {
+			t.Errorf("%s says it needs no root but declares what does", name)
+		}
+	}
+	for _, n := range AddonNames() {
+		if _, ok := want[n]; !ok {
+			t.Errorf("add-on %s is not classified in this test", n)
+		}
+	}
+	f := false
+	if (Addon{Root: &f, Packages: []string{"x"}}).needsRoot() == false {
+		t.Error("packages need root")
+	}
+	if !(Addon{Files: []AddonFile{{Dest: "/etc/x"}}}).Privileged() || (Addon{Files: []AddonFile{{Dest: "~/x"}}}).Privileged() {
+		t.Error("files outside the home need root; inside, not")
+	}
+}

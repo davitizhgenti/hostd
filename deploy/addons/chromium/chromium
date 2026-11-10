@@ -1,0 +1,5 @@
+#!/bin/sh
+# Managed by hostd's chromium add-on: Chromium (Flatpak) under the name
+# "chromium", for hostd's web-page apps and the incognito action. Its sandbox
+# may write the profiles hostd makes for web apps.
+exec flatpak run --filesystem="${XDG_STATE_HOME:-$HOME/.local/state}/hostd/browser" org.chromium.Chromium "$@"
