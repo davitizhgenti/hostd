@@ -56,6 +56,10 @@ ensure_packages() {
 
 # as_screen runs a command as the screen user, inside its systemd session.
 as_screen() {
+	if [ "${HOSTD_USER_MODE:-}" = 1 ]; then # hostd-setup runs as that user already
+		"$@"
+		return
+	fi
 	runuser -u "$SCREEN_USER" -- env HOME="$SCREEN_HOME" USER="$SCREEN_USER" \
 		XDG_RUNTIME_DIR="/run/user/$SCREEN_UID" \
 		DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$SCREEN_UID/bus" "$@"

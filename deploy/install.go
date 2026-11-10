@@ -91,15 +91,26 @@ func (s *Setup) Install(ctx context.Context, o Options) error {
 	}
 	defer os.RemoveAll(work)
 	in.work = work
-	for _, step := range []func(context.Context) error{
+	steps := []func(context.Context) error{
 		in.checkSystem, in.enableNonFree, in.packages, in.nvidiaSway, in.screenUser, in.sshKeysOnly,
 		in.autologin, in.installHostd, in.installSelf, in.addons, in.updates,
-	} {
+	}
+	if s.User != nil { // the user's own: what needs root is the admin's (hostd-admin)
+		in.user = *s.User
+		in.o.ScreenUser = s.User.name
+		steps = []func(context.Context) error{
+			in.checkSystem, in.prerequisites, in.sessionConfig, in.installHostd, in.installSelf, in.addons, in.updates,
+		}
+	}
+	for _, step := range steps {
 		if err := step(ctx); err != nil {
 			return err
 		}
 	}
 	in.summary(ctx)
+	if s.User != nil {
+		return nil
+	}
 	// The other users' hostds follow the first's.
 	return s.updateUsers(ctx, o)
 }
@@ -126,9 +137,21 @@ func (s *Setup) stream(ctx context.Context, env []string, argv ...string) error 
 // asScreen runs a command as the screen user, inside its systemd session.
 func (in *installer) asScreen(ctx context.Context, argv ...string) ([]byte, error) {
 	rt := in.user.runtime()
+	if in.User != nil { // the user's own session: no other user to run as
+		return in.run(ctx, append([]string{"env", "XDG_RUNTIME_DIR=" + rt, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + rt + "/bus"}, argv...)...)
+	}
 	full := append([]string{"runuser", "-u", in.user.name, "--", "env", "HOME=" + in.user.home, "USER=" + in.user.name,
 		"XDG_RUNTIME_DIR=" + rt, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + rt + "/bus"}, argv...)
 	return in.run(ctx, full...)
+}
+
+// systemctl runs systemctl for the update timer: the system's, or the
+// user's own in user mode.
+func (in *installer) systemctl(ctx context.Context, argv ...string) ([]byte, error) {
+	if in.User != nil {
+		return in.asScreen(ctx, append([]string{"systemctl", "--user"}, argv...)...)
+	}
+	return in.run(ctx, append([]string{"systemctl"}, argv...)...)
 }
 
 // screenOK reports whether a command run as the screen user succeeds.
@@ -390,6 +413,13 @@ func (in *installer) screenUser(ctx context.Context) error {
 		return err
 	}
 
+	return in.sessionConfig(ctx)
+}
+
+// sessionConfig is the part of the user's setup that lives in their home:
+// Sway, mako, the VNC service and the Podman socket.
+func (in *installer) sessionConfig(ctx context.Context) error {
+	home, name := in.user.home, in.user.name
 	// Session config. A running session picks up changes at once (exec
 	// lines do not run again).
 	changed, err := in.installFile(file("sway/config"), home+"/.config/sway/config", 0o644, name)
@@ -443,7 +473,11 @@ func (in *installer) screenUser(ctx context.Context) error {
 	}
 	in.Out.Changed("enabled the Podman API socket")
 	if in.exists(in.user.runtime() + "/systemd") { // its user manager runs: start it now
-		_, _ = in.run(ctx, "systemctl", "--user", "--machine="+name+"@", "start", "podman.socket")
+		if in.User != nil {
+			_, _ = in.asScreen(ctx, "systemctl", "--user", "start", "podman.socket")
+		} else {
+			_, _ = in.run(ctx, "systemctl", "--user", "--machine="+name+"@", "start", "podman.socket")
+		}
 	}
 	return nil
 }
@@ -695,7 +729,7 @@ func (in *installer) installHostd(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if ch, err := in.installFile(hostctl, "/usr/local/bin/hostctl", 0o755, "root"); err != nil {
+	if ch, err := in.installFile(hostctl, in.lay().hostctl, 0o755, in.owner("root")); err != nil {
 		return err
 	} else if !ch {
 		in.Out.Info("hostctl up to date")
@@ -777,7 +811,7 @@ func (in *installer) installDocs() error {
 	} else if err != nil {
 		return err
 	}
-	docs := "/usr/local/share/hostd/docs"
+	docs := in.lay().docs
 	h := sha256.Sum256(tarball)
 	sum := hex.EncodeToString(h[:])
 	if b, _ := os.ReadFile(in.path(docs + "/.build")); strings.TrimSpace(string(b)) == sum {
@@ -816,9 +850,11 @@ func (in *installer) installDocs() error {
 // catalog, opened by display.menu (Super, or a held Guide button).
 func (in *installer) installMenu() error {
 	// The files of its old name (the "switcher", hostd-overlay) go.
-	_ = os.Remove(in.path("/usr/local/lib/hostd/hostd-overlay"))
+	if in.User == nil {
+		_ = os.Remove(in.path("/usr/local/lib/hostd/hostd-overlay"))
+	}
 	_ = os.Remove(in.path(in.user.home + "/.config/hostd/apps/hostd-overlay.toml"))
-	ch, err := in.installFile(file("menu/hostd-menu"), "/usr/local/lib/hostd/hostd-menu", 0o755, "root")
+	ch, err := in.installFile(file("menu/hostd-menu"), in.lay().menu, 0o755, in.owner("root"))
 	if err != nil {
 		return err
 	}
@@ -826,10 +862,14 @@ func (in *installer) installMenu() error {
 	if !ch {
 		in.Out.Info("menu up to date")
 	}
-	_ = os.Remove(in.path("/usr/local/bin/hostd-switch")) // replaced by hostd's own key bindings
 	// Backups that older installers made of hostd's own files.
-	for _, pattern := range []string{"/usr/local/bin/hostctl.orig", "/usr/local/bin/hostd-steam-session.orig", "/usr/local/lib/hostd/*.orig",
-		"/usr/local/lib/hostd/addons/*.orig", in.user.home + "/.config/hostd/apps/*.orig"} {
+	patterns := []string{in.user.home + "/.config/hostd/apps/*.orig"}
+	if in.User == nil {
+		_ = os.Remove(in.path("/usr/local/bin/hostd-switch")) // replaced by hostd's own key bindings
+		patterns = []string{"/usr/local/bin/hostctl.orig", "/usr/local/bin/hostd-steam-session.orig", "/usr/local/lib/hostd/*.orig",
+			"/usr/local/lib/hostd/addons/*.orig", in.user.home + "/.config/hostd/apps/*.orig"}
+	}
+	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(in.path(pattern))
 		for _, m := range matches {
 			rel := "/" + strings.TrimPrefix(m, filepath.Clean(in.Root)+"/")
@@ -839,7 +879,7 @@ func (in *installer) installMenu() error {
 			}
 		}
 	}
-	ch, err = in.installFile(file("menu/hostd-menu.toml"), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
+	ch, err = in.installFile(bytes.ReplaceAll(file("menu/hostd-menu.toml"), []byte("@MENU@"), []byte(in.lay().menu)), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
 	if err != nil {
 		return err
 	}
@@ -969,14 +1009,16 @@ func (in *installer) installSelf(context.Context) error {
 		return fmt.Errorf("reading this hostd-setup: %w", err)
 	}
 	// The installer of earlier versions was a copy of deploy/ with a link.
-	if fi, err := os.Lstat(in.path("/usr/local/sbin/hostd-setup")); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-		_ = os.Remove(in.path("/usr/local/sbin/hostd-setup"))
+	if in.User == nil {
+		if fi, err := os.Lstat(in.path("/usr/local/sbin/hostd-setup")); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			_ = os.Remove(in.path("/usr/local/sbin/hostd-setup"))
+		}
+		if in.exists("/usr/local/share/hostd-setup") {
+			_ = os.RemoveAll(in.path("/usr/local/share/hostd-setup"))
+			in.Out.Changed("removed the shell installer of earlier versions")
+		}
 	}
-	if in.exists("/usr/local/share/hostd-setup") {
-		_ = os.RemoveAll(in.path("/usr/local/share/hostd-setup"))
-		in.Out.Changed("removed the shell installer of earlier versions")
-	}
-	ch, err := in.installFile(self, "/usr/local/sbin/hostd-setup", 0o755, "root")
+	ch, err := in.installFile(self, in.lay().self, 0o755, in.owner("root"))
 	if err == nil && !ch {
 		in.Out.Info("hostd-setup up to date")
 	}
@@ -986,18 +1028,19 @@ func (in *installer) installSelf(context.Context) error {
 // updates sets up the update timer and records the build now in use.
 func (in *installer) updates(ctx context.Context) error {
 	in.Out.Step("Updates")
-	conf := "/etc/hostd/update.conf"
+	lay := in.lay()
+	conf := lay.updateConf
 	if !in.exists(conf) {
 		text := strings.Join([]string{
 			"# hostd updates: hostd-update.timer looks for a new signed build every few",
-			"# hours (sudo hostd-setup auto-update).",
+			"# hours (hostd-setup auto-update).",
 			"#   CHANNEL: edge (every build of main that passed CI) or stable (releases)",
 			"#   APPLY:   auto (install it once no deploy or scene runs and nobody uses",
 			"#            the screen), notify (a notice on the screen), manual (nothing;",
-			"#            sudo hostd-setup update)",
+			"#            hostd-setup update)",
 			"CHANNEL=edge", "APPLY=auto", "",
 		}, "\n")
-		if err := in.mkdirs("/etc/hostd", "root"); err != nil {
+		if err := in.mkdirs(filepath.Dir(conf), in.owner("root")); err != nil {
 			return err
 		}
 		if err := os.WriteFile(in.path(conf), []byte(text), 0o644); err != nil {
@@ -1007,17 +1050,17 @@ func (in *installer) updates(ctx context.Context) error {
 	}
 	unitsChanged := false
 	for _, u := range []string{"hostd-update.service", "hostd-update.timer"} {
-		ch, err := in.installFile(file("systemd/"+u), "/etc/systemd/system/"+u, 0o644, "root")
+		ch, err := in.installFile(file(lay.updateUnitsDir+"/"+u), lay.updateUnits+"/"+u, 0o644, in.owner("root"))
 		if err != nil {
 			return err
 		}
 		unitsChanged = unitsChanged || ch
 	}
 	if unitsChanged {
-		_, _ = in.run(ctx, "systemctl", "daemon-reload")
+		_, _ = in.systemctl(ctx, "daemon-reload")
 	}
-	if !in.ok(ctx, "systemctl", "is-enabled", "--quiet", "hostd-update.timer") {
-		if _, err := in.run(ctx, "systemctl", "enable", "--now", "hostd-update.timer"); err == nil {
+	if _, err := in.systemctl(ctx, "is-enabled", "--quiet", "hostd-update.timer"); err != nil {
+		if _, err := in.systemctl(ctx, "enable", "--now", "hostd-update.timer"); err == nil {
 			in.Out.Changed("enabled hostd-update.timer")
 		} else {
 			in.Out.Warn("could not enable hostd-update.timer (no systemd?)")
@@ -1027,7 +1070,7 @@ func (in *installer) updates(ctx context.Context) error {
 	in.Out.Info("channel %s, updates %s (%s)", c.Channel, c.Apply, conf)
 	// This build is the one in use now: auto-update compares against it.
 	if sums, err := os.ReadFile(filepath.Join(in.work, "SHA256SUMS")); err == nil && in.o.From == "" {
-		if err := os.WriteFile(in.path("/etc/hostd/applied.sha256"), sums, 0o644); err != nil {
+		if err := os.WriteFile(in.path(lay.applied), sums, 0o644); err != nil {
 			return err
 		}
 	}
@@ -1045,6 +1088,13 @@ func (in *installer) summary(ctx context.Context) {
 	if in.needReboot {
 		in.Out.Info("Reboot to finish: sudo reboot")
 		in.Out.Info("After the reboot the screen shows a plain dark background, with no login prompt.")
+	}
+	if in.User != nil && in.o.Update == nil {
+		in.Out.Info("hostd %s is running as %s. hostctl works on this machine:", in.version, in.user.name)
+		in.Out.Info("  hostctl apps --all      (hostctl is in ~/.local/bin: put it on your PATH)")
+		in.Out.Info("Other devices use the API at https://<this-machine>:7300: hostctl login <this-machine>")
+		in.Out.Info("Later: hostd-setup update (latest version), hostd-setup uninstall")
+		return
 	}
 	if in.o.Update != nil {
 		// An update: what is running is all there is to say (install tells more).
@@ -1115,4 +1165,34 @@ func untarGz(b []byte, dir string) error {
 			}
 		}
 	}
+}
+
+// prerequisites is user mode's check of what only an admin can set up: the
+// packages, the groups, lingering. It reports what is missing and the admin
+// command that fixes it; hostd goes on, as far as it can.
+func (in *installer) prerequisites(ctx context.Context) error {
+	in.Out.Step("Checking what the machine provides")
+	pkgs := slices.Clone(packages)
+	if missing := in.missingPackages(ctx, pkgs); len(missing) > 0 {
+		in.Out.Warn("warning: not installed: %s (an admin: sudo hostd-admin prepare)", strings.Join(missing, " "))
+	} else {
+		in.Out.Info("all %d packages are installed", len(pkgs))
+	}
+	groups, _ := in.run(ctx, "id", "-nG")
+	var lacking []string
+	for _, g := range []string{"video", "render", "input"} {
+		if !slices.Contains(strings.Fields(string(groups)), g) {
+			lacking = append(lacking, g)
+		}
+	}
+	if len(lacking) > 0 {
+		in.Out.Warn("warning: %s is not in the group(s) %s (an admin: sudo hostd-admin prepare)", in.user.name, strings.Join(lacking, ", "))
+	}
+	if !in.exists("/var/lib/systemd/linger/" + in.user.name) {
+		in.Out.Warn("warning: lingering is off, so hostd does not start at boot (an admin: sudo loginctl enable-linger %s)", in.user.name)
+	}
+	if !in.listed("/etc/subuid", in.user.name) {
+		in.Out.Warn("warning: no subordinate IDs for rootless Podman (an admin: sudo hostd-admin prepare)")
+	}
+	return nil
 }

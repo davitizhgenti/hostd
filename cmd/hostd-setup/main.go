@@ -1,6 +1,7 @@
 // Command hostd-setup installs hostd on a Debian 13 machine, keeps it up to
 // date and takes it off again (see deploy and docs/install.md).
 //
+//	hostd-setup [install] [options]      (as a user: in their home; with sudo: the machine)
 //	sudo hostd-setup [install] [options]
 //	sudo hostd-setup update [options] [ADDON...]
 //	sudo hostd-setup auto-update          what hostd-update.timer runs
@@ -25,6 +26,12 @@ import (
 )
 
 const usage = `hostd-setup: install hostd on a Debian 13 machine, update it, remove it.
+
+Run as a user, it works in that user's home and needs no root: hostd, hostctl,
+the menu and the update timer go to ~/.local and ~/.config, and only add-ons
+that need no root are installed. What needs root (packages, the screen user,
+autologin, root add-ons) is the machine's setup: run as root (sudo), until
+hostd-admin takes it over. The commands below say sudo where root runs them.
 
   sudo hostd-setup [install] [options]   set up the machine (safe to run again)
   sudo hostd-setup update [ADDON...]     the newest signed build; prints only what changed
@@ -180,9 +187,11 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usage)
 		return 0
 	}
-	readOnly := a.cmd == "addons" || (a.cmd == "user" && a.names[0] == "list")
-	if !readOnly && geteuid() != 0 {
-		fmt.Fprintf(stderr, "\033[31merror:\033[0m run as root: sudo hostd-setup %s\n", a.cmd)
+	// Run as a user, hostd-setup works in that user's home and needs no
+	// root; run as root it sets up the machine (until hostd-admin takes that over).
+	userMode := geteuid() != 0
+	if userMode && a.cmd == "user" {
+		fmt.Fprintf(stderr, "\033[31merror:\033[0m user needs root: sudo hostd-setup user %s\n", a.names[0])
 		return 1
 	}
 	// Quiet for updates, unless asked; the installer run by an update is
@@ -193,9 +202,17 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	out := deploy.NewOutput(stdout, a.verbose || !updating || os.Getenv("HOSTD_FILTERED") != "")
 	out.Markers = os.Getenv("HOSTD_FILTERED") != ""
 	s := &deploy.Setup{Root: "/", Run: deploy.ExecRunner{Out: out.Writer()}, Out: out}
+	confPath := "/etc/hostd/update.conf"
+	if userMode {
+		if err := s.CurrentUserMode(); err != nil {
+			fmt.Fprintf(stderr, "\033[31merror:\033[0m %s\n", err)
+			return 1
+		}
+		confPath = s.UpdateConfPath()
+	}
 
 	self, _ := os.Executable()
-	conf := deploy.ReadUpdateConf("/etc/hostd/update.conf")
+	conf := deploy.ReadUpdateConf(confPath)
 	release := deploy.Release{URL: conf.ReleaseURL()}
 	if u := os.Getenv("HOSTD_RELEASE_URL"); u != "" {
 		release.URL = u

@@ -28,6 +28,16 @@ After the reboot the screen shows a dark background, and hostd is running:
 ssh screen@<machine> hostctl apps --all
 ```
 
+## Without root (a user's own hostd)
+
+Run as a user (no `sudo`), the installer works in that user's home only:
+
+```sh
+./deploy/install.sh            # or: hostd-setup
+```
+
+hostd, hostctl, the menu and the update timer go to `~/.local` and `~/.config`; the update settings are `~/.config/hostd/update.conf`. Add-ons that need no root (Steam, Chromium and Dolphin as Flatpaks, installed for the user alone) are `hostd-setup add NAME`. What only root can do (packages, groups, lingering, the add-ons marked `[root]` in `hostd-setup addons`) is the machine's setup: it is checked and reported, and an admin does it once with `sudo` (the full setup below).
+
 ## A headless machine (the .deb)
 
 The two are different layers, not two ways to do the same thing. `install.sh` (which fetches and runs `hostd-setup`, the installer) turns a fresh Debian into a whole hostd machine: the driver, Sway, PipeWire, the `screen` user, and hostd with its updates. The `.deb` is only hostd: the two programs and the user service, for a machine you set up yourself. Use one or the other on a machine, not both.

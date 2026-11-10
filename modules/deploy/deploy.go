@@ -108,6 +108,11 @@ func New(opts Options) *Module {
 	}
 	if opts.GitShell == "" {
 		opts.GitShell = "/usr/local/bin/hostctl git-shell"
+		if home, err := os.UserHomeDir(); err == nil { // a user's install has it in their home
+			if _, err := os.Stat(filepath.Join(home, ".local", "bin", "hostctl")); err == nil {
+				opts.GitShell = filepath.Join(home, ".local", "bin", "hostctl") + " git-shell"
+			}
+		}
 	}
 	if opts.HTTP == nil {
 		opts.HTTP = &http.Client{Timeout: time.Minute}

@@ -273,9 +273,14 @@ func serve(ctx context.Context, log *slog.Logger, stateDir, runtimeDir, configDi
 
 // defaultDocsDir is where the installer puts the docs site, if it did.
 func defaultDocsDir() string {
-	const dir = "/usr/local/share/hostd/docs"
-	if fi, err := os.Stat(filepath.Join(dir, "index.html")); err == nil && fi.Mode().IsRegular() {
-		return dir
+	dirs := []string{"/usr/local/share/hostd/docs"}
+	if home, err := os.UserHomeDir(); err == nil { // a user's install (no root) keeps them in the home
+		dirs = append([]string{filepath.Join(home, ".local", "share", "hostd", "docs")}, dirs...)
+	}
+	for _, dir := range dirs {
+		if fi, err := os.Stat(filepath.Join(dir, "index.html")); err == nil && fi.Mode().IsRegular() {
+			return dir
+		}
 	}
 	return ""
 }

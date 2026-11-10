@@ -14,6 +14,8 @@ OnFailure=hostd-rollback.service
 [Service]
 Type=notify
 ExecStart=%h/.local/lib/hostd/current/hostd
+# hostctl, hostd-setup and the add-ons' commands live in ~/.local/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=2
 TimeoutStartSec=30

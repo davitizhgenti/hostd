@@ -67,7 +67,7 @@ func TestAddonEngine(t *testing.T) {
 			t.Errorf("did not run %q\n%q", want, m.ran)
 		}
 	}
-	if !in.exists("/etc/udev/rules.d/60-hostd-controllers.rules") || !in.exists(addonsStamp) {
+	if !in.exists("/etc/udev/rules.d/60-hostd-controllers.rules") || !in.exists("/etc/hostd/addons.applied") {
 		t.Fatalf("rules or stamp missing\n%s", out)
 	}
 
@@ -84,7 +84,7 @@ func TestAddonEngine(t *testing.T) {
 	}
 	// New add-on files (a newer build): every one runs again.
 	m.ran = nil
-	_ = os.WriteFile(in.path(addonsStamp), []byte("an older build\n"), 0o644)
+	_ = os.WriteFile(in.path("/etc/hostd/addons.applied"), []byte("an older build\n"), 0o644)
 	in = &installer{Setup: s, o: Options{Update: &UpdateOptions{}}, user: screen}
 	if err := in.addons(ctx); err != nil || !m.didRun("flatpak info --user org.DolphinEmu.dolphin-emu") || !m.didRun("modprobe uinput") {
 		t.Fatalf("changed files: ran %q, %v", m.ran, err)

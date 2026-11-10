@@ -19,12 +19,18 @@ type Setup struct {
 	// Chown gives a path to a user (and its group). nil: the real one,
 	// by name; tests record it instead.
 	Chown func(path, owner string) error
+	// User is set in user mode (hostd-setup run by a user, no root): the
+	// files are the user's own, in their home.
+	User *screenUser
 }
 
 // path is p under Root.
 func (s *Setup) path(p string) string { return filepath.Join(s.Root, p) }
 
 func (s *Setup) chown(path, owner string) error {
+	if s.User != nil {
+		return nil // everything is the user's already
+	}
 	if s.Chown != nil {
 		return s.Chown(path, owner)
 	}
@@ -46,6 +52,13 @@ const managedMark = "Managed by hostd"
 func (s *Setup) hostdOwned(p string) bool {
 	if strings.HasPrefix(p, "/usr/local/") {
 		return true
+	}
+	if s.User != nil {
+		for _, own := range []string{s.User.home + "/.local/lib/hostd/", s.User.home + "/.local/bin/hostctl", s.User.home + "/.local/bin/hostd-setup"} {
+			if strings.HasPrefix(p, own) {
+				return true
+			}
+		}
 	}
 	b, err := os.ReadFile(s.path(p))
 	return err == nil && bytes.Contains(b, []byte(managedMark))

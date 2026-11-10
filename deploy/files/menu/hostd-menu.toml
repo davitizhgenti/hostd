@@ -2,7 +2,7 @@
 # hostd's on-screen menu, opened with Super or by holding a controller's Guide button.
 name = "Menu"
 hidden = true
-runner = { type = "exec", command = ["/usr/local/lib/hostd/hostd-menu"] }
+runner = { type = "exec", command = ["@MENU@"] }
 
 [instance]
 policy = "single"

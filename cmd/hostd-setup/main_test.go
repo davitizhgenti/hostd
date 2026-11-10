@@ -64,7 +64,7 @@ func TestRunWithoutRoot(t *testing.T) {
 		t.Skip("the test runs as root")
 	}
 	errs.Reset()
-	if code := run(context.Background(), []string{"update"}, &out, &errs); code != 1 || !strings.Contains(errs.String(), "run as root: sudo hostd-setup update") {
+	if code := run(context.Background(), []string{"user", "add", "bob"}, &out, &errs); code != 1 || !strings.Contains(errs.String(), "user needs root: sudo hostd-setup user add") {
 		t.Fatalf("not root: %d %s", code, errs.String())
 	}
 }

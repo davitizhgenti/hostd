@@ -68,9 +68,6 @@ type AddonFile struct {
 	Owner string `toml:"owner"` // root (default) or screen
 }
 
-const addonsState = "/etc/hostd/addons" // installed add-ons, one name per line
-const addonsStamp = "/etc/hostd/addons.applied"
-
 // LoadAddon reads addons/NAME/addon.toml.
 func LoadAddon(name string) (Addon, error) {
 	b, err := fs.ReadFile(embedded, path.Join("addons", name, "addon.toml"))
@@ -154,7 +151,7 @@ func AddonNames() []string {
 }
 
 func (s *Setup) installedAddons() []string {
-	b, _ := os.ReadFile(s.path(addonsState))
+	b, _ := os.ReadFile(s.path(s.lay().addonsState))
 	var out []string
 	for _, l := range strings.Split(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
@@ -164,15 +161,27 @@ func (s *Setup) installedAddons() []string {
 	return out
 }
 
+// adminInstalled are the add-ons an admin installed (user mode reads the
+// system's list; it has no say in it).
+func (s *Setup) adminInstalled() []string {
+	b, _ := os.ReadFile(s.path(rootAddonsState))
+	return strings.Fields(string(b))
+}
+
+// errNeedsAdmin is what user mode says about an add-on that needs root.
+func errNeedsAdmin(name string) error {
+	return fmt.Errorf("add-on %s needs root: an admin installs it once: sudo hostd-admin addons add %s", name, name)
+}
+
 func (s *Setup) setInstalled(names []string) error {
-	if err := s.mkdirs("/etc/hostd", "root"); err != nil {
+	if err := s.mkdirs(filepath.Dir(s.lay().addonsState), "root"); err != nil {
 		return err
 	}
 	text := ""
 	for _, n := range names {
 		text += n + "\n"
 	}
-	return os.WriteFile(s.path(addonsState), []byte(text), 0o644)
+	return os.WriteFile(s.path(s.lay().addonsState), []byte(text), 0o644)
 }
 
 // addonOrder returns names with what they require, requirements first.
@@ -231,7 +240,7 @@ func (in *installer) addons(ctx context.Context) error {
 		return nil
 	}
 	bundle := addonsBundle()
-	stamp, _ := os.ReadFile(in.path(addonsStamp))
+	stamp, _ := os.ReadFile(in.path(in.lay().addonsStamp))
 	forced := append(slices.Clone(in.o.Adding), forcedOf(in.o.Update)...)
 	quick := in.o.Update != nil && !in.o.Update.All
 	if quick && strings.TrimSpace(string(stamp)) == bundle {
@@ -252,7 +261,7 @@ func (in *installer) addons(ctx context.Context) error {
 	if err := in.runAddons(ctx, order); err != nil {
 		return err
 	}
-	return os.WriteFile(in.path(addonsStamp), []byte(bundle+"\n"), 0o644)
+	return os.WriteFile(in.path(in.lay().addonsStamp), []byte(bundle+"\n"), 0o644)
 }
 
 func forcedOf(u *UpdateOptions) []string {
@@ -504,8 +513,11 @@ func (in *installer) runHook(ctx context.Context, a Addon, fn string) error {
 	_ = os.Chmod(dir, 0o755)
 	pr, pw := io.Pipe()
 	env := []string{"SCREEN_USER=" + in.user.name, "SCREEN_HOME=" + in.user.home, "SCREEN_UID=" + strconv.Itoa(in.user.uid),
-		"ADDON_HERE=" + dir, "ADDON_HOOK=" + filepath.Join(dir, a.Hook), "ADDONS_STATE=" + in.path(addonsState),
+		"ADDON_HERE=" + dir, "ADDON_HOOK=" + filepath.Join(dir, a.Hook), "ADDONS_STATE=" + in.path(in.lay().addonsState),
 		"HOSTD_ADDING=" + strings.Join(in.o.Adding, " "), "HOSTD_FORCE_ADDONS=" + strings.Join(forcedOf(in.o.Update), " ")}
+	if in.User != nil {
+		env = append(env, "HOSTD_USER_MODE=1")
+	}
 	if in.o.Auto {
 		env = append(env, "HOSTD_AUTO=1")
 	}
@@ -567,7 +579,7 @@ func (s *Setup) ListAddons(w io.Writer) error {
 			return err
 		}
 		mark := " "
-		if slices.Contains(installed, n) {
+		if slices.Contains(installed, n) || (s.User != nil && a.Privileged() && slices.Contains(s.adminInstalled(), n)) {
 			mark = "*"
 		}
 		kind := "user"
@@ -579,7 +591,11 @@ func (s *Setup) ListAddons(w io.Writer) error {
 			fmt.Fprintf(w, "  %-12s (with: %s)\n", "", strings.Join(a.Needs, " "))
 		}
 	}
-	fmt.Fprintln(w, "(* installed)  sudo hostd-setup add NAME | remove NAME")
+	if s.User != nil {
+		fmt.Fprintln(w, "(* installed)  hostd-setup add NAME | remove NAME   (root add-ons: an admin, sudo hostd-admin addons add NAME)")
+	} else {
+		fmt.Fprintln(w, "(* installed)  sudo hostd-setup add NAME | remove NAME")
+	}
 	return nil
 }
 
@@ -595,6 +611,12 @@ func (s *Setup) AddAddons(names []string) error {
 	}
 	installed := s.installedAddons()
 	for _, a := range order {
+		if s.User != nil && a.Privileged() {
+			if !slices.Contains(s.adminInstalled(), a.Name) {
+				return errNeedsAdmin(a.Name)
+			}
+			continue // an admin's: it is there, and not this user's to run
+		}
 		if !slices.Contains(installed, a.Name) {
 			installed = append(installed, a.Name)
 		}
@@ -625,10 +647,15 @@ func (s *Setup) RemoveAddons(ctx context.Context, user string, names []string) e
 	if user == "" {
 		user = "screen"
 	}
-	home, _ := s.homeOf(ctx, user)
-	out, _ := s.run(ctx, "id", "-u", user)
-	uid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	in := &installer{Setup: s, user: screenUser{name: user, home: home, uid: uid}}
+	in := &installer{Setup: s}
+	if s.User != nil {
+		in.user = *s.User
+	} else {
+		home, _ := s.homeOf(ctx, user)
+		out, _ := s.run(ctx, "id", "-u", user)
+		uid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+		in.user = screenUser{name: user, home: home, uid: uid}
+	}
 	for _, n := range names {
 		a, err := LoadAddon(n)
 		if err != nil {

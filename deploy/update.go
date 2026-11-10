@@ -97,9 +97,9 @@ var reDebVersion = regexp.MustCompile(`(?m)  hostd_(.*)_amd64\.deb$`)
 // AutoUpdate is what hostd-update.timer runs: a new signed build of the
 // configured channel is applied, announced or left, as update.conf says.
 func (s *Setup) AutoUpdate(ctx context.Context, a UpdateArgs, run Exec) error {
-	conf := ReadUpdateConf(s.path("/etc/hostd/update.conf"))
+	conf := ReadUpdateConf(s.path(s.lay().updateConf))
 	if conf.Apply == "manual" {
-		s.Out.Info("updates are manual (/etc/hostd/update.conf): sudo hostd-setup update")
+		s.Out.Info("updates are manual (%s): %s", s.lay().updateConf, s.lay().updateCmd)
 		return nil
 	}
 	dir, err := os.MkdirTemp("", "hostd-setup-")
@@ -114,7 +114,7 @@ func (s *Setup) AutoUpdate(ctx context.Context, a UpdateArgs, run Exec) error {
 		return err
 	}
 	sums, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
-	if applied, _ := os.ReadFile(s.path("/etc/hostd/applied.sha256")); bytes.Equal(sums, applied) {
+	if applied, _ := os.ReadFile(s.path(s.lay().applied)); bytes.Equal(sums, applied) {
 		s.Out.Info("up to date (%s)", conf.Channel)
 		return nil
 	}
@@ -128,9 +128,9 @@ func (s *Setup) AutoUpdate(ctx context.Context, a UpdateArgs, run Exec) error {
 	}
 	screen := s.screenRunner(ctx, user)
 	if conf.Apply == "notify" {
-		if notified, _ := os.ReadFile(s.path("/etc/hostd/notified.sha256")); !bytes.Equal(sums, notified) {
-			_, _ = screen(ctx, "hostctl", "display", "notice", "hostd "+ver+" is available: sudo hostd-setup update")
-			if err := os.WriteFile(s.path("/etc/hostd/notified.sha256"), sums, 0o644); err != nil {
+		if notified, _ := os.ReadFile(s.path(s.lay().notified)); !bytes.Equal(sums, notified) {
+			_, _ = screen(ctx, "hostctl", "display", "notice", "hostd "+ver+" is available: "+s.lay().updateCmd)
+			if err := os.WriteFile(s.path(s.lay().notified), sums, 0o644); err != nil {
 				return err
 			}
 			s.Out.Info("a new build (%s) is available; announced on the screen", ver)
@@ -152,6 +152,9 @@ func (s *Setup) AutoUpdate(ctx context.Context, a UpdateArgs, run Exec) error {
 // screenRunner runs commands as user, in its systemd session, for steps
 // that have no installer of their own (auto-update, uninstall).
 func (s *Setup) screenRunner(ctx context.Context, user string) func(context.Context, ...string) ([]byte, error) {
+	if s.User != nil {
+		return (&installer{Setup: s, user: *s.User}).asScreen
+	}
 	home, _ := s.homeOf(ctx, user)
 	out, _ := s.run(ctx, "id", "-u", user)
 	uid, _ := strconv.Atoi(strings.TrimSpace(string(out)))

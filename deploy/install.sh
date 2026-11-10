@@ -4,11 +4,14 @@
 # signed program of the same build; deploy/*.go), checks its signature and
 # runs it with these arguments:
 #
-#   sudo ./deploy/install.sh [options]      first install (see hostd-setup --help)
-#   sudo ./deploy/install.sh --from DIR     with a build in DIR (make dist)
+#   ./deploy/install.sh [options]           first install, as the user who runs it, in their
+#                                           home, with no root (see hostd-setup --help)
+#   ./deploy/install.sh --from DIR          with a build in DIR (make dist)
+#   sudo ./deploy/install.sh [options]      as root: the machine's setup (packages, the
+#                                           screen user, autologin), as before
 #
 # hostd-setup then stays on the machine for updates and an uninstall:
-#   sudo hostd-setup update | uninstall | addons | add NAME | remove NAME
+#   hostd-setup update | uninstall | addons | add NAME | remove NAME
 #
 # The installer of earlier versions (a shell script) runs this file for its
 # updates, with HOSTD_RELEASE_URL and the like in the environment: they pass
@@ -19,7 +22,6 @@ die() {
 	printf '\033[31merror:\033[0m %s\n' "$*" >&2
 	exit 1
 }
-[ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 
 # The key builds are signed with (Ed25519; CI holds the private half, and
 # checks this copy matches deploy/release-key.pem). HOSTD_RELEASE_KEY
@@ -46,10 +48,12 @@ fi
 
 # Otherwise the newest signed build of the configured channel.
 CHANNEL=edge
-if [ -f /etc/hostd/update.conf ]; then
-	c=$(sed -n 's/^CHANNEL=\([a-z]*\).*/\1/p' /etc/hostd/update.conf | tail -1)
-	CHANNEL=${c:-edge}
-fi
+for conf in /etc/hostd/update.conf "$HOME/.config/hostd/update.conf"; do
+	if [ -f "$conf" ]; then
+		c=$(sed -n 's/^CHANNEL=\([a-z]*\).*/\1/p' "$conf" | tail -1)
+		CHANNEL=${c:-$CHANNEL}
+	fi
+done
 case $CHANNEL in
 stable) DEFAULT_URL=https://github.com/davitizhgenti/hostd/releases/latest/download ;;
 *) DEFAULT_URL=https://github.com/davitizhgenti/hostd/releases/download/edge ;;
@@ -60,6 +64,9 @@ RELEASE_URL=${HOSTD_RELEASE_URL:-$DEFAULT_URL}
 need=()
 command -v curl >/dev/null || command -v wget >/dev/null || need+=(curl ca-certificates)
 command -v openssl >/dev/null || need+=(openssl)
+if [ ${#need[@]} -gt 0 ] && [ "$(id -u)" -ne 0 ]; then
+	die "needs ${need[*]} to fetch the installer: ask an admin (sudo apt-get install ${need[*]})"
+fi
 if [ ${#need[@]} -gt 0 ]; then
 	echo "installing ${need[*]} (to fetch the installer)"
 	DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${need[@]}" >/dev/null ||

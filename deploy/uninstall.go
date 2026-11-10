@@ -18,6 +18,9 @@ type UninstallArgs struct {
 // the NVIDIA driver, or the screen user and its home: they may hold things
 // that are not hostd's.
 func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
+	if s.User != nil {
+		return s.uninstallUser(ctx, a)
+	}
 	if a.ScreenUser == "" {
 		a.ScreenUser = "screen"
 	}
@@ -114,5 +117,66 @@ func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
 	if a.All {
 		s.Out.Info("Reboot to leave the Sway session: sudo reboot")
 	}
+	return nil
+}
+
+// uninstallUser is Uninstall in user mode: only what is in the user's home.
+func (s *Setup) uninstallUser(ctx context.Context, a UninstallArgs) error {
+	in := &installer{Setup: s, user: *s.User}
+	home := s.User.home
+	rm := func(paths ...string) {
+		for _, p := range paths {
+			_ = os.RemoveAll(s.path(p))
+		}
+	}
+	s.Out.Step("Removing hostd")
+	units := home + "/.config/systemd/user"
+	busUp := in.exists(in.user.runtime() + "/bus")
+	if busUp {
+		_, _ = in.asScreen(ctx, "systemctl", "--user", "disable", "--now", "hostd.service", "hostd-update.timer")
+		if out, err := in.asScreen(ctx, "systemctl", "--user", "list-units", "--plain", "--no-legend", "hostd-*.service"); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				if f := strings.Fields(line); len(f) > 0 {
+					_, _ = in.asScreen(ctx, "systemctl", "--user", "stop", f[0])
+				}
+			}
+		}
+		if out, err := in.asScreen(ctx, "podman", "ps", "-aq", "--filter", "label=hostd.instance"); err == nil {
+			for _, id := range strings.Fields(string(out)) {
+				_, _ = in.asScreen(ctx, "podman", "rm", "-f", id)
+			}
+		}
+		s.Out.Info("stopped hostd and the apps it started")
+	}
+	lay := s.lay()
+	rm(units+"/hostd.service", units+"/hostd-rollback.service", units+"/default.target.wants/hostd.service",
+		units+"/hostd-update.service", units+"/hostd-update.timer", units+"/timers.target.wants/hostd-update.timer",
+		home+"/.local/lib/hostd", in.user.runtime()+"/hostd.sock", in.user.runtime()+"/hostd-admin-token",
+		lay.hostctl, lay.self, home+"/.local/share/hostd", lay.applied, lay.notified, lay.addonsStamp,
+		home+"/.config/hostd/apps/hostd-menu.toml")
+	if busUp {
+		_, _ = in.asScreen(ctx, "systemctl", "--user", "daemon-reload")
+	}
+	s.Out.Info("removed hostd, hostctl, the menu, hostd-setup and the update timer")
+	if a.Purge {
+		rm(home+"/.local/state/hostd", home+"/.config/hostd", home+"/.config/hostctl")
+		s.Out.Info("deleted hostd's data: tokens, audit trail, app files, hostd.toml, hostctl login")
+	} else {
+		s.Out.Info("kept hostd's data (tokens, audit trail, app files, hostctl login, add-ons list); --purge deletes it")
+	}
+	if a.All {
+		for _, f := range []string{"sway/config", "mako/config"} {
+			p := home + "/.config/" + f
+			if in.exists(p + ".orig") {
+				_ = os.Rename(s.path(p+".orig"), s.path(p))
+			} else {
+				rm(p)
+			}
+		}
+		rm(units+"/wayvnc.service", units+"/sockets.target.wants/podman.socket", lay.updateConf)
+		s.Out.Info("removed the managed Sway, mako and VNC configs and the Podman socket")
+	}
+	s.Out.Done()
+	s.Out.Info("Not removed: anything an admin installed (packages, root add-ons: sudo hostd-admin uninstall), Flatpak apps of add-ons (hostd-setup remove NAME first).")
 	return nil
 }
