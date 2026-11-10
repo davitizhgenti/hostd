@@ -401,9 +401,11 @@ func TestDefaultDesktopDirsIncludeFlatpak(t *testing.T) {
 	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("dirs\n%q\nwant\n%q", got, want)
 	}
-	// A session's own list is used as it is.
+	// A session's own list is kept, and Flatpak's exports are added (an app
+	// installed after the service started is not in its environment).
 	t.Setenv("XDG_DATA_DIRS", "/opt/share:/usr/share")
-	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, []string{"/usr/share/applications", "/opt/share/applications", "/home/u/.local/share/applications"}) {
+	if got := DefaultDesktopDirs(); !reflect.DeepEqual(got, []string{"/usr/share/applications", "/opt/share/applications",
+		"/var/lib/flatpak/exports/share/applications", "/home/u/.local/share/flatpak/exports/share/applications", "/home/u/.local/share/applications"}) {
 		t.Fatalf("dirs %q", got)
 	}
 }

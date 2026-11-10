@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -285,6 +286,16 @@ func DefaultDesktopDirs() []string {
 		}
 	}
 	parts := strings.Split(dataDirs, ":")
+	// A service's environment is made when its manager starts: an app
+	// installed as a Flatpak since then is not in it. Flatpak's exports are
+	// always looked at (the user's above the system's).
+	if home != "" {
+		for _, ex := range []string{"/var/lib/flatpak/exports/share", filepath.Join(home, "flatpak", "exports", "share")} {
+			if !slices.Contains(parts, ex) {
+				parts = append([]string{ex}, parts...)
+			}
+		}
+	}
 	var dirs []string
 	for i := len(parts) - 1; i >= 0; i-- { // the spec lists most important first
 		if parts[i] != "" {
