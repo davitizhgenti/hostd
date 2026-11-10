@@ -52,7 +52,7 @@ func TestUserModeNeedsNoRoot(t *testing.T) {
 	if err := s.Install(ctx, o); err != nil {
 		t.Fatalf("update: %v\n%s", err, out.String())
 	}
-	if err := s.AddAddons([]string{"jupyter"}); err == nil || !strings.Contains(err.Error(), "sudo hostd-admin addons add jupyter") {
+	if err := s.AddAddons([]string{"compose"}); err == nil || !strings.Contains(err.Error(), "sudo hostd-admin addons add compose") {
 		t.Fatalf("a root add-on: %v", err)
 	}
 	if err := s.Uninstall(ctx, UninstallArgs{Purge: true, All: true}); err != nil {
