@@ -19,7 +19,7 @@ build:
 DIST_ARCHES ?= amd64 arm64
 dist:
 	rm -rf dist && mkdir -p dist
-	for arch in $(DIST_ARCHES); do for cmd in hostd hostctl hostd-setup; do \
+	for arch in $(DIST_ARCHES); do for cmd in hostd hostctl hostd-setup hostd-admin; do \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' \
 			-o dist/$$cmd-linux-$$arch ./cmd/$$cmd || exit 1; \
 	done; done
