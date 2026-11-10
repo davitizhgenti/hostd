@@ -122,27 +122,29 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 	if len(ev.Released) > 0 || len(ev.Buttons) > 0 {
 		m.mu.Lock()
 		for _, b := range ev.Released {
-			delete(m.down, b)
+			delete(m.down, ev.Device+"/"+b)
 		}
 		for _, b := range ev.Buttons {
-			m.down[b] = true
+			m.down[ev.Device+"/"+b] = true
 		}
 		m.mu.Unlock()
 		m.syncGrab()
 	}
 	for _, b := range ev.Released {
-		m.release(b)
+		m.release(ev.Device, b)
 	}
 	for _, b := range ev.Buttons {
-		m.hold(b)
+		m.hold(ev.Device, b)
 	}
 	if len(ev.Nav) > 0 {
 		m.mu.Lock()
-		front, core := m.menuFront, m.core
+		front, core, owner := m.menuFront, m.core, m.menuOwner
 		m.mu.Unlock()
-		if front && core != nil {
+		// The menu belongs to the controller that opened it: another
+		// player's buttons do nothing to it.
+		if front && core != nil && (owner == "" || owner == ev.Device) {
 			for _, n := range ev.Nav {
-				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]string{"what": n}),
+				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]any{"what": n, "device": ev.Device, "player": ev.Player}),
 					Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
 			}
 		}
@@ -160,8 +162,16 @@ func (m *Module) isMenu(instance string) bool {
 func (m *Module) takeControllers(menuFront bool) {
 	m.mu.Lock()
 	m.menuFront = menuFront
+	if menuFront {
+		m.menuOwner = m.lastPad // the controller that asked for it; "" if none did
+	}
 	m.mu.Unlock()
 	m.syncGrab()
+	if !menuFront {
+		m.mu.Lock()
+		m.menuOwner, m.lastPad = "", ""
+		m.mu.Unlock()
+	}
 }
 
 // syncGrab takes or gives back the controllers. They are taken only once
@@ -174,12 +184,26 @@ func (m *Module) syncGrab() {
 		return
 	}
 	m.mu.Lock()
-	want := m.menuFront && (m.grabbed || len(m.down) == 0)
+	owner := m.menuOwner
+	if m.grabbed && m.grabbedDev != owner && m.grabbedDev != "" { // the owner changed: give back the old one
+		old := m.grabbedDev
+		m.mu.Unlock()
+		_ = g.Grab(old, false)
+		m.mu.Lock()
+		m.grabbed = false
+	}
+	held := false
+	for k := range m.down {
+		if owner == "" || strings.HasPrefix(k, owner+"/") {
+			held = true
+		}
+	}
+	want := m.menuFront && (m.grabbed || !held)
 	change := m.grabbed != want
-	m.grabbed = want
+	m.grabbed, m.grabbedDev = want, owner
 	m.mu.Unlock()
 	if change {
-		if err := g.Grab(want); err != nil {
+		if err := g.Grab(owner, want); err != nil {
 			m.log.Warn("taking the controllers for the menu", "on", want, "err", err)
 		}
 	}
@@ -187,22 +211,26 @@ func (m *Module) syncGrab() {
 
 // hold runs a controller button's action once it has been held for
 // HoldFor; letting go sooner leaves the press to the app.
-func (m *Module) hold(name string) {
+func (m *Module) hold(device, name string) {
 	if _, ok := m.buttons[name]; !ok {
 		return
 	}
 	if m.opts.HoldFor < 0 {
+		m.mu.Lock()
+		m.lastPad = device
+		m.mu.Unlock()
 		m.press("controller", name)
 		return
 	}
+	key := device + "/" + name
 	m.mu.Lock()
 	ctx := m.life
-	if _, held := m.holds[name]; held || ctx == nil {
+	if _, held := m.holds[key]; held || ctx == nil {
 		m.mu.Unlock()
 		return
 	}
 	released := make(chan struct{})
-	m.holds[name] = released
+	m.holds[key] = released
 	m.mu.Unlock()
 	m.done.Add(1)
 	go func() {
@@ -217,21 +245,23 @@ func (m *Module) hold(name string) {
 			return
 		}
 		m.mu.Lock()
-		if m.holds[name] == released {
-			delete(m.holds, name)
+		if m.holds[key] == released {
+			delete(m.holds, key)
 		}
+		m.lastPad = device
 		m.mu.Unlock()
 		m.press("controller", name)
 	}()
 }
 
 // release notes that a controller button was let go.
-func (m *Module) release(name string) {
+func (m *Module) release(device, name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ch, ok := m.holds[name]; ok {
+	key := device + "/" + name
+	if ch, ok := m.holds[key]; ok {
 		close(ch)
-		delete(m.holds, name)
+		delete(m.holds, key)
 	}
 }
 

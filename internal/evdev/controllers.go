@@ -202,6 +202,7 @@ type deviceInfo struct {
 	Name            string
 	Vendor, Product string // 4 hex digits, lower case
 	Gamepad         bool   // has gamepad or joystick buttons
+	Uniq, Phys      string // the device's serial or address, when it has one
 }
 
 // Controller is a connected controller, as GET /v1/controllers lists it.
@@ -216,6 +217,26 @@ type Controller struct {
 	// Raw devices: only their app reads them; hostd sees no buttons.
 	Raw bool   `json:"raw,omitempty"`
 	App string `json:"app,omitempty"`
+	// ID names this physical device across plug-ins (see DeviceID); Player
+	// is its slot, 0 when it has none (raw devices, or not read by hostd).
+	ID     string `json:"id"`
+	Player int    `json:"player,omitempty"`
+}
+
+// DeviceID is a device's stable name: vendor:product and the serial it
+// reports, or else its port (phys), or else its node. The same controller
+// has the same ID when it is plugged in again; two of one model have two.
+func DeviceID(d deviceInfo, dev string) string {
+	id := d.Vendor + ":" + d.Product
+	switch {
+	case d.Uniq != "":
+		id += "-" + d.Uniq
+	case d.Phys != "":
+		id += "-" + d.Phys
+	default:
+		id += "-" + filepath.Base(dev)
+	}
+	return strings.ToLower(id)
 }
 
 // sysfs reads device information. root is "/" outside tests.
@@ -231,6 +252,7 @@ func (s sysfs) input(dev string) deviceInfo {
 	base := filepath.Join("sys/class/input", filepath.Base(dev), "device")
 	d := deviceInfo{Name: s.read(filepath.Join(base, "name")),
 		Vendor: strings.ToLower(s.read(filepath.Join(base, "id/vendor"))), Product: strings.ToLower(s.read(filepath.Join(base, "id/product")))}
+	d.Uniq, d.Phys = s.read(filepath.Join(base, "uniq")), s.read(filepath.Join(base, "phys"))
 	d.Gamepad = hasKeyBit(s.read(filepath.Join(base, "capabilities/key")), 0x130) || // BTN_GAMEPAD
 		hasKeyBit(s.read(filepath.Join(base, "capabilities/key")), 0x120) // BTN_JOYSTICK
 	return d
@@ -293,7 +315,7 @@ func scanControllers(s sysfs, ps *Profiles) []Controller {
 }
 
 func controllerOf(dev string, d deviceInfo, p *Profile) Controller {
-	c := Controller{Device: dev, Name: d.Name, Vendor: d.Vendor, Product: d.Product,
+	c := Controller{Device: dev, ID: DeviceID(d, dev), Name: d.Name, Vendor: d.Vendor, Product: d.Product,
 		Profile: p.ID, Kind: p.Name, Raw: p.Raw, App: p.App}
 	for _, b := range ButtonNames {
 		if _, ok := p.Buttons[b]; ok {

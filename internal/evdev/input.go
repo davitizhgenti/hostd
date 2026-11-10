@@ -31,11 +31,17 @@ type Input interface {
 // themselves (Steam does) must not act on its navigation: hostd takes
 // them and sends the menu Nav events.
 type Grabber interface {
-	Grab(on bool) error
+	// Grab takes the controller with this ID (and gives it back), or, with
+	// "", every controller. Keyboards and mice are never taken.
+	Grab(device string, on bool) error
 }
 
 // InputEvent is a batch of input from one device.
 type InputEvent struct {
+	// Device is the controller's ID (see DeviceID) and Player its slot;
+	// empty and 0 for a device that is not a controller.
+	Device string
+	Player int
 	// Buttons pressed and let go, by name (see Buttons), for the
 	// binding table.
 	Buttons, Released []string
@@ -102,23 +108,62 @@ type Evdev struct {
 	SysRoot  string // where sysfs is mounted, "/" outside tests
 
 	mu      sync.Mutex
-	pads    map[string]*os.File // open controllers, by path
-	grabbed bool
+	pads    map[string]*pad // open controllers, by path
+	grabbed map[string]bool // taken: by ID, "" for all of them
+	// Players are the controllers' slots (default: one set of its own).
+	Players *Players
+}
+
+// pad is an open controller.
+type pad struct {
+	f  *os.File
+	id string
 }
 
 // Grab takes the open controllers (and ones plugged in later) from every
 // other reader, or gives them back. Keyboards and mice are never taken.
-func (e *Evdev) Grab(on bool) error {
+func (e *Evdev) Grab(device string, on bool) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.grabbed = on
+	if e.grabbed == nil {
+		e.grabbed = map[string]bool{}
+	}
+	if on {
+		e.grabbed[device] = true
+	} else {
+		delete(e.grabbed, device)
+	}
 	var errs []error
-	for path, f := range e.pads {
-		if err := grab(f, on); err != nil {
+	for path, p := range e.pads {
+		if device != "" && p.id != device {
+			continue
+		}
+		// Given back, a pad stays taken if another reason still takes it.
+		want := on || (device != "" && e.grabbed[""]) || (device == "" && e.grabbed[p.id])
+		if err := grab(p.f, want); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", path, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Devices lists the controllers hostd reads now, by ID with their slot.
+func (e *Evdev) Devices() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := map[string]int{}
+	for _, p := range e.pads {
+		out[p.id] = e.players().Slot(p.id)
+	}
+	return out
+}
+
+// players returns the slots, made on first use. e.mu is held.
+func (e *Evdev) players() *Players {
+	if e.Players == nil {
+		e.Players = &Players{}
+	}
+	return e.Players
 }
 
 // grab sets EVIOCGRAB on f. Through SyscallConn, not f.Fd(): Fd puts the
@@ -142,18 +187,19 @@ func grab(f *os.File, on bool) error {
 
 // pad notes an open controller (f) or its end (nil), and grabs it if
 // controllers are taken.
-func (e *Evdev) pad(path string, f *os.File) {
+func (e *Evdev) pad(path, id string, f *os.File) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if f == nil {
 		delete(e.pads, path)
+		e.players().Disconnect(id)
 		return
 	}
 	if e.pads == nil {
-		e.pads = map[string]*os.File{}
+		e.pads = map[string]*pad{}
 	}
-	e.pads[path] = f
-	if e.grabbed {
+	e.pads[path] = &pad{f: f, id: id}
+	if e.grabbed[""] || e.grabbed[id] {
 		_ = grab(f, true)
 	}
 }
@@ -203,23 +249,39 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 		// The device's buttons, by its profile: a known pad's Guide,
 		// nothing for a keyboard.
 		var codes map[uint16]string
-		if p := profiles.forInput(sys.input(path)); p != nil {
+		info := sys.input(path)
+		if p := profiles.forInput(info); p != nil {
 			codes = p.codes
 		}
+		id := ""
 		if codes != nil {
-			e.pad(path, f)
+			id = DeviceID(info, path)
+			e.mu.Lock()
+			e.players().Connect(id)
+			e.mu.Unlock()
+			e.pad(path, id, f)
+		}
+		emit := fn
+		if codes != nil {
+			emit = func(ev InputEvent) {
+				ev.Device = id
+				e.mu.Lock()
+				ev.Player = e.players().Slot(id) // it may have been reassigned
+				e.mu.Unlock()
+				fn(ev)
+			}
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() { mu.Lock(); delete(open, path); mu.Unlock() }()
 			if codes != nil {
-				defer e.pad(path, nil)
+				defer e.pad(path, id, nil)
 			}
 			stop := context.AfterFunc(ctx, func() { f.Close() })
 			defer stop()
 			defer f.Close()
-			readEvents(f, codes, fn)
+			readEvents(f, codes, emit)
 		}()
 	}
 

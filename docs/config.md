@@ -77,3 +77,8 @@ External modules are not configured here: each is a file in `~/.config/hostd/mod
 | `~/.local/state/hostd/state.db` | Tokens and the audit trail |
 | `~/hostd/git/`, `~/hostd/releases/`, `~/hostd/keys/` | [Services](services.md): repositories, releases, deploy keys |
 | `/etc/hostd/update.conf` | [Updates](install.md#updates) |
+
+## Several controllers
+
+Each controller has a stable ID (vendor:product and its serial or USB port, shown by `hostctl controllers`) and a **player** slot: the first controller is player 1, the next takes the lowest free slot, and a controller keeps its slot while hostd runs, also if it is switched off and on again. Holding Guide opens the menu **for that controller**: only it is taken from the apps (the others keep playing) and only its buttons move the menu. The `display.nav` events say which device and player. Keyboards and mice are never taken.
+

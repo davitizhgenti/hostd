@@ -108,30 +108,33 @@ type Module struct {
 	opts Options
 	log  *slog.Logger
 
-	mu        sync.Mutex
-	core      sdk.Core
-	backend   Backend                  // nil while no compositor is attached
-	windows   map[int64]*trackedWindow // by window ID
-	stack     []string                 // instances by focus, most recent last
-	prefs     map[string]bool          // instance -> wants fullscreen
-	closeWait map[int64]chan struct{}
-	launches  map[string]*launch       // by instance
-	ending    map[string]chan struct{} // instance -> closed when it ends
-	gone      map[string]bool          // instances that ended (until the ID is reused)
-	focusSeq  uint64                   // counts focus changes
-	keys      map[string]string        // key name -> action
-	buttons   map[string]string        // controller button -> action
-	pressing  map[string]bool          // inputs whose action is being handled
-	holds     map[string]chan struct{} // controller buttons held down; closed on release
-	menuFront bool                     // hostd's menu has the focus: controllers are taken for it
-	grabbed   bool                     // the controllers are taken (evdev.Grabber)
-	down      map[string]bool          // controller buttons held down
-	gpuUsed   int64                    // video memory in use, bytes (GPU)
-	gpuTotal  int64
-	life      context.Context      // ends when the module stops
-	failed    int                  // compositor commands that failed
-	warned    map[string]time.Time // when each kind of failure was last logged as a warning
-	presence  *presence.Tracker
+	mu         sync.Mutex
+	core       sdk.Core
+	backend    Backend                  // nil while no compositor is attached
+	windows    map[int64]*trackedWindow // by window ID
+	stack      []string                 // instances by focus, most recent last
+	prefs      map[string]bool          // instance -> wants fullscreen
+	closeWait  map[int64]chan struct{}
+	launches   map[string]*launch       // by instance
+	ending     map[string]chan struct{} // instance -> closed when it ends
+	gone       map[string]bool          // instances that ended (until the ID is reused)
+	focusSeq   uint64                   // counts focus changes
+	keys       map[string]string        // key name -> action
+	buttons    map[string]string        // controller button -> action
+	pressing   map[string]bool          // inputs whose action is being handled
+	holds      map[string]chan struct{} // controller buttons held down; closed on release
+	menuFront  bool                     // hostd's menu has the focus: controllers are taken for it
+	menuOwner  string                   // the controller that opened the menu ("": any)
+	lastPad    string                   // the controller whose binding fired last
+	grabbedDev string                   // whose grab is held
+	grabbed    bool                     // the controllers are taken (evdev.Grabber)
+	down       map[string]bool          // controller buttons held down
+	gpuUsed    int64                    // video memory in use, bytes (GPU)
+	gpuTotal   int64
+	life       context.Context      // ends when the module stops
+	failed     int                  // compositor commands that failed
+	warned     map[string]time.Time // when each kind of failure was last logged as a warning
+	presence   *presence.Tracker
 
 	stop context.CancelFunc
 	done sync.WaitGroup
@@ -305,7 +308,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: "display", Description: "Whether a session is attached, outputs, the focused instance", Path: "/v1/display"},
 			{Name: "controllers", Description: "Connected game controllers: their profile, and the buttons hostd.toml can bind ([display.buttons]); a raw device is read by its app only",
 				Path: "/v1/controllers",
-				CLI: &sdk.CLI{Alias: []string{"controllers"}, Empty: "no controllers connected", Columns: []sdk.Column{{Title: "DEVICE", Path: "device"},
+				CLI: &sdk.CLI{Alias: []string{"controllers"}, Empty: "no controllers connected", Columns: []sdk.Column{{Title: "PLAYER", Text: []string{"{player} if player", "-"}}, {Title: "DEVICE", Path: "device"},
 					{Title: "KIND", Path: "kind"}, {Title: "PROFILE", Path: "profile"}, {Title: "ID", Text: []string{"{vendor}:{product}"}},
 					{Title: "BUTTONS", Text: []string{"(read by {app}) if raw", "{buttons}"}}, {Title: "NAME", Path: "name"}}}},
 		},
@@ -463,7 +466,14 @@ func (m *Module) Read(ctx context.Context, name string, _ map[string]string) (an
 	case "windows":
 		return wins, nil
 	case "controllers":
-		return evdev.Scan(m.opts.SysRoot, m.opts.Profiles), nil
+		pads := evdev.Scan(m.opts.SysRoot, m.opts.Profiles)
+		if d, ok := m.opts.Input.(interface{ Devices() map[string]int }); ok {
+			slots := d.Devices()
+			for i := range pads {
+				pads[i].Player = slots[pads[i].ID]
+			}
+		}
+		return pads, nil
 	case "display":
 		m.mu.Lock()
 		failed := m.failed

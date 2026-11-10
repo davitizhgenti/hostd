@@ -20,15 +20,17 @@ import (
 
 // fakeInput lets a test press keys: press() calls the module's callback.
 type fakeInput struct {
-	mu    sync.Mutex
-	fn    func(evdev.InputEvent)
-	grabs []bool // Grab calls
+	mu       sync.Mutex
+	fn       func(evdev.InputEvent)
+	grabs    []bool   // Grab calls
+	grabDevs []string // whose
 }
 
-func (f *fakeInput) Grab(on bool) error {
+func (f *fakeInput) Grab(device string, on bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.grabs = append(f.grabs, on)
+	f.grabDevs = append(f.grabDevs, device)
 	return nil
 }
 
