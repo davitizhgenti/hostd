@@ -1,9 +1,0 @@
-# Managed by hostd's phones add-on; changes here are overwritten.
-# AirPlay receiver (UxPlay): "core" appears under Screen Mirroring on an
-# iPhone, iPad or Mac on the same network. Its window opens when mirroring
-# starts. Close it here to stop receiving.
-name = "iPhone / iPad (AirPlay)"
-runner = { type = "exec", command = ["uxplay", "-n", "core", "-nh", "-fs"] }
-
-[window]
-fullscreen = true

@@ -15,7 +15,7 @@ import (
 // exists.
 func TestAddonsLoad(t *testing.T) {
 	names := AddonNames()
-	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "moonlight", "nvidia", "phones", "seats", "steam", "sunshine", "tailscale", "wireguard"}
+	want := []string{"android", "chromium", "compose", "controllers", "dolphin", "flatpak", "moonlight", "nvidia", "seats", "steam", "sunshine", "tailscale", "wireguard"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("add-ons %v", names)
 	}
@@ -93,7 +93,7 @@ func TestBundledResourcesAreValid(t *testing.T) {
 
 func TestAddonPrivilege(t *testing.T) {
 	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false, "moonlight": false,
-		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "phones": true, "sunshine": true, "tailscale": true, "wireguard": true}
+		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "android": true, "sunshine": true, "tailscale": true, "wireguard": true}
 	for name, root := range want {
 		a, err := LoadAddon(name)
 		if err != nil {

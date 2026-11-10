@@ -1,5 +1,5 @@
 #!/bin/sh
-# Managed by hostd's phones add-on: an Android phone on core's screen.
+# Managed by hostd's android add-on: an Android phone on core's screen.
 #
 #   hostd-android                      show the phone (scrcpy), as the "Android phone" app does
 #   hostd-android pair HOST:PORT CODE  once: Android's Developer options > Wireless debugging >

@@ -1,0 +1,11 @@
+# An Android phone on core's screen: scrcpy over Wi-Fi shows it, and core's
+# keyboard and mouse control it. It is an app like any other: open it from
+# the menu, a phone, or hostctl.
+description = "An Android phone on core's screen, controlled from core (scrcpy over Wi-Fi)"
+packages = ["scrcpy", "adb"]
+resources = ["apps/android.toml"]
+files = [
+  { src = "hostd-android", dest = "/usr/local/lib/hostd/android/hostd-android", mode = "755" },
+]
+rescan = true
+keeps = "the packages (scrcpy, adb) and the phone's saved address in ~/.config/hostd/android.addr"
