@@ -4,8 +4,8 @@
 # the key for GitHub are made by hook.sh.
 description = "JupyterLab with real-time collaboration and Git, on ~/projects, at https://<machine>:8888"
 packages = ["python3-venv", "git", "openssh-client"]
+resources = ["apps/jupyter.toml"]
 files = [
-  { src = "jupyter.toml", dest = "~/.config/hostd/apps/jupyter.toml", owner = "screen" },
   { src = "hostd-jupyter", dest = "/usr/local/lib/hostd/addons/hostd-jupyter", mode = "755" },
   { src = "hostd-jupyter-tls.path", dest = "~/.config/systemd/user/hostd-jupyter-tls.path", owner = "screen" },
   { src = "hostd-jupyter-tls.service", dest = "~/.config/systemd/user/hostd-jupyter-tls.service", owner = "screen" },

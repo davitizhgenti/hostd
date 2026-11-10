@@ -4,6 +4,5 @@
 description = "Chromium web browser (also opens hostd's web-page apps)"
 packages = ["chromium"]
 purge = true
-files = [{ src = "chromium.toml", dest = "~/.config/hostd/apps/chromium.toml", owner = "screen" }]
-rescan = true
+resources = ["apps/chromium.toml"]
 keeps = "Chromium's own data (profile, history) stays in ~/.config/chromium"

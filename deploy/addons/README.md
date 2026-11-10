@@ -13,6 +13,10 @@ flathub = true                          # set up the Flathub repository
 flatpak_update = true                   # update every Flatpak app and runtime when it runs
 flatpaks = ["org.DolphinEmu.dolphin-emu"]   # apps from Flathub, uninstalled with the add-on
 
+resources = ["apps/steam.toml"]         # hostd resources it ships: <folder>/<name>.toml in this directory
+                                        # (apps, scenes, rules, scripts, modules); put in ~/.config/hostd/<folder>/,
+                                        # followed by hostd (no rescan), removed with the add-on, and a person's edit is kept
+
 kernel_modules = ["uinput"]             # loaded now and at boot
 
 # Files from this directory. In dest, ~ is the screen user's home; owner

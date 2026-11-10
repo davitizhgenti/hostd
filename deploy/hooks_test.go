@@ -896,7 +896,7 @@ func TestJupyterHook(t *testing.T) {
 // The add-on's app file is one the catalog takes: a background app that
 // starts with hostd.
 func TestJupyterAppFile(t *testing.T) {
-	b, err := os.ReadFile("addons/jupyter/jupyter.toml")
+	b, err := os.ReadFile("addons/jupyter/apps/jupyter.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

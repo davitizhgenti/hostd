@@ -6,8 +6,8 @@
 description = "Steam (Flatpak) in Big Picture, with its games listed under it"
 requires = ["flatpak", "controllers"]
 flatpaks = ["com.valvesoftware.Steam"]
+resources = ["apps/steam.toml"]
 files = [
-  { src = "steam.toml", dest = "~/.config/hostd/apps/steam.toml", owner = "screen" },
   { src = "hostd-steam-games", dest = "/usr/local/lib/hostd/addons/hostd-steam-games", mode = "755" },
   { src = "hostd-steam-games.service", dest = "~/.config/systemd/user/hostd-steam-games.service", owner = "screen" },
   { src = "hostd-steam-games.path", dest = "~/.config/systemd/user/hostd-steam-games.path", owner = "screen" },

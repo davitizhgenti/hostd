@@ -1,8 +1,14 @@
 package deploy
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	"slices"
 	"testing"
+
+	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 )
 
 // Every add-on's manifest loads, names files it has, and what it requires
@@ -58,5 +64,29 @@ func TestAddonOrder(t *testing.T) {
 	}
 	if b := addonsBundle(); len(b) != 64 || b != addonsBundle() {
 		t.Fatal("bundle stamp")
+	}
+}
+
+// Every resource an add-on ships is a valid one of its kind, and its file is
+// there: a change to a schema cannot silently break an add-on.
+func TestBundledResourcesAreValid(t *testing.T) {
+	for _, name := range AddonNames() {
+		a, err := LoadAddon(name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, r := range a.Resources {
+			b, err := os.ReadFile(filepath.Join("addons", name, r))
+			if err != nil {
+				t.Errorf("%s: %v", name, err)
+				continue
+			}
+			plural, file, _ := strings.Cut(r, "/")
+			if plural == "apps" {
+				if _, err := catalog.ParseAppFile("/x/"+file, b); err != nil {
+					t.Errorf("%s: %s: %v", name, r, err)
+				}
+			}
+		}
 	}
 }

@@ -299,6 +299,8 @@ func TestShippedAppFiles(t *testing.T) {
 	// The app files the installer and its add-ons write: each must load
 	// without a problem (over the desktop entries they extend).
 	all, _ := filepath.Glob("../../../deploy/addons/*/*.toml")
+	shipped, _ := filepath.Glob("../../../deploy/addons/*/apps/*.toml") // resources an add-on ships
+	all = append(all, shipped...)
 	var paths []string
 	for _, p := range all {
 		if filepath.Base(p) != "addon.toml" { // an add-on's own manifest, not an app file
@@ -324,7 +326,7 @@ func TestShippedAppFiles(t *testing.T) {
 			t.Errorf("%s: %v", p, c.Problems)
 		}
 	}
-	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../../deploy/addons/steam/steam.toml"))))
+	steam := mustParse(t, "steam.toml", string(must(os.ReadFile("../../../deploy/addons/steam/apps/steam.toml"))))
 	app, _ := Build(desktop, []AppFile{steam}, nil).Get("steam")
 	for _, a := range app.Actions {
 		if a.Command[len(a.Command)-1][:8] != "steam://" {

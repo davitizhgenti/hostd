@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -44,7 +45,12 @@ type Addon struct {
 	// files are among Files); UserStart are started once on every run.
 	UserUnits []string `toml:"user_units"`
 	UserStart []string `toml:"user_start"`
-	Rescan    bool     `toml:"rescan"` // hostd reads the app catalog again after
+	// Resources are hostd resources the add-on ships, "<plural>/<name>.toml"
+	// in its directory (apps/steam.toml): put in the screen user's
+	// ~/.config/hostd/<plural>/, where hostd follows them (no rescan), and
+	// taken away again with the add-on. An edit by a person is kept.
+	Resources []string `toml:"resources"`
+	Rescan    bool     `toml:"rescan"` // hostd reads the app catalog again after (hooks that write app files)
 	Keeps     string   `toml:"keeps"`  // what stays when it is removed (said then)
 	Hook      string   `toml:"hook"`   // a script with addon_install and addon_remove
 }
@@ -72,8 +78,17 @@ func LoadAddon(name string) (Addon, error) {
 		return Addon{}, fmt.Errorf("add-on %s: %w", name, err)
 	}
 	a.Name = name
+	for _, r := range a.Resources {
+		plural, file, ok := strings.Cut(r, "/")
+		if !ok || strings.Contains(file, "/") || !strings.HasSuffix(file, ".toml") || !resourceFolders[plural] {
+			return Addon{}, fmt.Errorf("add-on %s: resource %q: use <folder>/<name>.toml, folder one of apps, scenes, rules, scripts, modules", name, r)
+		}
+	}
 	return a, nil
 }
+
+// resourceFolders are the kinds an add-on may ship.
+var resourceFolders = map[string]bool{"apps": true, "scenes": true, "rules": true, "scripts": true, "modules": true}
 
 // AddonNames lists every add-on there is.
 func AddonNames() []string {
@@ -294,6 +309,24 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 			in.Out.Info("%s up to date", path.Base(f.Dest))
 		}
 	}
+	for _, r := range a.Resources {
+		b, err := fs.ReadFile(embedded, path.Join("addons", a.Name, r))
+		if err != nil {
+			return fmt.Errorf("no resource %s", r)
+		}
+		dest := in.user.home + "/.config/hostd/" + r
+		if in.exists(dest) {
+			if cur, _ := os.ReadFile(in.path(dest)); !bytes.Equal(cur, b) {
+				in.Out.Info("%s differs from the add-on's: left as it is", r)
+			} else {
+				in.Out.Info("%s up to date", r)
+			}
+			continue
+		}
+		if _, err := in.installFile(b, dest, 0o644, in.user.name); err != nil {
+			return err
+		}
+	}
 	if filesChanged {
 		for _, argv := range a.OnChange {
 			_, _ = in.run(ctx, argv...) // a container may have no udev: then at the next boot
@@ -352,6 +385,12 @@ func (in *installer) removeAddon(ctx context.Context, a Addon) error {
 		if err := os.Remove(in.path(d)); err == nil {
 			in.Out.Changed("removed %s", d)
 			units = units || strings.Contains(f.Dest, "/systemd/user/")
+		}
+	}
+	for _, r := range a.Resources {
+		d := in.user.home + "/.config/hostd/" + r
+		if err := os.Remove(in.path(d)); err == nil {
+			in.Out.Changed("removed %s", d)
 		}
 	}
 	for _, m := range a.KernelModules {
