@@ -36,6 +36,10 @@ hold = "600ms"
 "F1" = "display.menu"
 [display.buttons]
 guide = "display.menu"
+# A screen's resolution, set whenever hostd meets Sway (at start, and again
+# if Sway restarts), so every app draws at one size. "*" names every screen.
+[display.outputs.HDMI-A-1]
+mode = "1920x1080@60"
 
 # How the API is served on the network (listen). HTTPS with the machine's
 # own CA, always, unless tls = false and insecure_http = true.

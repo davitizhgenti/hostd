@@ -19,6 +19,7 @@ Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 import http.client
 import json
 import os
+import re
 import base64
 import socket
 import struct
@@ -272,6 +273,12 @@ class Menu(Gtk.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         for w in (bar, self.scroll, self.status):
             box.append(w)
+        # On a screen wider than 16:10 the list is a centered column of that
+        # shape: names and their status stay close enough to read from a distance.
+        width, height = SCREEN
+        if width > height * 1.6:
+            box.set_halign(Gtk.Align.CENTER)
+            box.set_size_request(int(height * 1.6), -1)
         self.overlay = Gtk.Overlay(child=box)
         self.overlay.add_overlay(self.actions_box)
         self.set_child(self.overlay)
@@ -643,6 +650,25 @@ class Menu(Gtk.ApplicationWindow):
             self.move(1)
 
 
+BASE_HEIGHT = 800  # the layout of the CSS below is for a 1280x800 screen
+SCREEN = (1280, 800)  # the monitor's size, set when the menu starts
+
+
+def scaled_css(css, height):
+    """The CSS with every size in px grown with the screen's height, so the
+    menu is as big on a 1080p projector as on a 1280x800 one."""
+    scale = max(1.0, height / BASE_HEIGHT)
+    return re.sub(r"(\d+)px", lambda m: "%dpx" % round(int(m.group(1)) * scale), css)
+
+
+def screen_size():
+    monitors = Gdk.Display.get_default().get_monitors()
+    if monitors.get_n_items():
+        geo = monitors.get_item(0).get_geometry()
+        return geo.width, geo.height
+    return SCREEN
+
+
 def main():
     api = API()
     if not api.token:
@@ -650,11 +676,14 @@ def main():
     app = Gtk.Application(application_id="org.hostd.Menu")
 
     def activate(application):
+        global SCREEN
+        SCREEN = screen_size()
+        css = scaled_css(CSS, SCREEN[1])
         provider = Gtk.CssProvider()
         if hasattr(provider, "load_from_string"):  # GTK 4.12+
-            provider.load_from_string(CSS)
+            provider.load_from_string(css)
         else:
-            provider.load_from_data(CSS, -1)
+            provider.load_from_data(css, -1)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         win = application.get_active_window() or Menu(application, api)

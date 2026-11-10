@@ -6,6 +6,7 @@ package display
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -74,6 +75,8 @@ type Options struct {
 	// PlayerButtons are the buttons that differ for a player slot (see
 	// PlayerBindings); a slot with a table uses it instead of Buttons.
 	PlayerButtons map[int]map[string]string
+	// Outputs are the modes to set on screens when attaching (OutputConfig).
+	Outputs map[string]OutputConfig
 	// GPU reads video memory, watched every GPUEvery (default 15s) so the
 	// person is told before it is full (nil: not watched).
 	GPU      gpu.Reader
@@ -437,6 +440,43 @@ func (m *Module) attach(ctx context.Context, b Backend) {
 		}
 	}
 	m.log.Info("display session attached", "windows", len(wins))
+	m.mu.Unlock()
+	m.applyOutputs(ctx, b)
+	m.mu.Lock() // the deferred Unlock follows
+}
+
+// applyOutputs sets the modes the config names, on the screens that have
+// them, so every app draws at one size. A mode a screen lacks is a warning,
+// not an error: the screen keeps the one it has.
+func (m *Module) applyOutputs(ctx context.Context, b Backend) {
+	if len(m.opts.Outputs) == 0 {
+		return
+	}
+	outs, err := b.Outputs(ctx)
+	if err != nil {
+		m.log.Warn("reading screens", "err", err)
+		return
+	}
+	for i := range outs {
+		cfg, ok := m.opts.Outputs[outs[i].Name]
+		if !ok {
+			cfg, ok = m.opts.Outputs["*"]
+		}
+		if !ok {
+			continue
+		}
+		mode, err := pickMode(cfg.Mode, outs[i].Modes)
+		if err != nil {
+			m.log.Warn("screen mode", "output", outs[i].Name, "err", err)
+			continue
+		}
+		if cfg.Mode == fmt.Sprintf("%dx%d", outs[i].Width, outs[i].Height) && outs[i].Active {
+			continue // already there
+		}
+		if err := b.SetOutput(ctx, outs[i].Name, "mode "+mode); err != nil {
+			m.screen("mode", err)
+		}
+	}
 }
 
 func (m *Module) detach(b Backend) {
