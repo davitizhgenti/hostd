@@ -109,7 +109,7 @@ hostctl login <machine>                 # on the laptop: shows the same fingerpr
 
 `hostctl login` shows the machine's CA before anything is sent. Compare it with what `hostctl tls` printed, and confirm: hostctl then trusts that CA, and only it. A script gives it instead with `--ca-fingerprint`, and the Python client with `ca_fingerprint=`.
 
-**Browsers.** To open `https://<machine>:7300/docs/` (and add-ons' sites, such as the Pterodactyl panel) without warnings, install the CA on the laptop or phone: download `https://<machine>:7300/v1/tls/ca.pem`, check its fingerprint against `hostctl tls`, and add it as a trusted certificate authority (Firefox: Settings, Certificates, Import; GNOME: `sudo cp ca.pem /usr/local/share/ca-certificates/hostd.crt && sudo update-ca-certificates`; Android and iOS: open the file and install it as a CA certificate). The CA can only vouch for this machine's names and private addresses: it cannot be used to fake any other site. `http://<machine>:7300/` sends the browser to HTTPS; before the CA is installed, the browser warns once, and the fingerprint check above is what makes it safe to go on.
+**Browsers.** To open `https://<machine>:7300/docs/` without warnings, install the CA on the laptop or phone: download `https://<machine>:7300/v1/tls/ca.pem`, check its fingerprint against `hostctl tls`, and add it as a trusted certificate authority (Firefox: Settings, Certificates, Import; GNOME: `sudo cp ca.pem /usr/local/share/ca-certificates/hostd.crt && sudo update-ca-certificates`; Android and iOS: open the file and install it as a CA certificate). The CA can only vouch for this machine's names and private addresses: it cannot be used to fake any other site. `http://<machine>:7300/` sends the browser to HTTPS; before the CA is installed, the browser warns once, and the fingerprint check above is what makes it safe to go on.
 
 ## From outside the house
 
@@ -156,13 +156,13 @@ hostd-setup update                       # the newest signed build, now; prints 
 hostd-setup update --verbose             # ...every step, changed or not
 hostd-setup update steam                 # ...and run that add-on again now
 hostd-setup update --all                 # ...and run every installed add-on again now
-hostd-setup addons                       # optional extras: Steam, Dolphin, compose, pterodactyl...
+hostd-setup addons                       # optional extras: Steam, Dolphin, compose, ...
 hostd-setup add steam
 hostd-setup uninstall                    # removes hostd; keeps its data
 hostd-setup uninstall --purge --all      # ...and its data, and the base setup
 ```
 
-An update checks the whole machine setup (packages, the screen user, the Sway and mako configs, hostd, the menu, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes, the Pterodactyl panel) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on, except that it never upgrades the Pterodactyl panel (its migrations change data).
+An update checks the whole machine setup (packages, the screen user, the Sway and mako configs, hostd, the menu, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on.
 
 If a new hostd fails to start three times, systemd rolls back to the previous version. The rollback also restores the state and the config from before the update.
 

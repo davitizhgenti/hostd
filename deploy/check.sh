@@ -88,20 +88,6 @@ echo "containers"
 check "podman API socket answers" bash -c 'curl -fsS --unix-socket "$XDG_RUNTIME_DIR/podman/podman.sock" http://d/_ping | grep -q OK'
 check "run a container" bash -c 'podman run --rm docker.io/library/alpine:latest echo hello | grep -q hello'
 
-if systemctl cat wings.service >/dev/null 2>&1; then
-	echo "pterodactyl"
-	for u in nginx mariadb redis-server docker wings pteroq pterodactyl-schedule.timer; do
-		check "$u is running" systemctl is-active --quiet "$u"
-	done
-	check "the panel answers (loopback)" curl -fsS -o /dev/null http://127.0.0.1/auth/login
-	ca=$HOME/.local/state/hostd/tls/ca.pem
-	if [ -r "$ca" ]; then
-		check "the panel answers over HTTPS" curl -fsS -o /dev/null --cacert "$ca" https://127.0.0.1/auth/login
-		check "Wings answers over HTTPS on 8080" bash -c 'curl -sS --cacert "$1" -o /dev/null -w "%{http_code}" https://127.0.0.1:8080/ | grep -q "^[1-4]"' _ "$ca"
-	else
-		check "Wings answers on port 8080" bash -c 'curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/ | grep -q "^[1-4]"'
-	fi
-fi
 
 echo "hostd"
 if systemctl --user cat hostd.service >/dev/null 2>&1; then

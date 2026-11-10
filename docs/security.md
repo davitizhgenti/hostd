@@ -23,7 +23,6 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 - **The CA can only vouch for this machine**: its X.509 name constraints allow the host name, `<host>.local`, the names it was made with, and private addresses. If you install `ca.pem` in a browser, it cannot be used to fake any other site, even if its key were stolen.
 - **The unix socket** (`$XDG_RUNTIME_DIR/hostd.sock`, mode 0600) is plain HTTP; it never leaves the machine. The menu, hostctl on the machine, scripts and git hooks use it.
 - **Webhooks** (`POST /v1/hooks/...`) need no token, but each checks its own signature (an HMAC from GitHub or Gitea).
-- **The Pterodactyl panel** (an add-on) is served over HTTPS with a certificate from the same CA; its port 80 only redirects. Wings, which runs the game servers, is HTTPS too. The panel and Wings run as root and control Docker: keep the panel's admin password strong, and its version current (the add-on pins it, and `sudo hostd-setup update` upgrades it).
 - **VNC** listens on localhost only: reach it through SSH (`ssh -L 5900:127.0.0.1:5900 screen@<machine>`).
 
 ## On the machine

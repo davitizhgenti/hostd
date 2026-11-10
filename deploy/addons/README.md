@@ -43,7 +43,7 @@ Everything is checked first and changed only if it differs, so running an add-on
 
 ## Hooks
 
-When the steps are a chain of commands (NVIDIA's driver installer, the Pterodactyl panel's PHP and database setup), `hook` names a bash script that defines `addon_install` and `addon_remove`. It runs after the fields above (on remove, before files and apps go), as root, with these helpers from `lib.sh`:
+When the steps are a chain of commands (NVIDIA's driver installer), `hook` names a bash script that defines `addon_install` and `addon_remove`. It runs after the fields above (on remove, before files and apps go), as root, with these helpers from `lib.sh`:
 
 | Helper | Does |
 | --- | --- |

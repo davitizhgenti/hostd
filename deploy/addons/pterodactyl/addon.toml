@@ -1,5 +1,0 @@
-# The Pterodactyl game server panel and its Wings daemon; the steps (PHP,
-# MariaDB, composer, artisan, Docker) are in hook.sh.
-description = "Pterodactyl game server panel (https://<machine>/) and its Wings daemon (Docker)"
-needs = ["chromium"] # the panel is an app of hostd: a page in its browser
-hook = "hook.sh"

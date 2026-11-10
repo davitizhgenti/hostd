@@ -23,7 +23,7 @@ import (
 // An add-on installs something optional on top of hostd: an app (Steam,
 // Dolphin), a tool (podman-compose), device access (controllers). Each is
 // addons/NAME/addon.toml: what it puts on the machine, as data. One whose
-// steps are a chain of commands (NVIDIA's driver, Pterodactyl) names a hook
+// steps are a chain of commands (NVIDIA's driver) names a hook
 // script for them; the parts the toml describes run first.
 type Addon struct {
 	Name        string
