@@ -34,6 +34,20 @@ What hostd protects, from whom, and what it leaves to you. hostd runs a home mac
 - **Keyboards**: `screen` is in the `input` group, which hostd needs to know whether someone is at the screen and for controller buttons. Anything that runs as `screen` (every app, game and `run` command) can therefore read the machine's keyboards and controllers. Do not run untrusted programs as `screen`.
 - **App files and `app.run`** run commands as `screen`. An app's arguments (`args`) are checked (a URL must be http or https, a path absolute, no value may start with `-`), so starting an app with arguments needs only the `apps` scope.
 
+## Root: what uses it and what does not
+
+hostd itself never runs as root. The daemon, `hostctl`, the menu, the update timer and `hostd-setup` all run as a user, in that user's home, and the add-ons that need no root (Steam, Chromium and Dolphin as Flatpaks, installed for the user alone) are installed by the user.
+
+Root is for one program, `hostd-admin`, run once with `sudo`:
+
+| It does | Why it needs root |
+| --- | --- |
+| `prepare`: packages, the screen user's groups, subordinate IDs, lingering, SSH keys only, autologin | the machine's setup |
+| `add` / `remove`: the add-ons marked `[root]` (`hostd-setup addons` shows which) | drivers, udev rules, system packages |
+| `user add` / `remove` | accounts |
+
+Add-ons say which they are (`root = true|false`, or it follows from what they install); `hostd-setup` refuses a root add-on and names the admin command. Several users on one machine each have their own hostd, port, tokens and apps; `hostctl systems` lists them.
+
 ## Updates
 
 - **Every build is signed** (Ed25519). The installer and the update timer check the signature with the key in the installer, and the checksums of every file they use, before installing anything.

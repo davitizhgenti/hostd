@@ -134,6 +134,18 @@ It says how to run it.
 | `--go` |  | a Go module built with sdk/kit |
 | `--python` |  | a Python module (standard library only) |
 
+## hostctl systems
+
+List the hostds on this machine (one per user)
+
+```
+hostctl systems
+```
+
+Every user can have a hostd of their own, with its own port, tokens and apps.
+This lists them with their API address, and whether each runs. Save a login to one
+with: hostctl login https://<machine>:PORT --name NAME
+
 ## hostctl update
 
 Update hostd on the machine
