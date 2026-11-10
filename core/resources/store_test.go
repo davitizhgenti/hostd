@@ -96,8 +96,8 @@ func newRig(t *testing.T, files map[string]string) *rig {
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cancel(); _ = e.Stop(context.Background()) })
 	s := New(e, Options{Root: root, Debounce: 20 * time.Millisecond})
+	t.Cleanup(func() { cancel(); s.Wait(); _ = e.Stop(context.Background()) })
 	events := e.Subscribe(ctx, "resource.*")
 	if err := s.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -404,8 +404,8 @@ func TestAFolderThatIsALinkIsNotWritten(t *testing.T) {
 	if err := e.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cancel(); _ = e.Stop(context.Background()) })
 	s := New(e, Options{Root: root, Debounce: 20 * time.Millisecond})
+	t.Cleanup(func() { cancel(); s.Wait(); _ = e.Stop(context.Background()) })
 	if err := s.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,8 @@ type Store struct {
 	opts Options
 	log  *slog.Logger
 
+	done    chan struct{} // closed when the follower has ended (see Wait)
+
 	applyMu sync.Mutex // one change at a time: the watcher, Put and Delete
 
 	mu      sync.Mutex
@@ -149,8 +151,17 @@ func (s *Store) Start(ctx context.Context) error {
 		}
 	}
 	watch() // before returning: a change right after Start must be seen
-	go s.follow(ctx, w, byDir, watch)
+	s.done = make(chan struct{})
+	go func() { defer close(s.done); s.follow(ctx, w, byDir, watch) }()
 	return nil
+}
+
+// Wait returns once the follower has stopped after its context ended: no file
+// is read or applied after it.
+func (s *Store) Wait() {
+	if s.done != nil {
+		<-s.done
+	}
 }
 
 // follow rescans the folder of a kind when something in it changes. The
