@@ -1,5 +1,0 @@
-# Managed by hostd's share-remote add-on; changes here are overwritten.
-# The package's own desktop entry would start a second Sunshine: share-remote
-# is the one that runs, so this one is not listed.
-extends = "sunshine"
-hidden = true

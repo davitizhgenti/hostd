@@ -1,50 +1,28 @@
-# Sharing and remote control
+# Sharing screens
 
-Four apps, one table. Every one is an [app](apps.md) with an id that starts `share-`, so `hostctl apps` and the menu list them together. Each comes from one add-on of the same name. They work with **Linux PCs** and **Android phones**.
+Two ways, both over the home network (LAN), and nothing to install on the PC or the phone. Each is an add-on with an app that appears only for a PC or phone you have set up, so the menu never lists one that cannot work.
 
-| | **Show on core** (core receives) | **Reach core** (core is the source) |
+| I want to... | Use | Add-on |
 | --- | --- | --- |
-| screen and input | `share-pc`: a Linux PC's screen on core, controlled from core.<br>`share-phone`: an Android phone's screen on core, controlled from core. | `share-remote`: a Linux PC or an Android phone shows and controls core. |
-| input only | | `share-keys`: a PC's keyboard and mouse control core (no video). |
-
-"Show" apps are windows: open them, close them like any app. They exist only for a PC or phone you set up, so the menu never lists one that cannot work. "Reach" apps run in the background all the time (`hostctl ps`, `hostctl stop share-keys`; their output: `journalctl --user -u hostd-share-remote`).
+| Show a **Linux (GNOME) PC** on core's screen, controlled from core | the PC's own Remote Desktop (RDP) and a small RDP client on core | `share-pc` |
+| Show an **Android phone** on core's screen, controlled from core | Android's Wireless debugging and scrcpy on core | `share-phone` |
 
 ```sh
-sudo hostd-admin add share-remote share-phone share-keys --user screen   # root, once: the packages
-hostd-setup add share-pc                                                 # a Flatpak (Moonlight), no root
+sudo hostd-admin add share-pc share-phone --user screen    # root, once: the packages (freerdp, scrcpy, adb)
 ```
 
-Each needs a one-time pairing, then nothing:
+## share-pc: a Linux PC on core's screen
 
-| App | Pair once with |
-| --- | --- |
-| `share-remote` | a PIN: open `https://core.local:47990` (make a login on the first visit), add core in Moonlight, enter the 4-digit PIN there |
-| `share-pc` | a PIN: `hostd-share-pc pair HOST` on core, enter the PIN on the PC (it runs Sunshine) |
-| `share-phone` | Android's Wireless debugging (below) |
-| `share-keys` | each side authorizes the other's certificate fingerprint (below) |
-
-## share-remote: reach core from a PC or phone
-
-Sunshine runs on core all the time. On the PC install Moonlight (Flathub `com.moonlight_stream.Moonlight`); on Android install Moonlight (Google Play or F-Droid). Pair once (above), then start **Desktop**: it is core's screen, and the device's keyboard, mouse or touch, and controllers, control core.
-
-- Moonlight's resolution should match core's screen shape. The projector is 16:10 (1280x800): use a custom 1280x800 in Moonlight, or the picture is stretched.
-- During a stream Sunshine sends the sound to the device. To hear it on the projector, turn on Moonlight's "play audio on host" setting.
-- The Super key stays on your PC unless Moonlight captures system shortcuts (Settings, Input). Otherwise bind a key the PC does not take, for example `"F1" = "display.menu"` in `[display.keys]` ([config](config.md)).
-- Sunshine's web page and PIN page answer the home network only. Its settings are in `~/.config/sunshine`; `csrf_allowed_origins` there lists the addresses its web page may be opened at.
-
-## share-pc: a PC on core's screen
-
-Install Sunshine on the PC (<https://github.com/LizardByte/Sunshine>) and make a login on its web page. Then, on core:
+On the PC (GNOME): **Settings, System, Remote Desktop**, switch on **Desktop Sharing** and **Remote Control**, and note the user name and password shown there. Then on core:
 
 ```sh
-~/.local/lib/hostd/share-pc/hostd-share-pc pair my-pc        # prints a 4-digit PIN: enter it on the PC (Sunshine's web page, PIN tab)
-~/.local/lib/hostd/share-pc/hostd-share-pc add office my-pc  # makes the app "Share: office" (id share-office)
-hostctl open share-office                                    # full screen on core; core's keyboard, mouse and controllers drive the PC
+/usr/local/lib/hostd/share-pc/hostd-share-pc add office 192.168.18.60 mylogin    # name, the PC's address, the Remote Desktop user; asks for the password
+hostctl open share-office                                                     # the PC's screen, full screen on core
 ```
 
-`my-pc` is the PC's name or address. A PC has an app only after `add`, so the menu never lists one that cannot work; one app per PC. `hostd-share-pc list` shows them, `hostd-share-pc remove office` takes one away. Moonlight itself is not listed: it is only the engine.
+Core's keyboard and mouse control the PC. A PC has an app only after `add`; one app per PC. `hostd-share-pc list` and `hostd-share-pc remove office` manage them. The password is kept in `~/.config/hostd/share-pc` readable by you only; the PC's certificate is trusted the first time and checked after. Close the app on core to stop.
 
-**Using core as an extra monitor** of the PC is the same, with a second monitor on the PC to stream: a small HDMI dummy plug in the PC's HDMI port gives it one that Sunshine can stream, on any desktop. On Sway or Hyprland a headless output (`swaymsg create_output`) does the same without hardware. hostd does not set this up.
+What you see is the PC's current screen. To use core as an extra monitor of the PC, the PC needs a second monitor to share: a small HDMI dummy plug in its HDMI port does that on any desktop; hostd does not set it up.
 
 ## share-phone: an Android phone on core's screen
 
@@ -55,18 +33,12 @@ Pair once (Android 11 or newer): Settings, Developer options, **Wireless debuggi
 /usr/local/lib/hostd/share-phone/hostd-share-phone connect HOST:PORT      # the address on the Wireless debugging screen itself
 ```
 
-`connect` makes the app **Share: phone** (only once the phone really answers; until then the menu does not list it). Open it: the phone's screen is shown and core's keyboard and mouse control it (audio too, on Android 11 or newer). The connection address changes when Wireless debugging is switched off and on; run `connect` again then. `hostd-share-phone forget` removes the app. Over USB no pairing is needed.
+`connect` makes the app **Share: phone** (only once the phone really answers). Open it: the phone's screen is shown and core's keyboard and mouse control it (audio too, on Android 11 or newer). The connection address changes when Wireless debugging is switched off and on; run `connect` again then. `hostd-share-phone forget` removes the app. Over USB no pairing is needed.
 
-## share-keys: one keyboard and mouse for the PC and core
+## Not covered
 
-lan-mouse (v0.11.0). Push the mouse off the PC's screen edge and it appears on core's screen, with the keyboard following; a release key combination brings it back. Input only: no video, no clipboard, no audio, no controllers.
-
-- On core `share-keys` runs and waits. Run the same program on the PC (the [release build](https://github.com/feschber/lan-mouse/releases/tag/v0.11.0) or its GUI), add core by its address on the side you want, and authorize each side's certificate fingerprint in the other's `~/.config/lan-mouse/config.toml` (`[authorized_fingerprints]`). Restart core's with `hostctl stop share-keys && hostctl start share-keys`.
-- **A limit with a Sway core:** lan-mouse's notes say a wlroots receiver (Sway) does not handle modifier keys (Ctrl, Shift, Alt, Super) from a sender that does not use its layer-shell backend, which includes GNOME PCs. So from a GNOME PC the keys type but the modifiers may not work; hostd's Super bindings would not either. Try it before relying on it; `share-remote` has no such limit.
-- On GNOME the PC may show a permission prompt for input capture.
+Showing core on a PC or phone, other desktops than GNOME, Mac, Windows and iPhone, and Wi-Fi Direct casting (Smart View, Miracast): core has no Wi-Fi, and nothing free receives those reliably on Linux. A wireless display dongle on the projector's HDMI port does that without core.
 
 ## Security
 
-- Sunshine's web page and PIN page answer the home network only; a device must be paired by PIN, and streams are encrypted. Anyone who can pair controls core, so keep the login to that page private.
-- lan-mouse accepts only the fingerprints you authorize.
-- `hostctl` and the API are separate (tokens). VNC (`wayvnc`) stays on localhost, for an SSH tunnel.
+The PC's Remote Desktop password protects its screen: use a strong one and switch Desktop Sharing off when you do not use it. Both ways stay on the home network. `hostctl` and the API are separate (tokens); VNC (`wayvnc`) on core stays on localhost, for an SSH tunnel.

@@ -1,15 +1,13 @@
-# share-pc: Linux PCs on core's screen, controlled from core. Moonlight
-# (Flatpak) streams the PC's desktop from the Sunshine that runs on the PC.
-# One of the four share-* apps (docs/sharing.md). The app for a PC is made by
-# `hostd-share-pc add NAME HOST` once the PC is paired, so the menu never lists
-# a PC that cannot work; Moonlight's own entry is hidden (it is only the engine).
-description = "share-pc: Linux PCs on core's screen, controlled from core (Moonlight, Sunshine on the PC)"
-needs = ["flatpak"]
-root = false
-flatpaks = ["com.moonlight_stream.Moonlight"]
-resources = ["apps/moonlight.toml"]
+# share-pc: a Linux PC's screen on core, controlled from core, over the LAN,
+# with nothing to install on the PC: GNOME's own Remote Desktop (Settings,
+# System, Remote Desktop: Desktop Sharing) serves its screen as RDP, and
+# core's small RDP client (freerdp, Wayland) shows it full screen. One of the
+# two share-* apps (docs/sharing.md). The app for a PC is made by
+# `hostd-share-pc add NAME HOST USER`, so the menu never lists a PC that
+# cannot work.
+description = "share-pc: a Linux (GNOME) PC's screen on core, controlled from core, over the LAN (RDP, nothing to install on the PC)"
+packages = ["freerdp3-wayland"]
 files = [
-  { src = "hostd-share-pc", dest = "~/.local/lib/hostd/share-pc/hostd-share-pc", mode = "755", owner = "screen" },
+  { src = "hostd-share-pc", dest = "/usr/local/lib/hostd/share-pc/hostd-share-pc", mode = "755" },
 ]
-rescan = true
-keeps = "Moonlight's own data (paired PCs) stays in ~/.var/app/com.moonlight_stream.Moonlight; apps you made with hostd-share-pc add stay (hostd-share-pc remove NAME)"
+keeps = "the package (freerdp3-wayland) and the PCs you added in ~/.config/hostd/share-pc (hostd-share-pc remove NAME)"

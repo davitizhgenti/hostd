@@ -1,5 +1,0 @@
-# Managed by hostd's share-pc add-on; changes here are overwritten.
-# Moonlight is the engine of share-pc: its own entry would only open a window
-# that streams nothing, so it is not listed. Pair a PC with hostd-share-pc.
-extends = "moonlight"
-hidden = true

@@ -156,7 +156,7 @@ func (s *Setup) installedAddons() []string {
 	for _, l := range strings.Split(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
 			l = currentName(l)
-			if !slices.Contains(out, l) {
+			if !slices.Contains(out, l) && !slices.Contains(retired, l) {
 				out = append(out, l)
 			}
 		}
@@ -166,7 +166,10 @@ func (s *Setup) installedAddons() []string {
 
 // renamed are add-ons that went by another name: a machine whose list still
 // has the old name gets the new add-on (which does what the old one did).
-var renamed = map[string]string{"moonlight": "share-pc", "android": "share-phone", "sunshine": "share-remote"}
+var renamed = map[string]string{"android": "share-phone"}
+
+// retired are add-ons that are gone: a list that still names one is read without it.
+var retired = []string{"moonlight", "sunshine", "share-remote", "share-keys"}
 
 // currentName is the add-on's name now.
 func currentName(name string) string {
@@ -182,7 +185,9 @@ func (s *Setup) adminInstalled() []string {
 	b, _ := os.ReadFile(s.path(rootAddonsState))
 	var out []string
 	for _, n := range strings.Fields(string(b)) {
-		out = append(out, currentName(n))
+		if n = currentName(n); !slices.Contains(retired, n) {
+			out = append(out, n)
+		}
 	}
 	return out
 }

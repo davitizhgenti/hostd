@@ -18,7 +18,7 @@ import (
 // exists.
 func TestAddonsLoad(t *testing.T) {
 	names := AddonNames()
-	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "nvidia", "seats", "share-keys", "share-pc", "share-phone", "share-remote", "steam", "tailscale", "wireguard"}
+	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "nvidia", "seats", "share-pc", "share-phone", "steam", "tailscale", "wireguard"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("add-ons %v", names)
 	}
@@ -95,8 +95,8 @@ func TestBundledResourcesAreValid(t *testing.T) {
 }
 
 func TestAddonPrivilege(t *testing.T) {
-	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false, "share-pc": false,
-		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "share-phone": true, "share-remote": true, "share-keys": true, "tailscale": true, "wireguard": true}
+	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false, "share-pc": true,
+		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "share-phone": true, "tailscale": true, "wireguard": true}
 	for name, root := range want {
 		a, err := LoadAddon(name)
 		if err != nil {
@@ -127,12 +127,18 @@ func TestRenamedAddonsKeepWorking(t *testing.T) {
 	m := newFakeMachine(t)
 	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true)}
 	os.MkdirAll(filepath.Join(m.root, "etc/hostd"), 0o755)
-	os.WriteFile(filepath.Join(m.root, "etc/hostd/addons"), []byte("flatpak\nsunshine\nandroid\nshare-remote\n"), 0o644)
-	if got := s.installedAddons(); !slices.Equal(got, []string{"flatpak", "share-remote", "share-phone"}) {
+	os.WriteFile(filepath.Join(m.root, "etc/hostd/addons"), []byte("flatpak\nsunshine\nandroid\nshare-remote\nshare-keys\nmoonlight\n"), 0o644)
+	// Renamed ones follow the new name; the gone ones (Sunshine, lan-mouse, Moonlight) are left out.
+	if got := s.installedAddons(); !slices.Equal(got, []string{"flatpak", "share-phone"}) {
 		t.Errorf("installed %v", got)
 	}
 	if got := s.adminInstalled(); !slices.Contains(got, "share-phone") || slices.Contains(got, "android") {
 		t.Errorf("admin list %v", got)
+	}
+	for _, gone := range retired {
+		if _, err := LoadAddon(gone); err == nil {
+			t.Errorf("%s is retired but still exists", gone)
+		}
 	}
 	for old, now := range renamed {
 		if _, err := LoadAddon(now); err != nil {
@@ -160,30 +166,61 @@ func TestShareHelpersMakeAppsOnDemand(t *testing.T) {
 	apps := filepath.Join(home, ".config/hostd/apps")
 	pc, phone := "addons/share-pc/hostd-share-pc", "addons/share-phone/hostd-share-phone"
 
-	// A PC: no app until it is added; the name is checked; remove takes it away.
+	// A PC: no app until it is added; the name is checked; the password is kept private; remove takes it away.
+	feed := func(script, pass string, args ...string) (string, error) {
+		cmd := exec.Command("sh", append([]string{script}, args...)...)
+		cmd.Env = []string{"HOME=" + home, "XDG_CONFIG_HOME=" + home + "/.config", "PATH=" + bin + ":/usr/bin:/bin"}
+		cmd.Stdin = strings.NewReader(pass + "\n")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
 	if _, err := os.Stat(filepath.Join(apps, "share-office.toml")); err == nil {
 		t.Fatal("an app before anything was added")
 	}
-	if out, err := run(pc, "add", "Bad Name", "10.0.0.5"); err == nil {
+	if out, err := feed(pc, "pw", "add", "Bad Name", "10.0.0.5", "me"); err == nil {
 		t.Errorf("a bad name was accepted: %s", out)
 	}
-	if out, err := run(pc, "add", "office", "10.0.0.5"); err != nil {
+	if out, err := feed(pc, "", "add", "office", "10.0.0.5", "me"); err == nil {
+		t.Errorf("an empty password was accepted: %s", out)
+	}
+	if out, err := feed(pc, "s3cret", "add", "office", "10.0.0.5", "me"); err != nil {
 		t.Fatalf("add: %v %s", err, out)
 	}
 	b, _ := os.ReadFile(filepath.Join(apps, "share-office.toml"))
-	for _, want := range []string{`name = "Share: office"`, `"stream", "10.0.0.5", "Desktop"`, "fullscreen = true"} {
+	for _, want := range []string{`name = "Share: office"`, `"/usr/local/lib/hostd/share-pc/hostd-share-pc", "connect", "office"`, "fullscreen = true"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("app file lacks %q:\n%s", want, b)
 		}
 	}
+	if strings.Contains(string(b), "s3cret") {
+		t.Error("the password is in the app file")
+	}
+	for _, f := range []string{"office.conf", "office.pass"} {
+		if fi, err := os.Stat(filepath.Join(home, ".config/hostd/share-pc", f)); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v %v", f, fi, err)
+		}
+	}
 	if out, _ := run(pc, "list"); strings.TrimSpace(out) != "office" {
 		t.Errorf("list: %q", out)
+	}
+	// connect runs the RDP client with the saved details (a stand-in logs its arguments).
+	if err := os.WriteFile(filepath.Join(bin, "wlfreerdp3"), []byte("#!/bin/sh\necho \"$@\" >"+home+"/rdp.args\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(pc, "connect", "office"); err != nil {
+		t.Fatalf("connect: %v %s", err, out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(home, "rdp.args")); !strings.Contains(string(got), "/v:10.0.0.5") || !strings.Contains(string(got), "/u:me") || !strings.Contains(string(got), "/p:s3cret") || !strings.Contains(string(got), "/cert:tofu") {
+		t.Errorf("rdp arguments: %q", got)
 	}
 	if out, err := run(pc, "remove", "office"); err != nil {
 		t.Fatalf("remove: %v %s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(apps, "share-office.toml")); err == nil {
 		t.Error("the app stays after remove")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config/hostd/share-pc/office.pass")); err == nil {
+		t.Error("the saved password stays after remove")
 	}
 	if _, err := run(pc, "remove", "office"); err == nil {
 		t.Error("removed a PC that is not there")

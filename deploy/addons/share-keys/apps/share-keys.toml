@@ -1,7 +1,0 @@
-# Managed by hostd's share-keys add-on; changes here are overwritten.
-# lan-mouse on core: a PC's keyboard and mouse control core's screen. Stop it
-# with: hostctl stop share-keys
-name = "Share: keys"
-runner = { type = "process", command = ["/usr/local/lib/hostd/share-keys/lan-mouse", "daemon"] }
-autostart = true
-restart = "always"

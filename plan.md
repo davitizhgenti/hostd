@@ -362,3 +362,10 @@ Not done: scrcpy untested on core and with an Android phone; Moonlight on core a
 Four apps with one prefix and one add-on each (docs/sharing.md): `share-pc` (Linux PC on core, Moonlight), `share-phone` (Android, scrcpy), `share-remote` (Sunshine, always on as a hostd app), `share-keys` (lan-mouse, input only). Renamed from moonlight/android/sunshine. Supported: Linux PCs and Android phones only (Mac, Windows, iOS dropped).
 
 Not done: nothing here is installed through the new names on core yet (core runs a test Sunshine and the old names); lan-mouse untested (the sender-side modifier-key limit with a GNOME PC and a Sway core is documented, not solved); the `share-pc` app's PC name is edited by hand; extending a PC desktop is a documented recipe only; cleanup of the unused Sunshine Flatpak, ~/spike and the old `spike` web login on core.
+
+
+# Sharing simplified, 2026-11-11
+
+The user found the software route (Sunshine, Moonlight, lan-mouse) too heavy. Now two add-ons only, LAN, nothing installed on the PCs or phones: `share-pc` (a GNOME PC's Remote Desktop over RDP, shown on core with freerdp's Wayland client) and `share-phone` (scrcpy over Wireless debugging). Apps exist only for a PC or phone that was set up (`hostd-share-pc add`, `hostd-share-phone connect`). Sunshine, Moonlight, lan-mouse and share-remote/share-keys are removed from the repo; machines that list them read the list without them.
+
+Not done: core still has the heavy add-ons installed until the admin removes them (`hostd-admin remove share-remote share-keys` runs BEFORE the repo's removal reaches core: the add-on definition is needed to remove it); share-pc is untested (GNOME Desktop Sharing on the laptop, wlfreerdp3 on Sway); wireless casting (Miracast/Smart View) is not possible without Wi-Fi on core or a dongle on the projector.
