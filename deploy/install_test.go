@@ -231,6 +231,9 @@ func TestInstallOnAFreshMachine(t *testing.T) {
 			t.Errorf("not installed: %s", p)
 		}
 	}
+	if retry, _ := os.ReadFile(filepath.Join(m.root, "etc/systemd/system/greetd.service.d/hostd-retry.conf")); !bytes.Contains(retry, []byte("StartLimitIntervalSec=0")) || !bytes.Contains(retry, []byte("Restart=always")) {
+		t.Errorf("greetd does not retry its login:\n%s", retry)
+	}
 	greetd, _ := os.ReadFile(filepath.Join(m.root, "etc/greetd/config.toml"))
 	if !bytes.Contains(greetd, []byte(`command = "sway"`)) || !bytes.Contains(greetd, []byte(`user = "screen"`)) {
 		t.Errorf("greetd config:\n%s", greetd)

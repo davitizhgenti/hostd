@@ -647,6 +647,14 @@ func (in *installer) autologin(ctx context.Context) error {
 	default:
 		in.Out.Info("greetd config up to date")
 	}
+	// greetd retries the login if the session ends, rather than giving up after five tries.
+	retry, err := in.installFile(file("systemd/greetd-retry.conf"), "/etc/systemd/system/greetd.service.d/hostd-retry.conf", 0o644, "root")
+	if err != nil {
+		return err
+	}
+	if retry {
+		_, _ = in.run(ctx, "systemctl", "daemon-reload")
+	}
 	if in.ok(ctx, "systemctl", "is-enabled", "--quiet", "greetd") {
 		in.Out.Info("greetd enabled")
 		return nil

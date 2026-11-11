@@ -19,6 +19,7 @@ t "VNC runs as a supervised user service" 'grep -qx "Restart=always" /home/scree
 t "Podman socket enabled for screen"   'test -L /home/screen/.config/systemd/user/sockets.target.wants/podman.socket'
 t "greetd on VT 7, logs in screen"     'grep -qx "vt = 7" /etc/greetd/config.toml && grep -qx "user = \"screen\"" /etc/greetd/config.toml'
 t "greetd starts plain sway (no GPU flags)" 'grep -qx "command = \"sway\"" /etc/greetd/config.toml'
+t "greetd retries its login (no start limit)" 'grep -qx "StartLimitIntervalSec=0" /etc/systemd/system/greetd.service.d/hostd-retry.conf && grep -qx "Restart=always" /etc/systemd/system/greetd.service.d/hostd-retry.conf'
 t "greetd enabled"                     'systemctl is-enabled greetd'
 t "original greetd config backed up"   'test -f /etc/greetd/config.toml.orig'
 t "no backups of hostd's own files"    '! ls /usr/local/bin/*.orig /usr/local/lib/hostd/*.orig /home/screen/.config/hostd/apps/*.orig 2>/dev/null | grep -q .'

@@ -80,6 +80,7 @@ func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
 				}
 				s.Out.Info("restored the original greetd config (no more autologin to Sway)")
 			}
+			rm("/etc/systemd/system/greetd.service.d/hostd-retry.conf")
 			for _, f := range []string{"sway/config", "mako/config"} {
 				p := home + "/.config/" + f
 				if in.exists(p + ".orig") {
