@@ -1,7 +1,7 @@
 # share-remote: Sunshine on core, always on, so a Linux PC or an Android phone
 # running Moonlight can show core's screen and control it. One of the four
 # share-* apps (docs/sharing.md): it runs as a hostd app (background, started
-# with hostd, restarted if it dies; hostctl ps / logs / stop share-remote).
+# with hostd, restarted if it dies; hostctl ps / stop share-remote).
 # The package is the one LizardByte publishes for Debian 13 (pinned by version
 # and checksum in hook.sh); it captures Sway's screen directly and encodes on
 # the GPU. Root installs it once (the package grants it the screen-capture

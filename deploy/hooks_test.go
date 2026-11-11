@@ -436,6 +436,10 @@ func TestShareKeysHook(t *testing.T) {
 	if !strings.Contains(r.calls(), "feschber/lan-mouse/releases/download/v0.11.0/lan-mouse-linux-x86_64") {
 		t.Errorf("the pinned build was not fetched:\n%s", r.calls())
 	}
+	// The config directory is made as the user: lan-mouse writes its certificate there.
+	if !strings.Contains(r.calls(), "mkdir -p "+filepath.Join(r.root, "home/screen/.config/lan-mouse")) {
+		t.Errorf("the config directory was not made as the user:\n%s", r.calls())
+	}
 	if !r.exists("usr/local/lib/hostd/share-keys/lan-mouse") || r.read("usr/local/lib/hostd/share-keys/lan-mouse.version") != "0.11.0\n" {
 		t.Error("lan-mouse is not in place")
 	}

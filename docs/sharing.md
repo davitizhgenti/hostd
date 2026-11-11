@@ -7,7 +7,7 @@ Four apps, one table. Every one is an [app](apps.md) with an id that starts `sha
 | screen and input | `share-pc`: a Linux PC's screen on core, controlled from core.<br>`share-phone`: an Android phone's screen on core, controlled from core. | `share-remote`: a Linux PC or an Android phone shows and controls core. |
 | input only | | `share-keys`: a PC's keyboard and mouse control core (no video). |
 
-"Show" apps are windows: open them, close them like any app. "Reach" apps run in the background all the time (`hostctl ps`, `hostctl logs share-remote`, `hostctl stop share-keys`).
+"Show" apps are windows: open them, close them like any app. "Reach" apps run in the background all the time (`hostctl ps`, `hostctl stop share-keys`; their output: `journalctl --user -u hostd-share-remote`).
 
 ```sh
 sudo hostd-admin add share-remote share-phone share-keys --user screen   # root, once: the packages

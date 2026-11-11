@@ -29,6 +29,9 @@ lanmouse_binary() {
 lanmouse_config() {
 	local conf=$SCREEN_HOME/.config/lan-mouse/config.toml tmp
 	[ -e "$conf" ] && return 0
+	# The directory is the user's (install -D would make it root's, and lan-mouse could not
+	# write its certificate there).
+	as_screen mkdir -p "$(dirname "$conf")"
 	tmp=$(mktemp)
 	cat >"$tmp" <<'CONF'
 # Written by hostd's share-keys add-on once; your changes stay.

@@ -38,6 +38,7 @@ sunshine_config() {
 	local dir=$SCREEN_HOME/.config/sunshine host ip
 	host=$(hostname -s)
 	ip=$(hostname -I | awk '{print $1}')
+	as_screen mkdir -p "$dir" # the user's, not root's (install -D would make it root's)
 	if [ ! -e "$dir/sunshine.conf" ]; then
 		local tmp
 		tmp=$(mktemp)
