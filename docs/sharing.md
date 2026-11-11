@@ -7,11 +7,11 @@ Four apps, one table. Every one is an [app](apps.md) with an id that starts `sha
 | screen and input | `share-pc`: a Linux PC's screen on core, controlled from core.<br>`share-phone`: an Android phone's screen on core, controlled from core. | `share-remote`: a Linux PC or an Android phone shows and controls core. |
 | input only | | `share-keys`: a PC's keyboard and mouse control core (no video). |
 
-"Show" apps are windows: open them, close them like any app. "Reach" apps run in the background all the time (`hostctl ps`, `hostctl stop share-keys`; their output: `journalctl --user -u hostd-share-remote`).
+"Show" apps are windows: open them, close them like any app. They exist only for a PC or phone you set up, so the menu never lists one that cannot work. "Reach" apps run in the background all the time (`hostctl ps`, `hostctl stop share-keys`; their output: `journalctl --user -u hostd-share-remote`).
 
 ```sh
 sudo hostd-admin add share-remote share-phone share-keys --user screen   # root, once: the packages
-hostd-setup add share-pc                                                 # a Flatpak, no root
+hostd-setup add share-pc                                                 # a Flatpak (Moonlight), no root
 ```
 
 Each needs a one-time pairing, then nothing:
@@ -19,7 +19,7 @@ Each needs a one-time pairing, then nothing:
 | App | Pair once with |
 | --- | --- |
 | `share-remote` | a PIN: open `https://core.local:47990` (make a login on the first visit), add core in Moonlight, enter the 4-digit PIN there |
-| `share-pc` | a PIN: in the Moonlight app on core add the PC (it runs Sunshine) and enter the PIN on the PC |
+| `share-pc` | a PIN: `hostd-share-pc pair HOST` on core, enter the PIN on the PC (it runs Sunshine) |
 | `share-phone` | Android's Wireless debugging (below) |
 | `share-keys` | each side authorizes the other's certificate fingerprint (below) |
 
@@ -34,14 +34,15 @@ Sunshine runs on core all the time. On the PC install Moonlight (Flathub `com.mo
 
 ## share-pc: a PC on core's screen
 
-Install Sunshine on the PC (<https://github.com/LizardByte/Sunshine>). In the Moonlight app on core, add the PC and pair. Then name the PC once in the app's own file and open **Share: PC**:
+Install Sunshine on the PC (<https://github.com/LizardByte/Sunshine>) and make a login on its web page. Then, on core:
 
 ```sh
-hostctl edit app share-pc      # change "my-pc" to the PC's name or address
-hostctl open share-pc          # full screen on core; core's keyboard, mouse and controllers drive the PC
+~/.local/lib/hostd/share-pc/hostd-share-pc pair my-pc        # prints a 4-digit PIN: enter it on the PC (Sunshine's web page, PIN tab)
+~/.local/lib/hostd/share-pc/hostd-share-pc add office my-pc  # makes the app "Share: office" (id share-office)
+hostctl open share-office                                    # full screen on core; core's keyboard, mouse and controllers drive the PC
 ```
 
-A second PC: copy the file to another name (`share-pc2.toml`) and change the name in it.
+`my-pc` is the PC's name or address. A PC has an app only after `add`, so the menu never lists one that cannot work; one app per PC. `hostd-share-pc list` shows them, `hostd-share-pc remove office` takes one away. Moonlight itself is not listed: it is only the engine.
 
 **Using core as an extra monitor** of the PC is the same, with a second monitor on the PC to stream: a small HDMI dummy plug in the PC's HDMI port gives it one that Sunshine can stream, on any desktop. On Sway or Hyprland a headless output (`swaymsg create_output`) does the same without hardware. hostd does not set this up.
 
@@ -54,7 +55,7 @@ Pair once (Android 11 or newer): Settings, Developer options, **Wireless debuggi
 /usr/local/lib/hostd/share-phone/hostd-share-phone connect HOST:PORT      # the address on the Wireless debugging screen itself
 ```
 
-After that open **Share: phone** on core: the phone's screen is shown and core's keyboard and mouse control it (audio too, on Android 11 or newer). The connection address changes when Wireless debugging is switched off and on; run `connect` again then. Over USB no pairing is needed.
+`connect` makes the app **Share: phone** (only once the phone really answers; until then the menu does not list it). Open it: the phone's screen is shown and core's keyboard and mouse control it (audio too, on Android 11 or newer). The connection address changes when Wireless debugging is switched off and on; run `connect` again then. `hostd-share-phone forget` removes the app. Over USB no pairing is needed.
 
 ## share-keys: one keyboard and mouse for the PC and core
 

@@ -290,7 +290,20 @@ func forcedOf(u *UpdateOptions) []string {
 	return u.Addons
 }
 
+// retiredResources are app files of add-ons that no longer ship them (hostd
+// wrote them, so hostd takes them away): the app would list something that
+// cannot work.
+var retiredResources = []string{"apps/android.toml"}
+
 func (in *installer) runAddons(ctx context.Context, order []Addon) error {
+	for _, r := range retiredResources {
+		p := in.user.home + "/.config/hostd/" + r
+		if in.exists(p) && in.hostdOwned(p) {
+			if err := os.Remove(in.path(p)); err == nil {
+				in.Out.Changed("removed %s (an app of an add-on that is gone)", p)
+			}
+		}
+	}
 	for _, a := range order {
 		if in.User != nil && a.Privileged() {
 			continue // an admin's (hostd-admin): not run, nor changed, by a user

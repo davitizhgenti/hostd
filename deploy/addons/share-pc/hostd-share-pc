@@ -1,0 +1,62 @@
+#!/bin/sh
+# Managed by hostd's share-pc add-on: Linux PCs on core's screen (Moonlight).
+#
+#   hostd-share-pc pair HOST         once per PC: Moonlight shows a PIN; enter it on the PC
+#                                    (Sunshine's web page, PIN tab, on that PC)
+#   hostd-share-pc add NAME HOST     make the app "Share: NAME" (id share-NAME) for that PC
+#   hostd-share-pc remove NAME       take the app away
+#   hostd-share-pc list              the PCs that have an app
+#
+# The PC runs Sunshine. HOST is its name or address. An app exists only for a PC
+# you added, so the menu never lists one that cannot work.
+APPS=${XDG_CONFIG_HOME:-$HOME/.config}/hostd/apps
+MOONLIGHT="flatpak run com.moonlight_stream.Moonlight"
+
+say() { printf 'hostd-share-pc: %s\n' "$*" >&2; }
+valid_name() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]{0,30}$'; }
+
+case "${1:-help}" in
+help | -h | --help)
+	sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+	;;
+pair)
+	[ $# -eq 2 ] || { say "use: hostd-share-pc pair HOST"; exit 2; }
+	# shellcheck disable=SC2086 # MOONLIGHT is a command and its arguments
+	exec $MOONLIGHT pair "$2"
+	;;
+add)
+	[ $# -eq 3 ] || { say "use: hostd-share-pc add NAME HOST"; exit 2; }
+	valid_name "$2" || { say "NAME: lowercase letters, digits and - (up to 31)"; exit 2; }
+	mkdir -p "$APPS"
+	cat >"$APPS/share-$2.toml" <<APP
+# Made by hostd-share-pc add $2 $3; remove it with: hostd-share-pc remove $2
+# A Linux PC's desktop on core's screen, controlled with core's keyboard, mouse and controllers.
+name = "Share: $2"
+runner = { type = "exec", command = ["flatpak", "run", "com.moonlight_stream.Moonlight", "stream", "$3", "Desktop"], handoff = "FLATPAK_ID=com.moonlight_stream.Moonlight" }
+
+[match]
+env = "FLATPAK_ID=com.moonlight_stream.Moonlight"
+
+[window]
+fullscreen = true
+APP
+	say "added: open \"Share: $2\" (hostctl open share-$2)"
+	;;
+remove)
+	[ $# -eq 2 ] || { say "use: hostd-share-pc remove NAME"; exit 2; }
+	valid_name "$2" || { say "NAME: lowercase letters, digits and - (up to 31)"; exit 2; }
+	[ -e "$APPS/share-$2.toml" ] || { say "no PC named $2 (hostd-share-pc list)"; exit 1; }
+	rm -f "$APPS/share-$2.toml"
+	say "removed Share: $2"
+	;;
+list)
+	for f in "$APPS"/share-*.toml; do
+		[ -e "$f" ] && grep -q "Moonlight" "$f" && basename "$f" .toml | sed 's/^share-//'
+	done
+	exit 0
+	;;
+*)
+	say "no command $1 (hostd-share-pc help)"
+	exit 2
+	;;
+esac

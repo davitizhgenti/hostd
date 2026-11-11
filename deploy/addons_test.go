@@ -2,7 +2,9 @@ package deploy
 
 import (
 	"bytes"
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -139,5 +141,106 @@ func TestRenamedAddonsKeepWorking(t *testing.T) {
 		if _, err := LoadAddon(old); err == nil {
 			t.Errorf("%s still exists beside %s", old, now)
 		}
+	}
+}
+
+// The helpers that make an app only when there is something to show.
+func TestShareHelpersMakeAppsOnDemand(t *testing.T) {
+	home := t.TempDir()
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "adb"), []byte("#!/bin/sh\n[ \"$1\" = connect ] && echo \"connected to $2\"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(script string, args ...string) (string, error) {
+		cmd := exec.Command("sh", append([]string{script}, args...)...)
+		cmd.Env = []string{"HOME=" + home, "XDG_CONFIG_HOME=" + home + "/.config", "PATH=" + bin + ":/usr/bin:/bin"}
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	apps := filepath.Join(home, ".config/hostd/apps")
+	pc, phone := "addons/share-pc/hostd-share-pc", "addons/share-phone/hostd-share-phone"
+
+	// A PC: no app until it is added; the name is checked; remove takes it away.
+	if _, err := os.Stat(filepath.Join(apps, "share-office.toml")); err == nil {
+		t.Fatal("an app before anything was added")
+	}
+	if out, err := run(pc, "add", "Bad Name", "10.0.0.5"); err == nil {
+		t.Errorf("a bad name was accepted: %s", out)
+	}
+	if out, err := run(pc, "add", "office", "10.0.0.5"); err != nil {
+		t.Fatalf("add: %v %s", err, out)
+	}
+	b, _ := os.ReadFile(filepath.Join(apps, "share-office.toml"))
+	for _, want := range []string{`name = "Share: office"`, `"stream", "10.0.0.5", "Desktop"`, "fullscreen = true"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("app file lacks %q:\n%s", want, b)
+		}
+	}
+	if out, _ := run(pc, "list"); strings.TrimSpace(out) != "office" {
+		t.Errorf("list: %q", out)
+	}
+	if out, err := run(pc, "remove", "office"); err != nil {
+		t.Fatalf("remove: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(apps, "share-office.toml")); err == nil {
+		t.Error("the app stays after remove")
+	}
+	if _, err := run(pc, "remove", "office"); err == nil {
+		t.Error("removed a PC that is not there")
+	}
+
+	// A phone: the app appears only after a successful connect.
+	if _, err := os.Stat(filepath.Join(apps, "share-phone.toml")); err == nil {
+		t.Fatal("a phone app before connect")
+	}
+	if out, err := run(phone, "connect", "192.168.18.40:41231"); err != nil {
+		t.Fatalf("connect: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(apps, "share-phone.toml")); err != nil {
+		t.Error("no phone app after connect")
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, ".config/hostd/share-phone.addr")); strings.TrimSpace(string(b)) != "192.168.18.40:41231" {
+		t.Errorf("saved address %q", b)
+	}
+	if out, err := run(phone, "forget"); err != nil {
+		t.Fatalf("forget: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(apps, "share-phone.toml")); err == nil {
+		t.Error("the phone app stays after forget")
+	}
+	// A failed connect makes nothing.
+	if err := os.WriteFile(filepath.Join(bin, "adb"), []byte("#!/bin/sh\n[ \"$1\" = connect ] && echo \"failed to connect to $2\"\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(phone, "connect", "10.9.9.9:1"); err == nil {
+		t.Error("connect succeeded though adb said it failed")
+	}
+	if _, err := os.Stat(filepath.Join(apps, "share-phone.toml")); err == nil {
+		t.Error("an app for a phone that is not reachable")
+	}
+}
+
+func TestRetiredAppFilesGoAway(t *testing.T) {
+	m := newFakeMachine(t)
+	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true)}
+	in := &installer{Setup: s, user: screenUser{name: "screen", home: "/home/screen", uid: 1001}}
+	old := filepath.Join(m.root, "home/screen/.config/hostd/apps/android.toml")
+	os.MkdirAll(filepath.Dir(old), 0o755)
+	os.WriteFile(old, []byte("# Managed by hostd's android add-on\nname = \"Android phone\"\n"), 0o644)
+	mine := filepath.Join(m.root, "home/screen/.config/hostd/apps/share-pc.toml")
+	os.WriteFile(mine, []byte("name = \"mine\"\n"), 0o644)
+	if err := in.runAddons(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the retired app file stays")
+	}
+	// A file a person wrote under the same name is left alone.
+	os.WriteFile(old, []byte("name = \"my own android app\"\n"), 0o644)
+	if err := in.runAddons(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Error("a person's own app file was removed")
 	}
 }
