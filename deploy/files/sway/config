@@ -4,6 +4,10 @@ output * bg #1d2430 solid_color
 default_border none
 default_floating_border none
 focus_follows_mouse no
+# The mouse pointer is for people at the screen: it hides after 2 seconds without use
+# (a projector or TV does not need one on show, and a remote screen's own pointer is
+# the one to watch), and comes back when the mouse moves.
+seat * hide_cursor 2000
 
 # Make the session's variables visible to systemd user units and D-Bus
 # activation, so apps that hostd starts can reach Wayland, Sway and
