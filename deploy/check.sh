@@ -1,11 +1,11 @@
 #!/bin/bash
-# Checks that a hostd machine (the real one or the devbox) has everything
+# Checks that a hostd machine (the real one or the e2e VM) has everything
 # hostd relies on: systemd, the screen user's session, Sway, VNC, notices,
 # PipeWire, apps as transient user services, and rootless Podman.
 #
 # Run as the screen user, on the machine or from the laptop:
 #   ssh screen@<machine> 'bash -s' < deploy/check.sh
-#   make devbox-check
+#   make check-server SERVER=<ssh destination>
 #
 # It opens and closes a test window, and puts the volume back as it was.
 set -u

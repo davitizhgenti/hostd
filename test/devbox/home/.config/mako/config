@@ -1,4 +1,0 @@
-# Draw notices above fullscreen windows (games), not under them.
-layer=overlay
-anchor=top-right
-default-timeout=8000

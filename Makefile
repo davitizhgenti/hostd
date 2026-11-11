@@ -6,7 +6,6 @@ LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
-	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
 	check-server test-install test-install-user e2e-bins docs-stub run run-env
 
 all: lint test build
@@ -98,21 +97,21 @@ lint:
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/files/rollback.sh \
-	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/hook.sh \
+	test/install/*.sh deploy/addons/*/hook.sh \
 	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway deploy/addons/chromium/chromium
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
-	python3 -m py_compile deploy/files/menu/hostd-menu test/devbox/vnc.py
+	python3 -m py_compile deploy/files/menu/hostd-menu
 	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu test/devbox/vnc.py \
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
 		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
 	python3 -m unittest discover -s deploy/addons/seats -p "test_*.py"
 	python3 -m unittest discover -s clients/python -p "test_*.py"
-	@rm -rf deploy/files/menu/__pycache__ test/devbox/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
+	@rm -rf deploy/files/menu/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
 
 # Coverage per package, counting every test binary, against the floors in
 # scripts/coverage-floors.txt: fails if a package is below its floor.
@@ -127,28 +126,8 @@ tidy:
 clean:
 	rm -rf bin dist coverage.out core.out
 
-# --- devbox: a stand-in for the mini PC in one Podman container -------------
-# See test/devbox/README.md. VNC on 127.0.0.1:5900, API on 127.0.0.1:7300.
-DEVBOX       := hostd-devbox
 PODMAN       ?= podman
-DEVBOX_EXEC  := $(PODMAN) exec -u screen -w /home/screen $(DEVBOX)
 
-devbox-build:
-	$(PODMAN) build -t $(DEVBOX) test/devbox
-
-devbox: devbox-build build
-	-@$(PODMAN) rm -f $(DEVBOX) >/dev/null 2>&1
-	$(PODMAN) run -d --name $(DEVBOX) --hostname devbox \
-		--systemd=always --privileged \
-		-p 127.0.0.1:5900:5900 -p 127.0.0.1:7300:7300 \
-		-v $(CURDIR)/bin:/opt/hostd/bin:ro \
-		-v $(CURDIR)/deploy:/opt/hostd-deploy:ro \
-		-v $(DEVBOX)-containers:/home/screen/.local/share/containers \
-		$(DEVBOX)
-	@echo "devbox started: make devbox-check, make devbox-shell, VNC to 127.0.0.1:5900"
-
-# Runs hostd in the devbox as on the real machine (service, menu, sample
-# apps). Again after `make build` to restart it on the new binary.
 # A hostd of your own to try things on, in a temporary home, with the demo
 # module. make run; then, in another terminal: eval "$(make -s run-env)"
 RUN_DIR ?= /tmp/hostd-run-dev
@@ -160,30 +139,9 @@ run: build
 run-env:
 	@echo "export XDG_CONFIG_HOME=$(RUN_DIR)/config XDG_STATE_HOME=$(RUN_DIR)/state XDG_RUNTIME_DIR=$(RUN_DIR)/run HOME=$(RUN_DIR) PATH=$(CURDIR)/bin:\$$PATH; [ -f $(RUN_DIR)/config/hostctl/config.toml ] || { for i in 1 2 3 4 5 6 7 8 9 10; do [ -f $(RUN_DIR)/run/hostd-admin-token ] && break; sleep 0.5; done; hostctl login unix://$(RUN_DIR)/run/hostd.sock --token-file $(RUN_DIR)/run/hostd-admin-token; }"
 
-devbox-hostd: build
-	$(PODMAN) exec -i -u screen -w /home/screen $(DEVBOX) bash -s < test/devbox/setup-hostd.sh
-
-# The menu end to end: real keys through VNC, checked in hostd's log.
-devbox-menu-test: devbox-hostd
-	bash test/devbox/menu-test.sh
-
-devbox-shell:
-	$(PODMAN) exec -it -u screen -w /home/screen $(DEVBOX) bash
-
-devbox-check:
-	$(DEVBOX_EXEC) bash /opt/hostd-deploy/check.sh; rc=$$?; \
-	$(PODMAN) cp $(DEVBOX):/tmp/hostd-check.png bin/devbox-screen.png 2>/dev/null && \
-		echo "screenshot: bin/devbox-screen.png"; exit $$rc
-
-devbox-logs:
-	$(PODMAN) exec $(DEVBOX) journalctl -b --no-pager -n 100
-
-devbox-stop:
-	$(PODMAN) rm -f $(DEVBOX)
-
 # --- the real machine ---------------------------------------------------------
-# SERVER is an SSH destination that logs in as the screen user.
-SERVER ?= core-screen
+# SERVER is an SSH destination that logs in as the hostd user.
+SERVER ?= core
 
 # Runs deploy/check.sh on the server and copies its screenshot back.
 check-server:

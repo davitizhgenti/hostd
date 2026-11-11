@@ -91,8 +91,8 @@ sudo hostd-setup remove dolphin
 
 Connected game controllers: `ssh screen@<machine> hostctl controllers`.
 
-Check the whole machine with `ssh screen@<machine> 'bash -s' < deploy/check.sh`
-(or `make check-server SERVER=screen@<machine>` from a clone).
+Check the whole machine with `ssh <user>@<machine> 'bash -s' < deploy/check.sh`
+(or `make check-server SERVER=<user>@<machine>` from a clone).
 
 ## Development
 
@@ -105,9 +105,7 @@ make build      # binaries in bin/
 make cover      # coverage report
 ```
 
-No server yet? `make devbox` runs a stand-in mini PC in a Podman container
-(Sway over VNC, PipeWire, systemd, Podman); see
-[test/devbox/README.md](test/devbox/README.md).
+No server yet? `make run` starts a hostd of your own in a temporary home, with the demo module.
 
 Lint tools are pinned in `tools/go.mod` and run with `go tool`, so nothing
 needs installing beyond Go.
