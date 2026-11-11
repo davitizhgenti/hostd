@@ -1,8 +1,6 @@
 package deploy
 
 import (
-	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,57 +117,5 @@ func TestAddonPrivilege(t *testing.T) {
 	}
 	if !(Addon{Files: []AddonFile{{Dest: "/etc/x"}}}).Privileged() || (Addon{Files: []AddonFile{{Dest: "~/x"}}}).Privileged() {
 		t.Error("files outside the home need root; inside, not")
-	}
-}
-
-func TestRenamedAddonsKeepWorking(t *testing.T) {
-	m := newFakeMachine(t)
-	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true)}
-	os.MkdirAll(filepath.Join(m.root, "etc/hostd"), 0o755)
-	os.WriteFile(filepath.Join(m.root, "etc/hostd/addons"), []byte("flatpak\nsunshine\nandroid\nshare-remote\nshare-keys\nmoonlight\nshare-pc\nshare-phone\n"), 0o644)
-	// The gone ones (the sharing add-ons) are left out of the list.
-	if got := s.installedAddons(); !slices.Equal(got, []string{"flatpak"}) {
-		t.Errorf("installed %v", got)
-	}
-	if got := s.adminInstalled(); !slices.Equal(got, []string{"flatpak"}) {
-		t.Errorf("admin list %v", got)
-	}
-	for _, gone := range retired {
-		if _, err := LoadAddon(gone); err == nil {
-			t.Errorf("%s is retired but still exists", gone)
-		}
-	}
-	for old, now := range renamed {
-		if _, err := LoadAddon(now); err != nil {
-			t.Errorf("%s was renamed %s: %v", old, now, err)
-		}
-		if _, err := LoadAddon(old); err == nil {
-			t.Errorf("%s still exists beside %s", old, now)
-		}
-	}
-}
-
-func TestRetiredAppFilesGoAway(t *testing.T) {
-	m := newFakeMachine(t)
-	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true)}
-	in := &installer{Setup: s, user: screenUser{name: "screen", home: "/home/screen", uid: 1001}}
-	old := filepath.Join(m.root, "home/screen/.config/hostd/apps/android.toml")
-	os.MkdirAll(filepath.Dir(old), 0o755)
-	os.WriteFile(old, []byte("# Managed by hostd's android add-on\nname = \"Android phone\"\n"), 0o644)
-	mine := filepath.Join(m.root, "home/screen/.config/hostd/apps/share-pc.toml")
-	os.WriteFile(mine, []byte("name = \"mine\"\n"), 0o644)
-	if err := in.runAddons(context.Background(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(old); err == nil {
-		t.Error("the retired app file stays")
-	}
-	// A file a person wrote under the same name is left alone.
-	os.WriteFile(old, []byte("name = \"my own android app\"\n"), 0o644)
-	if err := in.runAddons(context.Background(), nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Error("a person's own app file was removed")
 	}
 }

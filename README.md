@@ -12,9 +12,7 @@ machine.
 
 - Documentation: [docs/](docs/index.md). Every installed machine serves it at `http://<machine>:7300/docs/`.
 
-- Design: [design/hostd Display and Services Daemon Design.md](design/hostd%20Display%20and%20Services%20Daemon%20Design.md)
-- Build and test plan: [design/plan.md](design/plan.md)
-- Architecture report (quality, stability, modularity): [design/architecture-report.md](design/architecture-report.md)
+- Plan and status: [plan.md](plan.md)
 
 ## Install on a machine
 

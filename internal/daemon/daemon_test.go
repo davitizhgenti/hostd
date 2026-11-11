@@ -323,33 +323,6 @@ func TestDropIns(t *testing.T) {
 	}
 }
 
-// hostd will not start on the layout before 0.2, and -migrate fixes it.
-func TestRunRefusesTheOldLayoutAndMigrates(t *testing.T) {
-	cfg := writeConfig(t, "")
-	dir := filepath.Dir(cfg)
-	old := "[[rule]]\nname = \"bedtime\"\non = \"instance.started\"\ndo = { scene = \"quiet\" }\n"
-	if err := os.WriteFile(filepath.Join(dir, "rules.toml"), []byte(old), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	run := t.TempDir()
-	var errb bytes.Buffer
-	args := []string{"-config", cfg, "-state", t.TempDir(), "-runtime", run, "-listen", ""}
-	if code := Run(context.Background(), args, &errb); code != 2 || !strings.Contains(errb.String(), "hostd -migrate") {
-		t.Fatalf("exit %d: %s", code, errb.String())
-	}
-	errb.Reset()
-	if code := Run(context.Background(), []string{"-config", cfg, "-migrate"}, &errb); code != 0 || !strings.Contains(errb.String(), "rules/bedtime.toml") {
-		t.Fatalf("migrate: exit %d: %s", code, errb.String())
-	}
-	if _, err := os.Stat(filepath.Join(dir, "rules", "bedtime.toml")); err != nil {
-		t.Fatal(err)
-	}
-	errb.Reset()
-	if code := Run(context.Background(), []string{"-config", cfg, "-migrate"}, &errb); code != 0 || !strings.Contains(errb.String(), "nothing to migrate") {
-		t.Fatalf("second migrate: exit %d: %s", code, errb.String())
-	}
-}
-
 // The tokens of a rule's script: made for the run, gone when it ends.
 func TestScriptTokensAreRevokedWithTheRun(t *testing.T) {
 	ctx := context.Background()

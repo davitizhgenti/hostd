@@ -309,9 +309,8 @@ func TestShippedAppFiles(t *testing.T) {
 	}
 	paths = append(paths, "../../../deploy/files/menu/hostd-menu.toml")
 	desktop := []spec.App{{ID: "chromium", Name: "Chromium Web Browser", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"chromium"}}},
-		{ID: "scrcpy", Name: "scrcpy", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"scrcpy"}}},
+		{ID: "mpv", Name: "mpv", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"mpv"}}},
 		{ID: "moonlight", Name: "Moonlight", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "com.moonlight_stream.Moonlight"}},
-		{ID: "sunshine", Name: "Sunshine", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"sunshine"}}},
 		{ID: "steam", Name: "Steam", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
 			Actions: []spec.AppAction{{ID: "bigpicture", Name: "Big Picture", Command: []string{"flatpak", "run", "com.valvesoftware.Steam", "steam://open/bigpicture"}}}}}
 	for _, p := range paths {

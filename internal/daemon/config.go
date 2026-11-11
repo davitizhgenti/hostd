@@ -65,7 +65,7 @@ type Config struct {
 var movedKeys = map[string]string{
 	"idle_after": "[display] idle_after",
 	"input":      "[display]: hold, [display.keys] and [display.buttons]",
-	"external":   "a file in modules/ (modules/<name>.toml; hostd -migrate makes them)",
+	"external":   "a file in modules/ (modules/<name>.toml)",
 	"browser":    "[apps] browser",
 	"gamescope":  "[apps] gamescope",
 }

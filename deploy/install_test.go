@@ -37,8 +37,6 @@ type fakeMachine struct {
 	answers        map[string]string // output for a command line (as the screen user: what it runs)
 	hostdBroken    bool              // hostd does not start
 	aptFails       int               // apt-get install fails this many times (stale package lists)
-	migrateOut     string            // what hostd -migrate says (default: nothing to migrate)
-	migrateFails   bool              // hostd -migrate fails
 	alice          bool              // the user alice exists (useradd made her)
 }
 
@@ -143,14 +141,6 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		}
 		_, err := io.WriteString(c.Stdout, "hostd v1\n")
 		return nil, err
-	case strings.HasSuffix(argv[0], "/hostd") && argv[1] == "-migrate":
-		if f.migrateFails {
-			return []byte("hostd: rules.toml: a rule has no name\n"), fail
-		}
-		if f.migrateOut != "" {
-			return []byte(f.migrateOut), nil
-		}
-		return []byte("nothing to migrate\n"), nil
 	case strings.HasSuffix(argv[0], "/hostd") && argv[1] == "-install":
 		lib := filepath.Join(f.root, argv[4])
 		b, _ := os.ReadFile(argv[2])
@@ -409,40 +399,5 @@ func TestInstallFromScratch(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "created user screen") || !strings.Contains(out.String(), "Reboot") {
 		t.Errorf("output:\n%s", out)
-	}
-}
-
-// An update moves the config to the layout the new hostd needs before it
-// restarts, and stops when it cannot (hostd would refuse to start).
-func TestInstallMigratesTheConfig(t *testing.T) {
-	m := newFakeMachine(t)
-	m.migrateOut = "rules.toml: rule \"bedtime\" is now rules/bedtime.toml\nrules.toml kept as /home/screen/.config/hostd/.pre-0.2/rules.toml\n"
-	self := filepath.Join(t.TempDir(), "hostd-setup")
-	os.WriteFile(self, []byte("the installer"), 0o755)
-	var out bytes.Buffer
-	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&out, true), Chown: func(string, string) error { return nil }}
-	o := Options{GPU: "other", From: buildDir(t), SudoUser: "admin", Self: self}
-	if err := s.Install(context.Background(), o); err != nil {
-		t.Fatalf("install: %v\n%s", err, out.String())
-	}
-	s.Out.Close()
-	if !strings.Contains(out.String(), `config: rules.toml: rule "bedtime" is now rules/bedtime.toml`) {
-		t.Errorf("the migration is not reported:\n%s", out.String())
-	}
-
-	// A migration that fails is a warning: hostd then refuses to start, and
-	// the update's rollback deals with it as with any build that does not start.
-	bad := newFakeMachine(t)
-	bad.migrateFails = true
-	out.Reset()
-	s = &Setup{Root: bad.root, Run: bad, Out: NewOutput(&out, true), Chown: func(string, string) error { return nil }}
-	if err := s.Install(context.Background(), o); err != nil {
-		t.Fatalf("a failed migration should not stop the installer: %v", err)
-	}
-	s.Out.Close()
-	for _, want := range []string{"warning: config: hostd: rules.toml: a rule has no name", "could not move the config to the new layout"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
-		}
 	}
 }

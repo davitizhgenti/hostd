@@ -155,8 +155,7 @@ func (s *Setup) installedAddons() []string {
 	var out []string
 	for _, l := range strings.Split(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			l = currentName(l)
-			if !slices.Contains(out, l) && !slices.Contains(retired, l) {
+			if !slices.Contains(out, l) {
 				out = append(out, l)
 			}
 		}
@@ -164,32 +163,11 @@ func (s *Setup) installedAddons() []string {
 	return out
 }
 
-// renamed are add-ons that went by another name: a machine whose list still
-// has the old name gets the new add-on (which does what the old one did).
-var renamed = map[string]string{}
-
-// retired are add-ons that are gone: a list that still names one is read without it.
-var retired = []string{"moonlight", "sunshine", "android", "share-remote", "share-keys", "share-pc", "share-phone"}
-
-// currentName is the add-on's name now.
-func currentName(name string) string {
-	if n, ok := renamed[name]; ok {
-		return n
-	}
-	return name
-}
-
 // adminInstalled are the add-ons an admin installed (user mode reads the
 // system's list; it has no say in it).
 func (s *Setup) adminInstalled() []string {
 	b, _ := os.ReadFile(s.path(rootAddonsState))
-	var out []string
-	for _, n := range strings.Fields(string(b)) {
-		if n = currentName(n); !slices.Contains(retired, n) {
-			out = append(out, n)
-		}
-	}
-	return out
+	return strings.Fields(string(b))
 }
 
 // errNeedsAdmin is what user mode says about an add-on that needs root.
@@ -295,20 +273,7 @@ func forcedOf(u *UpdateOptions) []string {
 	return u.Addons
 }
 
-// retiredResources are app files of add-ons that no longer ship them (hostd
-// wrote them, so hostd takes them away): the app would list something that
-// cannot work.
-var retiredResources = []string{"apps/android.toml", "apps/share-phone.toml"}
-
 func (in *installer) runAddons(ctx context.Context, order []Addon) error {
-	for _, r := range retiredResources {
-		p := in.user.home + "/.config/hostd/" + r
-		if in.exists(p) && in.hostdOwned(p) {
-			if err := os.Remove(in.path(p)); err == nil {
-				in.Out.Changed("removed %s (an app of an add-on that is gone)", p)
-			}
-		}
-	}
 	for _, a := range order {
 		if in.User != nil && a.Privileged() {
 			continue // an admin's (hostd-admin): not run, nor changed, by a user

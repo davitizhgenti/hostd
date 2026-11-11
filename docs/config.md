@@ -76,7 +76,6 @@ External modules are not configured here: each is a file in `~/.config/hostd/mod
 | `~/.config/hostd/scenes/`, `rules/`, `scripts/` | [Automation](automation.md) |
 | `~/.config/hostd/modules/` | [External modules](modules.md#in-any-language-an-external-module), one file each |
 | `~/.config/hostd/<kind>/` | [Resources](resources.md): one folder per kind, one file each |
-| `~/.config/hostd/.pre-0.2/` | The files `hostd -migrate` replaced, kept |
 | `~/.config/hostd/secrets/` | [Secrets](services.md#secrets) (0600) |
 | `~/.local/state/hostd/state.db` | Tokens and the audit trail |
 | `~/hostd/git/`, `~/hostd/releases/`, `~/hostd/keys/` | [Services](services.md): repositories, releases, deploy keys |

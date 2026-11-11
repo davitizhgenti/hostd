@@ -54,7 +54,3 @@ A resource's status says whether it is in use, in the form Kubernetes uses: a li
 | `preset` | `presets/` | demo (with `-demo`) | A saved lamp setting, the example of a kind |
 
 Modules add kinds ([writing a module](modules.md)).
-
-## Moving from before 0.2
-
-Until 0.2 all rules were in one file, `rules.toml`, and a script was just an executable with a comment. hostd now refuses to start on those, and says to run `hostd -migrate`. It writes one file per rule in `rules/` (the file name is the rule's name made into a file name, `gaming audio` becoming `gaming-audio`), a file in `modules/` for every `[external.NAME]` of `hostd.toml` and its drop-ins (the tables are taken out, the original is kept), and a script file for every executable in `scripts/` (`evening.sh` gets `evening.sh.toml` with `command = ["./evening.sh"]` and the scopes from its comment or its old sidecar, so rules that name it keep working). The old files are kept in `~/.config/hostd/.pre-0.2/`. Running it again changes nothing. `sudo hostd-setup update` runs it for you before it restarts hostd.

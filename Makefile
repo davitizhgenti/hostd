@@ -7,7 +7,7 @@ FUZZTIME ?= 30s
 
 .PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
 	devbox devbox-build devbox-shell devbox-check devbox-logs devbox-stop devbox-hostd devbox-menu-test \
-	check-server test-install test-install-user e2e-bins docs-stub m1-gate m1-gate-server run run-env
+	check-server test-install test-install-user e2e-bins docs-stub run run-env
 
 all: lint test build
 
@@ -97,7 +97,7 @@ lint:
 
 # The code that is not Go: shell scripts (shellcheck) and the on-screen
 # menu (Python: ruff and a compile check). CI runs this before publishing.
-SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/m1-gate.sh deploy/files/rollback.sh \
+SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/files/rollback.sh \
 	test/install/*.sh test/devbox/setup-hostd.sh test/devbox/menu-test.sh deploy/addons/*/hook.sh \
 	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway deploy/addons/chromium/chromium
 lint-scripts:
@@ -235,10 +235,3 @@ test-install-user: dist e2e-bins docs-stub
 	$(PODMAN) exec $(INSTALL_TEST)-user bash /opt/hostd-test/usermode.sh
 	$(PODMAN) rm -f $(INSTALL_TEST)-user >/dev/null
 	@echo "no-root install test passed"
-
-# The M1 gate (deploy/m1-gate.sh): on the devbox, and on the real machine.
-m1-gate:
-	$(DEVBOX_EXEC) env PATH=/opt/hostd/bin:/usr/local/bin:/usr/bin:/bin bash /opt/hostd-deploy/m1-gate.sh
-
-m1-gate-server:
-	ssh $(SERVER) 'bash -s' < deploy/m1-gate.sh
