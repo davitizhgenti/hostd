@@ -1,7 +1,10 @@
 # Managed by hostd-admin (seats add): a graphical session for @USER@ on VT @VT@.
+# Started only when the seat is switched to @USER@ (the seat helper), never at
+# boot: two Sway sessions starting together race for the GPU, and greetd's
+# (the first user's) must win.
 [Unit]
 Description=hostd graphical session for @USER@ (VT @VT@)
-After=systemd-user-sessions.service systemd-logind.service getty@tty@VT@.service
+After=systemd-user-sessions.service systemd-logind.service getty@tty@VT@.service greetd.service
 Conflicts=getty@tty@VT@.service
 
 [Service]
@@ -21,5 +24,3 @@ Environment=XDG_VTNR=@VT@
 ExecStart=@SWAY@
 Restart=no
 
-[Install]
-WantedBy=graphical.target

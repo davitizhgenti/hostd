@@ -38,8 +38,11 @@ func TestSeats(t *testing.T) {
 			t.Errorf("unit lacks %q:\n%s", want, b)
 		}
 	}
-	if !m.didRun("systemctl enable --now hostd-session-alice.service") {
-		t.Errorf("not started: %q", m.ran)
+	if m.didRun("systemctl enable") || m.didRun("systemctl start hostd-session") {
+		t.Errorf("a session unit must not start at boot, nor now: %q", m.ran)
+	}
+	if strings.Contains(string(b), "[Install]") || !strings.Contains(string(b), "greetd.service") {
+		t.Errorf("the unit must start after greetd and only on demand:\n%s", b)
 	}
 	if got := s.seats(); len(got) != 2 || got[0] != (seatUser{"screen", 7}) || got[1] != (seatUser{"alice", 8}) {
 		t.Fatalf("seats %+v", got)

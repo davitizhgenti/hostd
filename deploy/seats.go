@@ -122,11 +122,10 @@ func (s *Setup) AddSeat(ctx context.Context, user string, vt int) error {
 	if changed {
 		_, _ = s.run(ctx, "systemctl", "daemon-reload")
 	}
-	if _, err := s.run(ctx, "systemctl", "enable", "--now", unit); err != nil {
-		s.Out.Warn("warning: could not start %s (journalctl -u %s)", unit, unit)
-	} else {
-		s.Out.Changed("%s's session runs on VT %d", user, vt)
-	}
+	// Not enabled: it starts when the seat is switched to the user. Started
+	// at boot, it raced greetd's session for the GPU and greetd lost.
+	_, _ = s.run(ctx, "systemctl", "disable", unit) // from versions that enabled it
+	s.Out.Info("%s's session starts on VT %d when the seat is switched to them (hostctl seat switch %s)", user, vt, user)
 	return nil
 }
 
@@ -138,7 +137,7 @@ func (s *Setup) RemoveSeat(ctx context.Context, user string) error {
 	}
 	unit := sessionUnit(user)
 	if _, err := os.Stat(s.path("/etc/systemd/system/" + unit)); err == nil {
-		_, _ = s.run(ctx, "systemctl", "disable", "--now", unit)
+		_, _ = s.run(ctx, "systemctl", "disable", "--now", unit) // stops it too
 		_ = os.Remove(s.path("/etc/systemd/system/" + unit))
 		_, _ = s.run(ctx, "systemctl", "daemon-reload")
 	}

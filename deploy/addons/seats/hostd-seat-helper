@@ -14,6 +14,7 @@ import pwd
 import socket
 import struct
 import subprocess
+import time
 
 SOCK = os.environ.get("HOSTD_SEAT_SOCK", "/run/hostd/seat.sock")
 SEATS = os.environ.get("HOSTD_SEATS", "/etc/hostd/seats")
@@ -53,7 +54,13 @@ def sessions():
     return out
 
 
-def handle(req, caller, seats, list_sessions=sessions, activate=lambda sid: loginctl("activate", sid)):
+def start_session(user):
+    """Starts USER's session unit (written by hostd-admin seats add)."""
+    subprocess.run(["systemctl", "start", "hostd-session-%s.service" % user], check=True, capture_output=True, timeout=30)
+
+
+def handle(req, caller, seats, list_sessions=sessions, activate=lambda sid: loginctl("activate", sid),
+           start=start_session, wait=20, sleep=time.sleep):
     """Answers one request from the user caller (a name)."""
     if caller not in seats:
         return {"error": "%s may not use the seat" % caller}
@@ -72,7 +79,18 @@ def handle(req, caller, seats, list_sessions=sessions, activate=lambda sid: logi
             return {"error": "%s is not a seat user" % user}
         mine = [s for s in live if s["user"] == user and s["vt"] == seats[user]]
         if not mine:
-            return {"error": "%s has no session on VT %d (is hostd-session-%s running?)" % (user, seats[user], user)}
+            # Its session starts now (not at boot: see hostd-session.service).
+            try:
+                start(user)
+            except (OSError, subprocess.SubprocessError) as e:
+                return {"error": "%s's session did not start (%s): systemctl status hostd-session-%s" % (user, e, user)}
+            for _ in range(wait):
+                mine = [s for s in list_sessions() if s["user"] == user and s["vt"] == seats[user]]
+                if mine:
+                    break
+                sleep(1)
+        if not mine:
+            return {"error": "%s has no session on VT %d (systemctl status hostd-session-%s)" % (user, seats[user], user)}
         if not mine[0]["active"]:
             activate(mine[0]["id"])
         return {"ok": True, "user": user, "session": mine[0]["id"]}

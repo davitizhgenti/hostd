@@ -17,9 +17,10 @@ LIVE = [
 
 
 class HelperTest(unittest.TestCase):
-    def ask(self, req, caller="serve", live=LIVE):
+    def ask(self, req, caller="serve", live=LIVE, start=None):
         calls = []
-        out = helper.handle(req, caller, SEATS, lambda: live, calls.append)
+        out = helper.handle(req, caller, SEATS, lambda: live, calls.append,
+                            start=start or (lambda u: calls.append("start " + u)), wait=2, sleep=lambda s: None)
         return out, calls
 
     def test_only_listed_users(self):
@@ -43,8 +44,30 @@ class HelperTest(unittest.TestCase):
 
     def test_unknown_user_session_and_verb(self):
         self.assertIn("not a seat user", self.ask({"verb": "switch", "user": "bob"})[0]["error"])
-        self.assertIn("no session", self.ask({"verb": "switch", "user": "alice"}, live=[LIVE[0]])[0]["error"])
+        out, calls = self.ask({"verb": "switch", "user": "alice"}, live=[LIVE[0]])
+        self.assertIn("no session", out["error"])
+        self.assertEqual(calls, ["start alice"])  # tried to start it first
         self.assertIn("no verb", self.ask({"verb": "reboot"})[0]["error"])
+
+    def test_switch_starts_a_missing_session(self):
+        live = [LIVE[0]]
+        calls = []
+
+        def start(user):
+            calls.append("start " + user)
+            live.append(LIVE[1])  # its session appears
+
+        out = helper.handle({"verb": "switch", "user": "alice"}, "serve", SEATS, lambda: live, calls.append,
+                            start=start, wait=2, sleep=lambda s: None)
+        self.assertTrue(out["ok"])
+        self.assertEqual(calls, ["start alice", "14"])
+
+    def test_switch_reports_a_session_that_fails(self):
+        def start(user):
+            raise helper.subprocess.CalledProcessError(1, "systemctl")
+
+        out, _ = self.ask({"verb": "switch", "user": "alice"}, live=[LIVE[0]], start=start)
+        self.assertIn("did not start", out["error"])
 
     def test_read_seats(self):
         import tempfile

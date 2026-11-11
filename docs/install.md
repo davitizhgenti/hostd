@@ -89,7 +89,7 @@ The screen, keyboard and controllers belong to one user's hostd at a time, and c
 ```sh
 sudo hostd-admin add seats --user screen        # the helper, and the `seat` module for that user's hostd
 sudo hostd-admin seats add screen 7             # the user greetd logs in is on VT 7
-sudo hostd-admin seats add alice 8              # alice gets a session on VT 8 (started at boot)
+sudo hostd-admin seats add alice 8              # alice's session is on VT 8, started when the seat goes to her
 hostctl seat                                    # who holds the seat, and who could
 hostctl seat switch alice                       # the screen goes to alice's session
 hostctl systems                                 # every hostd on the machine; SEAT shows the holder
