@@ -1,6 +1,0 @@
-# Managed by hostd's share-phone add-on; changes here are overwritten.
-# scrcpy's own entry opens a window that finds no phone: not listed. The
-# phone's app ("Share: phone") appears once a phone is paired and connected
-# (hostd-share-phone connect).
-extends = "scrcpy"
-hidden = true

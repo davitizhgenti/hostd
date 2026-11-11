@@ -16,7 +16,6 @@ nav:
   - Apps: apps.md
   - Services and deploys: services.md
   - Automation: automation.md
-  - Sharing screens: sharing.md
   - Resources: resources.md
   - Configuration: config.md
   - The API: api.md

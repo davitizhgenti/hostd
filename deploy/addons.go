@@ -166,10 +166,10 @@ func (s *Setup) installedAddons() []string {
 
 // renamed are add-ons that went by another name: a machine whose list still
 // has the old name gets the new add-on (which does what the old one did).
-var renamed = map[string]string{"android": "share-phone"}
+var renamed = map[string]string{}
 
 // retired are add-ons that are gone: a list that still names one is read without it.
-var retired = []string{"moonlight", "sunshine", "share-remote", "share-keys"}
+var retired = []string{"moonlight", "sunshine", "android", "share-remote", "share-keys", "share-pc", "share-phone"}
 
 // currentName is the add-on's name now.
 func currentName(name string) string {
@@ -298,7 +298,7 @@ func forcedOf(u *UpdateOptions) []string {
 // retiredResources are app files of add-ons that no longer ship them (hostd
 // wrote them, so hostd takes them away): the app would list something that
 // cannot work.
-var retiredResources = []string{"apps/android.toml"}
+var retiredResources = []string{"apps/android.toml", "apps/share-phone.toml"}
 
 func (in *installer) runAddons(ctx context.Context, order []Addon) error {
 	for _, r := range retiredResources {
