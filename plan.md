@@ -355,3 +355,10 @@ Not done:
 Built (add-ons, no hostd code): `sunshine` (root; the pinned LizardByte/SunshineStream Debian package, user service, LAN-only web UI), `moonlight` (user Flatpak), `android` (root; scrcpy over wireless adb; iPhone/AirPlay and Windows support were dropped by the user, 2026-11-11), `docs/sharing.md`. Checked on core: Sunshine captures Sway with the unprivileged wlroots capture and encodes with NVENC (H.264, HEVC) as the package, not as a Flatpak (the sandbox hides Sway's capture protocols); pairing from a PC worked.
 
 Not done: scrcpy untested on core and with an Android phone; Moonlight on core against a PC running Sunshine untested; the add-ons are not installed through hostd-admin on core (Sunshine runs there as a test service); the cast-in/cast-out scenes were dropped (nothing needs them); the Super key through Moonlight (client setting) is documented, not solved by a binding.
+
+
+# Sharing reorganised, 2026-11-11
+
+Four apps with one prefix and one add-on each (docs/sharing.md): `share-pc` (Linux PC on core, Moonlight), `share-phone` (Android, scrcpy), `share-remote` (Sunshine, always on as a hostd app), `share-keys` (lan-mouse, input only). Renamed from moonlight/android/sunshine. Supported: Linux PCs and Android phones only (Mac, Windows, iOS dropped).
+
+Not done: nothing here is installed through the new names on core yet (core runs a test Sunshine and the old names); lan-mouse untested (the sender-side modifier-key limit with a GNOME PC and a Sway core is documented, not solved); the `share-pc` app's PC name is edited by hand; extending a PC desktop is a documented recipe only; cleanup of the unused Sunshine Flatpak, ~/spike and the old `spike` web login on core.

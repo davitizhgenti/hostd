@@ -1,0 +1,11 @@
+# share-phone: an Android phone on core's screen, controlled from core
+# (scrcpy over Wi-Fi). One of the four share-* apps (docs/sharing.md): it is a
+# window app like any other, opened from the menu, a phone or hostctl.
+description = "share-phone: an Android phone on core's screen, controlled from core (scrcpy over Wi-Fi)"
+packages = ["scrcpy", "adb"]
+resources = ["apps/share-phone.toml"]
+files = [
+  { src = "hostd-share-phone", dest = "/usr/local/lib/hostd/share-phone/hostd-share-phone", mode = "755" },
+]
+rescan = true
+keeps = "the packages (scrcpy, adb) and the phone's saved address in ~/.config/hostd/share-phone.addr"

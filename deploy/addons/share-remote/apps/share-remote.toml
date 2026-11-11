@@ -1,0 +1,11 @@
+# Managed by hostd's share-remote add-on; changes here are overwritten.
+# Sunshine, always on: a Moonlight client (a Linux PC, an Android phone)
+# shows core's screen and controls it. Stop it with: hostctl stop share-remote
+name = "Share: remote access"
+runner = { type = "process", command = ["/usr/bin/sunshine"] }
+autostart = true
+restart = "always"
+
+[health]
+tcp = "127.0.0.1:47990"
+start = "60s"

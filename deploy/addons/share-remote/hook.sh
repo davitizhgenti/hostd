@@ -1,9 +1,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034 # variables for the helpers
-# Sunshine's hook (addon.toml has the rest): the pinned package, the
-# screen user's settings (capture straight from Sway; the web UI and
-# pairing only from the home network; "Desktop" as the only app) and the
-# user service that starts it with the session.
+# share-remote's hook (addon.toml has the rest): the pinned package and the
+# screen user's settings (capture straight from Sway; the web UI and pairing
+# only from the home network; "Desktop" as the only app). Sunshine itself runs
+# as the share-remote app, not as the package's own user service, so that
+# hostd starts, watches and stops it like everything else.
 SUNSHINE_VERSION=2026.914.233613
 SUNSHINE_DEB="sunshine_${SUNSHINE_VERSION}-1+debiantrixie_amd64.deb"
 SUNSHINE_URL="https://github.com/SunshineStream/Sunshine/releases/download/v${SUNSHINE_VERSION}/${SUNSHINE_DEB}"
@@ -41,7 +42,7 @@ sunshine_config() {
 		local tmp
 		tmp=$(mktemp)
 		cat >"$tmp" <<CONF
-# Written by hostd's sunshine add-on once; your changes stay.
+# Written by hostd's share-remote add-on once; your changes stay.
 sunshine_name = $host
 # Capture Sway's screen directly (wlroots), no extra permission.
 capture = wlr
@@ -78,20 +79,20 @@ APPS
 }
 
 addon_install() {
-	local newpkg=0
-	sunshine_package && newpkg=1
+	sunshine_package || true
 	sunshine_config
 	if [ ! -S "$ROOT/run/user/$SCREEN_UID/bus" ]; then
-		warn "$SCREEN_USER's user session is not running: Sunshine starts at its next login"
+		warn "$SCREEN_USER's user session is not running: share-remote starts with hostd"
 		return 0
 	fi
-	as_screen systemctl --user enable "$SUNSHINE_UNIT" >/dev/null 2>&1 || warn "could not enable $SUNSHINE_UNIT"
-	if [ "$newpkg" = 1 ] || ! as_screen systemctl --user is-active --quiet "$SUNSHINE_UNIT"; then
-		as_screen systemctl --user restart "$SUNSHINE_UNIT" || warn "Sunshine did not start (journalctl --user -u $SUNSHINE_UNIT)"
-	fi
+	# One way to run it: the package's user unit goes, the app takes over.
+	as_screen systemctl --user disable --now "$SUNSHINE_UNIT" >/dev/null 2>&1 || true
+	# A new file is followed by hostd; start the app now (autostart is for hostd's own start).
+	as_screen "$SCREEN_HOME/.local/bin/hostctl" start share-remote >/dev/null 2>&1 || true
 }
 
 addon_remove() {
+	as_screen "$SCREEN_HOME/.local/bin/hostctl" stop share-remote >/dev/null 2>&1 || true
 	as_screen systemctl --user disable --now "$SUNSHINE_UNIT" >/dev/null 2>&1 || true
 	DEBIAN_FRONTEND=noninteractive apt-get remove -y -q sunshine >/dev/null 2>&1 || true
 }

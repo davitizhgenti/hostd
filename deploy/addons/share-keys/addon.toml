@@ -1,0 +1,13 @@
+# share-keys: a Linux PC's keyboard and mouse control core (lan-mouse): move
+# the mouse off the PC's screen edge and it appears on core's screen. Input
+# only: no video, no clipboard, no audio. One of the four share-* apps
+# (docs/sharing.md): a background app (hostctl ps / logs / stop share-keys).
+# The binary is the v0.11.0 release build (pinned by checksum in hook.sh).
+# The PC runs the same program (docs/sharing.md) and each side authorizes the
+# other's certificate fingerprint once, in lan-mouse's config.
+description = "share-keys: a Linux PC's keyboard and mouse control core (lan-mouse), input only"
+packages = ["libgtk-4-1", "libadwaita-1-0", "libx11-6", "libxtst6"]
+resources = ["apps/share-keys.toml"]
+rescan = true
+keeps = "lan-mouse's settings and authorized fingerprints stay in ~/.config/lan-mouse"
+hook = "hook.sh"

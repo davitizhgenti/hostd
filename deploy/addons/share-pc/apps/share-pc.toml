@@ -1,0 +1,15 @@
+# Managed by hostd's share-pc add-on; changes here are overwritten, so copy
+# this file to share-pc2.toml (and name that PC) for a second PC, or set the
+# PC's name once with: hostctl edit app share-pc.
+#
+# A Linux PC's desktop on core's screen, controlled with core's keyboard,
+# mouse and controllers. The PC runs Sunshine; pair it once in the Moonlight
+# app (docs/sharing.md). "my-pc" is the PC's name or address as Moonlight knows it.
+name = "Share: PC"
+runner = { type = "exec", command = ["flatpak", "run", "com.moonlight_stream.Moonlight", "stream", "my-pc", "Desktop"], handoff = "FLATPAK_ID=com.moonlight_stream.Moonlight" }
+
+[match]
+env = "FLATPAK_ID=com.moonlight_stream.Moonlight"
+
+[window]
+fullscreen = true

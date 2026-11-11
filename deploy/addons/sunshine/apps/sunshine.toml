@@ -1,5 +1,0 @@
-# Managed by hostd's sunshine add-on; changes here are overwritten.
-# Sunshine runs by itself as a service; its desktop entry would start a second
-# copy, so it is not listed.
-extends = "sunshine"
-hidden = true

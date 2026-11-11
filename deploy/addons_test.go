@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // exists.
 func TestAddonsLoad(t *testing.T) {
 	names := AddonNames()
-	want := []string{"android", "chromium", "compose", "controllers", "dolphin", "flatpak", "moonlight", "nvidia", "seats", "steam", "sunshine", "tailscale", "wireguard"}
+	want := []string{"chromium", "compose", "controllers", "dolphin", "flatpak", "nvidia", "seats", "share-keys", "share-pc", "share-phone", "share-remote", "steam", "tailscale", "wireguard"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("add-ons %v", names)
 	}
@@ -92,8 +93,8 @@ func TestBundledResourcesAreValid(t *testing.T) {
 }
 
 func TestAddonPrivilege(t *testing.T) {
-	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false, "moonlight": false,
-		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "android": true, "sunshine": true, "tailscale": true, "wireguard": true}
+	want := map[string]bool{"steam": false, "dolphin": false, "chromium": false, "share-pc": false,
+		"compose": true, "controllers": true, "flatpak": true, "nvidia": true, "seats": true, "share-phone": true, "share-remote": true, "share-keys": true, "tailscale": true, "wireguard": true}
 	for name, root := range want {
 		a, err := LoadAddon(name)
 		if err != nil {
@@ -117,5 +118,26 @@ func TestAddonPrivilege(t *testing.T) {
 	}
 	if !(Addon{Files: []AddonFile{{Dest: "/etc/x"}}}).Privileged() || (Addon{Files: []AddonFile{{Dest: "~/x"}}}).Privileged() {
 		t.Error("files outside the home need root; inside, not")
+	}
+}
+
+func TestRenamedAddonsKeepWorking(t *testing.T) {
+	m := newFakeMachine(t)
+	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true)}
+	os.MkdirAll(filepath.Join(m.root, "etc/hostd"), 0o755)
+	os.WriteFile(filepath.Join(m.root, "etc/hostd/addons"), []byte("flatpak\nsunshine\nandroid\nshare-remote\n"), 0o644)
+	if got := s.installedAddons(); !slices.Equal(got, []string{"flatpak", "share-remote", "share-phone"}) {
+		t.Errorf("installed %v", got)
+	}
+	if got := s.adminInstalled(); !slices.Contains(got, "share-phone") || slices.Contains(got, "android") {
+		t.Errorf("admin list %v", got)
+	}
+	for old, now := range renamed {
+		if _, err := LoadAddon(now); err != nil {
+			t.Errorf("%s was renamed %s: %v", old, now, err)
+		}
+		if _, err := LoadAddon(old); err == nil {
+			t.Errorf("%s still exists beside %s", old, now)
+		}
 	}
 }

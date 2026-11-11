@@ -155,17 +155,36 @@ func (s *Setup) installedAddons() []string {
 	var out []string
 	for _, l := range strings.Split(string(b), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			out = append(out, l)
+			l = currentName(l)
+			if !slices.Contains(out, l) {
+				out = append(out, l)
+			}
 		}
 	}
 	return out
+}
+
+// renamed are add-ons that went by another name: a machine whose list still
+// has the old name gets the new add-on (which does what the old one did).
+var renamed = map[string]string{"moonlight": "share-pc", "android": "share-phone", "sunshine": "share-remote"}
+
+// currentName is the add-on's name now.
+func currentName(name string) string {
+	if n, ok := renamed[name]; ok {
+		return n
+	}
+	return name
 }
 
 // adminInstalled are the add-ons an admin installed (user mode reads the
 // system's list; it has no say in it).
 func (s *Setup) adminInstalled() []string {
 	b, _ := os.ReadFile(s.path(rootAddonsState))
-	return strings.Fields(string(b))
+	var out []string
+	for _, n := range strings.Fields(string(b)) {
+		out = append(out, currentName(n))
+	}
+	return out
 }
 
 // errNeedsAdmin is what user mode says about an add-on that needs root.

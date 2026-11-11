@@ -347,7 +347,7 @@ func TestSteamHook(t *testing.T) {
 	r.mustNotCall("flatpak override --user --env")
 }
 
-// --- sunshine ----------------------------------------------------------------
+// --- share-remote (Sunshine) ---------------------------------------------------
 
 func sunshineMachine(t *testing.T) *hookRig {
 	r := newHookRig(t)
@@ -356,7 +356,7 @@ func sunshineMachine(t *testing.T) *hookRig {
 	return r
 }
 
-func TestSunshineHook(t *testing.T) {
+func TestShareRemoteHook(t *testing.T) {
 	r := sunshineMachine(t)
 	// The screen user's session runs (its bus socket exists).
 	sock := filepath.Join(r.root, "run/user/1000/bus")
@@ -368,12 +368,18 @@ func TestSunshineHook(t *testing.T) {
 		t.Skipf("unix socket: %v", err)
 	}
 	t.Cleanup(func() { l.Close() })
-	if _, err := r.run("sunshine", "addon_install", Options{Adding: []string{"sunshine"}}); err != nil {
+	if _, err := r.run("share-remote", "addon_install", Options{Adding: []string{"share-remote"}}); err != nil {
 		t.Fatalf("%v\n%s", err, r.out.String())
 	}
 	r.mustCall("curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o",
-		"sha256sum --check --quiet -", "apt-get install -y -q", "systemctl --user enable app-dev.lizardbyte.app.Sunshine.service",
-		"systemctl --user restart app-dev.lizardbyte.app.Sunshine.service")
+		"sha256sum --check --quiet -", "apt-get install -y -q",
+		// One way to run it: the package's own user unit goes; the app takes over.
+		"systemctl --user disable --now app-dev.lizardbyte.app.Sunshine.service")
+	// The app is started now (hostctl's full path: the user's PATH is not the hook's).
+	if !strings.Contains(r.calls(), "/home/screen/.local/bin/hostctl start share-remote") {
+		t.Errorf("share-remote was not started:\n%s", r.calls())
+	}
+	r.mustNotCall("systemctl --user enable", "systemctl --user restart")
 	if !strings.Contains(r.calls(), "SunshineStream/Sunshine/releases/download/v2026.914.233613/sunshine_2026.914.233613-1+debiantrixie_amd64.deb") {
 		t.Errorf("the pinned package was not fetched:\n%s", r.calls())
 	}
@@ -390,31 +396,78 @@ func TestSunshineHook(t *testing.T) {
 	// A person's settings stay; the package is current, so nothing is fetched.
 	r.write(filepath.Join(r.root, "home/screen/.config/sunshine/sunshine.conf"), "capture = kms\n", 0o644)
 	r.script("dpkg-query", `[ "$1" = -W ] && [ "$2" = '-f=${Version}' ] && { printf '2026.914.233613-1+debiantrixie'; exit 0; }`)
-	r.script("systemctl", `[ "$*" = "--user is-active --quiet app-dev.lizardbyte.app.Sunshine.service" ] && exit 0`)
-	if _, err := r.run("sunshine", "addon_install", Options{}); err != nil {
+	if _, err := r.run("share-remote", "addon_install", Options{}); err != nil {
 		t.Fatalf("second run: %v\n%s", err, r.out.String())
 	}
-	r.mustNotCall("curl", "apt-get install", "systemctl --user restart")
+	r.mustNotCall("curl", "apt-get install")
 	if got := r.read("home/screen/.config/sunshine/sunshine.conf"); got != "capture = kms\n" {
 		t.Errorf("a person's settings were replaced:\n%s", got)
 	}
 }
 
-func TestSunshineHookRefusesAWrongFile(t *testing.T) {
+func TestShareRemoteHookRefusesAWrongFile(t *testing.T) {
 	r := sunshineMachine(t)
 	r.script("sha256sum", `exit 1`)
-	if _, err := r.run("sunshine", "addon_install", Options{}); err == nil || !strings.Contains(err.Error(), "not the file this add-on pins") {
+	if _, err := r.run("share-remote", "addon_install", Options{}); err == nil || !strings.Contains(err.Error(), "not the file this add-on pins") {
 		t.Fatalf("a package with the wrong checksum: %v", err)
 	}
 	r.mustNotCall("apt-get install")
 }
 
-func TestSunshineHookRemove(t *testing.T) {
+func TestShareRemoteHookRemove(t *testing.T) {
 	r := sunshineMachine(t)
-	if _, err := r.run("sunshine", "addon_remove", Options{}); err != nil {
+	if _, err := r.run("share-remote", "addon_remove", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	r.mustCall("systemctl --user disable --now app-dev.lizardbyte.app.Sunshine.service", "apt-get remove -y -q sunshine")
+	if !strings.Contains(r.calls(), "/home/screen/.local/bin/hostctl stop share-remote") {
+		t.Errorf("share-remote was not stopped:\n%s", r.calls())
+	}
+}
+
+// --- share-keys (lan-mouse) -----------------------------------------------------
+
+func TestShareKeysHook(t *testing.T) {
+	r := sunshineMachine(t)
+	if _, err := r.run("share-keys", "addon_install", Options{Adding: []string{"share-keys"}}); err != nil {
+		t.Fatalf("%v\n%s", err, r.out.String())
+	}
+	r.mustCall("curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o", "sha256sum --check --quiet -")
+	if !strings.Contains(r.calls(), "feschber/lan-mouse/releases/download/v0.11.0/lan-mouse-linux-x86_64") {
+		t.Errorf("the pinned build was not fetched:\n%s", r.calls())
+	}
+	if !r.exists("usr/local/lib/hostd/share-keys/lan-mouse") || r.read("usr/local/lib/hostd/share-keys/lan-mouse.version") != "0.11.0\n" {
+		t.Error("lan-mouse is not in place")
+	}
+	conf := r.read("home/screen/.config/lan-mouse/config.toml")
+	if !strings.Contains(conf, "[authorized_fingerprints]") || !strings.Contains(conf, "port = 4242") {
+		t.Errorf("config:\n%s", conf)
+	}
+	// Installed and configured: nothing is fetched, and a person's config stays.
+	r.write(filepath.Join(r.root, "home/screen/.config/lan-mouse/config.toml"), "port = 5000\n", 0o644)
+	if _, err := r.run("share-keys", "addon_install", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	r.mustNotCall("curl")
+	if got := r.read("home/screen/.config/lan-mouse/config.toml"); got != "port = 5000\n" {
+		t.Errorf("a person's config was replaced:\n%s", got)
+	}
+	// A wrong checksum is refused.
+	r2 := sunshineMachine(t)
+	r2.script("sha256sum", `exit 1`)
+	if _, err := r2.run("share-keys", "addon_install", Options{}); err == nil || !strings.Contains(err.Error(), "not the file this add-on pins") {
+		t.Fatalf("wrong checksum: %v", err)
+	}
+	if r2.exists("usr/local/lib/hostd/share-keys/lan-mouse") {
+		t.Error("a file with the wrong checksum was installed")
+	}
+	// Remove.
+	if _, err := r.run("share-keys", "addon_remove", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if r.exists("usr/local/lib/hostd/share-keys/lan-mouse") {
+		t.Error("the binary stays")
+	}
 }
 
 // --- tailscale -----------------------------------------------------------

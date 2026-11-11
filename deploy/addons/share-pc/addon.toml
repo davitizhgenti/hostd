@@ -1,0 +1,12 @@
+# share-pc: a Linux PC's screen on core, controlled from core. Moonlight
+# (Flatpak) streams the PC's desktop from the Sunshine that runs on the PC.
+# One of the four share-* apps (docs/sharing.md). The PC's name is set in
+# the app's own file (hostctl edit app share-pc); the Moonlight app itself
+# stays in the menu for the one-time pairing.
+description = "share-pc: a Linux PC's screen on core, controlled from core (Moonlight, Sunshine on the PC)"
+needs = ["flatpak"]
+root = false
+flatpaks = ["com.moonlight_stream.Moonlight"]
+resources = ["apps/share-pc.toml"]
+rescan = true
+keeps = "Moonlight's own data (paired PCs) stays in ~/.var/app/com.moonlight_stream.Moonlight"

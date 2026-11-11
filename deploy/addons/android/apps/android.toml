@@ -1,9 +1,0 @@
-# Managed by hostd's android add-on; changes here are overwritten.
-# An Android phone on core's screen, controlled with core's keyboard and mouse
-# (scrcpy). Pair it once: see docs/sharing.md, or run
-#   /usr/local/lib/hostd/android/hostd-android help
-name = "Android phone"
-runner = { type = "exec", command = ["/usr/local/lib/hostd/android/hostd-android"] }
-
-[window]
-fullscreen = true
