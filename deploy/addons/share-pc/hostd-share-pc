@@ -56,8 +56,9 @@ connect)
 	host=$(sed -n 1p "$DIR/$2.conf")
 	user=$(sed -n 2p "$DIR/$2.conf")
 	pass=$(cat "$DIR/$2.pass")
-	# /cert:tofu: the PC's certificate is trusted the first time and checked after.
-	exec wlfreerdp3 "/v:$host" "/u:$user" "/p:$pass" /f /cert:tofu /sound +clipboard
+	# /cert:tofu: the PC's certificate is trusted the first time and checked after. /smart-sizing: the PC's whole
+	# screen is scaled to core's (without it only a corner of a larger PC screen is shown).
+	exec wlfreerdp3 "/v:$host" "/u:$user" "/p:$pass" /f /cert:tofu /smart-sizing /sound +clipboard
 	;;
 remove)
 	[ $# -eq 2 ] || { say "use: hostd-share-pc remove NAME"; exit 2; }

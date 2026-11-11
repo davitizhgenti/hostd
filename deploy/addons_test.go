@@ -210,7 +210,7 @@ func TestShareHelpersMakeAppsOnDemand(t *testing.T) {
 	if out, err := run(pc, "connect", "office"); err != nil {
 		t.Fatalf("connect: %v %s", err, out)
 	}
-	if got, _ := os.ReadFile(filepath.Join(home, "rdp.args")); !strings.Contains(string(got), "/v:10.0.0.5") || !strings.Contains(string(got), "/u:me") || !strings.Contains(string(got), "/p:s3cret") || !strings.Contains(string(got), "/cert:tofu") {
+	if got, _ := os.ReadFile(filepath.Join(home, "rdp.args")); !strings.Contains(string(got), "/v:10.0.0.5") || !strings.Contains(string(got), "/u:me") || !strings.Contains(string(got), "/p:s3cret") || !strings.Contains(string(got), "/cert:tofu") || !strings.Contains(string(got), "/smart-sizing") {
 		t.Errorf("rdp arguments: %q", got)
 	}
 	if out, err := run(pc, "remove", "office"); err != nil {
