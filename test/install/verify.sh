@@ -15,7 +15,7 @@ t "sway config installed"              'grep -q "^exec_always dbus-update-activa
 t "the mouse pointer hides when not used"  'grep -qx "seat \* hide_cursor 2000" /home/screen/.config/sway/config'
 t "notices: a user service, no mako"   'grep -q "^ExecStart=/usr/local/lib/hostd/ui/hostd-notices$" /home/screen/.config/systemd/user/hostd-notices.service && grep -q "systemctl --user restart hostd-notices.service" /home/screen/.config/sway/config && ! test -e /home/screen/.config/mako/config'
 t "config files owned by screen"       '[ "$(stat -c %U /home/screen/.config/sway/config)" = screen ]'
-t "VNC runs as a supervised user service" 'grep -qx "Restart=always" /home/screen/.config/systemd/user/wayvnc.service && grep -q "restart wayvnc.service" /home/screen/.config/sway/config'
+t "VNC runs as a supervised user service" 'grep -qx "Restart=always" /home/screen/.config/systemd/user/wayvnc.service && grep -qE "systemctl --user restart .*wayvnc.service" /home/screen/.config/sway/config'
 t "Podman socket enabled for screen"   'test -L /home/screen/.config/systemd/user/sockets.target.wants/podman.socket'
 t "greetd on VT 7, logs in screen"     'grep -qx "vt = 7" /etc/greetd/config.toml && grep -qx "user = \"screen\"" /etc/greetd/config.toml'
 t "greetd starts plain sway (no GPU flags)" 'grep -qx "command = \"sway\"" /etc/greetd/config.toml'
