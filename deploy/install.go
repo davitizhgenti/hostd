@@ -263,8 +263,9 @@ var packages = []string{
 	"podman", "uidmap", "fuse-overlayfs", "passt", "catatonit", "nftables",
 	"jq", "curl", "ca-certificates", "git", "openssl",
 	// The menu and the notices (GTK 4; the notices on the overlay layer),
-	// in the design's typeface.
-	"python3-gi", "gir1.2-gtk-4.0", "gir1.2-gtk4layershell-1.0", "fonts-inter",
+	// in the design's typeface. The layer-shell typelib does not pull in its
+	// library on Debian 13, so both are named.
+	"python3-gi", "gir1.2-gtk-4.0", "gir1.2-gtk4layershell-1.0", "libgtk4-layer-shell0", "fonts-inter",
 }
 
 // missingPackages returns the ones of pkgs that are not installed.

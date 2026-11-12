@@ -20,7 +20,7 @@ Sunshine/Moonlight, UxPlay, scrcpy, lan-mouse and RDP were all tried on core. Ev
 
 ## Needs the user
 
-- **The new UI on core:** built and checked in a headless Sway container at 1920x1080 and 1280x800 (every page, a sheet, a dialog, notices; choices reach hostd), not yet on the projector. Core needs `sudo hostd-admin prepare` for gir1.2-gtk4layershell-1.0 and fonts-inter; until then the notices fall back to mako and the menu to DejaVu Sans.
+- **The new UI on core:** built and checked in a headless Sway container at 1920x1080 and 1280x800 (every page, a sheet, a dialog, notices; choices reach hostd), not yet on the projector. Core needs `sudo hostd-admin prepare` for gtk4-layer-shell (gir1.2-gtk4layershell-1.0, libgtk4-layer-shell0) and fonts-inter; until then the notices fall back to mako and the menu to DejaVu Sans.
 - **Two controllers on core:** hold Guide on each to confirm only that pad is grabbed.
 - `make test-e2e` (the VM test, about 10 minutes) and `mkdocs build --strict` after these changes.
 
