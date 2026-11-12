@@ -49,8 +49,8 @@ def verb_for_nav(what):
 # What each verb is called on the screen, per input: the hint bar shows the
 # buttons of whatever was used last.
 HINTS = {
-    "keys": {ACTIVATE: "Enter", BACK: "Esc", ACTIONS: "Menu", CLOSE: "Del", NEXT_TAB: "Tab"},
-    "controller": {ACTIVATE: "A", BACK: "B", ACTIONS: "X", NEXT_TAB: "◀ ▶"},
+    "keys": {ACTIVATE: "Enter", BACK: "Esc", ACTIONS: "Menu", CLOSE: "Del", NEXT_TAB: "◀ ▶", UP: "▲ ▼"},
+    "controller": {ACTIVATE: "A", BACK: "B", ACTIONS: "X", NEXT_TAB: "◀ ▶", UP: "▲ ▼"},
 }
 
 

@@ -1,20 +1,23 @@
 #!/usr/bin/python3
-"""hostd's menu: the full-screen UI on the monitor.
+"""hostd's menu: the full-screen UI on the monitor, laid out as a cross.
 
-Four pages behind one tab bar: Apps (running apps, then the catalog), Users
-(who has the screen; switch), Settings (sound, screen) and Status (version,
-recent actions). hostd runs it as the hidden app "hostd-menu" and brings it
-forward with display.menu (Super, or holding a controller's Guide button).
+The categories (Apps, Users, Settings, Status) run left and right on one
+row; the current one's items run up and down through it, the current item
+large, as on the PSP. Options for an item come in at the right edge.
+hostd runs it as the hidden app "hostd-menu" and brings it forward with
+display.menu (Super, or holding a controller's Guide button).
 
-Every input does the same thing (hostd_ui.input): arrows or the D-pad move,
-left and right change page (or a slider), Enter or A chooses, Esc or B goes
-back, Menu or X opens a row's actions; typing filters the Apps page.
-Controllers arrive as hostd's display.nav events. Choices are sent with the
-local token, so they count as someone at the screen.
+Every input does the same thing (hostd_ui.input): left and right change
+the category, up and down the item, Enter or A chooses, Esc or B goes back,
+Menu or X opens the options; typing filters the Apps. Controllers arrive as
+hostd's display.nav events. Choices are sent with the local token, so they
+count as someone at the screen. The background is this screen's own
+setting (hostd_ui.background), changed under Settings.
 
 Needs python3-gi and gir1.2-gtk-4.0; talks to hostd over its unix socket.
 """
 
+import datetime
 import json
 import os
 import sys
@@ -29,23 +32,23 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from hostd_ui import api as hapi  # noqa: E402
+from hostd_ui import background, cross, theme, views  # noqa: E402
 from hostd_ui import components as ui  # noqa: E402
 from hostd_ui import input as inp  # noqa: E402
-from hostd_ui import theme, views  # noqa: E402
 
-APPS, USERS, SETTINGS, STATUS = range(4)
-PAGES = ("Apps", "Users", "Settings", "Status")
-# Events after which a page lists again.
+APPS, USERS, SETTINGS, STATUS = range(len(views.CATEGORIES))
+# Events after which a category lists again.
 REFRESH_ON = {
     APPS: ("instance.", "app.", "hostd.", "bus."),
     USERS: ("seat.", "hostd."),
     SETTINGS: ("audio.", "display.output", "display.mode", "display.power", "hostd."),
     STATUS: ("hostd.",),
 }
+GAP = 16  # px at 1080: between the category row and its items
 
 
-def fetch(api, page):
-    """The page's rows and its summary line, from hostd."""
+def fetch(api, page, look, tokens):
+    """The category's rows and its summary line, from hostd."""
     if page == APPS:
         instances = api.get("/v1/instances") or []
         apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
@@ -56,16 +59,25 @@ def fetch(api, page):
         except hapi.APIError as e:
             if e.status != 404:
                 raise
-            return [views.Row("Users", views.HEADER),
-                    views.Row("Switching users is not set up", subtitle="the seats add-on: sudo hostd-admin add seats")], ""
+            return [views.Row("Switching users is not set up", icon="info",
+                              subtitle="the seats add-on: sudo hostd-admin add seats")], ""
         return views.users_page(seats), ""
     if page == SETTINGS:
         try:
             audio = api.get("/v1/audio")
         except hapi.APIError:
             audio = None
-        return views.settings_page(audio, api.get("/v1/display")), ""
+        return views.settings_page(audio, api.get("/v1/display"), look, tokens), ""
     return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12")), ""
+
+
+def corner(halign, valign, *children, vertical=True):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL,
+                  halign=halign, valign=valign)
+    box.add_css_class("corner")
+    for c in children:
+        box.append(c)
+    return box
 
 
 class Menu(Gtk.ApplicationWindow):
@@ -74,51 +86,52 @@ class Menu(Gtk.ApplicationWindow):
         self.add_css_class("hostd")
         self.set_decorated(False)
         self.api = api
+        self.tokens = theme.tokens()
+        self.look = background.load()
         self.page = APPS
-        self.rows, self.widgets = [], []
-        self.shown = ""  # what the page shows, to notice changes
-        self.sheet_row = None  # the row whose sheet is open
-        self.sheet_widgets = []
-        self.asked = None  # the call the dialog asks about
+        self.rows, self.shown_rows = [], []
+        self.shown = ""  # what the category shows, to notice changes
+        self.asked = None  # the call the band asks about
         self.device = "keys"  # the input used last: its buttons are the hints
         self.pending = False
 
-        self.tabs = ui.TabBar(PAGES)
-        self.summary = ui.label("", "summary", xalign=1.0, expand=True)
-        self.summary.set_valign(Gtk.Align.CENTER)
-        top = Gtk.Box()
-        top.append(self.tabs)
-        top.append(self.summary)
+        width, height = size
+        scale = theme.scale_for(height)
+        layout, color = self.tokens["layout"], self.tokens["color"]["text"]
+        metrics = cross.Metrics.of(layout, scale, GAP, self.tokens["type"]["title"] * 1.5)
+        icon_item = round(layout["icon-item"] * scale)
+
+        self.backdrop = Gtk.Box(hexpand=True, vexpand=True)
+        self.backdrop.add_css_class("backdrop")
+        self.bg = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(self.get_display(), self.bg,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+
+        self.cross = ui.Cross(metrics, width, icon_item, color, self.tokens["motion"]["base"])
+        self.cross.set_categories(views.CATEGORIES)
+        self.cross.on_click = self.on_item_click
+        self.cross.on_category = lambda i: self.show_page(i)
 
         self.filter = Gtk.Text(placeholder_text="Type to filter")
         self.filter.add_css_class("filter")
         self.filter.connect("changed", lambda *_: self.show_rows(keep=False))
-
-        self.list = ui.list_box()
-        self.list.connect("row-activated", lambda _l, w: self.choose(w.model))
-        self.scroll = ui.scrolled(self.list)
+        self.clock = ui.label("", "clock", xalign=1.0)
+        self.summary = ui.label("", "summary", xalign=1.0)
         self.message = ui.label("", "message")
-        self.hints = ui.label("", "hints")
-
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        page.add_css_class("page")
-        for w in (top, self.filter, self.scroll, self.message, self.hints):
-            page.append(w)
-        # On a wide screen the content is a centered column, close enough
-        # together to read from across the room.
-        width, height = size
-        limit = int(theme.tokens()["layout"]["content-max"] * theme.scale_for(height))
-        if width > limit:
-            page.set_halign(Gtk.Align.CENTER)
-            page.set_size_request(limit, -1)
+        self.hints = ui.label("", "hints", xalign=1.0)
 
         self.scrim = Gtk.Box(hexpand=True, vexpand=True, visible=False)
         self.scrim.add_css_class("scrim")
-        self.sheet = ui.Sheet()
-        self.sheet.list.connect("row-activated", lambda _l, w: self.run_sheet(w.model))
-        self.dialog = ui.Dialog()
-        overlay = Gtk.Overlay(child=page)
-        for w in (self.scrim, self.sheet, self.dialog):
+        self.panel = ui.OptionsPanel(round(layout["panel-width"] * scale), icon_item, color)
+        self.band = ui.ConfirmBand()
+
+        overlay = Gtk.Overlay(child=self.backdrop)
+        for w in (self.cross,
+                  corner(Gtk.Align.START, Gtk.Align.START, self.filter),
+                  corner(Gtk.Align.END, Gtk.Align.START, self.clock, self.summary),
+                  corner(Gtk.Align.START, Gtk.Align.END, self.message),
+                  self.scrim, self.panel, self.band,
+                  corner(Gtk.Align.END, Gtk.Align.END, self.hints)):  # the hints over everything
             overlay.add_overlay(w)
         self.set_child(overlay)
 
@@ -126,23 +139,30 @@ class Menu(Gtk.ApplicationWindow):
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self.on_key)
         self.add_controller(keys)
-        right = Gtk.GestureClick(button=3)  # right click: the row's actions
-        right.connect("pressed", self.on_right_click)
-        self.list.add_controller(right)
-        # Back in front: list again, from the first page's top.
+        right = Gtk.GestureClick(button=3)  # right click: the options
+        right.connect("pressed", lambda *_: self.open_options(self.selected()))
+        self.add_controller(right)
+        wheel = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
+        wheel.connect("scroll", lambda _c, _dx, dy: self.handle(inp.DOWN if dy > 0 else inp.UP) or True)
+        self.add_controller(wheel)
+        # Back in front: list again.
         self.connect("notify::is-active", lambda *_: self.is_active() and self.came_back())
         self.fullscreen()
+        self.apply_background()
+        self.tick_clock()
         self.show_page(APPS)
 
         self.events = hapi.EventStream(api, self.on_event, GLib.idle_add)
         self.events.start()
         GLib.timeout_add_seconds(5, self.poll)
+        GLib.timeout_add_seconds(20, self.tick_clock)
+        GLib.timeout_add_seconds(300, self.apply_background)  # the hour changes the month mode's light
 
-    # --- pages ---
+    # --- categories and items ---
 
     def show_page(self, page, keep=False):
-        self.page = page % len(PAGES)
-        self.tabs.set_current(self.page)
+        self.page = page % len(views.CATEGORIES)
+        self.cross.set_category(self.page)
         self.filter.set_visible(self.page == APPS)
         if not keep:
             self.filter.set_text("")
@@ -150,13 +170,15 @@ class Menu(Gtk.ApplicationWindow):
         self.refresh(keep=keep)
 
     def came_back(self):
-        if self.sheet_row is None and self.asked is None:
+        if not self.panel.get_visible() and self.asked is None:
+            self.look = background.load()
+            self.apply_background()
             self.refresh(keep=True)
 
     def refresh(self, data=None, keep=False):
         if data is None:
             try:
-                data = fetch(self.api, self.page)
+                data = fetch(self.api, self.page, self.look, self.tokens)
             except Exception as e:  # noqa: BLE001 - shown to the person
                 self.say(f"Cannot reach hostd: {e}", error=True)
                 return
@@ -166,37 +188,50 @@ class Menu(Gtk.ApplicationWindow):
         self.rows = rows
         self.summary.set_text(summary)
         self.show_rows(keep)
+        if self.panel.get_visible() and self.panel.slider:
+            key = self.panel.row.key()
+            self.panel.update_level(next((r for r in rows if r.key() == key), None))
 
     def show_rows(self, keep=True):
-        selected = self.selected()
-        key = selected.key() if keep and selected else None
-        shown = views.visible(self.rows, self.filter.get_text() if self.page == APPS else "")
-        self.widgets = ui.fill(self.list, shown)
-        target = next((w for w in self.widgets if w.model.key() == key), None)
-        self.select(target or (self.widgets[0] if self.widgets else None))
+        cur = self.selected()
+        key = cur.key() if keep and cur else None
+        self.shown_rows = views.visible(self.rows, self.filter.get_text() if self.page == APPS else "")
+        index = next((i for i, r in enumerate(self.shown_rows) if r.key() == key), None)
+        if index is None:
+            index = self.step_from(-1, 1)
+        self.cross.set_items(self.shown_rows, index if index is not None else 0)
         self.update_hints()
 
     def selected(self):
-        w = self.list.get_selected_row()
-        return w.model if w is not None else None
+        w = self.cross.current()
+        return w.model if w is not None and w.model.kind != views.HEADER else None
 
-    def select(self, w):
-        self.list.select_row(w)
-        if w is None:
-            return
-        if self.widgets and w is self.widgets[0]:
-            # The first row: the top of the list, with its section's header.
-            GLib.idle_add(lambda: self.scroll.get_vadjustment().set_value(0) and False)
-        else:
-            GLib.idle_add(lambda: ui.scroll_to(self.scroll, w, self.list) and False)
+    def step_from(self, index, step):
+        """The next item that can be chosen from index, going step; None."""
+        i = index + step
+        while 0 <= i < len(self.shown_rows):
+            if self.shown_rows[i].kind != views.HEADER:
+                return i
+            i += step
+        return None
 
     def move(self, step):
-        if not self.widgets:
-            return
-        cur = self.list.get_selected_row()
-        i = self.widgets.index(cur) + step if cur in self.widgets else 0
-        self.select(self.widgets[max(0, min(len(self.widgets) - 1, i))])
-        self.update_hints()
+        i, target = self.cross.selected, None
+        for _ in range(abs(step)):
+            nxt = self.step_from(i, 1 if step > 0 else -1)
+            if nxt is None:
+                break
+            i = target = nxt
+        if target is not None:
+            self.cross.select(target)
+            self.update_hints()
+
+    def on_item_click(self, item):
+        if item is self.cross.current():
+            self.choose(item.model)
+        else:
+            self.cross.select(self.cross.items.index(item))
+            self.update_hints()
 
     # --- what choosing does ---
 
@@ -205,12 +240,16 @@ class Menu(Gtk.ApplicationWindow):
             return
         if row.confirm:
             self.ask(row)
+        elif row.kind == views.SLIDER:
+            self.open_level(row)
         elif row.call is not None:
             self.send(row.call)
         elif row.sheet:
-            self.open_sheet(row)
+            self.open_options(row)
 
     def send(self, call, refresh=True):
+        if call.method == "LOCAL":
+            return self.local(call)
         try:
             res = self.api.call(call.method, call.path, call.body)
         except Exception as e:  # noqa: BLE001
@@ -221,6 +260,19 @@ class Menu(Gtk.ApplicationWindow):
             GLib.timeout_add(150, lambda: self.refresh(keep=True) and False)
         return res
 
+    def local(self, call):
+        """A change on this screen alone: the background."""
+        if call.path == "background":
+            try:
+                background.save(call.body)
+            except OSError as e:
+                self.say(f"Cannot save the background: {e}", error=True)
+                return None
+            self.look = background.load()
+            self.apply_background()
+            self.refresh(keep=True)
+        return None
+
     def back(self):
         if self.page == APPS and self.filter.get_text():
             self.filter.set_text("")
@@ -229,32 +281,29 @@ class Menu(Gtk.ApplicationWindow):
         else:
             self.send(views.Call("POST", "/v1/windows/back"), refresh=False)
 
-    # --- the sheet and the question ---
+    # --- the options panel and the question ---
 
-    def open_sheet(self, row):
-        if not row.sheet:
+    def open_options(self, row):
+        if row is None or not row.sheet:
             return
-        self.sheet_row = row
-        self.sheet.title.set_text(row.title)
-        self.sheet_widgets = ui.fill(self.sheet.list, row.sheet)
-        self.sheet.list.select_row(self.sheet_widgets[0] if self.sheet_widgets else None)
         self.scrim.set_visible(True)
-        self.sheet.set_visible(True)
+        self.panel.show_options(row)
         self.update_hints()
 
-    def run_sheet(self, row):
-        self.close_overlays()
-        self.choose(row)
+    def open_level(self, row):
+        self.scrim.set_visible(True)
+        self.panel.show_level(row)
+        self.update_hints()
 
     def ask(self, row):
         self.asked = row.call
         self.scrim.set_visible(True)
-        self.dialog.ask(row.confirm)
+        self.band.ask(row.confirm)
         self.update_hints()
 
     def close_overlays(self):
-        self.sheet_row, self.asked = None, None
-        for w in (self.scrim, self.sheet, self.dialog):
+        self.asked = None
+        for w in (self.scrim, self.panel, self.band):
             w.set_visible(False)
         self.update_hints()
 
@@ -266,7 +315,7 @@ class Menu(Gtk.ApplicationWindow):
         typing = self.page == APPS and bool(self.filter.get_text())
         verb = inp.verb_for_key(name, bool(state & Gdk.ModifierType.SHIFT_MASK), typing)
         if verb is None:
-            if self.page == APPS and self.sheet_row is None and self.asked is None:
+            if self.page == APPS and not self.panel.get_visible() and self.asked is None:
                 self.filter.grab_focus()
                 return False  # typed into the filter
             return True
@@ -275,37 +324,33 @@ class Menu(Gtk.ApplicationWindow):
         self.handle(verb)
         return True
 
-    def on_right_click(self, _gesture, _n, _x, y):
-        w = self.list.get_row_at_y(int(y))
-        if w is not None and w.model.kind != views.HEADER:
-            self.select(w)
-            self.open_sheet(w.model)
-
     def handle(self, verb):
         if self.asked is not None:
             if verb in (inp.LEFT, inp.RIGHT):
-                self.dialog.choose(verb == inp.RIGHT)
+                self.band.choose(verb == inp.RIGHT)
             elif verb == inp.ACTIVATE:
-                call, yes = self.asked, self.dialog.answer
+                call, yes = self.asked, self.band.answer
                 self.close_overlays()
                 if yes:
                     self.send(call)
             elif verb == inp.BACK:
                 self.close_overlays()
             return
-        if self.sheet_row is not None:
-            if verb in (inp.UP, inp.DOWN):
-                lst, ws = self.sheet.list, self.sheet_widgets
-                cur = lst.get_selected_row()
-                i = (ws.index(cur) if cur in ws else 0) + (1 if verb == inp.DOWN else -1)
-                if ws:
-                    w = ws[max(0, min(len(ws) - 1, i))]
-                    lst.select_row(w)
-                    ui.scroll_to(self.sheet.scroll, w, lst)
+        if self.panel.get_visible():
+            if self.panel.slider:
+                row = self.panel.row
+                if verb == inp.UP:
+                    self.send(row.step)
+                elif verb == inp.DOWN:
+                    self.send(row.step_back)
+                elif verb in (inp.BACK, inp.ACTIVATE, inp.ACTIONS):
+                    self.close_overlays()
+            elif verb in (inp.UP, inp.DOWN):
+                self.panel.move(1 if verb == inp.DOWN else -1)
             elif verb == inp.ACTIVATE:
-                w = self.sheet.list.get_selected_row()
-                if w is not None:
-                    self.run_sheet(w.model)
+                row = self.panel.current()
+                self.close_overlays()
+                self.choose(row)
             elif verb in (inp.BACK, inp.ACTIONS):
                 self.close_overlays()
             return
@@ -313,17 +358,15 @@ class Menu(Gtk.ApplicationWindow):
         if verb in (inp.UP, inp.DOWN):
             self.move(1 if verb == inp.DOWN else -1)
         elif verb in (inp.PAGE_UP, inp.PAGE_DOWN):
-            self.move(8 if verb == inp.PAGE_DOWN else -8)
-        elif verb in (inp.LEFT, inp.RIGHT) and row is not None and row.kind == views.SLIDER:
-            self.send(row.step if verb == inp.RIGHT else row.step_back)
+            self.move(5 if verb == inp.PAGE_DOWN else -5)
         elif verb in (inp.LEFT, inp.PREV_TAB):
             self.show_page(self.page - 1)
         elif verb in (inp.RIGHT, inp.NEXT_TAB):
             self.show_page(self.page + 1)
         elif verb == inp.ACTIVATE:
             self.choose(row)
-        elif verb == inp.ACTIONS and row is not None:
-            self.open_sheet(row)
+        elif verb == inp.ACTIONS:
+            self.open_options(row)
         elif verb == inp.CLOSE and row is not None and row.instance:
             self.send(views.Call("POST", f"/v1/instances/{row.instance}/close"))
         elif verb == inp.BACK:
@@ -337,27 +380,31 @@ class Menu(Gtk.ApplicationWindow):
 
     def update_hints(self):
         if self.asked is not None:
-            pairs = [(inp.ACTIVATE, "answer"), (inp.BACK, "cancel")]
-        elif self.sheet_row is not None:
+            pairs = [(inp.NEXT_TAB, "answer"), (inp.ACTIVATE, "choose"), (inp.BACK, "cancel")]
+        elif self.panel.get_visible() and self.panel.slider:
+            pairs = [(inp.UP, "change"), (inp.BACK, "done")]
+        elif self.panel.get_visible():
             pairs = [(inp.ACTIVATE, "choose"), (inp.BACK, "close")]
         else:
             row = self.selected()
             pairs = []
-            if row is not None and row.kind == views.SLIDER:
-                pairs.append((None, ""))
-            elif row is not None and (row.call or row.sheet):
+            if row is not None and (row.call or row.sheet or row.kind == views.SLIDER):
                 pairs.append((inp.ACTIVATE, "open" if self.page == APPS else "choose"))
-            if row is not None and row.sheet and row.call:
-                pairs.append((inp.ACTIONS, "actions"))
+            if row is not None and row.sheet:
+                pairs.append((inp.ACTIONS, "options"))
             if row is not None and row.instance:
                 pairs.append((inp.CLOSE, "close"))
-            pairs.append((inp.NEXT_TAB, "pages"))
+            pairs.append((inp.NEXT_TAB, "category"))
             pairs.append((inp.BACK, "back"))
-        text = inp.hint_text([p for p in pairs if p[0]], self.device)
-        row = self.selected()
-        if self.sheet_row is None and self.asked is None and row is not None and row.kind == views.SLIDER:
-            text = "◀ ▶ change   " + text
-        self.hints.set_text(text)
+        self.hints.set_text(inp.hint_text(pairs, self.device))
+
+    def tick_clock(self):
+        self.clock.set_text(datetime.datetime.now().strftime("%a %-d %b   %H:%M"))
+        return True
+
+    def apply_background(self):
+        self.bg.load_from_string(background.css(self.look, datetime.datetime.now(), self.tokens))
+        return True
 
     # --- hostd's events ---
 
@@ -376,9 +423,10 @@ class Menu(Gtk.ApplicationWindow):
 
     def update(self):
         self.pending = False
-        if self.is_active() and self.sheet_row is None and self.asked is None:
+        options_open = self.panel.get_visible() and not self.panel.slider
+        if self.is_active() and not options_open and self.asked is None:
             try:
-                data = fetch(self.api, self.page)
+                data = fetch(self.api, self.page, self.look, self.tokens)
             except Exception:  # noqa: BLE001 - the next event or poll tries again
                 return False
             if json.dumps([r.__dict__ for r in data[0]], default=str, sort_keys=True) != self.shown:

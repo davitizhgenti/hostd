@@ -1,11 +1,16 @@
 /* hostd's components, styled only with the design tokens (tokens.css,
    loaded before this). A new look is a change to tokens.toml, not here;
    a new component adds its rules here, with var(--...) values only.
-   Sizes in tokens.css are for a 1080-pixel-high screen: the UI scales them. */
+   Sizes in tokens.css are for a 1080-pixel-high screen: the UI scales them.
+
+   The look: flat and square, on the screen's background (the .backdrop,
+   set from the user's setting by hostd_ui.background). Type, space and
+   brightness say what is current; no boxes, pills or shadows. */
 
 * {
   font-family: var(--font-text);
   font-size: var(--type-body);
+  font-weight: var(--weight-regular);
   border-radius: 0;
   box-shadow: none;
   outline: none;
@@ -17,30 +22,19 @@ window.hostd {
   color: var(--color-text);
 }
 
-/* --- a page: tabs, a filter, a list, the hint bar --- */
-
-.page {
-  padding: var(--layout-safe-margin);
+.backdrop {
+  background: var(--color-bg);
 }
 
-.tabs {
-  margin-bottom: var(--space-6);
+/* --- the corners: filter, clock, message, hints --- */
+
+.corner {
+  margin: var(--layout-safe-margin);
 }
 
-.tab {
+.clock {
   font-size: var(--type-title);
-  font-weight: var(--weight-strong);
-  color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-6);
-  margin-right: var(--space-2);
-  border-radius: var(--radius-medium);
-  background: transparent;
-  transition: background var(--motion-fast), color var(--motion-fast);
-}
-
-.tab.current {
-  color: var(--color-on-accent);
-  background: var(--color-accent);
+  font-weight: var(--weight-light);
 }
 
 .summary {
@@ -49,87 +43,108 @@ window.hostd {
 }
 
 .filter {
-  background: var(--color-surface);
-  border: var(--line-border) solid var(--color-border);
-  border-radius: var(--radius-medium);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-4);
+  background: transparent;
   color: var(--color-text);
+  font-size: var(--type-label);
   caret-color: var(--color-accent);
+  min-width: 480px;
 }
 
-.filter.empty {
+.filter placeholder {
   color: var(--color-text-muted);
 }
 
-/* --- lists and rows --- */
-
-list {
-  background: transparent;
-}
-
-row {
-  min-height: var(--layout-row-height);
-  padding: var(--space-2) var(--space-6);
-  margin: var(--space-1) 0;
-  border-radius: var(--radius-medium);
-  border: var(--line-focus) solid transparent;
-  background: transparent;
-  transition: background var(--motion-fast), border-color var(--motion-fast);
-}
-
-row:hover {
-  background: var(--color-surface);
-}
-
-/* The focus: always a ring and a surface, never only a color change. */
-row:selected, row:focus {
-  background: var(--color-surface);
-  border-color: var(--color-accent);
-  color: var(--color-text);
-}
-
-row.header {
-  min-height: 0;
-  padding: var(--space-6) var(--space-6) var(--space-1) var(--space-6);
-  border: none;
-  background: transparent;
-}
-
-row.header label {
-  color: var(--color-text-muted);
-  font-size: var(--type-label);
-  font-weight: var(--weight-strong);
-}
-
-.row-title {
-  color: var(--color-text);
-}
-
-.row-subtitle {
+.hints, .message {
   color: var(--color-text-muted);
   font-size: var(--type-label);
 }
 
-.row-subtitle.mono {
-  font-family: var(--font-mono);
+.message.error {
+  color: var(--color-danger);
 }
 
-.row-value {
-  color: var(--color-text-muted);
+/* --- the cross: categories on a row, items in a column --- */
+
+.category {
+  transition: opacity var(--motion-base);
+}
+
+.category-name {
+  font-size: var(--type-title);
+  font-weight: var(--weight-light);
+  margin-top: var(--space-2);
+}
+
+.item {
+  min-height: var(--layout-item-height);
+  opacity: 0.6;
+  transition: opacity var(--motion-base);
+}
+
+.item.before {
+  opacity: 0.35;
+}
+
+.item.current {
+  min-height: var(--layout-item-current);
+  opacity: 1;
+}
+
+.item-text {
   margin-left: var(--space-6);
 }
 
-/* --- badges --- */
+.item-title {
+  color: var(--color-text);
+}
+
+.item.current .item-title {
+  font-size: var(--type-title);
+  font-weight: var(--weight-light);
+}
+
+.item-title.danger {
+  color: var(--color-danger);
+}
+
+.item-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.item-value {
+  color: var(--color-text-muted);
+  margin-left: var(--space-8);
+}
+
+.section {
+  min-height: var(--layout-header-height);
+  padding-left: calc(var(--layout-icon-item) + var(--space-6));
+}
+
+.section-label {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+  letter-spacing: 2px;
+}
+
+/* An app with no icon: its first letter in a hairline square. */
+.letter {
+  border: var(--line-border) solid var(--color-text-muted);
+  color: var(--color-text);
+  font-size: var(--type-label);
+}
+
+/* --- states: a quiet word in its role's color, no box --- */
 
 .badge {
   font-size: var(--type-label);
-  font-weight: var(--weight-strong);
-  padding: var(--space-1) var(--space-3);
-  margin-left: var(--space-4);
-  border-radius: var(--radius-small);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
+  margin-left: var(--space-6);
+  color: var(--color-text-muted);
 }
 
 .badge.positive { color: var(--color-positive); }
@@ -137,87 +152,103 @@ row.header label {
 .badge.danger   { color: var(--color-danger); }
 .badge.accent   { color: var(--color-accent); }
 
-.row-title.danger { color: var(--color-danger); }
+/* --- levels: a hairline and its filled part --- */
 
-/* --- sliders --- */
-
-levelbar.slider {
-  min-width: 360px;
-  margin-left: var(--space-6);
-}
-
-levelbar.slider block {
-  min-height: var(--space-3);
-  border-radius: var(--radius-small);
+levelbar block {
   border: none;
 }
 
-levelbar.slider block.empty  { background: var(--color-border); }
-levelbar.slider block.filled { background: var(--color-accent); }
+levelbar block.empty  { background: alpha(currentColor, 0.2); }
+levelbar block.filled { background: var(--color-accent); }
 
-/* --- what floats: a sheet of actions, a question --- */
-
-.sheet, .dialog {
-  background: var(--color-surface-raised);
-  border: var(--line-border) solid var(--color-border);
-  border-radius: var(--radius-large);
-  padding: var(--space-4);
+levelbar.slider {
+  min-width: 320px;
+  margin-left: var(--space-8);
 }
 
-.sheet {
-  min-width: var(--layout-sheet-width);
+levelbar.slider block {
+  min-height: var(--line-focus);
 }
 
-.sheet row {
-  min-height: 0;
-  padding: var(--space-2) var(--space-4);
+/* --- the options panel, at the right edge --- */
+
+.scrim {
+  background: alpha(black, 0.45);
 }
 
-.dialog {
-  padding: var(--space-8);
+.panel {
+  background: alpha(var(--color-bg), 0.92);
+  border-left: var(--line-border) solid var(--color-border);
+  padding: var(--layout-safe-margin) var(--layout-safe-margin) var(--layout-safe-margin) var(--space-12);
 }
 
-.dialog .question {
-  font-size: var(--type-title);
+.panel-title {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+  letter-spacing: 2px;
   margin-bottom: var(--space-8);
 }
 
-.dialog .button {
-  padding: var(--space-3) var(--space-8);
+.option {
+  min-height: var(--layout-item-height);
+  opacity: 0.55;
+}
+
+.option.current {
+  opacity: 1;
+}
+
+.option-title {
   margin-left: var(--space-4);
-  border-radius: var(--radius-medium);
-  border: var(--line-focus) solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
 }
 
-.dialog .button.current {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+.option.current .option-title {
+  font-weight: var(--weight-strong);
 }
 
-.scrim {
-  background: alpha(black, 0.55);
-}
-
-/* --- the hint bar and the status line --- */
-
-.hints {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: var(--line-border) solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--type-label);
-}
-
-.message {
-  font-size: var(--type-label);
-  color: var(--color-text-muted);
-}
-
-.message.error {
+.option-title.danger {
   color: var(--color-danger);
+}
+
+.panel-value {
+  font-size: var(--type-display);
+  font-weight: var(--weight-light);
+  margin-bottom: var(--space-8);
+}
+
+levelbar.panel-level {
+  min-height: 360px;
+}
+
+levelbar.panel-level block {
+  min-width: var(--line-focus);
+}
+
+/* --- a question, across the screen --- */
+
+.band {
+  background: alpha(var(--color-bg), 0.92);
+  border-top: var(--line-border) solid var(--color-border);
+  border-bottom: var(--line-border) solid var(--color-border);
+  padding: var(--space-12) var(--layout-safe-margin);
+}
+
+.band .question {
+  font-size: var(--type-title);
+  font-weight: var(--weight-light);
+  margin-bottom: var(--space-8);
+}
+
+.band .button {
+  padding: var(--space-2) 0;
+  margin: 0 var(--space-8);
+  border-bottom: var(--line-focus) solid transparent;
+  color: var(--color-text-muted);
+}
+
+.band .button.current {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
 }
 
 /* --- notices and the OSD (hostd-notices, on the overlay layer) --- */
@@ -227,13 +258,12 @@ window.overlay {
 }
 
 .notice {
-  background: var(--color-surface-raised);
+  background: alpha(var(--color-surface-raised), 0.96);
   color: var(--color-text);
   border: var(--line-border) solid var(--color-border);
-  border-left: calc(var(--line-focus) * 2) solid var(--color-accent);
-  border-radius: var(--radius-large);
-  padding: var(--space-6) var(--space-8);
-  margin-bottom: var(--space-4);
+  border-left: var(--line-focus) solid var(--color-accent);
+  padding: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-3);
   min-width: var(--layout-notice-width);
 }
 
@@ -241,25 +271,24 @@ window.overlay {
 .notice.critical { border-left-color: var(--color-danger); }
 
 .notice .summary-text {
-  font-size: var(--type-title);
   font-weight: var(--weight-strong);
 }
 
 .notice .body-text {
   color: var(--color-text-muted);
-  margin-top: var(--space-2);
+  font-size: var(--type-label);
+  margin-top: var(--space-1);
 }
 
 .notice .app-name {
   font-size: var(--type-label);
   color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 
 .osd {
-  background: var(--color-surface-raised);
+  background: alpha(var(--color-surface-raised), 0.96);
   border: var(--line-border) solid var(--color-border);
-  border-radius: var(--radius-large);
   padding: var(--space-6) var(--space-8);
   min-width: var(--layout-osd-width);
 }
@@ -267,18 +296,14 @@ window.overlay {
 .osd .osd-label {
   color: var(--color-text-muted);
   font-size: var(--type-label);
+  letter-spacing: 2px;
 }
 
 .osd .osd-value {
   font-size: var(--type-title);
-  font-weight: var(--weight-strong);
+  font-weight: var(--weight-light);
 }
 
 .osd levelbar block {
-  min-height: var(--space-2);
-  border-radius: var(--radius-small);
-  border: none;
+  min-height: var(--line-focus);
 }
-
-.osd levelbar block.empty  { background: var(--color-border); }
-.osd levelbar block.filled { background: var(--color-accent); }

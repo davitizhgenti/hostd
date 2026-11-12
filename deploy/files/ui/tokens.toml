@@ -8,32 +8,32 @@
 # Sizes are px on a 1080-pixel-high screen; the UI scales them with the
 # screen's height. Times are milliseconds. See docs/design.md.
 
-[color]
-bg             = "#0f1218" # the screen behind everything
-surface        = "#171b23" # panels, the menu's list
-surface-raised = "#202632" # what floats: action sheets, notices, the OSD
-border         = "#2c3442"
-text           = "#e8ecf2"
-text-muted     = "#8e98a8"
-accent         = "#5b9cff" # the focus, the selection, links
-on-accent      = "#0b1220" # text on an accent background
-positive       = "#4cc38a" # running, done
-warning        = "#e5b04a"
-danger         = "#f0616d" # errors, closing, critical notices
+[color] # neutral, near black; color only where it means something
+bg             = "#0b0b0c" # the screen before the background is set (see [month])
+surface        = "#121214" # a filled area: the filter
+surface-raised = "#17171a" # what floats: the options panel, notices, the OSD
+border         = "#26262a" # hairlines
+text           = "#ececee"
+text-muted     = "#7c7c84"
+accent         = "#ececee" # the focus: the text's own color
+positive       = "#86b89c" # running, done
+warning        = "#d2b06e"
+danger         = "#dc7a7a" # errors, closing, critical notices
 
 [font]
 text = "Inter, \"DejaVu Sans\", sans-serif"
 mono = "\"DejaVu Sans Mono\", monospace"
 
 [type] # font sizes
-display = 52 # a page's title
-title   = 36 # a notice's summary, the OSD's value
-body    = 27 # rows, settings
-label   = 22 # ids, hints, second lines
+display = 48 # the clock
+title   = 34 # the current item, the current category, a question
+body    = 26 # the other items, notices, options
+label   = 20 # ids, hints, second lines, section labels
 
 [weight]
+light   = 300 # the large type: the current item, questions
 regular = 400
-strong  = 600
+strong  = 500
 
 [space] # 4 px steps
 1  = 4
@@ -45,23 +45,41 @@ strong  = 600
 12 = 48
 16 = 64
 
-[radius]
-small  = 6
-medium = 12
-large  = 18
-
 [line]
-border = 2 # borders and dividers
-focus  = 4 # the focus ring: always visible, never only a color change
+border = 1 # hairlines: borders and dividers
+focus  = 2 # the selection's edge and the current tab's underline
 
 [motion]
 fast = 100 # hover, focus
 base = 150 # pages, sheets, notices: nothing slower
 
 [layout]
-safe-margin  = 48  # kept clear at the screen's edges (projectors, TVs cropping)
-content-max  = 1600 # the widest the menu's content gets on a wide screen
-notice-width = 820
-osd-width    = 420
-sheet-width  = 640  # a row's actions
-row-height   = 72
+safe-margin   = 48  # kept clear at the screen's edges (projectors, TVs cropping)
+cross-x       = 360 # the cross: where the category row and the item column meet
+cross-y       = 300
+category-step = 200 # from one category to the next
+icon-category = 64
+icon-item     = 40
+item-height   = 64  # an item in the column
+item-current  = 112 # the current item: larger, with its second line
+header-height = 48  # a section's label in the column
+panel-width   = 600 # the options panel, at the right edge
+notice-width  = 640
+osd-width     = 420
+
+# The background in its "month" mode: the month gives the hue (as the PSP
+# did), the time of day the lightness. Muted; only their hue and saturation
+# are used, so text stays readable whatever the hour.
+[month]
+jan = "#9097a3" # silver
+feb = "#b39a4f" # gold
+mar = "#7f9c5c" # olive
+apr = "#c48aa4" # pink
+may = "#5ea06f" # green
+jun = "#8d78b4" # lavender
+jul = "#4e9f9b" # teal
+aug = "#4f80c2" # blue
+sep = "#7462aa" # violet
+oct = "#c48a3e" # amber
+nov = "#8d6a4e" # brown
+dec = "#b2484f" # red

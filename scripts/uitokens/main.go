@@ -28,7 +28,7 @@ const source = "deploy/files/ui/tokens.toml"
 
 // units of each group's numbers; a group not listed has plain values.
 var units = map[string]string{
-	"type": "px", "space": "px", "radius": "px", "line": "px", "layout": "px", "motion": "ms",
+	"type": "px", "space": "px", "line": "px", "layout": "px", "motion": "ms",
 }
 
 // The Sway config's lines between these are generated.

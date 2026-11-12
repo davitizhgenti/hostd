@@ -1,6 +1,7 @@
 """Tests of hostd_ui's parts that need no screen: run with
 python3 -m unittest discover -s deploy/files/ui -p "test_*.py"."""
 
+import datetime
 import http.server
 import json
 import os
@@ -13,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hostd_ui import api, input as inp, notices, theme, views  # noqa: E402
+from hostd_ui import api, background, cross, input as inp, notices, theme, views  # noqa: E402
 
 INSTANCES = [
     {"id": "steam", "app": "steam", "name": "Steam", "surface": "window", "state": "running"},
@@ -121,6 +122,28 @@ class SettingsPage(unittest.TestCase):
     def test_power_asks(self):
         self.assertTrue(self.rows["Turn the screen off"].confirm)
 
+    def test_icons(self):
+        self.assertEqual(self.rows["Volume"].icon, "volume-2")
+        self.assertEqual(self.rows["Resolution"].icon, "monitor")
+        for r in self.rows.values():
+            if r.kind != views.HEADER:
+                self.assertTrue(os.path.exists(os.path.join(theme.HERE, "icons", r.icon + ".svg")), r.icon)
+
+    def test_background_row(self):
+        look = {"mode": "month", "color": "", "image": "/pics/sea.jpg"}
+        rows = {r.title: r for r in views.settings_page(AUDIO, DISPLAY, look, theme.tokens())}
+        bg = rows["Background"]
+        self.assertEqual(bg.value, "Month and time of day")
+        self.assertEqual(bg.sheet[0].badge, "now")
+        self.assertEqual(bg.sheet[0].call, views.local("background", {"mode": "month", "color": "", "image": "/pics/sea.jpg"}))
+        self.assertEqual(bg.sheet[-1].title, "Image: sea.jpg")
+        gold = [r for r in bg.sheet if r.title == "Gold"][0]
+        self.assertEqual(gold.call.body["mode"], "color")
+        # A chosen color is named, and marked.
+        look = dict(gold.call.body)
+        rows = {r.title: r for r in views.settings_page(AUDIO, DISPLAY, look, theme.tokens())}
+        self.assertEqual(rows["Background"].value, "Gold")
+
     def test_no_sound_no_screen(self):
         titles = [r.title for r in views.settings_page(None, {})]
         self.assertIn("No sound server", titles)
@@ -146,6 +169,118 @@ class StatusPage(unittest.TestCase):
 
     def test_empty(self):
         self.assertIn("Nothing done yet", [r.title for r in views.status_page({}, {}, [])])
+
+
+class Categories(unittest.TestCase):
+    def test_names_and_icons(self):
+        self.assertEqual([n for n, _ in views.CATEGORIES], ["Apps", "Users", "Settings", "Status"])
+        for _, icon in views.CATEGORIES:
+            self.assertTrue(os.path.exists(os.path.join(theme.HERE, "icons", icon + ".svg")))
+
+    def test_every_page_has_icons(self):
+        rows, _ = views.apps_page(INSTANCES, APPS)
+        rows += views.users_page([{"user": "serve", "vt": 7}]) + views.status_page({}, DISPLAY, [])
+        for r in rows:
+            if r.kind != views.HEADER:
+                self.assertTrue(r.icon, r.title)
+
+
+M = cross.Metrics(x=360, y=300, category_step=200, icon_category=64, item_height=64, item_current=112,
+                  header_height=48, gap=16, label_height=50)
+
+
+class Cross(unittest.TestCase):
+    def test_categories_slide(self):
+        self.assertEqual(cross.category_x(M, 2, 2), 360)
+        self.assertEqual(cross.category_x(M, 3, 2), 560)
+        self.assertEqual(cross.category_x(M, 0, 2), -40)
+
+    def test_current_under_the_row_others_around(self):
+        kinds = ["header", "item", "item", "header", "item", "item"]
+        ys = cross.item_ys(M, kinds, 2)
+        below = M.row_bottom
+        self.assertEqual(below, 300 + 64 + 50 + 16)
+        self.assertEqual(ys[2], below)  # the current one
+        self.assertEqual(ys[3], below + 112)  # then a header, under the current (taller) one
+        self.assertEqual(ys[4], below + 112 + 48)
+        self.assertEqual(ys[1], 300 - 16 - 64)  # before it: above the row
+        self.assertEqual(ys[0], 300 - 16 - 64 - 48)
+
+    def test_first_and_empty(self):
+        self.assertEqual(cross.item_ys(M, ["item", "item"], 0), [M.row_bottom, M.row_bottom + 112])
+        self.assertEqual(cross.item_ys(M, ["item"], 5), [M.row_bottom])  # clamped
+        self.assertEqual(cross.item_ys(M, [], 0), [])
+
+    def test_metrics_scale(self):
+        m = cross.Metrics.of(theme.tokens()["layout"], 2.0, 16, 50)
+        self.assertEqual((m.x, m.gap, m.label_height), (theme.tokens()["layout"]["cross-x"] * 2, 32, 100))
+
+    def test_ease(self):
+        self.assertEqual((cross.ease(0), cross.ease(1), cross.ease(2)), (0, 1, 1))
+        self.assertGreater(cross.ease(0.5), 0.5)  # quick, then settling
+
+
+class Background(unittest.TestCase):
+    def setUp(self):
+        self.tokens = theme.tokens()
+        self.dir = tempfile.mkdtemp()
+        self.file = os.path.join(self.dir, "hostd", "ui.toml")
+
+    def light(self, hex_color):
+        import colorsys
+        return colorsys.rgb_to_hls(*background.rgb(hex_color))[1]
+
+    def test_default_and_bad_files(self):
+        self.assertEqual(background.load(self.file)["mode"], "month")
+        os.makedirs(os.path.dirname(self.file))
+        with open(self.file, "w") as f:
+            f.write("[background]\nmode = \"color\"\ncolor = \"red\"\n")
+        self.assertEqual(background.load(self.file)["mode"], "month")  # no usable color
+        with open(self.file, "w") as f:
+            f.write("not toml [")
+        self.assertEqual(background.load(self.file)["mode"], "month")
+
+    def test_save_and_load(self):
+        setting = {"mode": "image", "color": "#203040", "image": '/pics/a "b".jpg'}
+        background.save(setting, self.file)
+        self.assertEqual(background.load(self.file), setting)
+
+    def test_month_gives_the_hue(self):
+        noon = datetime.datetime(2026, 12, 1, 13, 0)
+        top, bottom = background.colors({"mode": "month"}, noon, self.tokens)
+        r, g, b = background.rgb(top)
+        self.assertGreater(r, g)  # December: red
+        self.assertLess(self.light(bottom), self.light(top))
+        aug = background.colors({"mode": "month"}, noon.replace(month=8), self.tokens)[0]
+        r, g, b = background.rgb(aug)
+        self.assertGreater(b, r)  # August: blue
+
+    def test_night_is_darker_and_light_is_capped(self):
+        day = datetime.datetime(2026, 3, 1, 14, 0)
+        night = day.replace(hour=2)
+        dusk = day.replace(hour=19)
+        light = [self.light(background.colors({"mode": "month"}, t, self.tokens)[0]) for t in (night, dusk, day)]
+        self.assertLess(light[0], light[1])
+        self.assertLess(light[1], light[2])
+        for m in range(1, 13):
+            self.assertLessEqual(self.light(background.colors({"mode": "month"}, day.replace(month=m), self.tokens)[0]),
+                                 background.MAX_LIGHT + 0.01)
+        white = background.colors({"mode": "color", "color": "#ffffff"}, day, self.tokens)[0]
+        self.assertLessEqual(self.light(white), background.MAX_LIGHT + 0.01)
+
+    def test_daylight(self):
+        self.assertEqual([background.daylight(h) for h in (0, 3, 13, 23)], [0, 0, 1, 0])
+        self.assertTrue(0 < background.daylight(8) < 1 and 0 < background.daylight(19) < 1)
+
+    def test_css_and_sway(self):
+        now = datetime.datetime(2026, 5, 1, 12, 0)
+        self.assertIn("linear-gradient(to bottom", background.css({"mode": "month"}, now, self.tokens))
+        args = background.sway_bg({"mode": "month"}, now, self.tokens)
+        self.assertEqual((args[:3], args[4]), (["output", "*", "bg"], "solid_color"))
+        self.assertTrue(background.is_color(args[3]))
+        image = {"mode": "image", "color": "", "image": "/pics/sea.jpg"}
+        self.assertIn('url("file:///pics/sea.jpg")', background.css(image, now, self.tokens))
+        self.assertEqual(background.sway_bg(image, now, self.tokens), ["output", "*", "bg", "/pics/sea.jpg", "fill"])
 
 
 class Results(unittest.TestCase):

@@ -3,18 +3,25 @@
 
 Takes the session bus's org.freedesktop.Notifications, so hostd's notices
 (hostctl display notice, the menu's "wants the screen") and every app's
-notifications are drawn in hostd's design: cards at the top centre, on the
-overlay layer above fullscreen games, at most three at once. It also
-follows hostd's events and shows the OSD (the volume, whose screen it is)
-at the bottom centre.
+notifications are drawn in hostd's design: at the top right, under where
+the menu has its clock, on the overlay layer above fullscreen games, at
+most three at once. It also follows hostd's events and shows the OSD (the
+volume, whose screen it is) at the bottom centre.
+
+It also keeps the screen's background (behind every app) as the menu's
+setting says (hostd_ui.background, ~/.config/hostd/ui.toml): when the file
+changes, and every few minutes in the month mode, whose light follows the
+hour.
 
 Needs gtk4-layer-shell (gir1.2-gtk4layershell-1.0). Without it, it runs
 mako instead, if there is one, so notices still show.
 """
 
 import ctypes
+import datetime
 import os
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -48,11 +55,12 @@ from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 from hostd_ui import api as hapi  # noqa: E402
 from hostd_ui import components as ui  # noqa: E402
-from hostd_ui import notices, theme  # noqa: E402
+from hostd_ui import background, notices, theme  # noqa: E402
 
 BUS_NAME = "org.freedesktop.Notifications"
 PATH = "/org/freedesktop/Notifications"
 OSD_SECONDS = 1.6
+BACKGROUND_EVERY = 300  # seconds: the month mode's light follows the hour
 XML = """
 <node>
   <interface name="org.freedesktop.Notifications">
@@ -75,9 +83,10 @@ XML = """
 """
 
 
-def overlay_window(app, edge, margin):
-    """A window on the overlay layer, at the top or bottom centre, that takes
-    no keys and no clicks: notices never take the focus from a game."""
+def overlay_window(app, margins):
+    """A window on the overlay layer, at the edges in margins ({edge: px}),
+    that takes no keys and no clicks: notices never take the focus from a
+    game."""
     win = Gtk.Window(application=app)
     win.add_css_class("hostd")
     win.add_css_class("overlay")
@@ -85,8 +94,9 @@ def overlay_window(app, edge, margin):
     LayerShell.set_namespace(win, "hostd-notices")
     LayerShell.set_layer(win, LayerShell.Layer.OVERLAY)
     LayerShell.set_keyboard_mode(win, LayerShell.KeyboardMode.NONE)
-    LayerShell.set_anchor(win, edge, True)
-    LayerShell.set_margin(win, edge, margin)
+    for edge, margin in margins.items():
+        LayerShell.set_anchor(win, edge, True)
+        LayerShell.set_margin(win, edge, margin)
     return win
 
 
@@ -96,14 +106,19 @@ class Server:
         self.notices = notices.Notices()
         self.conn = None
         self.timer = 0
-        margin = int(theme.tokens()["layout"]["safe-margin"] * theme.scale_for(size[1]))
-        self.win = overlay_window(app, LayerShell.Edge.TOP, margin)
+        self.tokens = theme.tokens()
+        scale = theme.scale_for(size[1])
+        margin = int(self.tokens["layout"]["safe-margin"] * scale)
+        # Under the menu's clock and summary: the screen's one place for status.
+        below_clock = margin + int((self.tokens["type"]["title"] + self.tokens["type"]["label"]) * 1.5 * scale)
+        self.win = overlay_window(app, {LayerShell.Edge.TOP: below_clock + margin // 2, LayerShell.Edge.RIGHT: margin})
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.win.set_child(self.box)
-        self.osd_win = overlay_window(app, LayerShell.Edge.BOTTOM, margin * 2)
+        self.osd_win = overlay_window(app, {LayerShell.Edge.BOTTOM: margin * 2})
         self.osd = ui.OSD()
         self.osd_win.set_child(self.osd)
         self.osd_timer = 0
+        self.watch_background()
         # Gio's own bus connection: Notify is answered on the main loop.
         Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME,
                          Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT | Gio.BusNameOwnerFlags.REPLACE,
@@ -183,6 +198,24 @@ class Server:
         self.osd_timer = 0
         self.osd_win.set_visible(False)
         return False
+
+    # --- the screen's background ---
+
+    def watch_background(self):
+        self.bg_file = Gio.File.new_for_path(background.path())
+        self.bg_monitor = self.bg_file.monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        self.bg_monitor.connect("changed", lambda *_: self.apply_background() and False)
+        self.apply_background()
+        GLib.timeout_add_seconds(BACKGROUND_EVERY, self.apply_background)
+
+    def apply_background(self):
+        args = background.sway_bg(background.load(), datetime.datetime.now(), self.tokens)
+        try:
+            subprocess.run(["swaymsg", *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=5, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # not in Sway: nothing to set
+        return True
 
 
 def main():

@@ -39,8 +39,8 @@ a:hover, a:focus {
 }
 
 .dropdown-item:hover, .dropdown-item.active {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 code, kbd, pre {
@@ -50,7 +50,7 @@ code, kbd, pre {
 code {
   color: var(--color-text);
   background: var(--color-surface);
-  border-radius: var(--radius-small);
+  border-radius: 0;
   padding: 0 var(--space-1);
 }
 
@@ -58,7 +58,7 @@ pre, pre code {
   background: var(--color-surface) !important;
   color: var(--color-text);
   border: var(--line-border) solid var(--color-border);
-  border-radius: var(--radius-medium);
+  border-radius: 0;
 }
 
 pre code {
