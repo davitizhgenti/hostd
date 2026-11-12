@@ -887,7 +887,7 @@ func (in *installer) installUI() error {
 		if err != nil {
 			return err
 		}
-		shipped[dir+"/"+name] = true
+		shipped[filepath.Clean(in.path(dir+"/"+name))] = true
 		changed = changed || ch
 	}
 	// What an older version put there and this one does not ship.
@@ -895,12 +895,11 @@ func (in *installer) installUI() error {
 		if err != nil {
 			return nil //nolint:nilerr // a folder that is not there has nothing old in it
 		}
-		rel := "/" + strings.TrimPrefix(p, filepath.Clean(in.Root)+"/")
 		if d.Name() == "__pycache__" {
 			_ = os.RemoveAll(p)
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && !shipped[rel] {
+		if !d.IsDir() && !shipped[filepath.Clean(p)] {
 			_ = os.Remove(p)
 			changed = true
 		}
