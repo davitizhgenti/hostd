@@ -172,6 +172,11 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		if strings.Contains(scopes, "seat") && f.noSeatScope {
 			return []byte(`hostctl: invalid_args: unknown scope "seat"`), fail
 		}
+		for i := range f.tokenScopes { // like hostd: one active token per name
+			if !f.revoked[fmt.Sprintf("tok_%d", i+1)] {
+				return []byte(`hostctl: invalid_args: a token with this name already exists`), fail
+			}
+		}
 		f.tokens++
 		f.tokenScopes = append(f.tokenScopes, scopes)
 		return []byte(`{"action": "act_1", "status": "applied", "data": {"secret": "hostd_menu"}}`), nil

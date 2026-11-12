@@ -1042,6 +1042,10 @@ func (in *installer) menuToken(ctx context.Context, localToken string) error {
 		}
 		old = append(old, t.ID)
 	}
+	// A name belongs to one active token, so the old ones go first.
+	for _, id := range old {
+		_, _ = in.asScreen(ctx, "hostctl", "token", "revoke", id)
+	}
 	secret, scopes := in.createMenuToken(ctx, want)
 	if secret == "" && want != "read,apps,audio,display" {
 		// hostd has not loaded the seat module yet: without it, until the next update.
@@ -1059,9 +1063,6 @@ func (in *installer) menuToken(ctx context.Context, localToken string) error {
 	}
 	if err := in.chown(in.path(localToken), in.user.name); err != nil {
 		return err
-	}
-	for _, id := range old {
-		_, _ = in.asScreen(ctx, "hostctl", "token", "revoke", id)
 	}
 	in.menuChange = in.menuChange || len(old) > 0 // the running menu has the old one
 	if len(old) > 0 {
