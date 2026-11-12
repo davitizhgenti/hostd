@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -38,6 +39,9 @@ type fakeMachine struct {
 	hostdBroken    bool              // hostd does not start
 	aptFails       int               // apt-get install fails this many times (stale package lists)
 	alice          bool              // the user alice exists (useradd made her)
+	tokenScopes    []string          // the scopes of each menu token made
+	noSeatScope    bool              // hostd has not loaded the seat module: "seat" is refused
+	revoked        map[string]bool   // token IDs revoked
 }
 
 func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
@@ -163,9 +167,31 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		os.MkdirAll(filepath.Join(f.root, "home/screen/.config/hostctl"), 0o755)
 		os.WriteFile(filepath.Join(f.root, "home/screen/.config/hostctl/config.toml"), []byte("x"), 0o600)
 		return nil, nil
-	case strings.Join(argv, " ") == "hostctl --json token create menu --kind local --scopes read,apps":
+	case strings.HasPrefix(strings.Join(argv, " "), "hostctl --json token create menu --kind local --scopes "):
+		scopes := argv[len(argv)-1]
+		if strings.Contains(scopes, "seat") && f.noSeatScope {
+			return []byte(`hostctl: invalid_args: unknown scope "seat"`), fail
+		}
 		f.tokens++
+		f.tokenScopes = append(f.tokenScopes, scopes)
 		return []byte(`{"action": "act_1", "status": "applied", "data": {"secret": "hostd_menu"}}`), nil
+	case strings.Join(argv, " ") == "hostctl --json token list":
+		var list []map[string]any
+		for i, sc := range f.tokenScopes {
+			t := map[string]any{"id": fmt.Sprintf("tok_%d", i+1), "name": "menu", "kind": "local", "scopes": strings.Split(sc, ",")}
+			if f.revoked[t["id"].(string)] {
+				t["revoked"] = "2026-11-12T00:00:00Z"
+			}
+			list = append(list, t)
+		}
+		b, _ := json.Marshal(list)
+		return b, nil
+	case len(argv) == 4 && argv[0] == "hostctl" && argv[1] == "token" && argv[2] == "revoke":
+		if f.revoked == nil {
+			f.revoked = map[string]bool{}
+		}
+		f.revoked[argv[3]] = true
+		return nil, nil
 	case strings.Join(argv, " ") == "hostctl --json ps":
 		return []byte(`[]`), nil
 	case line == "hostname -I":
@@ -213,9 +239,10 @@ func TestInstallOnAFreshMachine(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
 	s.Out.Close()
-	for _, p := range []string{"/home/screen/.config/sway/config", "/home/screen/.config/mako/config", "/etc/greetd/config.toml",
+	for _, p := range []string{"/home/screen/.config/sway/config", "/home/screen/.config/systemd/user/hostd-notices.service", "/etc/greetd/config.toml",
 		"/home/screen/.config/systemd/user/hostd.service", "/home/screen/.local/lib/hostd/rollback.sh", "/usr/local/bin/hostctl",
-		"/usr/local/lib/hostd/hostd-menu", "/home/screen/.config/hostd/apps/hostd-menu.toml", "/usr/local/sbin/hostd-setup",
+		"/usr/local/lib/hostd/ui/hostd-menu", "/usr/local/lib/hostd/ui/hostd-notices", "/usr/local/lib/hostd/ui/hostd_ui/views.py",
+		"/usr/local/lib/hostd/ui/theme.css", "/usr/local/lib/hostd/ui/tokens.css", "/home/screen/.config/hostd/apps/hostd-menu.toml", "/usr/local/sbin/hostd-setup",
 		"/etc/systemd/system/hostd-update.timer", "/etc/hostd/update.conf", "/home/screen/.config/hostd/local.token"} {
 		if _, err := os.Stat(filepath.Join(m.root, p)); err != nil {
 			t.Errorf("not installed: %s", p)
@@ -400,4 +427,79 @@ func TestInstallFromScratch(t *testing.T) {
 	if !strings.Contains(out.String(), "created user screen") || !strings.Contains(out.String(), "Reboot") {
 		t.Errorf("output:\n%s", out)
 	}
+}
+
+// The menu's token has the scopes its pages need; an older, narrower one
+// is replaced (and revoked), and "seat" is asked for only where the seats
+// add-on put hostd's seat module.
+func TestMenuTokenScopes(t *testing.T) {
+	m := newFakeMachine(t)
+	s := &Setup{Root: m.root, Run: m, Out: NewOutput(&bytes.Buffer{}, true), Chown: func(string, string) error { return nil }}
+	in := &installer{Setup: s, user: screenUser{name: "screen", home: "/home/screen", uid: 1001}}
+	tok := "/home/screen/.config/hostd/local.token"
+	ctx := context.Background()
+
+	// An older install: a token with read,apps only.
+	m.tokenScopes = []string{"read,apps"}
+	os.MkdirAll(filepath.Join(m.root, "home/screen/.config/hostd/modules"), 0o755)
+	os.WriteFile(filepath.Join(m.root, tok), []byte("hostd_old\n"), 0o600)
+	if err := in.menuToken(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.tokenScopes[len(m.tokenScopes)-1]; got != "read,apps,audio,display" || !m.revoked["tok_1"] {
+		t.Fatalf("scopes %v, revoked %v", m.tokenScopes, m.revoked)
+	}
+	if b, _ := os.ReadFile(filepath.Join(m.root, tok)); string(b) != "hostd_menu\n" || !in.menuChange {
+		t.Errorf("token file %q, menu restarts %v", b, in.menuChange)
+	}
+
+	// Current: nothing to do.
+	made := len(m.tokenScopes)
+	if err := in.menuToken(ctx, tok); err != nil || len(m.tokenScopes) != made {
+		t.Fatalf("a current token was replaced: %v %v", m.tokenScopes, err)
+	}
+
+	// The seats add-on: seat is added, unless hostd has not loaded the module yet.
+	os.WriteFile(filepath.Join(m.root, "home/screen/.config/hostd/modules/seat.toml"), []byte("command = []\n"), 0o644)
+	m.noSeatScope = true
+	if err := in.menuToken(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.tokenScopes[len(m.tokenScopes)-1]; got != "read,apps,audio,display" {
+		t.Fatalf("without the seat module: %v", m.tokenScopes)
+	}
+	m.noSeatScope = false
+	if err := in.menuToken(ctx, tok); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.tokenScopes[len(m.tokenScopes)-1]; got != "read,apps,audio,display,seat" {
+		t.Fatalf("with the seat module: %v", m.tokenScopes)
+	}
+	active := 0
+	for i := range m.tokenScopes {
+		if !m.revoked[fmt.Sprintf("tok_%d", i+1)] {
+			active++
+		}
+	}
+	if active != 1 {
+		t.Errorf("%d menu tokens left active, want 1", active)
+	}
+
+	// hostd cannot list its tokens: the token there is stays.
+	m.answers = map[string]string{}
+	broken := &fakeMachine{t: t, root: m.root}
+	s.Run = brokenList{broken}
+	if err := in.menuToken(ctx, tok); err != nil || broken.tokens != 0 {
+		t.Fatalf("made a token when hostd could not list them: %v", err)
+	}
+}
+
+// brokenList fails hostctl token list.
+type brokenList struct{ *fakeMachine }
+
+func (b brokenList) Run(ctx context.Context, c Cmd) ([]byte, error) {
+	if strings.HasSuffix(strings.Join(c.Argv, " "), "hostctl --json token list") {
+		return nil, fmt.Errorf("exit status 1")
+	}
+	return b.fakeMachine.Run(ctx, c)
 }

@@ -10,6 +10,10 @@ strict: true
 theme:
   name: mkdocs
   navigation_depth: 3
+# hostd's design: tokens.css is generated from deploy/files/ui/tokens.toml.
+extra_css:
+  - stylesheets/tokens.css
+  - stylesheets/hostd.css
 nav:
   - Home: index.md
   - Install: install.md
@@ -24,6 +28,7 @@ nav:
   - Writing a module: modules.md
   - The module protocol: protocol.md
   - Security: security.md
+  - Design: design.md
 markdown_extensions:
   - tables
   - toc:

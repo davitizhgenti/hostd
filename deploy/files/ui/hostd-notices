@@ -1,0 +1,205 @@
+#!/usr/bin/python3
+"""hostd's notices: the session's notification server, and the OSD.
+
+Takes the session bus's org.freedesktop.Notifications, so hostd's notices
+(hostctl display notice, the menu's "wants the screen") and every app's
+notifications are drawn in hostd's design: cards at the top centre, on the
+overlay layer above fullscreen games, at most three at once. It also
+follows hostd's events and shows the OSD (the volume, whose screen it is)
+at the bottom centre.
+
+Needs gtk4-layer-shell (gir1.2-gtk4layershell-1.0). Without it, it runs
+mako instead, if there is one, so notices still show.
+"""
+
+import ctypes
+import os
+import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+os.environ.setdefault("GTK_A11Y", "none")
+
+
+def layer_shell():
+    """Loads gtk4-layer-shell, which must come before GTK; None without it."""
+    try:
+        ctypes.CDLL("libgtk4-layer-shell.so.0")
+        import gi
+        gi.require_version("Gtk4LayerShell", "1.0")
+        from gi.repository import Gtk4LayerShell
+        return Gtk4LayerShell
+    except (OSError, ValueError, ImportError):
+        return None
+
+
+LayerShell = layer_shell()
+if LayerShell is None:
+    mako = shutil.which("mako")
+    if mako:
+        print("hostd-notices: no gtk4-layer-shell (gir1.2-gtk4layershell-1.0); running mako instead", file=sys.stderr)
+        os.execv(mako, [mako])
+    sys.exit("hostd-notices: needs gtk4-layer-shell (an admin: sudo hostd-admin prepare)")
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+from hostd_ui import api as hapi  # noqa: E402
+from hostd_ui import components as ui  # noqa: E402
+from hostd_ui import notices, theme  # noqa: E402
+
+BUS_NAME = "org.freedesktop.Notifications"
+PATH = "/org/freedesktop/Notifications"
+OSD_SECONDS = 1.6
+XML = """
+<node>
+  <interface name="org.freedesktop.Notifications">
+    <method name="GetCapabilities"><arg direction="out" type="as"/></method>
+    <method name="Notify">
+      <arg direction="in" type="s"/><arg direction="in" type="u"/><arg direction="in" type="s"/>
+      <arg direction="in" type="s"/><arg direction="in" type="s"/><arg direction="in" type="as"/>
+      <arg direction="in" type="a{sv}"/><arg direction="in" type="i"/>
+      <arg direction="out" type="u"/>
+    </method>
+    <method name="CloseNotification"><arg direction="in" type="u"/></method>
+    <method name="GetServerInformation">
+      <arg direction="out" type="s"/><arg direction="out" type="s"/>
+      <arg direction="out" type="s"/><arg direction="out" type="s"/>
+    </method>
+    <signal name="NotificationClosed"><arg type="u"/><arg type="u"/></signal>
+    <signal name="ActionInvoked"><arg type="u"/><arg type="s"/></signal>
+  </interface>
+</node>
+"""
+
+
+def overlay_window(app, edge, margin):
+    """A window on the overlay layer, at the top or bottom centre, that takes
+    no keys and no clicks: notices never take the focus from a game."""
+    win = Gtk.Window(application=app)
+    win.add_css_class("hostd")
+    win.add_css_class("overlay")
+    LayerShell.init_for_window(win)
+    LayerShell.set_namespace(win, "hostd-notices")
+    LayerShell.set_layer(win, LayerShell.Layer.OVERLAY)
+    LayerShell.set_keyboard_mode(win, LayerShell.KeyboardMode.NONE)
+    LayerShell.set_anchor(win, edge, True)
+    LayerShell.set_margin(win, edge, margin)
+    return win
+
+
+class Server:
+    def __init__(self, app, size):
+        self.app = app
+        self.notices = notices.Notices()
+        self.conn = None
+        self.timer = 0
+        margin = int(theme.tokens()["layout"]["safe-margin"] * theme.scale_for(size[1]))
+        self.win = overlay_window(app, LayerShell.Edge.TOP, margin)
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.win.set_child(self.box)
+        self.osd_win = overlay_window(app, LayerShell.Edge.BOTTOM, margin * 2)
+        self.osd = ui.OSD()
+        self.osd_win.set_child(self.osd)
+        self.osd_timer = 0
+        # Gio's own bus connection: Notify is answered on the main loop.
+        Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME,
+                         Gio.BusNameOwnerFlags.ALLOW_REPLACEMENT | Gio.BusNameOwnerFlags.REPLACE,
+                         self.on_bus, None, self.on_lost)
+
+    # --- D-Bus ---
+
+    def on_bus(self, conn, _name):
+        self.conn = conn
+        info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0]
+        conn.register_object(PATH, info, self.on_call, None, None)
+
+    def on_lost(self, _conn, _name):
+        print("hostd-notices: another notification server has the bus name", file=sys.stderr)
+        self.app.quit()
+
+    def on_call(self, _conn, _sender, _path, _iface, method, params, invocation):
+        if method == "GetCapabilities":
+            invocation.return_value(GLib.Variant("(as)", (["body"],)))
+        elif method == "GetServerInformation":
+            invocation.return_value(GLib.Variant("(ssss)", ("hostd", "hostd", "1", "1.2")))
+        elif method == "Notify":
+            app_name, replaces, _icon, summary, body, _actions, hints, timeout = params.unpack()
+            nid = self.notices.notify(app_name, summary, body, replaces, notices.urgency_of(hints), timeout)
+            invocation.return_value(GLib.Variant("(u)", (nid,)))
+            self.redraw()
+        elif method == "CloseNotification":
+            (nid,) = params.unpack()
+            if self.notices.close(nid):
+                self.closed(nid, notices.CLOSED_BY_CALL)
+                self.redraw()
+            invocation.return_value(None)
+
+    def closed(self, nid, reason):
+        if self.conn is not None:
+            self.conn.emit_signal(None, PATH, BUS_NAME, "NotificationClosed", GLib.Variant("(uu)", (nid, reason)))
+
+    # --- drawing ---
+
+    def redraw(self):
+        child = self.box.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.box.remove(child)
+            child = nxt
+        shown = self.notices.shown()
+        for n in shown:
+            self.box.append(ui.notice_widget(n.app, n.summary, n.body, n.urgency))
+        self.win.set_visible(bool(shown))
+        if self.timer:
+            GLib.source_remove(self.timer)
+            self.timer = 0
+        wait = self.notices.next_expiry()
+        if wait is not None:
+            self.timer = GLib.timeout_add(int(wait * 1000) + 50, self.on_timer)
+
+    def on_timer(self):
+        self.timer = 0
+        for nid in self.notices.expire():
+            self.closed(nid, notices.EXPIRED)
+        self.redraw()
+        return False
+
+    # --- the OSD, from hostd's events ---
+
+    def on_event(self, ev):
+        what = notices.osd_for(ev)
+        if what is not None:
+            self.osd.show_level(*what)
+            self.osd_win.set_visible(True)
+            if self.osd_timer:
+                GLib.source_remove(self.osd_timer)
+            self.osd_timer = GLib.timeout_add(int(OSD_SECONDS * 1000), self.hide_osd)
+        return False
+
+    def hide_osd(self):
+        self.osd_timer = 0
+        self.osd_win.set_visible(False)
+        return False
+
+
+def main():
+    app = Gtk.Application(application_id="org.hostd.Notices", flags=Gio.ApplicationFlags.NON_UNIQUE)
+    app.hold()  # runs with no window shown
+
+    def activate(application):
+        if getattr(application, "server", None) is None:
+            application.server = Server(application, theme.apply())
+            api = hapi.API()
+            if api.token:
+                # One pattern per stream: all of them; osd_for keeps its two.
+                hapi.EventStream(api, application.server.on_event, GLib.idle_add).start()
+
+    app.connect("activate", activate)
+    return app.run(None)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

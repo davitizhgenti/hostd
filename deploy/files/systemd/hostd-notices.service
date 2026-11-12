@@ -1,0 +1,13 @@
+# Managed by hostd-setup; changes here are overwritten.
+#
+# hostd's notices: the session's notification server and the OSD, in
+# hostd's design (above fullscreen apps). Started by the Sway config once
+# the session's variables are imported; restarted if it ever exits.
+[Unit]
+Description=hostd notices and OSD
+After=graphical-session-pre.target
+
+[Service]
+ExecStart=@UI@/hostd-notices
+Restart=always
+RestartSec=2

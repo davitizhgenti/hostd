@@ -1,7 +1,7 @@
 // Package deploy is hostd's installer, run as hostd-setup: it turns a fresh
 // Debian 13 (trixie) machine into a hostd machine, keeps it up to date and
-// can take hostd off it again. It carries what it installs (the Sway, mako
-// and greetd configs, the units, the menu, the rollback script) and the
+// can take hostd off it again. It carries what it installs (the Sway and
+// greetd configs, the units, the menu and notices, the rollback script) and the
 // add-ons, so a signed hostd-setup binary is the whole installer.
 //
 // Every step checks first and changes only what is missing or different,
@@ -14,6 +14,9 @@ import (
 	"embed"
 	"io/fs"
 )
+
+// The design tokens (files/ui/tokens.toml) written out for everything that draws.
+//go:generate go run ../scripts/uitokens -root ..
 
 // The files the installer puts on the machine, and the add-ons.
 //

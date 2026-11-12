@@ -10,7 +10,7 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// A notification daemon of the test's own (as mako is), on a bus of its own.
+// A notification daemon of the test's own (as hostd-notices is), on a bus of its own.
 type daemon struct {
 	mu   sync.Mutex
 	got  []string

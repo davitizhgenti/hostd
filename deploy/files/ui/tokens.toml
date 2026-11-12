@@ -1,0 +1,67 @@
+# hostd's design tokens: the one place its look is defined.
+#
+# Everything hostd draws (the menu, notices, the OSD), the Sway background
+# and the docs site take their colors, type and sizes from here. After a
+# change, run: go generate ./deploy (writes tokens.css, tokens.json, the docs
+# copy and the Sway background); CI fails when they are out of date.
+#
+# Sizes are px on a 1080-pixel-high screen; the UI scales them with the
+# screen's height. Times are milliseconds. See docs/design.md.
+
+[color]
+bg             = "#0f1218" # the screen behind everything
+surface        = "#171b23" # panels, the menu's list
+surface-raised = "#202632" # what floats: action sheets, notices, the OSD
+border         = "#2c3442"
+text           = "#e8ecf2"
+text-muted     = "#8e98a8"
+accent         = "#5b9cff" # the focus, the selection, links
+on-accent      = "#0b1220" # text on an accent background
+positive       = "#4cc38a" # running, done
+warning        = "#e5b04a"
+danger         = "#f0616d" # errors, closing, critical notices
+
+[font]
+text = "Inter, \"DejaVu Sans\", sans-serif"
+mono = "\"DejaVu Sans Mono\", monospace"
+
+[type] # font sizes
+display = 52 # a page's title
+title   = 36 # a notice's summary, the OSD's value
+body    = 27 # rows, settings
+label   = 22 # ids, hints, second lines
+
+[weight]
+regular = 400
+strong  = 600
+
+[space] # 4 px steps
+1  = 4
+2  = 8
+3  = 12
+4  = 16
+6  = 24
+8  = 32
+12 = 48
+16 = 64
+
+[radius]
+small  = 6
+medium = 12
+large  = 18
+
+[line]
+border = 2 # borders and dividers
+focus  = 4 # the focus ring: always visible, never only a color change
+
+[motion]
+fast = 100 # hover, focus
+base = 150 # pages, sheets, notices: nothing slower
+
+[layout]
+safe-margin  = 48  # kept clear at the screen's edges (projectors, TVs cropping)
+content-max  = 1600 # the widest the menu's content gets on a wide screen
+notice-width = 820
+osd-width    = 420
+sheet-width  = 640  # a row's actions
+row-height   = 72

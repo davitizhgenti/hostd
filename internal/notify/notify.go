@@ -17,7 +17,7 @@ type Notifier interface {
 }
 
 // Desktop sends notices to the session's notification daemon
-// (mako, drawn above fullscreen windows) over org.freedesktop.Notifications.
+// (hostd-notices, drawn above fullscreen windows) over org.freedesktop.Notifications.
 type Desktop struct {
 	RuntimeDir string // where the user bus is: <RuntimeDir>/bus
 

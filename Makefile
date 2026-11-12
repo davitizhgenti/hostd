@@ -94,24 +94,27 @@ lint:
 	$(TOOL) golangci-lint run ./...
 	$(TOOL) govulncheck ./...
 
-# The code that is not Go: shell scripts (shellcheck) and the on-screen
-# menu (Python: ruff and a compile check). CI runs this before publishing.
+# The code that is not Go: shell scripts (shellcheck) and the on-screen UI
+# and add-on helpers (Python: ruff, a compile check, their tests). CI runs
+# this before publishing.
 SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/files/rollback.sh \
 	test/install/*.sh deploy/addons/*/hook.sh \
 	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway deploy/addons/chromium/chromium
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
-	python3 -m py_compile deploy/files/menu/hostd-menu
+	python3 -m py_compile deploy/files/ui/hostd-menu deploy/files/ui/hostd-notices deploy/files/ui/hostd_ui/*.py
 	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/menu/hostd-menu \
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/ui/hostd-menu deploy/files/ui/hostd-notices \
+		deploy/files/ui/hostd_ui deploy/files/ui/test_ui.py \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
 		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
 	python3 -m unittest discover -s deploy/addons/seats -p "test_*.py"
 	python3 -m unittest discover -s clients/python -p "test_*.py"
-	@rm -rf deploy/files/menu/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
+	python3 -m unittest discover -s deploy/files/ui -p "test_*.py"
+	@rm -rf deploy/files/ui/__pycache__ deploy/files/ui/hostd_ui/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
 
 # Coverage per package, counting every test binary, against the floors in
 # scripts/coverage-floors.txt: fails if a package is below its floor.

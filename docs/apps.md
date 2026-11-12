@@ -66,7 +66,7 @@ Each instance runs in its own systemd unit or container. Stopping hostd never st
 
 ## The screen
 
-One app is in front at a time, fullscreen. Super (or holding a controller's Guide button) opens the menu. Super+Tab and Super+Shift+Tab switch apps, and Super+Q closes the one in front. These keys can be changed in [`hostd.toml`](config.md).
+One app is in front at a time, fullscreen. Super (or holding a controller's Guide button) opens [the menu](design.md#the-menu). Super+Tab and Super+Shift+Tab switch apps, and Super+Q closes the one in front. These keys can be changed in [`hostd.toml`](config.md).
 
 While someone uses the screen (input in the last 5 minutes), an app started from elsewhere opens in the background and a notice says so. To bring it forward anyway, start it with `front = true`, which needs the `display.front` scope.
 

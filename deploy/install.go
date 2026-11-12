@@ -14,6 +14,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -62,8 +63,10 @@ type installer struct {
 	extra       bool   // another user's hostd, not the first's (see users.go)
 	port        int    // extra: the API port
 	hostdChange bool   // hostd must restart
-	menuChange  bool   // the menu must restart
+	menuChange  bool   // the menu (and the notices: the same UI files) must restart
 	vncChanged  bool   // the VNC server must restart
+
+	noticesChanged bool // the notices' unit changed
 
 	addonsSkipped int
 }
@@ -255,11 +258,13 @@ func (in *installer) enableNonFree(context.Context) error {
 
 // packages are what a hostd machine needs from Debian.
 var packages = []string{
-	"sway", "swaybg", "xwayland", "foot", "greetd", "mako-notifier", "libnotify-bin", "wayvnc", "grim",
+	"sway", "swaybg", "xwayland", "foot", "greetd", "libnotify-bin", "wayvnc", "grim",
 	"pipewire", "pipewire-pulse", "wireplumber", "rtkit", "dbus-user-session",
 	"podman", "uidmap", "fuse-overlayfs", "passt", "catatonit", "nftables",
 	"jq", "curl", "ca-certificates", "git", "openssl",
-	"python3-gi", "gir1.2-gtk-4.0",
+	// The menu and the notices (GTK 4; the notices on the overlay layer),
+	// in the design's typeface.
+	"python3-gi", "gir1.2-gtk-4.0", "gir1.2-gtk4layershell-1.0", "fonts-inter",
 }
 
 // missingPackages returns the ones of pkgs that are not installed.
@@ -419,7 +424,7 @@ func (in *installer) screenUser(ctx context.Context) error {
 }
 
 // sessionConfig is the part of the user's setup that lives in their home:
-// Sway, mako, the VNC service and the Podman socket.
+// Sway, the notices' and the VNC services, and the Podman socket.
 func (in *installer) sessionConfig(ctx context.Context) error {
 	home, name := in.user.home, in.user.name
 	// Session config. A running session picks up changes at once (exec
@@ -438,16 +443,19 @@ func (in *installer) sessionConfig(ctx context.Context) error {
 	} else {
 		in.Out.Info("sway config up to date")
 	}
-	changed, err = in.installFile(file("mako/config"), home+"/.config/mako/config", 0o644, name)
+	// Notices are hostd's own now (hostd-notices); mako's config from
+	// before goes, if hostd wrote it.
+	if mako := home + "/.config/mako/config"; in.exists(mako) && in.hostdOwned(mako) {
+		_ = os.Remove(in.path(mako))
+		in.Out.Changed("removed the mako config (hostd draws its notices itself now)")
+	}
+	unit := bytes.ReplaceAll(file("systemd/hostd-notices.service"), []byte("@UI@"), []byte(in.lay().ui))
+	in.noticesChanged, err = in.installFile(unit, home+"/.config/systemd/user/hostd-notices.service", 0o644, name)
 	if err != nil {
 		return err
 	}
-	if changed {
-		if _, err := in.asScreen(ctx, "makoctl", "reload"); err == nil {
-			in.Out.Info("reloaded mako")
-		}
-	} else {
-		in.Out.Info("mako config up to date")
+	if !in.noticesChanged {
+		in.Out.Info("notices service up to date")
 	}
 	vncChanged, err := in.installFile(file("systemd/wayvnc.service"), home+"/.config/systemd/user/wayvnc.service", 0o644, name)
 	if err != nil {
@@ -729,7 +737,7 @@ func (in *installer) installHostd(ctx context.Context) error {
 	if err := in.installDocs(); err != nil {
 		return err
 	}
-	if err := in.installMenu(); err != nil {
+	if err := in.installUI(); err != nil {
 		return err
 	}
 	if ch, err := in.installFile(file("systemd/hostd.service"), in.user.home+"/.config/systemd/user/hostd.service", 0o644, in.user.name); err != nil {
@@ -838,21 +846,70 @@ func (in *installer) installDocs() error {
 	return nil
 }
 
-// installMenu puts hostd's on-screen menu in place: a hidden app in the
-// catalog, opened by display.menu (Super, or a held Guide button).
-func (in *installer) installMenu() error {
-	// The files of its old name (the "switcher", hostd-overlay) go.
+// uiFiles are the files of files/ui that go on the machine: the programs,
+// their package and the look (not the tests, nor the token source).
+func uiFiles() []string {
+	var out []string
+	_ = fs.WalkDir(Files(), "ui", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		base := path.Base(p)
+		if !strings.HasPrefix(base, "test_") && !strings.HasSuffix(base, ".toml") {
+			out = append(out, strings.TrimPrefix(p, "ui/"))
+		}
+		return nil
+	})
+	return out
+}
+
+// installUI puts hostd's on-screen UI in place: the menu (a hidden app in
+// the catalog, opened by display.menu: Super, or a held Guide button), the
+// notices and the package both use, in one folder.
+func (in *installer) installUI() error {
+	// The files of older names: the "switcher" (hostd-overlay) and the
+	// menu as one file, beside the folder.
 	if in.User == nil {
 		_ = os.Remove(in.path("/usr/local/lib/hostd/hostd-overlay"))
 	}
+	_ = os.Remove(in.path(path.Dir(in.lay().ui) + "/hostd-menu"))
 	_ = os.Remove(in.path(in.user.home + "/.config/hostd/apps/hostd-overlay.toml"))
-	ch, err := in.installFile(file("menu/hostd-menu"), in.lay().menu, 0o755, in.owner("root"))
-	if err != nil {
-		return err
+	dir := in.lay().ui
+	shipped := map[string]bool{}
+	changed := false
+	for _, name := range uiFiles() {
+		mode := os.FileMode(0o644)
+		if name == "hostd-menu" || name == "hostd-notices" {
+			mode = 0o755
+		}
+		ch, err := in.installFile(file("ui/"+name), dir+"/"+name, mode, in.owner("root"))
+		if err != nil {
+			return err
+		}
+		shipped[dir+"/"+name] = true
+		changed = changed || ch
 	}
-	in.menuChange = in.menuChange || ch
-	if !ch {
-		in.Out.Info("menu up to date")
+	// What an older version put there and this one does not ship.
+	_ = filepath.WalkDir(in.path(dir), func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // a folder that is not there has nothing old in it
+		}
+		rel := "/" + strings.TrimPrefix(p, filepath.Clean(in.Root)+"/")
+		if d.Name() == "__pycache__" {
+			_ = os.RemoveAll(p)
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && !shipped[rel] {
+			_ = os.Remove(p)
+			changed = true
+		}
+		return nil
+	})
+	in.menuChange = in.menuChange || changed
+	if changed {
+		in.Out.Changed("installed the menu and notices (%s)", dir)
+	} else {
+		in.Out.Info("menu and notices up to date")
 	}
 	// Backups that older installers made of hostd's own files.
 	patterns := []string{in.user.home + "/.config/hostd/apps/*.orig"}
@@ -871,7 +928,7 @@ func (in *installer) installMenu() error {
 			}
 		}
 	}
-	ch, err = in.installFile(bytes.ReplaceAll(file("menu/hostd-menu.toml"), []byte("@MENU@"), []byte(in.lay().menu)), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
+	ch, err := in.installFile(bytes.ReplaceAll(file("ui/hostd-menu.toml"), []byte("@MENU@"), []byte(dir+"/hostd-menu")), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
 	if err != nil {
 		return err
 	}
@@ -903,6 +960,13 @@ func (in *installer) startHostd(ctx context.Context) error {
 			in.Out.Changed("restarted the VNC server")
 		}
 	}
+	// The notices run the UI's code: a new version of it, or of their unit,
+	// takes effect when they restart. Not running: the session starts them.
+	if (in.noticesChanged || in.menuChange) && in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd-notices.service") {
+		if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd-notices.service"); err == nil {
+			in.Out.Changed("restarted the notices")
+		}
+	}
 	if in.hostdChange || !in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd") {
 		// Type=notify: this returns once hostd is serving, or fails.
 		if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd"); err != nil {
@@ -931,25 +995,90 @@ func (in *installer) startHostd(ctx context.Context) error {
 	// counts as someone at the screen (it comes to the front, and outranks
 	// phones and scripts).
 	localToken := in.user.home + "/.config/hostd/local.token"
-	if b, _ := os.ReadFile(in.path(localToken)); len(bytes.TrimSpace(b)) == 0 && in.exists(config) {
-		out, err := in.asScreen(ctx, "hostctl", "--json", "token", "create", "menu", "--kind", "local", "--scopes", "read,apps")
-		var t struct{ Data struct{ Secret string } } // the action's result
-		if err == nil && json.Unmarshal(out, &t) == nil && strings.HasPrefix(t.Data.Secret, "hostd_") {
-			if err := in.mkdirs(filepath.Dir(localToken), in.user.name); err != nil {
-				return err
-			}
-			if err := os.WriteFile(in.path(localToken), []byte(t.Data.Secret+"\n"), 0o600); err != nil {
-				return err
-			}
-			if err := in.chown(in.path(localToken), in.user.name); err != nil {
-				return err
-			}
-			in.Out.Changed("created the menu's token")
-		} else {
-			in.Out.Warn("warning: could not create the menu's token; the menu will not work")
+	if in.exists(config) {
+		if err := in.menuToken(ctx, localToken); err != nil {
+			return err
 		}
 	}
 	return in.restartMenu(ctx, localToken)
+}
+
+// menuScopes are what the menu's pages need: apps, sound, the screen, and
+// switching users where the seats add-on gave hostd that scope.
+func (in *installer) menuScopes() string {
+	scopes := "read,apps,audio,display"
+	if in.exists(in.user.home + "/.config/hostd/modules/seat.toml") {
+		scopes += ",seat"
+	}
+	return scopes
+}
+
+// menuToken makes sure the menu (and the notices) have a token of their
+// own with the scopes they need: one is made when there is none, and
+// replaced when an older version made it with fewer scopes.
+func (in *installer) menuToken(ctx context.Context, localToken string) error {
+	want := in.menuScopes()
+	b, _ := os.ReadFile(in.path(localToken))
+	have := len(bytes.TrimSpace(b)) > 0
+	var tokens []struct {
+		ID, Name, Kind string
+		Scopes         []string
+		Revoked        *time.Time
+	}
+	out, err := in.asScreen(ctx, "hostctl", "--json", "token", "list")
+	if err != nil || json.Unmarshal(out, &tokens) != nil {
+		if have {
+			return nil // hostd cannot say: keep the token there is
+		}
+		tokens = nil
+	}
+	var old []string // the menu's tokens now: replaced if their scopes differ
+	for _, t := range tokens {
+		if t.Name != "menu" || t.Kind != "local" || t.Revoked != nil {
+			continue
+		}
+		if strings.Join(t.Scopes, ",") == want && have {
+			return nil // the one it has
+		}
+		old = append(old, t.ID)
+	}
+	secret, scopes := in.createMenuToken(ctx, want)
+	if secret == "" && want != "read,apps,audio,display" {
+		// hostd has not loaded the seat module yet: without it, until the next update.
+		secret, scopes = in.createMenuToken(ctx, "read,apps,audio,display")
+	}
+	if secret == "" {
+		in.Out.Warn("warning: could not create the menu's token; the menu will not work")
+		return nil
+	}
+	if err := in.mkdirs(filepath.Dir(localToken), in.user.name); err != nil {
+		return err
+	}
+	if err := os.WriteFile(in.path(localToken), []byte(secret+"\n"), 0o600); err != nil {
+		return err
+	}
+	if err := in.chown(in.path(localToken), in.user.name); err != nil {
+		return err
+	}
+	for _, id := range old {
+		_, _ = in.asScreen(ctx, "hostctl", "token", "revoke", id)
+	}
+	in.menuChange = in.menuChange || len(old) > 0 // the running menu has the old one
+	if len(old) > 0 {
+		in.Out.Changed("gave the menu a new token (%s)", scopes)
+	} else {
+		in.Out.Changed("created the menu's token (%s)", scopes)
+	}
+	return nil
+}
+
+func (in *installer) createMenuToken(ctx context.Context, scopes string) (string, string) {
+	out, err := in.asScreen(ctx, "hostctl", "--json", "token", "create", "menu", "--kind", "local", "--scopes", scopes)
+	var t struct{ Data struct{ Secret string } } // the action's result
+	if err == nil && json.Unmarshal(out, &t) == nil && strings.HasPrefix(t.Data.Secret, "hostd_") {
+		return t.Data.Secret, scopes
+	}
+	return "", ""
 }
 
 // restartMenu: a running menu keeps its old code. If it was on the screen

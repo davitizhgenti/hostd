@@ -8,6 +8,11 @@ Updated 2026-11-11. The history of every earlier plan (the 1.0 work items, the i
 - **hostd never runs as root.** One OS user per system; `hostd-setup` run as that user installs and updates in the home folder. Root is only for `hostd-admin` (prepare, root add-ons, users, seats), kept separate on purpose.
 - **Seats:** the screen, keyboard and controllers belong to one user's session at a time (logind, one VT per user); the `seats` add-on has the root helper that switches (`hostctl seat switch USER`). Other users' sessions start on demand, never at boot. greetd retries its automatic login every 5 seconds, so a Sway that died at boot does not leave a dark screen.
 - Add-ons: flatpak, controllers, nvidia, compose, wireguard, tailscale, seats, steam, chromium, dolphin.
+- **Released:** v0.2.0 (2026-11-12). Seat switching tested on core, both ways, from core and from the laptop.
+
+## The design system (2026-11-12)
+
+One design for everything hostd draws (docs/design.md). The tokens (`deploy/files/ui/tokens.toml`) are generated (`scripts/uitokens`, `go generate ./deploy`) into CSS custom properties for GTK and the docs site, JSON, and the Sway background; CI fails when they are stale. `hostd_ui` (Python, GTK 4) holds the API client, the input verbs, the components and the views (plain data, unit-tested). `hostd-menu` has four pages (Apps, Users, Settings, Status) and the same verbs for keys, mouse and controllers. `hostd-notices` is the notification server (layer-shell overlay, at most three notices, critical first) and the OSD (volume, seat switch); mako is gone. The menu's token gets `read,apps,audio,display` (and `seat` with the seats add-on); an older token is replaced on update.
 
 ## Screen sharing: tried, dropped
 
@@ -15,9 +20,7 @@ Sunshine/Moonlight, UxPlay, scrcpy, lan-mouse and RDP were all tried on core. Ev
 
 ## Needs the user
 
-- **Release:** the `v0.2.0` tag is on an old commit (a978f26) and was never published; main is far ahead. Move it, or tag v0.3.0.
-- **Seat switch on core:** `hostctl seat switch guest` and back, not tried live (it moves the projector).
-- **The menu:** its list and `open` rows were never seen on core; the redesign (one screen, five verbs, design tokens) is not started.
+- **The new UI on core:** built and checked in a headless Sway container at 1920x1080 and 1280x800 (every page, a sheet, a dialog, notices; choices reach hostd), not yet on the projector. Core needs `sudo hostd-admin prepare` for gir1.2-gtk4layershell-1.0 and fonts-inter; until then the notices fall back to mako and the menu to DejaVu Sans.
 - **Two controllers on core:** hold Guide on each to confirm only that pad is grabbed.
 - `make test-e2e` (the VM test, about 10 minutes) and `mkdocs build --strict` after these changes.
 

@@ -1,0 +1,97 @@
+/* The docs site in hostd's design: colors and type from tokens.css (made
+   from deploy/files/ui/tokens.toml), over mkdocs' own theme. */
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-text);
+  font-weight: var(--weight-strong);
+}
+
+a, a:visited {
+  color: var(--color-accent);
+}
+
+a:hover, a:focus {
+  color: var(--color-text);
+}
+
+.navbar, .navbar.bg-primary {
+  background: var(--color-surface) !important;
+  border-bottom: var(--line-border) solid var(--color-border);
+}
+
+.navbar .nav-link, .navbar .navbar-brand {
+  color: var(--color-text) !important;
+}
+
+.dropdown-menu {
+  background: var(--color-surface-raised);
+  border: var(--line-border) solid var(--color-border);
+}
+
+.dropdown-item {
+  color: var(--color-text);
+}
+
+.dropdown-item:hover, .dropdown-item.active {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+code, kbd, pre {
+  font-family: var(--font-mono);
+}
+
+code {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-radius: var(--radius-small);
+  padding: 0 var(--space-1);
+}
+
+pre, pre code {
+  background: var(--color-surface) !important;
+  color: var(--color-text);
+  border: var(--line-border) solid var(--color-border);
+  border-radius: var(--radius-medium);
+}
+
+pre code {
+  border: none;
+}
+
+table, .table {
+  color: var(--color-text);
+}
+
+table th, table td {
+  border-color: var(--color-border) !important;
+}
+
+blockquote {
+  border-left: var(--line-focus) solid var(--color-accent);
+  color: var(--color-text-muted);
+}
+
+.bs-sidebar .nav > li > a, .bs-sidebar .nav-link {
+  color: var(--color-text-muted);
+}
+
+.bs-sidebar .nav > .active > a, .bs-sidebar .nav-link.active {
+  color: var(--color-accent);
+  border-left-color: var(--color-accent);
+}
+
+.card, .bs-sidebar {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+hr {
+  border-color: var(--color-border);
+}

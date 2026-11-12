@@ -84,14 +84,14 @@ func TestUserModeInstallsInTheHome(t *testing.T) {
 	if err := s.Install(context.Background(), Options{GPU: "other", From: buildDir(t), Self: self}); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	for _, p := range []string{".local/bin/hostctl", ".local/bin/hostd-setup", ".local/lib/hostd/hostd-menu", ".local/share/hostd/docs/index.html",
+	for _, p := range []string{".local/bin/hostctl", ".local/bin/hostd-setup", ".local/lib/hostd/ui/hostd-menu", ".config/systemd/user/hostd-notices.service", ".local/share/hostd/docs/index.html",
 		".config/hostd/update.conf", ".config/systemd/user/hostd-update.timer", ".config/systemd/user/hostd.service", ".config/hostd/apps/hostd-menu.toml"} {
 		if _, err := os.Stat(filepath.Join(m.root, "home/screen", p)); err != nil {
 			t.Errorf("not installed: %s", p)
 		}
 	}
 	toml, _ := os.ReadFile(filepath.Join(m.root, "home/screen/.config/hostd/apps/hostd-menu.toml"))
-	if !strings.Contains(string(toml), `"/home/screen/.local/lib/hostd/hostd-menu"`) {
+	if !strings.Contains(string(toml), `"/home/screen/.local/lib/hostd/ui/hostd-menu"`) {
 		t.Errorf("the menu app points elsewhere:\n%s", toml)
 	}
 	if !slices.ContainsFunc(m.ran, func(l string) bool {

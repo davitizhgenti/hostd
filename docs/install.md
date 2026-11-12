@@ -162,7 +162,7 @@ hostd-setup uninstall                    # removes hostd; keeps its data
 hostd-setup uninstall --purge --all      # ...and its data, and the base setup
 ```
 
-An update checks the whole machine setup (packages, the screen user, the Sway and mako configs, hostd, the menu, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on.
+An update checks the whole machine setup (packages, the screen user, the Sway config, hostd, the menu and notices, the docs), which takes a moment, and prints only the steps that changed something or need attention, with a count of the rest. It runs the add-ons again only when the new build changed the installer or the add-ons themselves; otherwise it says how many it left alone. An add-on's own upgrades (Flatpak apps and runtimes) happen when you run it with `update NAME` or `update --all`. The update timer runs every add-on.
 
 If a new hostd fails to start three times, systemd rolls back to the previous version. The rollback also restores the state and the config from before the update.
 

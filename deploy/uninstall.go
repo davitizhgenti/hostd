@@ -89,9 +89,9 @@ func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
 					rm(p)
 				}
 			}
-			rm(units+"/wayvnc.service", units+"/sockets.target.wants/podman.socket")
+			rm(units+"/wayvnc.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket")
 			_, _ = s.run(ctx, "loginctl", "disable-linger", a.ScreenUser)
-			s.Out.Info("removed the managed Sway, mako and VNC configs, the Podman socket, and lingering")
+			s.Out.Info("removed the managed Sway config, the notices and VNC services, the Podman socket, and lingering")
 		}
 	}
 	_, _ = s.run(ctx, "systemctl", "disable", "--now", "hostd-update.timer")
@@ -174,8 +174,8 @@ func (s *Setup) uninstallUser(ctx context.Context, a UninstallArgs) error {
 				rm(p)
 			}
 		}
-		rm(units+"/wayvnc.service", units+"/sockets.target.wants/podman.socket", lay.updateConf)
-		s.Out.Info("removed the managed Sway, mako and VNC configs and the Podman socket")
+		rm(units+"/wayvnc.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket", lay.updateConf)
+		s.Out.Info("removed the managed Sway config, the notices and VNC services and the Podman socket")
 	}
 	s.Out.Done()
 	s.Out.Info("Not removed: anything an admin installed (packages, root add-ons: sudo hostd-admin uninstall), Flatpak apps of add-ons (hostd-setup remove NAME first).")

@@ -1,0 +1,284 @@
+/* hostd's components, styled only with the design tokens (tokens.css,
+   loaded before this). A new look is a change to tokens.toml, not here;
+   a new component adds its rules here, with var(--...) values only.
+   Sizes in tokens.css are for a 1080-pixel-high screen: the UI scales them. */
+
+* {
+  font-family: var(--font-text);
+  font-size: var(--type-body);
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+  -gtk-icon-shadow: none;
+}
+
+window.hostd {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* --- a page: tabs, a filter, a list, the hint bar --- */
+
+.page {
+  padding: var(--layout-safe-margin);
+}
+
+.tabs {
+  margin-bottom: var(--space-6);
+}
+
+.tab {
+  font-size: var(--type-title);
+  font-weight: var(--weight-strong);
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-6);
+  margin-right: var(--space-2);
+  border-radius: var(--radius-medium);
+  background: transparent;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.tab.current {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+}
+
+.summary {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+}
+
+.filter {
+  background: var(--color-surface);
+  border: var(--line-border) solid var(--color-border);
+  border-radius: var(--radius-medium);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+}
+
+.filter.empty {
+  color: var(--color-text-muted);
+}
+
+/* --- lists and rows --- */
+
+list {
+  background: transparent;
+}
+
+row {
+  min-height: var(--layout-row-height);
+  padding: var(--space-2) var(--space-6);
+  margin: var(--space-1) 0;
+  border-radius: var(--radius-medium);
+  border: var(--line-focus) solid transparent;
+  background: transparent;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+
+row:hover {
+  background: var(--color-surface);
+}
+
+/* The focus: always a ring and a surface, never only a color change. */
+row:selected, row:focus {
+  background: var(--color-surface);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+row.header {
+  min-height: 0;
+  padding: var(--space-6) var(--space-6) var(--space-1) var(--space-6);
+  border: none;
+  background: transparent;
+}
+
+row.header label {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+  font-weight: var(--weight-strong);
+}
+
+.row-title {
+  color: var(--color-text);
+}
+
+.row-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+}
+
+.row-subtitle.mono {
+  font-family: var(--font-mono);
+}
+
+.row-value {
+  color: var(--color-text-muted);
+  margin-left: var(--space-6);
+}
+
+/* --- badges --- */
+
+.badge {
+  font-size: var(--type-label);
+  font-weight: var(--weight-strong);
+  padding: var(--space-1) var(--space-3);
+  margin-left: var(--space-4);
+  border-radius: var(--radius-small);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.badge.positive { color: var(--color-positive); }
+.badge.warning  { color: var(--color-warning); }
+.badge.danger   { color: var(--color-danger); }
+.badge.accent   { color: var(--color-accent); }
+
+.row-title.danger { color: var(--color-danger); }
+
+/* --- sliders --- */
+
+levelbar.slider {
+  min-width: 360px;
+  margin-left: var(--space-6);
+}
+
+levelbar.slider block {
+  min-height: var(--space-3);
+  border-radius: var(--radius-small);
+  border: none;
+}
+
+levelbar.slider block.empty  { background: var(--color-border); }
+levelbar.slider block.filled { background: var(--color-accent); }
+
+/* --- what floats: a sheet of actions, a question --- */
+
+.sheet, .dialog {
+  background: var(--color-surface-raised);
+  border: var(--line-border) solid var(--color-border);
+  border-radius: var(--radius-large);
+  padding: var(--space-4);
+}
+
+.sheet {
+  min-width: var(--layout-sheet-width);
+}
+
+.sheet row {
+  min-height: 0;
+  padding: var(--space-2) var(--space-4);
+}
+
+.dialog {
+  padding: var(--space-8);
+}
+
+.dialog .question {
+  font-size: var(--type-title);
+  margin-bottom: var(--space-8);
+}
+
+.dialog .button {
+  padding: var(--space-3) var(--space-8);
+  margin-left: var(--space-4);
+  border-radius: var(--radius-medium);
+  border: var(--line-focus) solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.dialog .button.current {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.scrim {
+  background: alpha(black, 0.55);
+}
+
+/* --- the hint bar and the status line --- */
+
+.hints {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--line-border) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+}
+
+.message {
+  font-size: var(--type-label);
+  color: var(--color-text-muted);
+}
+
+.message.error {
+  color: var(--color-danger);
+}
+
+/* --- notices and the OSD (hostd-notices, on the overlay layer) --- */
+
+window.overlay {
+  background: transparent;
+}
+
+.notice {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: var(--line-border) solid var(--color-border);
+  border-left: calc(var(--line-focus) * 2) solid var(--color-accent);
+  border-radius: var(--radius-large);
+  padding: var(--space-6) var(--space-8);
+  margin-bottom: var(--space-4);
+  min-width: var(--layout-notice-width);
+}
+
+.notice.low      { border-left-color: var(--color-border); }
+.notice.critical { border-left-color: var(--color-danger); }
+
+.notice .summary-text {
+  font-size: var(--type-title);
+  font-weight: var(--weight-strong);
+}
+
+.notice .body-text {
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}
+
+.notice .app-name {
+  font-size: var(--type-label);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.osd {
+  background: var(--color-surface-raised);
+  border: var(--line-border) solid var(--color-border);
+  border-radius: var(--radius-large);
+  padding: var(--space-6) var(--space-8);
+  min-width: var(--layout-osd-width);
+}
+
+.osd .osd-label {
+  color: var(--color-text-muted);
+  font-size: var(--type-label);
+}
+
+.osd .osd-value {
+  font-size: var(--type-title);
+  font-weight: var(--weight-strong);
+}
+
+.osd levelbar block {
+  min-height: var(--space-2);
+  border-radius: var(--radius-small);
+  border: none;
+}
+
+.osd levelbar block.empty  { background: var(--color-border); }
+.osd levelbar block.filled { background: var(--color-accent); }
