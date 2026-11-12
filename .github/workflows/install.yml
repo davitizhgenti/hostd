@@ -42,7 +42,10 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          msg=$(grep -h -E "^ *FAIL |error:|level=ERROR" install.log | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+          # The failed checks and errors, without colors; the log's end if none.
+          sed 's/\x1b\[[0-9;]*m//g' install.log > plain.log
+          { grep -h -E "^ *FAIL |error:|level=ERROR" plain.log || tail -n 40 plain.log; } > failed.log
+          msg=$(head -40 failed.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
           echo "::error title=Install test failed::${msg:-see the job log}"
 
   # Fuzz targets, a few minutes each, on the same schedule.
