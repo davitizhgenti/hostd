@@ -6,7 +6,6 @@ The setting is ~/.config/hostd/ui.toml:
     mode = "month"    # month (the default), color or image
     color = "#1b2433" # mode = "color"
     image = "/path"   # mode = "image"
-    art = true        # a game's own picture behind the menu, in a tab that has them (the default)
 
 In "month" mode the month gives the hue (the [month] tokens, as the PSP
 did) and the time of day the lightness: darkest at night, lightest in the
@@ -45,7 +44,7 @@ def load(file=None):
     image = raw.get("image") if isinstance(raw.get("image"), str) else ""
     if (mode == "color" and not color) or (mode == "image" and not image):
         mode = "month"
-    return {"mode": mode, "color": color, "image": image, "art": raw.get("art") is not False}
+    return {"mode": mode, "color": color, "image": image}
 
 
 def save(setting, file=None):
@@ -57,8 +56,6 @@ def save(setting, file=None):
     for key in ("color", "image"):
         if setting.get(key):
             lines.append(f"{key} = {quote(setting[key])}")
-    if setting.get("art") is False:
-        lines.append("art = false")
     tmp = file + ".new"
     with open(tmp, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -146,15 +143,13 @@ def choices(setting, tokens):
     """What the Settings page offers: (title, setting) pairs."""
     names = {"jan": "Silver", "feb": "Gold", "mar": "Olive", "apr": "Pink", "may": "Green", "jun": "Lavender",
              "jul": "Teal", "aug": "Blue", "sep": "Violet", "oct": "Amber", "nov": "Brown", "dec": "Red"}
-    art = setting.get("art", True)
-    out = [("Month and time of day", {"mode": "month", "color": setting.get("color", ""), "image": setting.get("image", ""),
-                                      "art": art})]
+    out = [("Month and time of day", {"mode": "month", "color": setting.get("color", ""), "image": setting.get("image", "")})]
     for m in MONTHS:
         c = with_light(tokens["month"][m], 0.2)
-        out.append((names[m], {"mode": "color", "color": c, "image": setting.get("image", ""), "art": art}))
+        out.append((names[m], {"mode": "color", "color": c, "image": setting.get("image", "")}))
     if setting.get("image"):
         out.append(("Image: " + os.path.basename(setting["image"]),
-                    {"mode": "image", "color": setting.get("color", ""), "image": setting["image"], "art": art}))
+                    {"mode": "image", "color": setting.get("color", ""), "image": setting["image"]}))
     return out
 
 

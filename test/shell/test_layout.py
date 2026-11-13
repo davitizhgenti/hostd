@@ -180,47 +180,64 @@ class MenuLayout(Contract):
                 for c in ("Games", "Services", "Users", "Settings", "Status"):
                     s.verb("right")
                     if c == "Games":
-                        self.check_covers(s, f"{size_name} {c} tab")
+                        self.check_tiles(s, f"{size_name} {c} tab")
                     else:
                         self.check(s, f"{size_name} {c} tab")
 
-    def test_covers_keep_the_grid(self):
+    def test_tiles_keep_the_grid(self):
         for size_name, size in SIZES.items():
             with Screen(size, tabs=True) as s:
-                s.verb("right")  # Games: covers
-                for n in range(4):
-                    self.check_covers(s, f"{size_name} covers down {n}")
+                s.verb("right")  # Games: tiles, on the Dolphin launcher
+                for n in range(7):
+                    self.check_tiles(s, f"{size_name} tiles down {n}")
                     s.verb("down")
 
-    def check_covers(self, s, where):
+    def check_tiles(self, s, where):
         g, (w, h) = self.grid(s), s.size
         p = s.engine.singletonInstance("Hostd", "Place")
         self.assertEqual(s.warnings, [], f"{where}: QML warnings")
-        area, band = s.rect("coversArea"), s.rect("rowBand")
+        area, band = s.rect("tilesArea"), s.rect("rowBand")
         self.assertFalse(s.shown("listArea"), f"{where}: the list shows too")
-        self.near(area[0], g["rowLeft"], f"{where}: covers at the block's left")
-        self.near(area[1], g["listTop"], f"{where}: covers at the list's top")
-        self.assertLessEqual(area[1] + area[3], h - g["bottomReserve"] + TOL, f"{where}: covers into the hints")
+        self.near(area[0], g["rowLeft"], f"{where}: tiles at the block's left")
+        self.near(area[1], g["listTop"], f"{where}: tiles at the list's top")
+        self.assertLessEqual(area[1] + area[3], h - g["bottomReserve"] + TOL, f"{where}: tiles into the hints")
         cur = s.shell.state()["current"]
-        tile, title = s.rect(f"coverTile/{cur}"), s.rect(f"coverTitle/{cur}")
-        self.near(tile[1], area[1], f"{where}: the current cover at the list's top")
-        self.near(tile[3], p.property("coverHeight"), f"{where}: the current cover's height")
-        self.near(tile[2], p.property("coverWidth"), f"{where}: the current cover's width")
-        self.near(title[0], p.property("coverText"), f"{where}: its title beside it")
-        self.near(title[1], tile[1], f"{where}: its title level with its top")
+        row = s.rect(f"tile/{cur}")
+        self.near(row[1], area[1], f"{where}: the current row at the list's top")
+        kind = s.item(f"tile/{cur}").property("kind")
+        if kind == "launcher":
+            self.near(row[3], g["sectionHeight"], f"{where}: a launcher is as high as a section label")
+            self.assertTrue(s.shown(f"tileFocus/{cur}"), f"{where}: the current launcher is underlined")
+        else:
+            box = s.rect(f"tileBox/{cur}")
+            self.near(box[2], p.property("tileWidth"), f"{where}: the current tile's width")
+            self.near(box[3], p.property("tileHeight"), f"{where}: the current tile's height")
+            self.near(box[3] / box[2], 215 / 460, f"{where}: a library header's shape")
+        title = s.rect("tilesTitle")
+        self.near(title[0], p.property("tileText"), f"{where}: the title on the right")
+        self.near(title[1], area[1], f"{where}: the title at the list's top")
+        info = s.rect("tilesInfo")
+        self.near(info[0] + info[2], g["trailEnd"], f"{where}: the right side ends at the block's edge")
+        banner = s.item("tilesBanner")
+        if s.shown(banner):
+            b = s.rect(banner)
+            self.near(b[2], info[2], f"{where}: the banner as wide as the right side")
+            ratio = banner.property("implicitHeight") / banner.property("implicitWidth")
+            self.near(b[3], b[2] * ratio, f"{where}: the banner keeps its shape")
+            self.assertGreaterEqual(s.rect("tilesDetails")[1], b[1] + b[3], f"{where}: details under the banner")
         safe = (g["safe"], g["safe"], w - 2 * g["safe"], h - 2 * g["safe"])
-        self.assertTrue(inside(tile, safe), f"{where}: cover outside the margins")
         drawn = 0
         for name, it in s.items().items():
-            if not name.startswith("coverTile/") or not s.shown(it):
+            if not name.startswith("tileBox/") or not s.shown(it):
                 continue
             r = s.rect(it)
             if not intersects(r, area):
                 continue
             drawn += 1
-            self.near(cx(r), p.property("coverAxis"), f"{where}: {name} on the covers' axis")
+            self.near(cx(r), p.property("tileAxis"), f"{where}: {name} on the tiles' axis")
             self.assertGreaterEqual(r[1], band[1] + band[3], f"{where}: {name} enters the category row")
-        self.assertGreaterEqual(drawn, 1, f"{where}: no covers drawn")
+            self.assertTrue(r[0] >= safe[0] - TOL, f"{where}: {name} outside the margins")
+        self.assertGreaterEqual(drawn, 1, f"{where}: no tiles drawn")
 
     def test_options_panel(self):
         for size_name, size in SIZES.items():

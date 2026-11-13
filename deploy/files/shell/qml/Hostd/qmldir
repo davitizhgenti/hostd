@@ -8,7 +8,7 @@ Level 1.0 Level.qml
 Button 1.0 Button.qml
 ListRow 1.0 ListRow.qml
 Cross 1.0 Cross.qml
-Covers 1.0 Covers.qml
+Tiles 1.0 Tiles.qml
 Panel 1.0 Panel.qml
 Dialog 1.0 Dialog.qml
 Clock 1.0 Clock.qml

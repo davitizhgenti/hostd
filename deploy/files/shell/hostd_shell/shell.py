@@ -41,7 +41,7 @@ def fetch(api, category, look, tokens, path=(), tabs=()):
     if category.kind == "apps":
         instances = api.get("/v1/instances?all=true") or []
         apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
-        return views.apps_page(instances, apps, path, category.root, tabs, flat=category.view == "covers")
+        return views.apps_page(instances, apps, path, category.root, tabs, flat=category.view == "tiles")
     if category.kind == "users":
         try:
             seats = api.get("/v1/seat")
@@ -303,7 +303,8 @@ class Shell(QObject):
         """(headers, rows) before the current item: where the list scrolls
         to put it at the top. The view multiplies them by their heights."""
         model, i = self.page(), max(0, self.currents[self._category])
-        headers = sum(1 for j in range(min(i, model.rowCount())) if model.row(j).kind == views.HEADER)
+        # A launcher row (a tiles tab's group heading) is as high as a header.
+        headers = sum(1 for j in range(min(i, model.rowCount())) if model.row(j).kind in (views.HEADER, views.LAUNCHER))
         return headers, max(0, i - headers)
 
     def current_row(self):
@@ -699,15 +700,15 @@ class Shell(QObject):
                 pairs.append((inp.BACK, "back"))
         return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device, self._family)]
 
-    def art(self):
-        """The current app's picture (a file URL) behind the menu, in a tab
-        that shows them while the setting allows it; ""."""
-        c = self.cat()
+    def focus_info(self):
+        """The current row as the tiles view's right side shows it: title,
+        second line, state, banner (a file URL) and details."""
         row = self.current_row()
-        if c.kind != "apps" or not c.backdrop or not self.look.get("art", True) or row is None or self._filter:
-            return ""
-        pic = row.backdrop or row.cover
-        return "file://" + pic if pic else ""
+        if row is None:
+            return {}
+        return {"title": row.title, "subtitle": row.value if row.kind == views.LAUNCHER else row.subtitle,
+                "badge": row.badge, "tone": row.tone, "mark": row.mark, "launcher": row.kind == views.LAUNCHER,
+                "banner": "file://" + row.banner if row.banner else "", "details": row.details}
 
     def _colors(self):
         return background.colors(self.look, self.now(), self.tokens) or ("", "")
@@ -720,7 +721,7 @@ class Shell(QObject):
 
     category = Property(int, lambda s: s.index(), notify=changed)
     view = Property(str, lambda s: s.cat().view, notify=changed)
-    artImage = Property(str, art, notify=changed)
+    focus = Property("QVariantMap", lambda s: s.focus_info(), notify=changed)
     section = Property(str, section, notify=changed)
     headersBefore = Property(int, lambda s: s.offset()[0], notify=changed)
     rowsBefore = Property(int, lambda s: s.offset()[1], notify=changed)

@@ -91,10 +91,10 @@ Item {
         text: cross.shell.section
     }
 
-    // A tab of covers, in place of the list.
-    Covers {
+    // A tab of tiles, in place of the list.
+    Tiles {
         shell: cross.shell
-        visible: cross.shell.view === "covers"
+        visible: cross.shell.view === "tiles"
         height: parent.height - Place.listTop - Place.bottomReserve
     }
 
@@ -102,7 +102,7 @@ Item {
     Item {
         id: list
         objectName: "listArea"
-        visible: cross.shell.view !== "covers"
+        visible: cross.shell.view !== "tiles"
         x: Place.rowLeft
         y: Place.listTop
         width: Place.columnWidth

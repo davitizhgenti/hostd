@@ -16,6 +16,7 @@ only what is Steam's: knowing when the game ends (the handoff), and the
 pictures Steam keeps for its library (its cover and backdrop).
 """
 
+import datetime
 import os
 import re
 import sys
@@ -82,6 +83,11 @@ def libraries(home):
 
 def games(home):
     """{appid: name} of the installed games."""
+    return {appid: state.get("name") or f"Steam game {appid}" for appid, state in manifests(home).items()}
+
+
+def manifests(home):
+    """{appid: its manifest's AppState} of the installed games."""
     found = {}
     for lib in libraries(home):
         apps = os.path.join(lib, "steamapps")
@@ -97,8 +103,27 @@ def games(home):
             appid, title = state.get("appid", m.group(1)), state.get("name", "")
             installed = int(state.get("stateflags", "0") or 0) & 4
             if installed and appid not in TOOLS and not TOOL_NAMES.match(title):
-                found.setdefault(appid, title or f"Steam game {appid}")
+                found.setdefault(appid, state)
     return found
+
+
+def details(state):
+    """What a manifest says worth showing: when it was last played, and its
+    size ("Last played 13 November 2026 · 4.9 GB")."""
+    out = []
+    try:
+        played = int(state.get("lastplayed") or 0)
+    except ValueError:
+        played = 0
+    if played > 0:
+        out.append("Last played " + datetime.datetime.fromtimestamp(played).strftime("%-d %B %Y"))
+    try:
+        size = int(state.get("sizeondisk") or 0)
+    except ValueError:
+        size = 0
+    if size > 0:
+        out.append(f"{size / 1e9:.1f} GB")
+    return " · ".join(out)
 
 
 def sandbox(home):
@@ -134,31 +159,37 @@ def shortcuts(home):
 
 
 def pictures(home, appid):
-    """(cover, backdrop): the pictures Steam keeps of a game for its
-    library, as paths ("" where there is none). Newer Steam keeps them in a
-    folder per game, older Steam beside each other."""
+    """(tile, banner): the pictures Steam keeps of a game for its library,
+    as paths ("" where there is none): its header (460x215) for the tile,
+    its hero (1920x620) for the banner. Newer Steam keeps them in a folder
+    per game, some in a subfolder of it; older Steam beside each other."""
     cache = os.path.join(sandbox(home), "Steam", "appcache", "librarycache")
+    folder = os.path.join(cache, appid)
+    try:
+        subs = sorted(e.path for e in os.scandir(folder) if e.is_dir())
+    except OSError:
+        subs = []
 
     def first(*names):
         for n in names:
-            for p in (os.path.join(cache, appid, n), os.path.join(cache, f"{appid}_{n}")):
+            for p in (os.path.join(folder, n), *(os.path.join(d, n) for d in subs), os.path.join(cache, f"{appid}_{n}")):
                 if os.path.isfile(p):
                     return p
         return ""
-    return first("library_600x900.jpg"), first("library_hero.jpg", "header.jpg")
+    return first("header.jpg", "library_header.jpg"), first("library_hero.jpg")
 
 
 def toml_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def app_file(appid, name, extends="", cover="", backdrop=""):
+def app_file(appid, name, extends="", tile="", banner="", about=""):
     command = f'["flatpak", "run", "{STEAM_ID}", "steam://rungameid/{appid}"]'
     # Extending Steam's shortcut keeps this file's ID (steam-<appid>); the
     # shortcut's own name still finds it.
     ident = ("id", f"steam-{appid}") if extends else ("", "")
     more = "".join(f"{k} = {toml_string(v)}\n"
-                   for k, v in (("extends", extends), ident, ("cover", cover), ("backdrop", backdrop)) if v)
+                   for k, v in (("extends", extends), ident, ("tile", tile), ("banner", banner), ("details", about)) if v)
     return f"""{MARKER}
 {more}name = {toml_string(name)}
 under = "steam"
@@ -186,14 +217,15 @@ def ours(path):
 def sync(home, apps_dir, remove_all=False):
     """Writes the game apps and removes stale ones. Returns (written, removed)."""
     os.makedirs(apps_dir, exist_ok=True)
-    wanted = {} if remove_all else games(home)
+    found = {} if remove_all else manifests(home)
+    wanted = {appid: state.get("name") or f"Steam game {appid}" for appid, state in found.items()}
     made = shortcuts(home)
     written = removed = 0
     for appid, name in wanted.items():
         path = os.path.join(apps_dir, f"steam-{appid}.toml")
         if os.path.exists(path) and not ours(path):
             continue  # the person's own file for this game wins
-        body = app_file(appid, name, made.get(appid, ""), *pictures(home, appid))
+        body = app_file(appid, name, made.get(appid, ""), *pictures(home, appid), details(found[appid]))
         try:
             with open(path, encoding="utf-8") as f:
                 if f.read() == body:

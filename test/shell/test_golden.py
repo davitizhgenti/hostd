@@ -39,8 +39,9 @@ STATES = [
     ("11-notices", "NoticeLayer", "notices", "Notices, critical first"),
     ("12-osd", "OsdLayer", "osd", "The OSD"),
     ("13-gallery", "Gallery", [], "The component sheet"),
-    ("14-tabs", "Menu+tabs", ["right"], "The Games tab (covers), with the current game's picture behind"),
-    ("14b-covers-down", "Menu+tabs", ["right", "down", "down"], "Down two: a game with no picture, its icon on a tile"),
+    ("14-tabs", "Menu+tabs", ["right"], "The Games tab (tiles): a launcher heads its group"),
+    ("14b-tiles-game", "Menu+tabs", ["right", "down"], "A game: its tile, and on the right its banner and details"),
+    ("14c-tiles-other", "Menu+tabs", ["right"] + ["down"] * 4, "A game with no banner, in the Steam group"),
     ("15-services", "Menu+tabs", ["right", "right"], "The Services tab: each service's state"),
     ("16-service-options", "Menu+tabs", ["right", "right", "activate"], "A service's options: Stop, Restart"),
 ]

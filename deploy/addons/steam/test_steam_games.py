@@ -1,5 +1,6 @@
 """Tests for hostd-steam-games: python3 -m unittest (make lint-scripts)."""
 
+import datetime
 import importlib.machinery
 import importlib.util
 import os
@@ -81,23 +82,31 @@ class SteamGames(unittest.TestCase):
         with open(os.path.join(share, "applications", "Other.desktop"), "w") as f:
             f.write("[Desktop Entry]\nName=Other\nExec=other\n")
         cache = os.path.join(self.root, "appcache", "librarycache")
-        os.makedirs(os.path.join(cache, "620"))
-        for n in ("620/library_600x900.jpg", "620/library_hero.jpg", "440_header.jpg"):  # new and old layouts
+        # Newer Steam: a folder per game, some pictures in a subfolder; older: side by side.
+        for n in ("620/library_600x900.jpg", "620/abc123/library_header.jpg", "620/def456/library_hero.jpg", "440_header.jpg"):
+            os.makedirs(os.path.dirname(os.path.join(cache, n)), exist_ok=True)
             open(os.path.join(cache, n), "w").close()
         self.assertEqual(sg.shortcuts(self.home), {"620": "steam-portal-2"})
+        self.assertEqual(sg.pictures(self.home, "620"),
+                         (f"{cache}/620/abc123/library_header.jpg", f"{cache}/620/def456/library_hero.jpg"))
         sg.sync(self.home, self.apps)
         with open(os.path.join(self.apps, "steam-620.toml")) as f:
             portal = f.read()
         self.assertIn('extends = "steam-portal-2"', portal)
         self.assertIn('id = "steam-620"', portal)
-        self.assertIn(f'cover = "{cache}/620/library_600x900.jpg"', portal)
-        self.assertIn(f'backdrop = "{cache}/620/library_hero.jpg"', portal)
+        self.assertIn(f'tile = "{cache}/620/abc123/library_header.jpg"', portal)
+        self.assertIn(f'banner = "{cache}/620/def456/library_hero.jpg"', portal)
         with open(os.path.join(self.apps, "steam-440.toml")) as f:
             tf2 = f.read()
         self.assertNotIn("extends", tf2)  # no shortcut: a file of its own
         self.assertNotIn("id =", tf2)  # its file name is its ID
-        self.assertNotIn("cover", tf2)
-        self.assertIn(f'backdrop = "{cache}/440_header.jpg"', tf2)
+        self.assertIn(f'tile = "{cache}/440_header.jpg"', tf2)
+        self.assertNotIn("banner", tf2)
+
+    def test_details_say_when_it_was_last_played_and_its_size(self):
+        day = datetime.datetime.fromtimestamp(1794582994).strftime("%-d %B %Y")  # in local time, as shown
+        self.assertEqual(sg.details({"lastplayed": "1794582994", "sizeondisk": "5305396760"}), f"Last played {day} · 5.3 GB")
+        self.assertEqual(sg.details({"sizeondisk": "0", "lastplayed": "x"}), "")
 
     def test_id_part_is_hostds(self):
         self.assertEqual(sg.id_part("steam-JoJo's Bizarre Adventure: All-Star"), "steam-jojo-s-bizarre-adventure--all-star")

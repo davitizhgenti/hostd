@@ -32,8 +32,9 @@ type AppFile struct {
 	Hidden    *bool             `toml:"hidden"`
 	Under     *string           `toml:"under"`
 	Folder    *string           `toml:"folder"`
-	Cover     *string           `toml:"cover"`
-	Backdrop  *string           `toml:"backdrop"`
+	Tile      *string           `toml:"tile"`
+	Banner    *string           `toml:"banner"`
+	Details   *string           `toml:"details"`
 	Match     *spec.Match       `toml:"match"`
 	Restart   *string           `toml:"restart"`
 	Autostart *bool             `toml:"autostart"`
@@ -83,11 +84,14 @@ func (f AppFile) applyTo(a *spec.App) {
 	if f.Under != nil {
 		a.Under = *f.Under
 	}
-	if f.Cover != nil {
-		a.Cover = *f.Cover
+	if f.Tile != nil {
+		a.Tile = *f.Tile
 	}
-	if f.Backdrop != nil {
-		a.Backdrop = *f.Backdrop
+	if f.Banner != nil {
+		a.Banner = *f.Banner
+	}
+	if f.Details != nil {
+		a.Details = strings.TrimSpace(*f.Details)
 	}
 	if f.Folder != nil {
 		a.Folder = CleanFolder(*f.Folder)

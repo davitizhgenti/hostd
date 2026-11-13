@@ -7,8 +7,6 @@ Rectangle {
 
     // The shell (Python): what is current, the data, and what input does.
     required property var shell
-    // The current app's own picture over it (the menu; not behind the apps).
-    property bool showArt: false
     color: Theme.colorBg
 
     gradient: Gradient {
@@ -37,44 +35,5 @@ Rectangle {
         visible: backdrop.shell.bgImage !== ""
         color: Theme.colorBg
         opacity: 0.5
-    }
-
-    // The current game's picture, cross-fading from one to the next, under
-    // a share of the background color (art.dim) so text reads on any
-    // picture. Two images take turns: the new one fades in over the old.
-    Item {
-        id: art
-        objectName: "art"
-        anchors.fill: parent
-        readonly property string source: backdrop.showArt ? backdrop.shell.artImage : ""
-        property bool first: true
-        onSourceChanged: { art.first = !art.first; (art.first ? one : two).source = art.source }
-        Component.onCompleted: one.source = art.source
-
-        Image {
-            id: one
-            objectName: "artOne"
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            opacity: art.first && art.source !== "" ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
-        }
-        Image {
-            id: two
-            objectName: "artTwo"
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            opacity: !art.first && art.source !== "" ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
-        }
-        Rectangle {
-            objectName: "artDim"
-            anchors.fill: parent
-            color: Theme.colorBg
-            opacity: art.source !== "" ? Theme.artDim : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
-        }
     }
 }

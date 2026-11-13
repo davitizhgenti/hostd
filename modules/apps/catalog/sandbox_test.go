@@ -104,8 +104,9 @@ func TestAnAppFileExtendsASandboxShortcut(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "steam-223470.toml"), []byte(`extends = "steam-postal-2"
 id = "steam-223470"
-cover = "/covers/postal.jpg"
-backdrop = "/covers/postal-hero.jpg"
+tile = "/covers/postal.jpg"
+banner = "/covers/postal-hero.jpg"
+details = "Last played today"
 runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "steam://rungameid/223470"], handoff = "SteamAppId=223470" }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -117,7 +118,7 @@ runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam"
 	}
 	a, ok := cat.Get("steam-223470")
 	if !ok || a.Name != "POSTAL 2" || !strings.HasSuffix(a.Icon, "steam_icon_223470.png") || a.Folder != "Games/Steam" ||
-		a.Cover != "/covers/postal.jpg" || a.Backdrop != "/covers/postal-hero.jpg" || a.Runner.Handoff != "SteamAppId=223470" {
+		a.Tile != "/covers/postal.jpg" || a.Banner != "/covers/postal-hero.jpg" || a.Details != "Last played today" || a.Runner.Handoff != "SteamAppId=223470" {
 		t.Fatalf("extended: %+v", a)
 	}
 	if _, dup := cat.Get("postal-2"); !dup { // still found by its old ids, as one app
@@ -137,14 +138,15 @@ runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam"
 func TestPicturesMustBeAbsolute(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "x.toml"), []byte(`id = "x"
-cover = "covers/x.jpg"
+tile = "covers/x.jpg"
+details = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 runner = { type = "exec", command = ["x"] }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	files, problems := LoadAppFiles(dir)
 	cat := Build(nil, files, problems)
-	if p := cat.Problems; len(p) != 1 || !strings.Contains(p[0].Error, "cover") {
+	if p := cat.Problems; len(p) != 1 || !strings.Contains(p[0].Error, "tile") || !strings.Contains(p[0].Error, "details") {
 		t.Fatalf("problems: %v", p)
 	}
 }

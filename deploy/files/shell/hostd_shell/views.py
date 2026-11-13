@@ -24,8 +24,7 @@ class Category:
     icon: str
     kind: str
     root: tuple = ()
-    view: str = "list"  # an app tab's: list, or covers
-    backdrop: bool = False  # an app tab's: the current app's picture behind the menu
+    view: str = "list"  # an app tab's: list, or tiles
 
 
 APPS_CATEGORY = Category("apps", "Apps", "layout-grid", "apps")
@@ -37,7 +36,7 @@ FIXED = (Category("users", "Users", "users", "users"),
 def categories(tabs=()):
     """The categories, left to right: Apps, the marked folders' tabs
     (menu.Tab, in the menu file's order), Users, Settings and Status."""
-    return [APPS_CATEGORY, *(Category("tab:" + t.folder, t.folder, t.icon, "apps", (t.folder,), t.view, t.backdrop)
+    return [APPS_CATEGORY, *(Category("tab:" + t.folder, t.folder, t.icon, "apps", (t.folder,), t.view)
                              for t in tabs), *FIXED]
 
 
@@ -61,6 +60,7 @@ def action(kind, **args):
 
 # Row kinds: how a row is drawn and what left/right do on it.
 HEADER, ITEM, SLIDER, TOGGLE, FOLDER = "header", "item", "slider", "toggle", "folder"
+LAUNCHER = "launcher"  # a tiles tab's group heading that is an app: choosing it opens it
 
 
 @dataclass
@@ -84,8 +84,9 @@ class Row:
     step_back: Call | None = None  # down
     icon: str = ""  # hostd's icon (icons/NAME.svg)
     app_icon: str = ""  # the app's own icon, preferred to icon
-    cover: str = ""  # the app's cover (a path): the covers view draws it
-    backdrop: str = ""  # its wide picture (a path), behind the menu
+    tile: str = ""  # the app's wide picture (a path), on its tile in a tiles tab
+    banner: str = ""  # its banner (a path), beside the current tile
+    details: str = ""  # a line or two about it, under the banner
 
     def key(self):
         """Its identity across refreshes, to keep the selection: an app's
@@ -143,9 +144,8 @@ def apps_page(instances, apps, path=(), root=(), tabs=(), flat=False):
     they run. Every other app is a hidden row, shown when filtering. Apps
     leaves out the folders that are tabs (tabs: their names).
 
-    flat (a covers tab): every app anywhere in the tab, no folders, the
-    games before the launchers (apps others are under or require), each
-    saying where it is from.
+    flat (a tiles tab): every app anywhere in the tab, no folders, in
+    groups by launcher (tiles_rows).
 
     instances: /v1/instances?all=true (an ended one tells a failed service)."""
     path = tuple(path) if tuple(path)[:len(root)] == tuple(root) else tuple(root)
@@ -180,19 +180,18 @@ def apps_page(instances, apps, path=(), root=(), tabs=(), flat=False):
 
     placed = [(a, place(a)) for a in listed]
     if flat:
-        path = root
-        launchers = {a.get("under") for a in listed} | {r for a in listed for r in a.get("requires") or []}
-        here = [a for a, f in placed if f is not None and mine(f) and f[:len(root)] == root]
-        here.sort(key=lambda a: (a["id"] in launchers, a["id"] not in live))
+        here = [a for a, f in placed if f is not None and mine(f)]
+        rows = tiles_rows(here, by_id, live, ended, children, root)
+        shown_ids = {r.app for r in rows}
         deeper = []
     else:
         here = [a for a, f in placed if f == path]
         here.sort(key=lambda a: a["id"] not in live)  # running first, else the catalog's order
         deeper = [a for a, f in placed if f is not None and mine(f) and f[:len(path)] == path and len(f) > len(path)]
     subfolders = sorted({folder_of(a)[:len(path) + 1] for a in deeper})
-    shown_ids = {a["id"] for a in here}
-
-    rows = []
+    if not flat:
+        shown_ids = {a["id"] for a in here}
+        rows = []
     if not root and not path:
         # Instances of no app in the catalog (app.run commands).
         for inst in (i for app, insts in live.items() if app not in by_id for i in insts):
@@ -200,19 +199,14 @@ def apps_page(instances, apps, path=(), root=(), tabs=(), flat=False):
                 rows.append(instance_row(inst))
     folders = [folder_row(sub, [a for a, f in placed if f is not None and mine(f)]) for sub in subfolders]
     running_here = sum(1 for a in here if a["id"] in live)
-    for n, a in enumerate(here):
+    for n, a in enumerate([] if flat else here):
         if n == running_here:
             rows += folders  # after the running apps, before the rest
         if a.get("surface") == "background":
             rows.append(service_row(a, live.get(a["id"], []), ended.get(a["id"])))
         else:
             rows.append(app_row(a, live.get(a["id"], []), children))
-        if flat:
-            parent = (by_id.get(a.get("under")) or {}).get("name")
-            where = parent or " / ".join(folder_of(a)[len(root):])
-            state = rows[-1].badge or {"positive": "running", "warning": "starting", "danger": "failed"}.get(rows[-1].mark, "")
-            rows[-1].subtitle = " · ".join(x for x in (where, state) if x)
-    if running_here == len(here):
+    if not flat and running_here == len(here):
         rows += folders
     # Shown only when filtering: every other app, wherever it is.
     for a in listed:
@@ -238,13 +232,59 @@ def apps_page(instances, apps, path=(), root=(), tabs=(), flat=False):
     return rows, "   ".join(x for x in parts if x)
 
 
+def launcher_of(app, by_id):
+    """The app an app is started through: the one it is under, else the
+    first one it requires that is listed (Dolphin, for a Wii game)."""
+    if app.get("under") in by_id:
+        return app["under"]
+    return next((r for r in app.get("requires") or [] if r in by_id), "")
+
+
+def tiles_rows(members, by_id, live, ended, children, root):
+    """A tiles tab's rows: a group per launcher, by its name, each headed
+    by the launcher itself (a LAUNCHER row: choosing it opens it) and then
+    its apps, running first; then the apps with no launcher under a label.
+    A game's second line is its state alone: its group says where it is
+    from."""
+    groups = {}
+    for a in members:
+        lid = launcher_of(a, by_id)
+        if lid:
+            groups.setdefault(lid, []).append(a)
+    launchers = set(groups)
+    loose = [a for a in members if not launcher_of(a, by_id) and a["id"] not in launchers]
+    noun = root[-1].lower().rstrip("s") if root else "app"  # Games: "3 games"
+
+    def row(a):
+        if a.get("surface") == "background":
+            r = service_row(a, live.get(a["id"], []), ended.get(a["id"]))
+        else:
+            r = app_row(a, live.get(a["id"], []), children)
+            r.subtitle = {"positive": "running", "warning": "starting", "danger": "failed"}.get(r.mark, "")
+        return r
+
+    def running_first(apps):
+        return sorted(apps, key=lambda a: a["id"] not in live)
+
+    rows = []
+    for lid in sorted(groups, key=lambda i: (by_id[i].get("name") or i).lower()):
+        head = row(by_id[lid])
+        head.kind, head.value, head.subtitle = LAUNCHER, plural(len(groups[lid]), noun), ""
+        rows.append(head)
+        rows += [row(a) for a in running_first(groups[lid])]
+    if loose:
+        rows.append(Row(f"Other {noun}s" if root else "Other apps", HEADER))
+        rows += [row(a) for a in running_first(loose)]
+    return rows
+
+
 def app_row(app, running, children):
     """A window app. Running: marked, choosing it brings it to the front,
     Delete closes it; its options are each instance's, then the app's."""
     opening = open_call(app["id"])
     row = Row(app.get("name") or app["id"], call=opening, app=app["id"],
               icon="app-window", app_icon=app.get("icon") or "",
-              cover=app.get("cover") or "", backdrop=app.get("backdrop") or "")
+              tile=app.get("tile") or "", banner=app.get("banner") or "", details=app.get("details") or "")
     if not running:
         row.sheet = [Row("Start", call=opening, icon="play")] + app_sheet(app, children)
         return row
@@ -283,7 +323,7 @@ def service_row(app, running, last):
         sheet = [Row("Start", call=open_call(app["id"]), icon="play")]
     return Row(app.get("name") or app["id"], app=app["id"], badge=state, tone=TONES.get(state, ""),
                icon="server", app_icon=app.get("icon") or "", sheet=sheet,
-               cover=app.get("cover") or "", backdrop=app.get("backdrop") or "")
+               tile=app.get("tile") or "", banner=app.get("banner") or "", details=app.get("details") or "")
 
 
 def switch_call(instance):
@@ -387,9 +427,6 @@ def settings_page(audio, display, look=None, tokens=None):
                         sheet=[Row(t, call=local("background", s), icon="image" if s["mode"] == "image" else "palette",
                                    badge="now" if t == now else "", tone="accent")
                                for t, s in options]))
-        art = look.get("art", True)
-        rows.append(Row("Game art behind the menu", TOGGLE, value="on" if art else "off", icon="image",
-                        call=local("background", {**look, "art": not art})))
     return rows
 
 

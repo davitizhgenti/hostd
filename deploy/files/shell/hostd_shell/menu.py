@@ -4,8 +4,7 @@ of their own, next to Apps.
     [[tab]]
     folder = "Games"     # a top-level folder (an app file's folder = "Games/...")
     icon = "gamepad-2"   # one of the menu's icons; the folder icon if not
-    view = "covers"      # "list" (the default), or every app in it as covers in one column
-    backdrop = true      # the current app's picture behind the menu (the default; ui.toml can turn it off)
+    view = "tiles"       # "list" (the default), or every app in it as tiles in one column, by launcher
 
 The tabs come after Apps, in the file's order. With no file there are no
 tabs; a file that cannot be used gives none and says why.
@@ -17,14 +16,13 @@ from typing import NamedTuple
 
 DEFAULT_ICON = "folder"
 MAX_TABS = 8
-VIEWS = ("list", "covers")
+VIEWS = ("list", "tiles")
 
 
 class Tab(NamedTuple):
     folder: str
     icon: str = DEFAULT_ICON
     view: str = "list"
-    backdrop: bool = True
 
 
 def path():
@@ -59,10 +57,7 @@ def load(file=None, has_icon=None):
         view = t.get("view", "list")
         if view not in VIEWS:
             return [], f"menu.toml: tab {n}: view must be one of {', '.join(VIEWS)}"
-        backdrop = t.get("backdrop", True)
-        if not isinstance(backdrop, bool):
-            return [], f"menu.toml: tab {n}: backdrop is true or false"
-        out.append(Tab(folder, icon if isinstance(icon, str) and has_icon(icon) else DEFAULT_ICON, view, backdrop))
+        out.append(Tab(folder, icon if isinstance(icon, str) and has_icon(icon) else DEFAULT_ICON, view))
     if len(out) > MAX_TABS:
         return [], f"menu.toml: at most {MAX_TABS} tabs"
     return out, ""

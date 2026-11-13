@@ -7,9 +7,9 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_ICON = os.path.join(HERE, "fixtures", "app-icon.svg")
-COVER_A = os.path.join(HERE, "fixtures", "cover-a.png")
-COVER_B = os.path.join(HERE, "fixtures", "cover-b.png")
-BACKDROP_A = os.path.join(HERE, "fixtures", "backdrop-a.png")
+TILE_A = os.path.join(HERE, "fixtures", "tile-a.png")
+TILE_B = os.path.join(HERE, "fixtures", "tile-b.png")
+BANNER_A = os.path.join(HERE, "fixtures", "banner-a.png")
 NOW = datetime.datetime(2026, 2, 14, 13, 30)  # February (gold), early afternoon
 LONG = "A game with a very long title that cannot fit in the column however wide the screen is"
 
@@ -22,7 +22,7 @@ INSTANCES = [
 APPS = [
     {"id": "steam", "name": "Steam", "surface": "window", "icon": APP_ICON,
      "actions": [{"id": "bigpicture", "name": "Big Picture"}]},
-    {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam"},
+    {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam", "folder": "Games/Steam", "tile": TILE_B},
     {"id": "chromium", "name": "Chromium", "surface": "window"},
     {"id": "dolphin", "name": "Dolphin", "surface": "window", "folder": "Games/Dolphin"},
     {"id": "kodi", "name": "Kodi", "surface": "window", "actions": [{"id": "music", "name": "Music"}]},
@@ -32,16 +32,17 @@ APPS = [
     {"id": "firefox", "name": "Firefox", "surface": "window"},
     {"id": "vlc", "name": "VLC", "surface": "window"},
     {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii",
-     "requires": ["dolphin"], "cover": COVER_A, "backdrop": BACKDROP_A},
+     "requires": ["dolphin"], "tile": TILE_A, "banner": BANNER_A,
+     "details": "Last played 12 February 2026 · 3.1 GB"},
     {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii",
-     "requires": ["dolphin"], "cover": COVER_B},
-    {"id": "steam-launcher", "name": "Steam", "surface": "window", "folder": "Games/Steam"},
+     "requires": ["dolphin"], "tile": TILE_B},
+    {"id": "steam-launcher", "name": "Steam Link", "surface": "window", "folder": "Games/Steam"},
     {"id": "homeassistant", "name": "Home Assistant", "surface": "background"},
     {"id": "syncthing", "name": "Syncthing", "surface": "background"},
     {"id": "pihole", "name": "Pi-hole", "surface": "background"},
 ]
 # The menu file (menu.toml) of a screen with tabs: Games and Services.
-MENU = ('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\nview = "covers"\n\n'
+MENU = ('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\nview = "tiles"\n\n'
         '[[tab]]\nfolder = "Services"\nicon = "server"\n')
 
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]

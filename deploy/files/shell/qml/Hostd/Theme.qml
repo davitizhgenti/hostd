@@ -69,8 +69,8 @@ QtObject {
     readonly property int layoutPanelWidth: Math.max(1, Math.round(640 * scale))
     readonly property int layoutNoticeWidth: Math.max(1, Math.round(600 * scale))
     readonly property int layoutOsdWidth: Math.max(1, Math.round(440 * scale))
-    readonly property int layoutCover: Math.max(1, Math.round(264 * scale))
-    readonly property int layoutCoverSmall: Math.max(1, Math.round(96 * scale))
+    readonly property int layoutTile: Math.max(1, Math.round(320 * scale))
+    readonly property int layoutTileSmall: Math.max(1, Math.round(160 * scale))
 
     // input
     readonly property int inputGlideStep: 40
@@ -78,9 +78,6 @@ QtObject {
     readonly property int inputGlideRest: 250
     readonly property int inputGlideFloor: 60
     readonly property int inputGlideBurst: 3
-
-    // art
-    readonly property real artDim: 0.72
 
     // month
     readonly property color monthJan: "#9097a3"

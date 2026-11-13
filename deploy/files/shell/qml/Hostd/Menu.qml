@@ -17,7 +17,6 @@ Window {
 
     Backdrop {
         shell: menu.shell
-        showArt: true
         anchors.fill: parent
     }
 

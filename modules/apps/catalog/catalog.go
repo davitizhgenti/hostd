@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
 )
@@ -277,10 +278,13 @@ func validate(a *spec.App) error {
 	if a.Folder != "" && a.Folder != CleanFolder(a.Folder) {
 		bad("folder %q: names separated by /, no empty or . names", a.Folder)
 	}
-	for _, pic := range [][2]string{{"cover", a.Cover}, {"backdrop", a.Backdrop}} {
+	for _, pic := range [][2]string{{"tile", a.Tile}, {"banner", a.Banner}} {
 		if pic[1] != "" && !filepath.IsAbs(pic[1]) {
 			bad("%s %q: an absolute path to a picture", pic[0], pic[1])
 		}
+	}
+	if n := utf8.RuneCountInString(a.Details); n > MaxDetails {
+		bad("details: at most %d characters (%d)", MaxDetails, n)
 	}
 	if s := a.Window.ShownBy; s != "" && (!ValidID(s) || s == a.ID) {
 		bad("window.shown_by %q: another app's id", s)
@@ -464,6 +468,9 @@ func Diff(old, cur *Catalog) (added, removed, changed []string) {
 	sort.Strings(changed)
 	return added, removed, changed
 }
+
+// MaxDetails is the most an app's details may say, in characters.
+const MaxDetails = 300
 
 // CleanFolder normalises a folder path: names separated by single slashes,
 // trimmed, none empty. "" for a path with nothing in it.

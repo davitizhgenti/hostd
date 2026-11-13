@@ -67,8 +67,8 @@ section       = 56  # a section label in the column
 panel-width   = 640 # the options panel at the right edge
 notice-width  = 600
 osd-width     = 440
-cover         = 264 # a game's cover, current (2:3: its width is two thirds of this)
-cover-small   = 96  # the other covers in the column
+tile          = 320 # a game's tile in a tiles tab, current (as wide as a library header: 460:215)
+tile-small    = 160 # the other tiles in the column
 
 [input] # the mouse in the menu: no pointer, it glides the selection
 glide-step  = 40  # px of vertical travel (at 1080p, scaled) per item
@@ -76,9 +76,6 @@ glide-cross = 100 # px of sideways travel per category
 glide-rest  = 250 # ms without movement before a half-made step is forgotten
 glide-floor = 60  # px per second: slower movement (a resting hand) does nothing
 glide-burst = 3   # at most this many steps from one movement event
-
-[art] # a game's own picture behind the menu
-dim = 0.72 # the share of the background color over it, so text reads on any picture
 
 # The background in its "month" mode: the month gives the hue (as the PSP
 # did), the time of day the lightness. Muted; only their hue and saturation

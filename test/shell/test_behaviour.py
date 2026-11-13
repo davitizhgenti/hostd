@@ -241,7 +241,8 @@ class FolderNavigation(unittest.TestCase):
         self.go_to_games()
         s.handle("down")  # the Steam folder
         s.handle("activate")
-        self.assertEqual(s.current_row().title, "Steam")
+        self.assertEqual(titles(s)[:2], ["Dota 2", "Steam Link"])
+        s.handle("down")
         s.handle("activate")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/steam-launcher/open", None))
 
@@ -315,9 +316,11 @@ class Tabs(unittest.TestCase):
         self.assertEqual(titles(s)[:3], ["Steam", "Chromium", "Kodi"])  # Apps has no Games or Services folder
         s.handle("right")
         self.assertEqual((s.state()["category"], s.property("category")), ("tab:Games", 1))
-        # A covers tab: every game in it, flat; the launcher last.
+        # A tiles tab: every game in it, in groups each headed by its launcher.
         self.assertEqual((s.property("view"), titles(s), s.property("section")),
-                         ("covers", ["Mario Kart Wii", "Super Mario Galaxy", "Steam", "Dolphin"], ""))
+                         ("tiles", ["Dolphin", "Mario Kart Wii", "Super Mario Galaxy", "Steam", "Dota 2",
+                                    "Other games", "Steam Link"], ""))
+        self.assertEqual([r.kind for r in s.page().rows][:4], ["launcher", "item", "item", "launcher"])
         s.handle("right")
         self.assertEqual(titles(s), ["Home Assistant", "Syncthing", "Pi-hole"])
 
@@ -331,24 +334,24 @@ class Tabs(unittest.TestCase):
         s.handle("back")  # at the tab's top: back to Apps, as from any category
         self.assertEqual(s.state()["category"], APPS)
 
-    def test_the_current_games_art_is_behind_the_menu(self):
+    def test_moving_through_groups_and_opening_a_launcher(self):
         s = shell(fixtures.MENU)
-        self.assertEqual(s.property("artImage"), "")  # Apps: never
         s.handle("right")
-        self.assertEqual(s.property("artImage"), "file://" + fixtures.BACKDROP_A)  # its backdrop
-        s.handle("down")
-        self.assertEqual(s.property("artImage"), "file://" + fixtures.COVER_B)  # no backdrop: its cover
-        s.handle("down")
-        self.assertEqual(s.property("artImage"), "")  # no picture at all
+        self.assertEqual((s.current_row().title, s.property("focus")["subtitle"]), ("Dolphin", "2 games"))
+        s.handle("down")  # Mario Kart Wii: its banner and details on the right
+        focus = s.property("focus")
+        self.assertEqual((focus["title"], focus["banner"], focus["details"], focus["launcher"]),
+                         ("Mario Kart Wii", "file://" + fixtures.BANNER_A, "Last played 12 February 2026 · 3.1 GB", False))
+        self.assertEqual(s.offset(), (1, 0))  # the launcher above, as high as a header
+        for _ in range(4):
+            s.handle("down")  # over the Other games label, onto Steam Link
+        self.assertEqual((s.current_row().title, s.offset()), ("Steam Link", (3, 3)))
         s.handle("up")
-        s.send(views.local("background", {**s.look, "art": False}))  # Settings: Game art behind the menu, off
-        self.assertEqual(s.property("artImage"), "")
-        self.assertEqual(s.page().rows[0].subtitle, "Dolphin / Wii")
-
-    def test_a_tab_can_have_no_art(self):
-        s = shell('[[tab]]\nfolder = "Games"\nview = "covers"\nbackdrop = false\n')
-        s.handle("right")
-        self.assertEqual(s.property("artImage"), "")
+        s.handle("up")  # Steam, the launcher
+        self.assertEqual(s.current_row().title, "Steam")
+        s.handle("activate")  # running: brought to the front
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
+        self.assertEqual([h["what"] for h in s._hints()], ["open", "options", "close"])
 
     def test_typing_in_a_tab_searches_every_app(self):
         s = shell(fixtures.MENU)
@@ -591,14 +594,6 @@ class Readability(unittest.TestCase):
         for name, setting in background.choices(look, harness.TOKENS):
             if setting["mode"] == "color":
                 self.check(setting, fixtures.NOW, name)
-
-    def test_text_reads_on_any_game_picture(self):
-        # The worst picture is white: under art.dim of the background color.
-        dim, bg = harness.TOKENS["art"]["dim"], background.rgb(harness.TOKENS["color"]["bg"])
-        over = "#" + "".join(f"{round(255 * ((1 - dim) + dim * c)):02x}" for c in bg)
-        text, muted = harness.TOKENS["color"]["text"], harness.TOKENS["color"]["text-muted"]
-        self.assertGreaterEqual(contrast(text, over), 4.5, f"text on {over}")
-        self.assertGreaterEqual(contrast(muted, over), 3.0, f"muted text on {over}")
 
     def test_a_light_color_is_darkened(self):
         self.check({"mode": "color", "color": "#ffffff", "image": ""}, fixtures.NOW, "white")
