@@ -5,3 +5,6 @@ core.out
 *.test
 /test/e2e/.vm/
 __pycache__/
+
+# The shell tests' renders (test/shell/test_golden.py), for review on this machine
+test/shell/out/

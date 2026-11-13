@@ -248,7 +248,7 @@ func TestUninstall(t *testing.T) {
 	m := newFakeMachine(t)
 	s, out := newSetup(t, m)
 	files := map[string]string{
-		"/usr/local/bin/hostctl": "x", "/usr/local/sbin/hostd-setup": "x", "/usr/local/lib/hostd/ui/hostd-menu": "x",
+		"/usr/local/bin/hostctl": "x", "/usr/local/sbin/hostd-setup": "x", "/usr/local/lib/hostd/shell/hostd-shell": "x",
 		"/etc/systemd/system/hostd-update.timer": "x", "/etc/hostd/update.conf": "x", "/etc/hostd/addons": "controllers\n",
 		"/etc/greetd/config.toml": "hostd's", "/etc/greetd/config.toml.orig": "Debian's", sshdDropIn: sshdKeysOnly,
 		"/home/screen/.config/systemd/user/hostd.service": "x", "/home/screen/.local/state/hostd/state.db": "x",

@@ -1,0 +1,87 @@
+# hostd's design tokens: the one place its look is defined.
+#
+# The shell (the menu, notices, the OSD, the background), Sway's fallback
+# background and the docs site take their colors, type, sizes and timing
+# from here. After a change: go generate ./deploy (writes the shell's
+# Theme.qml, tokens.json, the docs copy and Sway's color); CI fails when
+# they are out of date. See docs/design.md.
+#
+# Sizes are px on a 1080-pixel-high screen; the shell scales them with the
+# screen's height (never below 85 %). Times are milliseconds.
+
+[color] # neutral, near black; color only where it means something
+bg             = "#0b0b0c" # before the background is drawn, and under images
+surface        = "#141416" # the options panel, the question band
+surface-raised = "#1b1b1e" # notices, the OSD
+border         = "#2a2a2e" # hairlines
+text           = "#f2f2f4"
+text-muted     = "#9e9ea6"
+accent         = "#f2f2f4" # what is current: the text's own color
+positive       = "#8cc4a2" # running, done
+warning        = "#dcb872" # starting, skipped
+danger         = "#e07e7e" # errors, closing, critical notices
+
+[font] # one family each
+text = "Inter"
+mono = "DejaVu Sans Mono"
+
+[type] # the four text roles
+display = 56 # the clock, a level's value
+title   = 36 # the current item, the current category, a question
+body    = 26 # other items, options, notices
+label   = 20 # second lines, section labels, hints, states
+
+[weight]
+light   = 300 # display and title
+regular = 400 # body and label
+strong  = 500 # a notice's summary, the chosen option
+
+[space] # the 8 px grid (xs is the only half step)
+xs   = 4
+s    = 8
+m    = 16
+l    = 24
+xl   = 32
+xxl  = 48
+xxxl = 64
+
+[line]
+hair  = 1 # dividers, panel edges
+focus = 2 # the underline of what is current
+
+[motion]
+fast = 120 # opacity, color
+base = 220 # sliding: the category row, the item column, the panel
+
+[layout]
+safe-margin   = 48  # kept clear at the screen's edges (projectors and TVs crop)
+cross-x       = 384 # the cross point: where the category row and item column meet
+cross-y       = 288
+column-width  = 1040 # the item column: its states and values end here
+category-step = 184 # from one category to the next
+icon-category = 64
+icon-item     = 40
+icon-small    = 24  # options, notices
+item-height   = 96  # every row, current or not: a steady rhythm
+item-line     = 64  # a row's title line, at its top; the current row's second line is under it
+section       = 56  # a section label in the column
+panel-width   = 640 # the options panel at the right edge
+notice-width  = 600
+osd-width     = 440
+
+# The background in its "month" mode: the month gives the hue (as the PSP
+# did), the time of day the lightness. Muted; only their hue and saturation
+# are used, so text stays readable at any hour.
+[month]
+jan = "#9097a3" # silver
+feb = "#b39a4f" # gold
+mar = "#7f9c5c" # olive
+apr = "#c48aa4" # pink
+may = "#5ea06f" # green
+jun = "#8d78b4" # lavender
+jul = "#4e9f9b" # teal
+aug = "#4f80c2" # blue
+sep = "#7462aa" # violet
+oct = "#c48a3e" # amber
+nov = "#8d6a4e" # brown
+dec = "#b2484f" # red

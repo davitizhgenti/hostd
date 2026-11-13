@@ -1,86 +1,109 @@
 # Design
 
-Everything hostd shows on a screen follows one design: the menu, notices, the volume and screen OSD, the Sway background, and this docs site. Anything new that draws, such as a remote control, uses the same tokens and the same components, so it looks and behaves like the rest.
+Everything hostd shows on a screen follows one design: the menu, notices, the volume and screen OSD, the background behind the apps, and this docs site. Anything new that draws, such as a remote control, uses the same tokens, so it looks like the rest.
 
 ## Principles
 
 - **Simple and quiet.** Flat and square: no rounded corners, no filled pills, no shadows. Type, space and brightness carry the rest, on a calm background. Color in the content means something (running, a warning, an error) and is never decoration.
-- **Readable from across the room.** Body text is 26 px on a 1080-pixel-high screen; nothing is smaller than 20 px. Every size scales with the screen's height (a 4K TV gets twice as much, a 1280×800 projector a little less, never below 85 %).
-- **One focus, always visible.** The current item sits at the cross point, larger and brighter than the rest, never only a color change. Nothing moves the focus by itself.
-- **Every input does the same.** A keyboard, a mouse and a game controller work the same everywhere (see [input](#input)). The hints at the bottom right name the buttons of whatever was used last.
+- **One grid.** Every position on the menu comes from one place (`Place.qml`) and a few rules ([the grid](#the-grid)); tests hold every screen to them.
+- **Readable from across the room.** Body text is 26 px on a 1080-pixel-high screen, nothing smaller than 20 px; every size scales with the screen's height (never below 85 %). Text keeps a contrast of at least 4.5:1 (3:1 for muted text) on every background the shell can draw; a test checks every month and hour.
+- **One focus, always visible.** The current item sits at the top of the list, under the current category, with a larger title and full brightness; nothing moves sideways and nothing is scaled. Nothing moves the focus by itself.
+- **Every input does the same.** A keyboard, a mouse and a game controller work the same everywhere ([input](#input)). The hints at the bottom right name the buttons of whatever was used last.
 - **Ask before what cannot be undone at once.** Switching the screen to another user and turning the screen off ask first, with the safe answer (No) chosen.
-- **Calm.** Changes take at most 150 ms; nothing blinks or slides for long. Notices never take the focus from a game.
-- **Plain words.** "Bring to front", "Give the screen to guest?", "Skipped: someone is at the screen". Ids (`steam-570`) appear only as a second line, in the monospace font.
+- **Calm.** Moves take 220 ms, fades 120 ms, nothing blinks. Notices never take the focus from a game.
+- **Plain words.** "Bring to front", "Give the screen to guest?". Ids (`steam-570`) appear only as a second line, in the monospace font.
+
+## The shell
+
+`hostd-shell` (Python with PySide6, Qt Quick) is one process that draws everything: the menu, the background behind the apps (a layer below them), notices and the OSD (a layer above them, games included, taking no input). It runs as the user service `hostd-shell.service`, started by Sway.
+
+- **Python holds the state and the behaviour** (`hostd_shell/shell.py`): what is current, what each verb does, the data from hostd's API and events, the background setting. It is tested without a screen.
+- **QML only draws it** (`qml/Hostd/`). Every surface gets the shell as a property; there are no global context properties, so qmllint checks every use.
+- **The menu stays hostd's app `hostd-menu`.** Its command, `hostd-shell menu`, asks the shell to show the menu (D-Bus, `org.hostd.Shell`) and runs until it is closed; the shell's menu window has the app_id `hostd-menu`, which the app's `[match]` rule claims. So hostd sees the menu as running exactly while it is on screen, holds the controllers for it and handles Back, as for any app.
+- **Notices:** the shell is the session's notification server (`org.freedesktop.Notifications`), so hostd's own notices and every app's are drawn in this design.
 
 ## Tokens
 
-The look is defined once, in `deploy/files/ui/tokens.toml`. `go generate ./deploy` writes it out for everything that draws:
+The look is defined once, in `deploy/files/shell/tokens.toml`. `go generate ./deploy` writes it out:
 
 | File | Used by |
 | --- | --- |
-| `deploy/files/ui/tokens.css` | the menu and notices (GTK 4 reads CSS custom properties) |
-| `deploy/files/ui/tokens.json` | anything that is not CSS |
+| `deploy/files/shell/qml/Hostd/Theme.qml` | the shell: one typed property per token (`Theme.colorText`, `Theme.layoutSafeMargin`), sizes scaled with the screen |
+| `deploy/files/shell/tokens.json` | anything else (a remote) |
 | `docs/stylesheets/tokens.css` | this site |
-| `deploy/files/sway/config` | the screen's background (between its token markers) |
+| `deploy/files/sway/config` | the screen's color before the shell draws (between its token markers) |
 
-CI fails when one of them is out of date. Each token becomes a CSS custom property named `--<group>-<name>`:
+CI fails when one of them is out of date. The groups:
 
 | Group | Tokens | Unit |
 | --- | --- | --- |
 | `color` | `bg`, `surface`, `surface-raised`, `border`, `text`, `text-muted`, `accent`, `positive`, `warning`, `danger` | |
 | `font` | `text` (Inter), `mono` (DejaVu Sans Mono) | |
 | `type` | `display`, `title`, `body`, `label` | px |
-| `weight` | `light` (large type), `regular`, `strong` | |
-| `space` | `1`, `2`, `3`, `4`, `6`, `8`, `12`, `16` (4 px steps) | px |
-| `line` | `border`, `focus` | px |
+| `weight` | `light` (display and title), `regular`, `strong` | |
+| `space` | `xs` 4, `s` 8, `m` 16, `l` 24, `xl` 32, `xxl` 48, `xxxl` 64 | px |
+| `line` | `hair`, `focus` | px |
 | `motion` | `fast`, `base` | ms |
-| `layout` | `safe-margin`; the cross: `cross-x`, `cross-y`, `category-step`, `icon-category`, `icon-item`, `item-height`, `item-current`, `header-height`; `panel-width`, `notice-width`, `osd-width` | px |
+| `layout` | `safe-margin`; the cross: `cross-x`, `cross-y`, `column-width`, `category-step`, `icon-category`, `icon-item`, `icon-small`, `item-height`, `item-line`, `section`; `panel-width`, `notice-width`, `osd-width` | px |
 | `month` | `jan` … `dec`: the background's hue in its month mode | |
 
-Colors have roles, not names: `accent` is the focus and the selection (the text's own color), `positive` is running or done, `warning` is starting or skipped, `danger` is an error, closing or a critical notice. `safe-margin` keeps content off the screen's edges, which projectors and TVs crop.
+QML takes every color from Theme; a test fails on a color written anywhere else.
 
-## The layout: a cross
+## The grid
 
-The menu is laid out like the PSP's XMB. The categories (Apps, Users, Settings, Status) are icons on one row at about a third of the screen's height; the current one sits at the cross point (`cross-x`, `cross-y`) with its name under it. Its items run up and down through the same point: the current one just under the row, larger, with its second line, its state and its value; the ones after it below; the ones before it above the row, fainter. Left and right slide the row, up and down the column (`motion.base`, an ease-out). The clock and the category's summary are at the top right, the button hints at the bottom right, the filter (Apps only) at the top left.
+The menu is laid out like the PSP's XMB: the categories (Apps, Users, Settings, Status) on one row, the current one's items in a column under it. `Place.qml` computes every position from the tokens:
 
 ```
-                                                         Thu 13 Nov   21:40
-   RUNNING                                               2 running
-   ▭  Steam                                running
-  [▦]       ⚇        ☰        ∿
-  Apps
-   ▭  Chromium                            starting
-      chromium
-   APPS
-   ▭  Dolphin
-   ▭  Kodi                                     ◀ ▶ category   Esc back
+                                                          13:30
+                                                          Sat 14 February
+   ▦        ⚇        ☰        ∿                           2 running   9 apps
+  Apps                                                    ← the row band: nothing from the list enters it
+   │ RUNNING                                              ← the current item's section
+   ▷ Steam                                running        ← the current item, at the list's top
+   │ steam                                                  (its second line under its title line)
+   C Chromium                            starting
+   │ APPS
+   D Dolphin
+   │
+ axis  text column                       trail edge                 Enter open   ◀ ▶ category   Esc back
 ```
+
+- **The axis:** the current category's icon, every item icon and its column are centred on one vertical line.
+- **The text column:** every title, second line and section label starts at the same x, on every row, current or not.
+- **Category names** are centred under their icons; the current one's name shows, the others' space is kept. A category that would cross the safe margin is not shown, never cut by the screen's edge.
+- **The row band** (the icons and the name) and the **list** below it never overlap: passed items scroll up and fade before the list's top.
+- **Rows** are all the same height; the title line is at the top of each, and the current row's second line sits under it. Icon, title and the trailing state or value are centred on the title line; the trail ends at the column's edge.
+- **Corners:** the clock and summary at the top right, the hints at the bottom right, the filter at the top left, the message at the bottom left, all inside the safe margins and clear of the list.
+- **The options panel** comes in at the right edge; its heading and options line up with the menu's section and list. **A question** is a band across the middle of the screen.
+
+Placement is arithmetic, not left to Qt's list views: the rows are plain positioners, and moving is one animated offset computed from what is current.
 
 ## Components
 
-`deploy/files/ui/theme.css` styles the components with tokens only (a test fails if it has a color of its own); `hostd_ui/components.py` builds them, `hostd_ui/cross.py` places them. A screen is made of these and nothing else:
-
 | Component | What it is |
 | --- | --- |
-| Cross | the category row and the current category's item column, slid into place |
-| Category | an icon; its name under it when it is current |
-| Item | an icon and a title; when current, larger, with its second line, state and value |
-| Section label | a small, spaced, upper-case label in the column ("RUNNING") |
-| Badge | a short word in a role color, no box: `running`, `starting`, `on screen`, `skipped`, `failed` |
-| Options panel | an item's options, at the right edge over a dimmed screen (the PSP's triangle menu); for a level (the volume), the value and a vertical bar, changed with up and down |
-| Confirm band | a question across the middle of the screen, with No and Yes as words, the chosen one underlined; No is chosen first |
-| Notice | a flat panel at the top right, under the clock: the app, a summary, a body; a thin colored edge for its urgency |
-| OSD | a short value at the bottom centre (the volume, whose screen it is), gone after 1.6 s |
+| `Txt` | the only text: one of the four roles, in Theme's sizes and weights |
+| `Icon` | an app's own icon, else one of hostd's line icons, else a letter in a hairline square |
+| `ListRow` | the one list item: icon column, title line, second line when current, trailing state or value |
+| `Badge` | a state in a word, in its role's color, no box |
+| `Level` | a hairline track and its filled part, across or upright |
+| `Button` | a choice in a word; the current one bright and underlined |
+| `Cross` | the category row and the item list |
+| `Panel` | the options panel, or a level (the volume) changed with up and down |
+| `Dialog` | the question band; No is chosen first |
+| `Clock`, `Hints` | the corners |
+| `Notice`, `Osd` | a notice (a thin edge in its urgency's color), the OSD |
+| `Backdrop` | the background setting: a gradient or a darkened image |
 
-What a category lists is plain data, apart from GTK (`hostd_ui/views.py`): a list of rows, and a row says what choosing it does (a request to hostd's API, or a change on this screen alone) and which icon it has. That is the part to reuse for another screen.
+`Gallery.qml` shows every token and component on one screen (`hostd-shell --gallery`).
 
 ## Icons
 
-Categories, settings and actions use a few line icons from [Lucide](https://lucide.dev) (ISC license, `deploy/files/ui/icons/LICENSE`), drawn in the text color with thin strokes (`hostd_ui/icons.py`). An app shows its own icon (its desktop entry's `Icon`, from the icon theme or Flatpak's exports), or its first letter in a hairline square when it has none. A new icon is one more SVG from the same set in `icons/`.
+Categories, settings and actions use line icons from [Lucide](https://lucide.dev) (ISC license, `deploy/files/shell/icons/LICENSE`), drawn in the text color with thin strokes by the shell (an image provider, so every renderer shows the same). An app shows its own icon (its desktop entry's `Icon`, from the icon theme or Flatpak's exports), or its first letter in a hairline square.
 
 ## The background
 
-What is behind the menu, and behind every app, is the screen's own setting, `~/.config/hostd/ui.toml`, changed under Settings → Background:
+What is behind the menu and every app is the screen's own setting, `~/.config/hostd/ui.toml`, changed under Settings → Background:
 
 ```toml
 [background]
@@ -89,15 +112,15 @@ color = "#473d1f"   # mode = "color"
 image = "/path/to/picture.jpg"  # mode = "image"
 ```
 
-In the month mode, as on the PSP, the month gives the hue (the `month` tokens) and the time of day the lightness: darkest at night, lightest in the afternoon. A color is never so light that white text stops reading; an image is darkened for the same reason. The menu draws it as a gradient; `hostd-notices` sets the same color (or the image) behind the apps, when the setting changes and every few minutes.
+In the month mode, as on the PSP, the month gives the hue (the `month` tokens) and the time of day the lightness: darkest at night, lightest in the afternoon, never so light that text stops reading. An image is darkened for the same reason.
 
 ## Input
 
-Every input is turned into one of a few verbs (`hostd_ui/input.py`), and screens act on verbs only:
+Every input becomes one of a few verbs (`hostd_shell/input.py`), and the shell acts on verbs only:
 
 | Verb | Keyboard | Controller | Mouse |
 | --- | --- | --- | --- |
-| item | Up/Down, Page Up/Down | D-pad up/down | scroll, click |
+| item | Up/Down, Page Up/Down | D-pad up/down | wheel, click |
 | category | Left/Right, Tab | D-pad left/right | click a category |
 | choose | Enter, Space | A | click the current item |
 | back | Esc, Backspace | B | |
@@ -119,6 +142,14 @@ Super (or holding a controller's Guide button) opens it; the same goes back. Its
 
 The menu acts with the machine's local token (`~/.config/hostd/local.token`, scopes `read,apps,audio,display`, and `seat` with the seats add-on), so what is chosen on the screen counts as someone at the screen.
 
-## Notices
+## Tests
 
-`hostd-notices` is the session's notification server (`org.freedesktop.Notifications`), so hostd's own notices (`hostctl display notice`, "Steam wants the screen") and every app's notifications are drawn in this design, at the top right, above fullscreen games, at most three at once (critical ones first and longer). It also shows the OSD when the volume changes or the screen goes to another user. It runs as the user service `hostd-notices.service`, started by Sway; without gtk4-layer-shell it runs mako instead.
+`make test-shell` runs, in a Debian 13 container with the shell's Qt stack (`test/shell/Containerfile`, so rendering is the same everywhere):
+
+| Test | Holds |
+| --- | --- |
+| `test_layout.py` | [the grid](#the-grid) on the real QML, at 1280×800, 1920×1080 and 3840×2160, in every category and while moving: alignment within 1 px, no overlap, the rhythm, the corners, text that fits |
+| `test_golden.py` | every screen state against images in `test/shell/golden/`; what it rendered goes to `test/shell/out/index.html` for review. `make shell-golden` accepts a new look |
+| `test_behaviour.py` | what each verb does, the requests sent to hostd, and the background's contrast at every month and hour |
+| `test_lint.py` | qmllint: no warnings |
+| `live.sh` | a real Wayland session: the launcher, the menu's app_id, the layers, the notification server |

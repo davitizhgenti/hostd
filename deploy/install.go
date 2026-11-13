@@ -63,10 +63,12 @@ type installer struct {
 	extra       bool   // another user's hostd, not the first's (see users.go)
 	port        int    // extra: the API port
 	hostdChange bool   // hostd must restart
-	menuChange  bool   // the menu (and the notices: the same UI files) must restart
+	menuChange  bool   // the menu (the shell's files or its app file) changed: a running menu restarts
 	vncChanged  bool   // the VNC server must restart
 
-	noticesChanged bool // the notices' unit changed
+	shellChanged      bool // the shell's unit changed
+	oldNotices        bool // the GTK notices' unit (0.2) was there: it is replaced by the shell
+	shellFilesChanged bool // the shell's files changed: a running shell restarts
 
 	addonsSkipped int
 }
@@ -263,11 +265,13 @@ var packages = []string{
 	"podman", "uidmap", "fuse-overlayfs", "passt", "catatonit", "nftables",
 	"jq", "curl", "ca-certificates", "git", "openssl",
 	// The menu and the notices (GTK 4; the notices on the overlay layer),
-	// in the design's typeface, with its line icons (SVG, drawn by librsvg).
-	// The layer-shell typelib does not pull in its library on Debian 13, so
-	// both are named.
-	"python3-gi", "gir1.2-gtk-4.0", "gir1.2-gtk4layershell-1.0", "libgtk4-layer-shell0", "fonts-inter",
-	"librsvg2-common",
+	// hostd-shell, the on-screen UI: Qt Quick through PySide6, the layer
+	// shell for notices over games, SVG for its icons, Gio for D-Bus, in the
+	// design's typeface.
+	"python3-gi", "gir1.2-glib-2.0",
+	"python3-pyside6.qtcore", "python3-pyside6.qtgui", "python3-pyside6.qtqml", "python3-pyside6.qtquick",
+	"qml6-module-qtquick", "qml6-module-qtquick-window", "qml6-module-qtqml-workerscript",
+	"qml6-module-org-kde-layershell", "qt6-wayland", "qt6-svg-plugins", "fonts-inter",
 }
 
 // missingPackages returns the ones of pkgs that are not installed.
@@ -446,19 +450,24 @@ func (in *installer) sessionConfig(ctx context.Context) error {
 	} else {
 		in.Out.Info("sway config up to date")
 	}
-	// Notices are hostd's own now (hostd-notices); mako's config from
-	// before goes, if hostd wrote it.
+	// Notices are hostd's own (hostd-shell); mako's config from before goes,
+	// if hostd wrote it, and so does the GTK notices' unit of 0.2.
 	if mako := home + "/.config/mako/config"; in.exists(mako) && in.hostdOwned(mako) {
 		_ = os.Remove(in.path(mako))
 		in.Out.Changed("removed the mako config (hostd draws its notices itself now)")
 	}
-	unit := bytes.ReplaceAll(file("systemd/hostd-notices.service"), []byte("@UI@"), []byte(in.lay().ui))
-	in.noticesChanged, err = in.installFile(unit, home+"/.config/systemd/user/hostd-notices.service", 0o644, name)
+	if old := home + "/.config/systemd/user/hostd-notices.service"; in.exists(old) {
+		in.oldNotices = true
+		_ = os.Remove(in.path(old))
+		in.Out.Changed("removed the notices service (hostd-shell draws them now)")
+	}
+	unit := bytes.ReplaceAll(file("systemd/hostd-shell.service"), []byte("@SHELL@"), []byte(in.lay().shell))
+	in.shellChanged, err = in.installFile(unit, home+"/.config/systemd/user/hostd-shell.service", 0o644, name)
 	if err != nil {
 		return err
 	}
-	if !in.noticesChanged {
-		in.Out.Info("notices service up to date")
+	if !in.shellChanged {
+		in.Out.Info("shell service up to date")
 	}
 	vncChanged, err := in.installFile(file("systemd/wayvnc.service"), home+"/.config/systemd/user/wayvnc.service", 0o644, name)
 	if err != nil {
@@ -849,43 +858,49 @@ func (in *installer) installDocs() error {
 	return nil
 }
 
-// uiFiles are the files of files/ui that go on the machine: the programs,
-// their package and the look (not the tests, nor the token source).
-func uiFiles() []string {
+// shellFiles are the files of files/shell that go on the machine: the
+// program, its package, the QML, the icons and the tokens (not the tests,
+// the token source or the menu's app file, which goes to the catalog).
+func shellFiles() []string {
 	var out []string
-	_ = fs.WalkDir(Files(), "ui", func(p string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(Files(), "shell", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		base := path.Base(p)
 		if !strings.HasPrefix(base, "test_") && !strings.HasSuffix(base, ".toml") {
-			out = append(out, strings.TrimPrefix(p, "ui/"))
+			out = append(out, strings.TrimPrefix(p, "shell/"))
 		}
 		return nil
 	})
 	return out
 }
 
-// installUI puts hostd's on-screen UI in place: the menu (a hidden app in
-// the catalog, opened by display.menu: Super, or a held Guide button), the
-// notices and the package both use, in one folder.
+// installUI puts hostd's on-screen UI in place: hostd-shell (the menu, the
+// background, notices, the OSD) in one folder, and the menu's app file (a
+// hidden app in the catalog, opened by display.menu: Super, or a held
+// Guide button).
 func (in *installer) installUI() error {
-	// The files of older names: the "switcher" (hostd-overlay) and the
-	// menu as one file, beside the folder.
+	// What older versions had: the "switcher" (hostd-overlay), the menu as
+	// one file, and 0.2's GTK UI folder.
 	if in.User == nil {
 		_ = os.Remove(in.path("/usr/local/lib/hostd/hostd-overlay"))
 	}
-	_ = os.Remove(in.path(path.Dir(in.lay().ui) + "/hostd-menu"))
+	dir := in.lay().shell
+	_ = os.Remove(in.path(path.Dir(dir) + "/hostd-menu"))
+	if old := path.Dir(dir) + "/ui"; in.exists(old) {
+		_ = os.RemoveAll(in.path(old))
+		in.Out.Changed("removed the GTK menu and notices (%s)", old)
+	}
 	_ = os.Remove(in.path(in.user.home + "/.config/hostd/apps/hostd-overlay.toml"))
-	dir := in.lay().ui
 	shipped := map[string]bool{}
 	changed := false
-	for _, name := range uiFiles() {
+	for _, name := range shellFiles() {
 		mode := os.FileMode(0o644)
-		if name == "hostd-menu" || name == "hostd-notices" {
+		if name == "hostd-shell" {
 			mode = 0o755
 		}
-		ch, err := in.installFile(file("ui/"+name), dir+"/"+name, mode, in.owner("root"))
+		ch, err := in.installFile(file("shell/"+name), dir+"/"+name, mode, in.owner("root"))
 		if err != nil {
 			return err
 		}
@@ -908,10 +923,11 @@ func (in *installer) installUI() error {
 		return nil
 	})
 	in.menuChange = in.menuChange || changed
+	in.shellFilesChanged = changed
 	if changed {
-		in.Out.Changed("installed the menu and notices (%s)", dir)
+		in.Out.Changed("installed hostd-shell (%s)", dir)
 	} else {
-		in.Out.Info("menu and notices up to date")
+		in.Out.Info("hostd-shell up to date")
 	}
 	// Backups that older installers made of hostd's own files.
 	patterns := []string{in.user.home + "/.config/hostd/apps/*.orig"}
@@ -930,7 +946,7 @@ func (in *installer) installUI() error {
 			}
 		}
 	}
-	ch, err := in.installFile(bytes.ReplaceAll(file("ui/hostd-menu.toml"), []byte("@MENU@"), []byte(dir+"/hostd-menu")), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
+	ch, err := in.installFile(bytes.ReplaceAll(file("shell/hostd-menu.toml"), []byte("@SHELL@"), []byte(dir+"/hostd-shell")), in.user.home+"/.config/hostd/apps/hostd-menu.toml", 0o644, in.user.name)
 	if err != nil {
 		return err
 	}
@@ -962,11 +978,21 @@ func (in *installer) startHostd(ctx context.Context) error {
 			in.Out.Changed("restarted the VNC server")
 		}
 	}
-	// The notices run the UI's code: a new version of it, or of their unit,
-	// takes effect when they restart. Not running: the session starts them.
-	if (in.noticesChanged || in.menuChange) && in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd-notices.service") {
-		if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd-notices.service"); err == nil {
-			in.Out.Changed("restarted the notices")
+	// The shell runs the UI's code: a new version of it, or of its unit,
+	// takes effect when it restarts. Where 0.2's notices ran, a session is
+	// up: the shell takes their place now rather than at the next login.
+	// Not running and no session: the session starts it.
+	if in.oldNotices {
+		_, _ = in.asScreen(ctx, "systemctl", "--user", "stop", "hostd-notices.service")
+	}
+	if in.shellChanged || in.shellFilesChanged || in.oldNotices {
+		active := in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd-shell.service")
+		if active || in.oldNotices {
+			if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd-shell.service"); err == nil {
+				in.Out.Changed("restarted hostd-shell")
+			} else {
+				in.Out.Warn("warning: hostd-shell did not start; its packages come with: sudo hostd-admin prepare")
+			}
 		}
 	}
 	if in.hostdChange || !in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd") {

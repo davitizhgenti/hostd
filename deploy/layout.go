@@ -9,7 +9,7 @@ import (
 // A layout is where hostd's files go: the system's (hostd-admin, root) or
 // the user's own home (hostd-setup, no root).
 type layout struct {
-	hostctl, self, docs, ui       string // ui: the menu, the notices and their package
+	hostctl, self, docs, shell    string // shell: hostd-shell, the on-screen UI (Qt Quick)
 	updateConf, applied, notified string
 	addonsState, addonsStamp      string
 	updateUnits                   string // where hostd-update.{service,timer} go
@@ -45,7 +45,7 @@ func (s *Setup) lay() layout {
 	if s.User == nil {
 		return layout{
 			hostctl: "/usr/local/bin/hostctl", self: "/usr/local/sbin/hostd-setup",
-			docs: "/usr/local/share/hostd/docs", ui: "/usr/local/lib/hostd/ui",
+			docs: "/usr/local/share/hostd/docs", shell: "/usr/local/lib/hostd/shell",
 			updateConf: "/etc/hostd/update.conf", applied: "/etc/hostd/applied.sha256", notified: "/etc/hostd/notified.sha256",
 			addonsState: "/etc/hostd/addons", addonsStamp: "/etc/hostd/addons.applied",
 			updateUnits: "/etc/systemd/system", updateUnitsDir: "systemd",
@@ -55,7 +55,7 @@ func (s *Setup) lay() layout {
 	h := s.User.home
 	return layout{
 		hostctl: h + "/.local/bin/hostctl", self: h + "/.local/bin/hostd-setup",
-		docs: h + "/.local/share/hostd/docs", ui: h + "/.local/lib/hostd/ui",
+		docs: h + "/.local/share/hostd/docs", shell: h + "/.local/lib/hostd/shell",
 		updateConf: h + "/.config/hostd/update.conf", applied: h + "/.local/state/hostd/applied.sha256", notified: h + "/.local/state/hostd/notified.sha256",
 		addonsState: h + "/.local/state/hostd/addons", addonsStamp: h + "/.local/state/hostd/addons.applied",
 		updateUnits: h + "/.config/systemd/user", updateUnitsDir: "systemd/user",

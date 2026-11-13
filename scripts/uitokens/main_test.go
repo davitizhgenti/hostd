@@ -28,17 +28,20 @@ func fakeRepo(t *testing.T, tokens string) string {
 		os.WriteFile(filepath.Join(root, p), []byte(s), 0o644)
 	}
 	os.MkdirAll(filepath.Join(root, "docs/stylesheets"), 0o755)
+	os.MkdirAll(filepath.Join(root, "deploy/files/shell/qml/Hostd"), 0o755)
 	return root
 }
 
 func TestWritesEveryTarget(t *testing.T) {
-	root := fakeRepo(t, "[color]\nbg = \"#000000\"\ntext = \"#ffffff\"\n[type]\nbody = 27\n[motion]\nbase = 150\n[weight]\nstrong = 600\n")
+	root := fakeRepo(t, "[color]\nbg = \"#000000\"\ntext = \"#ffffff\"\n[font]\ntext = \"Inter\"\n[type]\nbody = 27\n"+
+		"[motion]\nbase = 150\n[weight]\nstrong = 600\n[layout]\nsafe-margin = 48\n")
 	var errb bytes.Buffer
 	if code := run([]string{"-root", root}, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	css, _ := os.ReadFile(filepath.Join(root, "deploy/files/ui/tokens.css"))
-	for _, want := range []string{"--color-bg: #000000;", "--type-body: 27px;", "--motion-base: 150ms;", "--weight-strong: 600;"} {
+	css, _ := os.ReadFile(filepath.Join(root, "docs/stylesheets/tokens.css"))
+	for _, want := range []string{"--color-bg: #000000;", "--type-body: 27px;", "--motion-base: 150ms;", "--weight-strong: 600;",
+		`--font-text: "Inter", sans-serif;`, "--layout-safe-margin: 48px;"} {
 		if !strings.Contains(string(css), want) {
 			t.Errorf("tokens.css lacks %q:\n%s", want, css)
 		}
@@ -47,12 +50,18 @@ func TestWritesEveryTarget(t *testing.T) {
 	if strings.Index(string(css), "--color-bg") > strings.Index(string(css), "--color-text") {
 		t.Error("tokens are out of the source's order")
 	}
-	docs, _ := os.ReadFile(filepath.Join(root, "docs/stylesheets/tokens.css"))
-	if !bytes.Equal(docs, css) {
-		t.Error("the docs copy differs")
+	qml, _ := os.ReadFile(filepath.Join(root, "deploy/files/shell/qml/Hostd/Theme.qml"))
+	for _, want := range []string{"pragma Singleton", "property real scale: 1.0",
+		`readonly property color colorBg: "#000000"`,
+		`readonly property string fontText: "Inter"`, "readonly property int typeBody: Math.max(1, Math.round(27 * scale))",
+		"property real animate: 1.0", "readonly property int motionBase: Math.round(150 * animate)",
+		"readonly property int layoutSafeMargin: Math.max(1, Math.round(48 * scale))"} {
+		if !strings.Contains(string(qml), want) {
+			t.Errorf("Theme.qml lacks %q:\n%s", want, qml)
+		}
 	}
 	var js map[string]map[string]any
-	b, _ := os.ReadFile(filepath.Join(root, "deploy/files/ui/tokens.json"))
+	b, _ := os.ReadFile(filepath.Join(root, "deploy/files/shell/tokens.json"))
 	if err := json.Unmarshal(b, &js); err != nil || js["color"]["bg"] != "#000000" || js["type"]["body"] != 27.0 || js["units"]["type"] != "px" {
 		t.Errorf("tokens.json: %v %s", err, b)
 	}
@@ -73,10 +82,10 @@ func TestWritesEveryTarget(t *testing.T) {
 func TestCheckFindsStaleFiles(t *testing.T) {
 	root := fakeRepo(t, "[color]\nbg = \"#000000\"\n")
 	var errb bytes.Buffer
-	if code := run([]string{"-check", "-root", root}, &errb); code != 1 || !strings.Contains(errb.String(), "tokens.css is out of date") {
+	if code := run([]string{"-check", "-root", root}, &errb); code != 1 || !strings.Contains(errb.String(), "Theme.qml is out of date") {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, "deploy/files/ui/tokens.css")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, "deploy/files/shell/qml/Hostd/Theme.qml")); err == nil {
 		t.Error("-check wrote a file")
 	}
 }

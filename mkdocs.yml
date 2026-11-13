@@ -10,7 +10,7 @@ strict: true
 theme:
   name: mkdocs
   navigation_depth: 3
-# hostd's design: tokens.css is generated from deploy/files/ui/tokens.toml.
+# hostd's design: tokens.css is generated from deploy/files/shell/tokens.toml.
 extra_css:
   - stylesheets/tokens.css
   - stylesheets/hostd.css

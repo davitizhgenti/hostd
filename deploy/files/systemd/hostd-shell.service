@@ -1,0 +1,13 @@
+# Managed by hostd-setup; changes here are overwritten.
+#
+# hostd's on-screen UI (docs/design.md): the menu, the background, notices
+# and the OSD, in one Qt Quick process. Started by the Sway config once the
+# session's variables are imported; restarted if it ever exits.
+[Unit]
+Description=hostd shell: the menu, the background, notices and the OSD
+After=graphical-session-pre.target
+
+[Service]
+ExecStart=@SHELL@/hostd-shell
+Restart=always
+RestartSec=2

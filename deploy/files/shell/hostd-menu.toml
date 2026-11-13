@@ -1,0 +1,15 @@
+# Managed by hostd-setup; changes here are overwritten.
+# hostd's on-screen menu, opened with Super or by holding a controller's Guide button.
+name = "Menu"
+hidden = true
+# `hostd-shell menu` asks the shell (hostd-shell.service) to show the menu
+# and runs until it is closed; the shell's menu window (app_id hostd-menu)
+# is this app's window.
+runner = { type = "exec", command = ["@SHELL@", "menu"] }
+
+[instance]
+policy = "single"
+if_running = "focus"
+
+[match]
+app_id = "hostd-menu"

@@ -1,0 +1,23 @@
+#!/usr/bin/python3
+"""hostd-shell: hostd's on-screen UI, one process for the menu, the
+background, notices and the OSD (Qt Quick; docs/design.md).
+
+    hostd-shell            the shell (hostd-shell.service, started by Sway)
+    hostd-shell menu       show the menu and wait until it is closed: the
+                           command of hostd's app "hostd-menu"
+    hostd-shell --gallery  every component in its states
+    hostd-shell --menu     the shell with the menu shown (to try it out)
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+sys.dont_write_bytecode = True
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["menu"]:
+        from hostd_shell.bus import launch_menu
+        sys.exit(launch_menu())
+    from hostd_shell.app import run
+    sys.exit(run(sys.argv))

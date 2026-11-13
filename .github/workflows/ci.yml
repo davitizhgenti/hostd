@@ -54,6 +54,20 @@ jobs:
           pipx install mkdocs==1.6.1
           mkdocs build --strict -d "$RUNNER_TEMP/site"
 
+  # The shell's screens: behaviour, the layout contract, golden images and
+  # qmllint, in the Debian 13 container test/shell/Containerfile describes.
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: make test-shell
+      - name: Show failed screens
+        if: failure()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for d in test/shell/out/*/*.diff.png; do echo "::error title=Screen differs::$d"; done
+
   # After the tests pass on main, publish the binaries as the rolling
   # "edge" pre-release. deploy/install.sh downloads them from there and
   # checks them against SHA256SUMS.
@@ -61,7 +75,7 @@ jobs:
   # publishes that release (the "stable" update channel takes the latest
   # one; a tag with a suffix, v0.2.0-rc1, is a pre-release).
   edge:
-    needs: [test, scripts]
+    needs: [test, scripts, shell]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     # The signing key lives in this environment, which only main and v*

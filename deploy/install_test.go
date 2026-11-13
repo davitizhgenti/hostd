@@ -244,10 +244,11 @@ func TestInstallOnAFreshMachine(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
 	s.Out.Close()
-	for _, p := range []string{"/home/screen/.config/sway/config", "/home/screen/.config/systemd/user/hostd-notices.service", "/etc/greetd/config.toml",
+	for _, p := range []string{"/home/screen/.config/sway/config", "/home/screen/.config/systemd/user/hostd-shell.service", "/etc/greetd/config.toml",
 		"/home/screen/.config/systemd/user/hostd.service", "/home/screen/.local/lib/hostd/rollback.sh", "/usr/local/bin/hostctl",
-		"/usr/local/lib/hostd/ui/hostd-menu", "/usr/local/lib/hostd/ui/hostd-notices", "/usr/local/lib/hostd/ui/hostd_ui/views.py",
-		"/usr/local/lib/hostd/ui/theme.css", "/usr/local/lib/hostd/ui/tokens.css", "/home/screen/.config/hostd/apps/hostd-menu.toml", "/usr/local/sbin/hostd-setup",
+		"/usr/local/lib/hostd/shell/hostd-shell", "/usr/local/lib/hostd/shell/hostd_shell/shell.py",
+		"/usr/local/lib/hostd/shell/qml/Hostd/Menu.qml", "/usr/local/lib/hostd/shell/qml/Hostd/Theme.qml",
+		"/usr/local/lib/hostd/shell/tokens.json", "/usr/local/lib/hostd/shell/icons/LICENSE", "/home/screen/.config/hostd/apps/hostd-menu.toml", "/usr/local/sbin/hostd-setup",
 		"/etc/systemd/system/hostd-update.timer", "/etc/hostd/update.conf", "/home/screen/.config/hostd/local.token"} {
 		if _, err := os.Stat(filepath.Join(m.root, p)); err != nil {
 			t.Errorf("not installed: %s", p)

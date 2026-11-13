@@ -1,0 +1,22 @@
+module Hostd
+singleton Theme 1.0 Theme.qml
+singleton Place 1.0 Place.qml
+Txt 1.0 Txt.qml
+Icon 1.0 Icon.qml
+Badge 1.0 Badge.qml
+Level 1.0 Level.qml
+Button 1.0 Button.qml
+ListRow 1.0 ListRow.qml
+Cross 1.0 Cross.qml
+Panel 1.0 Panel.qml
+Dialog 1.0 Dialog.qml
+Clock 1.0 Clock.qml
+Hints 1.0 Hints.qml
+Notice 1.0 Notice.qml
+Osd 1.0 Osd.qml
+Backdrop 1.0 Backdrop.qml
+Menu 1.0 Menu.qml
+Background 1.0 Background.qml
+NoticeLayer 1.0 NoticeLayer.qml
+OsdLayer 1.0 OsdLayer.qml
+Gallery 1.0 Gallery.qml

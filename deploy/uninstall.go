@@ -89,7 +89,7 @@ func (s *Setup) Uninstall(ctx context.Context, a UninstallArgs) error {
 					rm(p)
 				}
 			}
-			rm(units+"/wayvnc.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket")
+			rm(units+"/wayvnc.service", units+"/hostd-shell.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket")
 			_, _ = s.run(ctx, "loginctl", "disable-linger", a.ScreenUser)
 			s.Out.Info("removed the managed Sway config, the notices and VNC services, the Podman socket, and lingering")
 		}
@@ -174,7 +174,7 @@ func (s *Setup) uninstallUser(ctx context.Context, a UninstallArgs) error {
 				rm(p)
 			}
 		}
-		rm(units+"/wayvnc.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket", lay.updateConf)
+		rm(units+"/wayvnc.service", units+"/hostd-shell.service", units+"/hostd-notices.service", units+"/sockets.target.wants/podman.socket", lay.updateConf)
 		s.Out.Info("removed the managed Sway config, the notices and VNC services and the Podman socket")
 	}
 	s.Out.Done()

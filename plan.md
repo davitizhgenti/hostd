@@ -10,9 +10,9 @@ Updated 2026-11-13. The history of every earlier plan (the 1.0 work items, the i
 - Add-ons: flatpak, controllers, nvidia, compose, wireguard, tailscale, seats, steam, chromium, dolphin.
 - **Released:** v0.2.0 (2026-11-12). Seat switching tested on core, both ways, from core and from the laptop.
 
-## The design system (2026-11-13)
+## The shell and the design system (2026-11-13)
 
-One design for everything hostd draws (docs/design.md). The tokens (`deploy/files/ui/tokens.toml`) are generated (`scripts/uitokens`, `go generate ./deploy`) into CSS custom properties for GTK and the docs site, JSON, and the Sway background; CI fails when they are stale. The look is flat and square (no rounded corners, pills or shadows). The menu is a cross like the PSP's XMB: categories (Apps, Users, Settings, Status) on a row, the current one's items in a column through it, options in a panel at the right edge, questions in a band across the screen. Line icons from Lucide (ISC); apps show their own icons. The background is the screen's own setting (`~/.config/hostd/ui.toml`: the month and time of day by default, a color, or an image), drawn by the menu and set behind the apps by `hostd-notices`. `hostd_ui` (Python, GTK 4) holds the API client, the input verbs, the components, the cross geometry, the background and the views (plain data, unit-tested). `hostd-notices` is the notification server (top right, at most three, critical first) and the OSD; mako is gone. The menu's token gets `read,apps,audio,display` (and `seat` with the seats add-on).
+One design for everything hostd draws (docs/design.md). `hostd-shell` (PySide6, Qt Quick) is one process for the menu, the background behind the apps, notices and the OSD; Python holds the state and the behaviour, QML only draws it. The menu stays hostd's app `hostd-menu`: its command `hostd-shell menu` asks the shell to show the menu and runs until it closes, and the window's app_id (`[match]`) makes it the instance's. The layout follows one grid (`Place.qml`) like the PSP's XMB; tokens (`deploy/files/shell/tokens.toml`) generate a typed `Theme.qml`. `make test-shell` holds it: the layout contract at three sizes, golden images, behaviour, contrast on every background, qmllint, and a live Wayland check. Review renders locally in `test/shell/out/index.html`.
 
 ## Screen sharing: tried, dropped
 
@@ -20,7 +20,7 @@ Sunshine/Moonlight, UxPlay, scrcpy, lan-mouse and RDP were all tried on core. Ev
 
 ## Needs the user
 
-- **The cross menu on core:** checked in a headless Sway container at 1920x1080 and 1280x800 (every category, options, the volume panel, the confirm band, the background choices and Sway's background following them, notices), not yet on the projector. Core has the packages it needs (layer shell, Inter, librsvg).
+- **The shell on core:** it needs the Qt packages (`sudo hostd-admin prepare`); not yet seen on the projector.
 - **Two controllers on core:** hold Guide on each to confirm only that pad is grabbed.
 - `make test-e2e` (the VM test, about 10 minutes) and `mkdocs build --strict` after these changes.
 

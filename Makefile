@@ -5,7 +5,7 @@ VERSION  ?= $(if $(GIT_DESC),$(GIT_DESC)-dev,dev)
 LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 
-.PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts cover tidy clean \
+.PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts test-shell shell-golden shell-test-image cover tidy clean \
 	check-server test-install test-install-user e2e-bins docs-stub run run-env
 
 all: lint test build
@@ -102,19 +102,34 @@ SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/files/rollba
 	deploy/addons/lib.sh deploy/addons/wireguard/hostd-wg deploy/files/start-sway deploy/addons/chromium/chromium
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
-	python3 -m py_compile deploy/files/ui/hostd-menu deploy/files/ui/hostd-notices deploy/files/ui/hostd_ui/*.py
+	python3 -m py_compile deploy/files/shell/hostd-shell deploy/files/shell/hostd_shell/*.py
 	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/ui/hostd-menu deploy/files/ui/hostd-notices \
-		deploy/files/ui/hostd_ui deploy/files/ui/test_ui.py \
+	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/shell/hostd-shell \
+		deploy/files/shell/hostd_shell deploy/files/shell/test_shell.py test/shell/*.py \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
 		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
 	python3 -m unittest discover -s deploy/addons/seats -p "test_*.py"
 	python3 -m unittest discover -s clients/python -p "test_*.py"
-	python3 -m unittest discover -s deploy/files/ui -p "test_*.py"
-	@rm -rf deploy/files/ui/__pycache__ deploy/files/ui/hostd_ui/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
+	python3 -m unittest discover -s deploy/files/shell -p "test_*.py"
+	@rm -rf deploy/files/shell/__pycache__ deploy/files/shell/hostd_shell/__pycache__ deploy/addons/steam/__pycache__ deploy/addons/seats/__pycache__ clients/python/__pycache__
+
+# The shell's screens (test/shell): behaviour, the layout contract at every
+# supported size, golden images, qmllint. In a Debian 13 container with the
+# Qt stack, so rendering is the same everywhere. What it rendered, with a
+# contact sheet, is in test/shell/out/index.html.
+SHELL_TEST = $(PODMAN) run --rm -e PYTHONDONTWRITEBYTECODE=1 -v $(CURDIR):/repo -w /repo/test/shell hostd-shell-test
+shell-test-image:
+	$(PODMAN) build -q -t hostd-shell-test -f test/shell/Containerfile test/shell
+test-shell: shell-test-image
+	$(SHELL_TEST) python3 -m unittest discover -p "test_*.py"
+	$(SHELL_TEST) bash live.sh
+# Accept the screens as they render now: rewrites test/shell/golden (review the diff).
+shell-golden: shell-test-image
+	$(PODMAN) run --rm -e PYTHONDONTWRITEBYTECODE=1 -e HOSTD_GOLDEN=update -v $(CURDIR):/repo -w /repo/test/shell \
+		hostd-shell-test python3 -m unittest test_golden
 
 # Coverage per package, counting every test binary, against the floors in
 # scripts/coverage-floors.txt: fails if a package is below its floor.
