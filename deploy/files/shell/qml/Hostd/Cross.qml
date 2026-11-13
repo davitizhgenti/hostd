@@ -73,11 +73,6 @@ Item {
                         opacity: category.isCurrent ? 1 : 0
                         Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
                     }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: cross.shell.clickCategory(category.index)
-                    }
                 }
             }
         }
@@ -146,12 +141,6 @@ Item {
                     width: rowsColumn.width
                     current: index === cross.shell.current
                     opacity: (current ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Theme.layoutItemHeight))
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: item.kind !== "header"
-                        onClicked: cross.shell.clickItem(item.index)
-                    }
                 }
             }
         }

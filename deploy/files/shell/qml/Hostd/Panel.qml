@@ -70,11 +70,6 @@ Rectangle {
             current: index === panel.shell.option
             opacity: current ? 1 : 0.55
             Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: panel.shell.clickOption(option.index)
-            }
         }
     }
 

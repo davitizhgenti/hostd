@@ -149,6 +149,14 @@ class MenuLayout(Contract):
                     s.verb("down", "down")
                     self.check(s, f"{size_name} {c} down 2")
 
+    def test_the_menu_has_no_pointer(self):
+        from PySide6.QtCore import Qt
+        with Screen(SIZES["1920x1080"]) as s:
+            glide = s.item("glide")
+            self.assertEqual(glide.property("cursorShape"), Qt.BlankCursor)
+            r = s.rect("glide")
+            self.assertEqual(r, (0.0, 0.0, 1920.0, 1080.0))
+
     def test_options_panel(self):
         for size_name, size in SIZES.items():
             with Screen(size) as s:

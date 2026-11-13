@@ -70,6 +70,13 @@ QtObject {
     readonly property int layoutNoticeWidth: Math.max(1, Math.round(600 * scale))
     readonly property int layoutOsdWidth: Math.max(1, Math.round(440 * scale))
 
+    // input
+    readonly property int inputGlideStep: 40
+    readonly property int inputGlideCross: 100
+    readonly property int inputGlideRest: 250
+    readonly property int inputGlideFloor: 60
+    readonly property int inputGlideBurst: 3
+
     // month
     readonly property color monthJan: "#9097a3"
     readonly property color monthFeb: "#b39a4f"

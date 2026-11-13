@@ -9,6 +9,7 @@ import unittest
 import fixtures
 import harness  # noqa: F401 - the Qt application the shell's timers need
 from hostd_shell import background, views
+from hostd_shell.glide import Glide
 from hostd_shell.shell import APPS, SETTINGS, STATUS, USERS, Shell
 
 
@@ -229,6 +230,111 @@ class Controllers(unittest.TestCase):
         s = shell()
         nav(s, "next_tab")
         self.assertEqual(s.state()["category"], APPS)
+
+
+def path(g, points, t0=0, dt=10):
+    """Feeds positions dt ms apart; returns the verbs."""
+    verbs = []
+    for i, (x, y) in enumerate(points):
+        verbs += g.motion(x, y, t0 + i * dt)
+    return verbs
+
+
+def line(x0, y0, x1, y1, n):
+    return [(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n) for i in range(n + 1)]
+
+
+class Gliding(unittest.TestCase):
+    """The mouse with no pointer: movement is felt, not aimed."""
+
+    def g(self):
+        return Glide(step=40, cross=100, rest_ms=250, floor=60, burst=3)
+
+    def test_one_push_one_item(self):
+        self.assertEqual(path(self.g(), line(500, 500, 500, 545, 9)), ["down"])
+        self.assertEqual(path(self.g(), line(500, 500, 500, 455, 9)), ["up"])
+
+    def test_a_long_push_several(self):
+        self.assertEqual(path(self.g(), line(500, 300, 500, 470, 17)), ["down"] * 4)
+
+    def test_a_resting_hand_does_nothing(self):
+        # 1 px every 50 ms: 20 px/s, under the floor, for ten seconds.
+        self.assertEqual(path(self.g(), [(500, 500 + i) for i in range(200)], dt=50), [])
+
+    def test_a_diagonal_moves_one_way(self):
+        verbs = path(self.g(), line(500, 500, 540, 590, 9))
+        self.assertEqual(set(verbs), {"down"})
+
+    def test_sideways_changes_category_and_needs_more(self):
+        self.assertEqual(path(self.g(), line(500, 500, 560, 505, 6)), [])  # 60 px: not yet
+        self.assertEqual(path(self.g(), line(500, 500, 610, 505, 11)), ["right"])
+
+    def test_a_pause_forgets_half_a_step(self):
+        g = self.g()
+        self.assertEqual(path(g, line(500, 500, 500, 530, 3)), [])  # 30 of 40 px
+        self.assertEqual(path(g, line(500, 530, 500, 545, 3), t0=1000), [])  # after a pause: 15, not 45
+
+    def test_a_fling_is_bounded(self):
+        self.assertEqual(path(self.g(), [(500, 0), (500, 2000)]), ["down"] * 3)
+
+    def test_the_edge_recentres_and_the_jump_is_no_move(self):
+        g = self.g()
+        self.assertIsNone(g.recentre(500, 500, 1920, 1080, 100))
+        self.assertEqual(g.recentre(500, 1050, 1920, 1080, 100), (960, 540))
+        path(g, [(500, 1000), (500, 1050)])
+        self.assertEqual(g.motion(960, 540, 100), [])  # the jump up is not "up" x10
+        self.assertEqual(path(g, line(960, 540, 960, 590, 5), t0=110), ["down"])
+
+
+class Mouse(unittest.TestCase):
+    def setUp(self):
+        self.s = shell()
+        self.s.glide = Glide(step=40, cross=100)
+        self.warped = []
+        self.s.warp = lambda x, y: self.warped.append((x, y))
+
+    def move(self, points, t0=0):
+        for i, (x, y) in enumerate(points):
+            self.s.pointer(x, y, 1920, 1080, t0 + i * 10)
+
+    def test_gliding_moves_the_selection_and_category(self):
+        s = self.s
+        self.move(line(900, 400, 900, 445, 9))
+        self.assertEqual(s.current_row().title, "Chromium")
+        self.move(line(900, 445, 1015, 450, 11), t0=1000)
+        self.assertEqual(s.state()["category"], USERS)
+
+    def test_clicks_act_on_what_is_current(self):
+        s = self.s
+        s.mouseButton("right")
+        self.assertEqual(s.state()["panel"], "options")
+        s.mouseButton("back")
+        self.assertEqual(s.state()["panel"], "")
+        s.mouseButton("left")
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
+        s.mouseButton("forward")
+        self.assertEqual(s.state()["category"], USERS)
+        s.mouseButton("middle")
+        self.assertEqual(s.state()["category"], APPS)
+
+    def test_sideways_in_a_panel_does_not_close_it(self):
+        s = self.s
+        s.mouseButton("right")
+        self.move(line(900, 400, 1100, 400, 20))
+        self.assertEqual(s.state()["panel"], "options")
+        self.move(line(1100, 400, 1100, 445, 9), t0=1000)
+        self.assertEqual(s.state()["option"], 1)
+
+    def test_the_wheel(self):
+        s = self.s
+        s.wheel(0, -120)
+        self.assertEqual(s.current_row().title, "Chromium")
+        s.wheel(-120, 0)
+        self.assertEqual(s.state()["category"], USERS)
+
+    def test_the_pointer_is_put_back_from_the_edge(self):
+        self.move([(900, 1060), (900, 1070)])
+        self.assertEqual(self.warped[-1], (960.0, 540.0))
 
 
 class MenuWindow(unittest.TestCase):

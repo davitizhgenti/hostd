@@ -28,13 +28,6 @@ Window {
             event.accepted = menu.shell.keyCode(event.key, event.text, (event.modifiers & Qt.ShiftModifier) !== 0)
         }
 
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.RightButton
-            onClicked: menu.shell.handle("actions")
-            onWheel: (wheel) => menu.shell.wheel(wheel.angleDelta.y)
-        }
-
         Cross {
             shell: menu.shell
             anchors.fill: parent
@@ -86,11 +79,6 @@ Window {
             opacity: menu.shell.panel !== "" || menu.shell.question !== "" ? 0.6 : 0
             visible: opacity > 0
             Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: menu.shell.dismiss()
-            }
         }
 
         Panel { shell: menu.shell }
@@ -102,6 +90,23 @@ Window {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: Theme.layoutSafeMargin
+        }
+
+        // The mouse, with no pointer (hostd_shell/glide.py): over everything,
+        // so movement glides the selection and a click acts on what is current.
+        MouseArea {
+            objectName: "glide"
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.BlankCursor
+            acceptedButtons: Qt.AllButtons
+            onPositionChanged: (mouse) => menu.shell.pointer(mouse.x, mouse.y, width, height, Date.now() % 2000000000)
+            onClicked: (mouse) => menu.shell.mouseButton(
+                mouse.button === Qt.RightButton ? "right"
+                : mouse.button === Qt.MiddleButton ? "middle"
+                : mouse.button === Qt.BackButton ? "back"
+                : mouse.button === Qt.ForwardButton ? "forward" : "left")
+            onWheel: (wheel) => menu.shell.wheel(wheel.angleDelta.x, wheel.angleDelta.y)
         }
     }
 }

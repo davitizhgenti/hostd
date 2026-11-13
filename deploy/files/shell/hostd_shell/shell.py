@@ -11,12 +11,14 @@ all of the behaviour is tested here without a screen.
 import datetime
 import json
 import os
+import subprocess
 
 from PySide6.QtCore import Property, QFileSystemWatcher, QObject, QTimer, Signal, Slot
 
 from hostd_shell import api as hapi
 from hostd_shell import background, notices, views
 from hostd_shell import input as inp
+from hostd_shell.glide import Glide
 from hostd_shell.models import RowsModel
 
 APPS, USERS, SETTINGS, STATUS = range(len(views.CATEGORIES))
@@ -53,6 +55,15 @@ def fetch(api, category, look, tokens):
             audio = None
         return views.settings_page(audio, api.get("/v1/display"), look, tokens), ""
     return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12")), ""
+
+
+def warp_pointer(x, y):
+    """Moves the pointer (Sway's own command; the session gives SWAYSOCK)."""
+    try:
+        subprocess.run(["swaymsg", "seat", "-", "cursor", "set", str(int(x)), str(int(y))],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # not in Sway: the pointer stays where it is
 
 
 class NoticesModel(RowsModel):
@@ -113,6 +124,9 @@ class Shell(QObject):
         self.debounce = QTimer(self, singleShot=True, interval=100, timeout=self._refresh_pending)
         self.notice_timer = QTimer(self, singleShot=True, timeout=self._expire_notices)
         self.osd_timer = QTimer(self, singleShot=True, interval=OSD_MS, timeout=self._hide_osd)
+        # The mouse, with no pointer: movement glides the selection (glide.py).
+        self.glide = Glide.from_tokens(tokens)
+        self.warp = warp_pointer  # puts the hidden pointer back in the middle
         self.events = None
 
     # --- starting ---
@@ -432,9 +446,39 @@ class Shell(QObject):
         self._close_overlays()
         self.changed.emit()
 
-    @Slot(int)
-    def wheel(self, dy):
-        self.handle(inp.UP if dy > 0 else inp.DOWN)
+    @Slot(int, int)
+    def wheel(self, dx, dy):
+        """The wheel moves items; a horizontal wheel or tilt changes category."""
+        self._set_device("keys")
+        if abs(dx) > abs(dy):
+            self.handle(inp.NEXT_TAB if dx < 0 else inp.PREV_TAB)
+        elif dy:
+            self.handle(inp.UP if dy > 0 else inp.DOWN)
+
+    @Slot(float, float, int, int, int)
+    def pointer(self, x, y, width, height, t_ms):
+        """The hidden pointer moved: glide the selection. Sideways glides
+        change category, or the answer to a question; inside a panel they
+        do nothing (left would close it)."""
+        verbs = self.glide.motion(x, y, t_ms)
+        if verbs:
+            self._set_device("keys")
+        for verb in verbs:
+            if self._panel and verb in (inp.LEFT, inp.RIGHT):
+                continue
+            self.handle(verb)
+        to = self.glide.recentre(x, y, width, height, margin=max(8, min(width, height) // 8))
+        if to is not None:
+            self.warp(*to)
+
+    @Slot(str)
+    def mouseButton(self, button):  # noqa: N802 - called from QML
+        """A click acts on what is current: there is nothing to point at."""
+        self._set_device("keys")
+        verb = {"left": inp.ACTIVATE, "right": inp.ACTIONS, "middle": inp.HOME,
+                "back": inp.BACK, "forward": inp.NEXT_TAB}.get(button)
+        if verb:
+            self.handle(verb)
 
     def set_filter(self, text):
         if text != self._filter:
