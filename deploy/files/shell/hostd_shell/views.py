@@ -11,8 +11,32 @@ from hostd_shell import background
 
 MENU_ID = "hostd-menu"  # the menu's own app: never listed
 
-# The menu's categories, left to right: (name, icon).
-CATEGORIES = (("Apps", "layout-grid"), ("Users", "users"), ("Settings", "sliders-horizontal"), ("Status", "activity"))
+SERVICES = "Services"  # the folder of background apps that name none
+
+
+@dataclass(frozen=True)
+class Category:
+    """One of the menu's categories. An app tab (kind "apps") lists the
+    apps in the folder root: () is the Apps category, ("Games",) a tab the
+    menu file marks."""
+    key: str
+    name: str
+    icon: str
+    kind: str
+    root: tuple = ()
+
+
+APPS_CATEGORY = Category("apps", "Apps", "layout-grid", "apps")
+FIXED = (Category("users", "Users", "users", "users"),
+         Category("settings", "Settings", "sliders-horizontal", "settings"),
+         Category("status", "Status", "activity", "status"))
+
+
+def categories(tabs=()):
+    """The categories, left to right: Apps, the marked folders' tabs (as
+    (folder, icon) pairs, in the menu file's order), Users, Settings and
+    Status."""
+    return [APPS_CATEGORY, *(Category("tab:" + f, f, icon, "apps", (f,)) for f, icon in tabs), *FIXED]
 
 
 @dataclass(frozen=True)
@@ -45,6 +69,7 @@ class Row:
     value: str = ""  # on the right: a state, a count
     badge: str = ""  # a short highlighted word: "running", "on screen"
     tone: str = ""  # the badge's color: positive, warning, danger, or accent
+    mark: str = ""  # a small square in a tone: a running app
     call: Call | None = None  # what choosing it does
     confirm: str = ""  # asked first ("Switch the screen to guest?")
     sheet: list = field(default_factory=list)  # rows of its actions sheet
@@ -59,8 +84,9 @@ class Row:
     app_icon: str = ""  # the app's own icon, preferred to icon
 
     def key(self):
-        """Its identity across refreshes, to keep the selection."""
-        return (self.kind, self.instance, self.app, self.title)
+        """Its identity across refreshes, to keep the selection: an app's
+        row is the same whether it runs or not."""
+        return (self.kind, self.app or self.instance, self.title)
 
     def matches(self, text):
         """Whether a filter's words are all in it."""
@@ -85,7 +111,12 @@ def plural(n, word):
 
 
 def folder_of(app):
-    return tuple(n for n in (app.get("folder") or "").split("/") if n)
+    """An app's folder as a path. A background app that names none is in
+    Services."""
+    path = tuple(n for n in (app.get("folder") or "").split("/") if n)
+    if not path and app.get("surface") == "background":
+        return (SERVICES,)
+    return path
 
 
 def folder_row(path, apps):
@@ -94,69 +125,147 @@ def folder_row(path, apps):
     return Row(path[-1], FOLDER, icon="folder", value=plural(n, "app"), call=local("folder", list(path)))
 
 
-def apps_page(instances, apps, path=()):
-    """Running apps, then the catalog in folders. path is the folder open
-    ((), the top; ("Games", "Dolphin")): its subfolders and its apps.
-    Running apps are shown at the top only. Apps under another (Steam's
-    games) are in its sheet, and everything is in the list when filtering."""
-    path = tuple(path)
-    running = [i for i in instances
-               if i.get("app") != MENU_ID and i.get("surface") == "window"
-               and i.get("state") in ("starting", "running")]
-    listed = [a for a in apps if a.get("id") != MENU_ID and a.get("surface") == "window"]
+LIVE = ("starting", "running", "stopping")
+# A state's word and color: a window app shows the color alone (a mark), a
+# service the word.
+TONES = {"starting": "warning", "stopping": "warning", "running": "positive", "failed": "danger"}
+
+
+def apps_page(instances, apps, path=(), root=(), tabs=()):
+    """An app tab's rows: the folder open (path; root is the tab's own
+    folder, () for Apps) as its subfolders and its apps, running apps first.
+    A running app is its own row, marked: there is no separate list of
+    them. Apps under another (Steam's games) are in its options, unless
+    they run. Every other app is a hidden row, shown when filtering. Apps
+    leaves out the folders that are tabs (tabs: their names).
+
+    instances: /v1/instances?all=true (an ended one tells a failed service)."""
+    path = tuple(path) if tuple(path)[:len(root)] == tuple(root) else tuple(root)
+    root, tabs = tuple(root), set(tabs)
+    listed = [a for a in apps if a.get("id") != MENU_ID and a.get("surface") in ("window", "background")]
     by_id = {a["id"]: a for a in listed}
+    live, ended = {}, {}
+    for inst in instances or []:
+        app = inst.get("app") or ""
+        if inst.get("state") in LIVE:
+            live.setdefault(app, []).append(inst)
+        else:
+            ended[app] = inst  # the latest last
     children = {}
     for a in listed:
         if a.get("under"):
             children.setdefault(a["under"], []).append(a)
-    # An app under another is in that app's options; one with a folder is
-    # also listed in it (Steam's games, in Games / Steam).
-    top = [a for a in listed if not a.get("under") or a.get("folder")]
-    here = [a for a in top if folder_of(a) == path]
-    inside = [a for a in top if folder_of(a)[:len(path)] == path and len(folder_of(a)) > len(path)]
-    subfolders = sorted({folder_of(a)[:len(path) + 1] for a in inside})
+
+    def place(a):
+        """Where an app is listed; None when only in another's options."""
+        if a.get("under") and not a.get("folder"):
+            if a["id"] not in live:
+                return None
+            return folder_of(by_id.get(a["under"]) or {})  # a running game, next to its launcher
+        return folder_of(a)
+
+    def mine(folder):
+        """Whether a folder is this tab's: in its root, and, in Apps, not a tab."""
+        if folder[:len(root)] != root:
+            return False
+        return bool(root) or not (folder and folder[0] in tabs)
+
+    placed = [(a, place(a)) for a in listed]
+    here = [a for a, f in placed if f == path]
+    here.sort(key=lambda a: a["id"] not in live)  # running first, else the catalog's order
+    deeper = [a for a, f in placed if f is not None and mine(f) and f[:len(path)] == path and len(f) > len(path)]
+    subfolders = sorted({folder_of(a)[:len(path) + 1] for a in deeper})
+    shown_ids = {a["id"] for a in here}
 
     rows = []
-    if running and not path:
-        rows.append(Row("Running", HEADER))
-    for inst in running if not path else []:
-        app = by_id.get(inst.get("app")) or {}
-        switch = Call("POST", f"/v1/instances/{inst['id']}/switch")
-        rows.append(Row(inst.get("name") or inst["id"], subtitle=inst["id"], icon="app-window", app_icon=app.get("icon") or "",
-                        badge="starting" if inst.get("state") == "starting" else "running",
-                        tone="warning" if inst.get("state") == "starting" else "positive",
-                        value=inst.get("action") or "", call=switch,
-                        sheet=instance_sheet(inst, app, children, switch),
-                        instance=inst["id"], app=inst.get("app") or ""))
-    rows.append(Row(" / ".join(path) if path else "Apps", HEADER))
-    for sub in subfolders:
-        rows.append(folder_row(sub, top))
-    for a in here:
-        more = []
-        if a.get("actions"):
-            more.append(plural(len(a["actions"]), "action"))
-        if children.get(a["id"]):
-            more.append(plural(len(children[a["id"]]), "app"))
-        rows.append(app_row(a, "  ".join(more), children))
-    # Shown only when filtering: apps under another, and apps in other folders.
+    if not root and not path:
+        # Instances of no app in the catalog (app.run commands).
+        for inst in (i for app, insts in live.items() if app not in by_id for i in insts):
+            if inst.get("surface") == "window" and inst.get("app") != MENU_ID:
+                rows.append(instance_row(inst))
+    folders = [folder_row(sub, [a for a, f in placed if f is not None and mine(f)]) for sub in subfolders]
+    running_here = sum(1 for a in here if a["id"] in live)
+    for n, a in enumerate(here):
+        if n == running_here:
+            rows += folders  # after the running apps, before the rest
+        if a.get("surface") == "background":
+            rows.append(service_row(a, live.get(a["id"], []), ended.get(a["id"])))
+        else:
+            rows.append(app_row(a, live.get(a["id"], []), children))
+    if running_here == len(here):
+        rows += folders
+    # Shown only when filtering: every other app, wherever it is.
     for a in listed:
-        if a in here:
+        if a["id"] in shown_ids:
             continue
         if a.get("under") and not a.get("folder"):
-            parent = (by_id.get(a["under"]) or {}).get("name") or a["under"]
-            row = app_row(a, parent, children)
+            value = (by_id.get(a["under"]) or {}).get("name") or a["under"]
         else:
-            row = app_row(a, "/".join(folder_of(a)), children)
-        row.under = True
+            value = " / ".join(folder_of(a))
+        if a.get("surface") == "background":
+            row = service_row(a, live.get(a["id"], []), ended.get(a["id"]))
+        else:
+            row = app_row(a, live.get(a["id"], []), children)
+        row.value, row.under = value or row.value, True
         rows.append(row)
-    return rows, f"{len(running)} running   {plural(len(top), 'app')}"
+    running = sum(1 for a in listed if a["id"] in live and mine(place(a) or ()) and place(a) is not None
+                  and a.get("surface") == "window")
+    counted = [a for a, f in placed if f is not None and mine(f) and not (a.get("under") and not a.get("folder"))]
+    services = sum(1 for a in counted if a.get("surface") == "background")
+    apps_n = len(counted) - services
+    parts = (f"{running} running" if running else "", plural(apps_n, "app") if apps_n or not services else "",
+             plural(services, "service") if services else "")
+    return rows, "   ".join(x for x in parts if x)
 
 
-def app_row(app, value, children):
+def app_row(app, running, children):
+    """A window app. Running: marked, choosing it brings it to the front,
+    Delete closes it; its options are each instance's, then the app's."""
     opening = open_call(app["id"])
-    return Row(app.get("name") or app["id"], subtitle=app["id"], value=value, call=opening,
-               sheet=[Row("Start", call=opening, icon="play")] + app_sheet(app, children), app=app["id"],
-               icon="app-window", app_icon=app.get("icon") or "")
+    row = Row(app.get("name") or app["id"], call=opening, app=app["id"],
+              icon="app-window", app_icon=app.get("icon") or "")
+    if not running:
+        row.sheet = [Row("Start", call=opening, icon="play")] + app_sheet(app, children)
+        return row
+    first = running[0]
+    row.mark = TONES.get(first.get("state"), "positive")
+    row.call = switch_call(first["id"])
+    row.instance = first["id"]
+    row.sheet = []
+    for inst in running:
+        which = f"  {inst['id']}" if len(running) > 1 else ""
+        row.sheet += [Row("Bring to front" + which, call=switch_call(inst["id"]), icon="arrow-up-right"),
+                      Row("Close" + which, call=Call("POST", f"/v1/instances/{inst['id']}/close"), tone="danger", icon="x")]
+    row.sheet += app_sheet(app, children)
+    return row
+
+
+def instance_row(inst):
+    """A running instance of no app in the catalog."""
+    switch = switch_call(inst["id"])
+    return Row(inst.get("name") or inst["id"], call=switch, instance=inst["id"], app=inst.get("app") or "",
+               mark=TONES.get(inst.get("state"), "positive"), icon="app-window",
+               sheet=[Row("Bring to front", call=switch, icon="arrow-up-right"),
+                      Row("Close", call=Call("POST", f"/v1/instances/{inst['id']}/close"), tone="danger", icon="x")])
+
+
+def service_row(app, running, last):
+    """A background app: its state in a word; choosing it opens its options,
+    so nothing starts or stops on one press."""
+    if running:
+        inst = running[0]
+        state = inst.get("state") or "running"
+        sheet = [Row("Stop", call=Call("POST", f"/v1/instances/{inst['id']}/close"), tone="danger", icon="square"),
+                 Row("Restart", call=Call("POST", f"/v1/instances/{inst['id']}/restart"), icon="rotate-ccw")]
+    else:
+        state = "failed" if last and last.get("state") == "failed" else "stopped"
+        sheet = [Row("Start", call=open_call(app["id"]), icon="play")]
+    return Row(app.get("name") or app["id"], app=app["id"], badge=state, tone=TONES.get(state, ""),
+               icon="server", app_icon=app.get("icon") or "", sheet=sheet)
+
+
+def switch_call(instance):
+    return Call("POST", f"/v1/instances/{instance}/switch")
 
 
 def open_call(app_id, action_id=None):
@@ -165,18 +274,12 @@ def open_call(app_id, action_id=None):
 
 def app_sheet(app, children):
     """An app's own actions, then the apps under it."""
-    rows = [Row(a["name"], subtitle=a["id"], call=open_call(app["id"], a["id"]), icon="play")
+    rows = [Row(a["name"], call=open_call(app["id"], a["id"]), icon="play")
             for a in app.get("actions") or []]
-    rows += [Row(c.get("name") or c["id"], subtitle=c["id"], call=open_call(c["id"]), app=c["id"],
+    rows += [Row(c.get("name") or c["id"], call=open_call(c["id"]), app=c["id"],
                  icon="app-window", app_icon=c.get("icon") or "")
              for c in children.get(app.get("id"), [])]
     return rows
-
-
-def instance_sheet(inst, app, children, switch):
-    return [Row("Bring to front", call=switch, icon="arrow-up-right"),
-            Row("Close", call=Call("POST", f"/v1/instances/{inst['id']}/close"), tone="danger", icon="x")
-            ] + app_sheet(app, children)
 
 
 # --- Users -------------------------------------------------------------------

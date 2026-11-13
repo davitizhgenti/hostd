@@ -40,15 +40,19 @@ SIZES = {"1280x800": (1280, 800), "1920x1080": (1920, 1080), "3840x2160": (3840,
 class Screen:
     """One surface (Menu, NoticeLayer, OsdLayer, Background, Gallery) at a size."""
 
-    def __init__(self, size, surface="Menu", reads=None, look=None):
+    def __init__(self, size, surface="Menu", reads=None, look=None, tabs=False):
         self.size = size
         self.dir = tempfile.TemporaryDirectory()
         look_path = os.path.join(self.dir.name, "ui.toml")
         if look is not None:
             from hostd_shell import background
             background.save(look, look_path)
+        menu_path = os.path.join(self.dir.name, "menu.toml")
+        if tabs:  # the fixture's tabs: Games and Services
+            with open(menu_path, "w") as f:
+                f.write(fixtures.MENU)
         self.api = fixtures.FakeAPI(reads)
-        self.shell = Shell(self.api, TOKENS, now=lambda: fixtures.NOW, look_path=look_path)
+        self.shell = Shell(self.api, TOKENS, now=lambda: fixtures.NOW, look_path=look_path, menu_path=menu_path)
         self.shell.fullscreen = False
         self.warnings = []
         self.engine = shellapp.engine_for(APP, self.shell)
@@ -57,8 +61,8 @@ class Screen:
         theme.setProperty("scale", shellapp.scale_for(size[1]))
         theme.setProperty("screenWidth", size[0])
         theme.setProperty("animate", 0)
-        for c in range(4):
-            self.shell.refresh(c)
+        for c in self.shell.cats:
+            self.shell.refresh(c.key)
         self.engine.load(QUrl.fromLocalFile(os.path.join(shellapp.QML, "Hostd", surface + ".qml")))
         roots = self.engine.rootObjects()
         if not roots:

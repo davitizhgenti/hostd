@@ -18,6 +18,7 @@ Item {
     property string value: ""
     property string badge: ""
     property string tone: ""
+    property string mark: "" // a running app: a small square in this tone
     property string kind: "item"
     property string icon: ""
     property string appIcon: ""
@@ -92,6 +93,17 @@ Item {
         x: row.width - width
         height: row.line
         spacing: Theme.spaceXl
+
+        Rectangle {
+            objectName: row.tag + "Mark/" + row.index
+            anchors.verticalCenter: parent.verticalCenter
+            visible: row.mark !== ""
+            width: Theme.spaceS
+            height: Theme.spaceS
+            color: row.mark === "warning" ? Theme.colorWarning
+                 : row.mark === "danger" ? Theme.colorDanger
+                 : Theme.colorPositive
+        }
 
         Badge {
             anchors.verticalCenter: parent.verticalCenter

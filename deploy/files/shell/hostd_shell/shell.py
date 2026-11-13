@@ -16,31 +16,32 @@ import subprocess
 from PySide6.QtCore import Property, QFileSystemWatcher, QObject, QTimer, Signal, Slot
 
 from hostd_shell import api as hapi
-from hostd_shell import background, notices, views
+from hostd_shell import background, menu, notices, views
 from hostd_shell import input as inp
 from hostd_shell.glide import Glide
 from hostd_shell.models import RowsModel
 
-APPS, USERS, SETTINGS, STATUS = range(len(views.CATEGORIES))
-# Events after which a category lists again.
+# The fixed categories' keys; a tab's is "tab:" and its folder.
+APPS, USERS, SETTINGS, STATUS = "apps", "users", "settings", "status"
+# Events after which a category lists again, by its kind.
 REFRESH_ON = {
-    APPS: ("instance.", "app.", "hostd.", "bus."),
-    USERS: ("seat.", "hostd."),
-    SETTINGS: ("audio.", "display.output", "display.mode", "display.power", "hostd."),
-    STATUS: ("hostd.", "action."),
+    "apps": ("instance.", "app.", "hostd.", "bus."),
+    "users": ("seat.", "hostd."),
+    "settings": ("audio.", "display.output", "display.mode", "display.power", "hostd."),
+    "status": ("hostd.", "action."),
 }
 OSD_MS = 1600
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
-def fetch(api, category, look, tokens, path=()):
-    """A category's rows and its summary line, from hostd. path: the folder
-    open in Apps."""
-    if category == APPS:
-        instances = api.get("/v1/instances") or []
+def fetch(api, category, look, tokens, path=(), tabs=()):
+    """A category's (a views.Category) rows and its summary line, from
+    hostd. path: the folder open in an app tab; tabs: the tabs' folders."""
+    if category.kind == "apps":
+        instances = api.get("/v1/instances?all=true") or []
         apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
-        return views.apps_page(instances, apps, path)
-    if category == USERS:
+        return views.apps_page(instances, apps, path, category.root, tabs)
+    if category.kind == "users":
         try:
             seats = api.get("/v1/seat")
         except hapi.APIError as e:
@@ -49,7 +50,7 @@ def fetch(api, category, look, tokens, path=()):
             return [views.Row("Switching users is not set up", icon="info",
                               subtitle="the seats add-on: sudo hostd-admin add seats")], ""
         return views.users_page(seats), ""
-    if category == SETTINGS:
+    if category.kind == "settings":
         try:
             audio = api.get("/v1/audio")
         except hapi.APIError:
@@ -80,6 +81,7 @@ class NoticesModel(RowsModel):
 class Shell(QObject):
     changed = Signal()  # any of the UI state below
     clockChanged = Signal()
+    categoriesChanged = Signal()
     backgroundChanged = Signal()
     osdChanged = Signal()
     menuVisibleChanged = Signal()
@@ -87,7 +89,8 @@ class Shell(QObject):
     noticeClosed = Signal(int, int)  # id, reason (the spec's)
     _posted = Signal(object)
 
-    def __init__(self, api, tokens, now=datetime.datetime.now, look_path=None, has_icon=None, parent=None):
+    def __init__(self, api, tokens, now=datetime.datetime.now, look_path=None, has_icon=None, menu_path=None,
+                 has_tab_icon=None, parent=None):
         super().__init__(parent)
         self.api, self.tokens, self.now = api, tokens, now
         # Whether an app's icon can be drawn: rows keep only those, so the
@@ -95,10 +98,13 @@ class Shell(QObject):
         self.has_icon = has_icon or (lambda name: True)
         self.look_path = look_path or background.path()
         self.look = background.load(self.look_path)
-        self.pages = [RowsModel(self) for _ in views.CATEGORIES]
-        self.all_rows = [[] for _ in views.CATEGORIES]
-        self.summaries = ["" for _ in views.CATEGORIES]
-        self.currents = [-1 for _ in views.CATEGORIES]
+        # The categories, and each one's rows, by key.
+        self.menu_path = menu_path or menu.path()
+        self.has_tab_icon = has_tab_icon or (lambda name: True)
+        self.menu_time = None
+        self.tabs, self.cats = [], views.categories()
+        self.pages, self.all_rows, self.summaries, self.currents, self.paths = {}, {}, {}, {}, {}
+        self._sync_categories()
         self.options_model = RowsModel(self)
         self.notices_model = NoticesModel(self)
         self.queue = notices.Notices()
@@ -111,7 +117,6 @@ class Shell(QObject):
         self._asked = None  # the call the question is about
         self._yes = False
         self._filter = ""
-        self._path = ()  # the folder open in Apps
         self._message, self._error = "", False
         self._device = "keys"
         self._family = ""  # the kind of the controller used last (xbox, playstation, ...)
@@ -130,6 +135,7 @@ class Shell(QObject):
         self.glide = Glide.from_tokens(tokens)
         self.warp = warp_pointer  # puts the hidden pointer back in the middle
         self.events = None
+        self._load_menu()
 
     # --- starting ---
 
@@ -140,19 +146,80 @@ class Shell(QObject):
         QTimer(self, interval=5000, timeout=self._poll).start()
         QTimer(self, interval=BACKGROUND_MS, timeout=self.backgroundChanged.emit).start()
         QTimer(self, interval=10000, timeout=self.clockChanged.emit).start()
-        folder = os.path.dirname(self.look_path)
-        os.makedirs(folder, exist_ok=True)
-        self.watcher = QFileSystemWatcher([folder], self)
+        folders = sorted({os.path.dirname(self.look_path), os.path.dirname(self.menu_path)})
+        for folder in folders:
+            os.makedirs(folder, exist_ok=True)
+        self.watcher = QFileSystemWatcher(folders, self)
         self.watcher.directoryChanged.connect(lambda _p: self._reload_look())
-        for c in range(len(views.CATEGORIES)):
-            self.refresh(c)
+        for c in self.cats:
+            self.refresh(c.key)
+
+    # --- data ---
+
+    # --- the categories ---
+
+    def _sync_categories(self):
+        """Makes the per-category state match self.cats: new tabs get theirs,
+        gone ones lose it."""
+        keys = [c.key for c in self.cats]
+        for k in keys:
+            if k not in self.pages:
+                self.pages[k] = RowsModel(self)
+                self.all_rows[k], self.summaries[k], self.currents[k] = [], "", -1
+                self.paths[k] = self.cat(k).root
+        for k in [k for k in self.pages if k not in keys]:
+            for d in (self.pages, self.all_rows, self.summaries, self.currents, self.paths):
+                del d[k]
+
+    def _load_menu(self):
+        """Reads the menu file if it changed: whether the tabs did."""
+        t = menu.mtime(self.menu_path)
+        if t == self.menu_time:
+            return False
+        self.menu_time = t
+        tabs, problem = menu.load(self.menu_path, self.has_tab_icon)
+        if problem:
+            self.say(problem, error=True)
+        if tabs == self.tabs:
+            return False
+        self.tabs = tabs
+        self.cats = views.categories(tabs)
+        self._sync_categories()
+        if self._category not in self.pages:
+            self._category = APPS
+        return True
+
+    def reload_menu(self):
+        """Reads the menu file again if it changed, and lists the tabs."""
+        if not self._load_menu():
+            return
+        self._close_overlays()
+        for c in self.cats:
+            if c.kind == "apps":
+                self.refresh(c.key)
+        self.categoriesChanged.emit()
+        self.changed.emit()
+
+    def cat(self, key=None):
+        key = self._category if key is None else key
+        return next(c for c in self.cats if c.key == key)
+
+    def index(self):
+        return next(i for i, c in enumerate(self.cats) if c.key == self._category)
+
+    def apps_tab(self):
+        """Whether the current category lists apps (Apps or a tab)."""
+        return self.cat().kind == "apps"
 
     # --- data ---
 
     def refresh(self, category=None, keep=True):
         c = self._category if category is None else category
+        if c not in self.pages:
+            return
         try:
-            rows, summary = fetch(self.api, c, self.look, self.tokens, self._path)
+            rows, summary = fetch(self.api, self.cat(c), self.look, self.tokens, self.paths[c],
+                                  [f for f, _icon in self.tabs])
         except Exception as e:  # noqa: BLE001 - shown on the screen
             self.say(f"Cannot reach hostd: {e}", error=True)
             return
@@ -169,7 +236,7 @@ class Shell(QObject):
     def _show_rows(self, c, keep=True):
         model = self.pages[c]
         old = model.row(self.currents[c]) if keep else None
-        shown = views.visible(self.all_rows[c], self._filter if c == APPS else "")
+        shown = views.visible(self.all_rows[c], self._filter if c == self._category else "")
         model.set_rows(shown)
         i = model.index_of(old.key()) if old is not None else -1
         if i < 0 or model.row(i).kind == views.HEADER:
@@ -195,16 +262,16 @@ class Shell(QObject):
         osd = notices.osd_for(ev)
         if osd is not None:
             self.show_osd(*osd)
-        for c, prefixes in REFRESH_ON.items():
-            if kind.startswith(prefixes):
-                self.pending.add(c)
+        for c in self.cats:
+            if kind.startswith(REFRESH_ON[c.kind]):
+                self.pending.add(c.key)
         if self.pending and not self.debounce.isActive():
             self.debounce.start()
 
     def _refresh_pending(self):
         busy = self._panel == "options" or self._question
         for c in sorted(self.pending):
-            if not (busy and c == self._category):
+            if c in self.pages and not (busy and c == self._category):
                 self.refresh(c)
         self.pending.clear()
 
@@ -218,7 +285,11 @@ class Shell(QObject):
         return self.pages[self._category]
 
     def section(self):
-        """The title of the header the current item is under; ""."""
+        """In an app tab, the folder open below the tab's own; elsewhere the
+        title of the header the current item is under; ""."""
+        if self.apps_tab():
+            path = self.paths[self._category]
+            return "" if self._filter or len(path) <= len(self.cat().root) else " / ".join(path)
         model, i = self.page(), self.currents[self._category]
         for j in range(i, -1, -1):
             row = model.row(j)
@@ -238,16 +309,19 @@ class Shell(QObject):
         return row if row is not None and row.kind != views.HEADER else None
 
     def set_category(self, c):
-        c %= len(views.CATEGORIES)
-        if c == self._category:
+        """Goes to a category: by key, or by its place (wrapping around)."""
+        if isinstance(c, int):
+            c = self.cats[c % len(self.cats)].key
+        if c == self._category or c not in self.pages:
             return
         self._close_overlays()
-        if self._category == APPS and self._filter:
+        old = self._category
+        if self._filter:
             self._filter = ""
-            self._show_rows(APPS, keep=False)
-        if self._path:
-            self._path = ()  # leaving Apps closes its folders
-            self.refresh(APPS, keep=False)
+            self._show_rows(old, keep=False)
+        if self.paths[old] != self.cat(old).root:
+            self.paths[old] = self.cat(old).root  # leaving a tab closes its folders
+            self.refresh(old, keep=False)
         self._category = c
         self.refresh(c)
         self.changed.emit()
@@ -256,9 +330,13 @@ class Shell(QObject):
         """The first category, its first item, with no filter."""
         if self._filter:
             self._filter = ""
-            self._show_rows(APPS, keep=False)
+            self._show_rows(self._category, keep=False)
+        for c in self.cats:
+            if self.paths[c.key] != c.root:
+                self.paths[c.key] = c.root
+                if c.key != APPS:
+                    self.refresh(c.key, keep=False)
         self._category = APPS
-        self._path = ()
         self.refresh(APPS, keep=False)
         self.currents[APPS] = self.pages[APPS].first()
         self.changed.emit()
@@ -327,29 +405,35 @@ class Shell(QObject):
             self.look = look
             self.backgroundChanged.emit()
             self.refresh(SETTINGS)
+        self.reload_menu()
 
     def _open_folder(self, path):
-        """Opens a folder in Apps (() the top), with its first item chosen;
-        going up lands on the folder it came out of."""
-        came_from = self._path
-        self._path = path
-        self.refresh(APPS, keep=False)
-        model = self.pages[APPS]
+        """Opens a folder in the app tab (its root the top), with its first
+        item chosen; going up lands on the folder it came out of."""
+        c = self._category
+        came_from = self.paths[c]
+        self.paths[c] = path
+        self.refresh(c, keep=False)
+        model = self.pages[c]
         i = -1
         if len(came_from) > len(path) and came_from[:len(path)] == path:
             i = next((j for j, r in enumerate(model.rows) if r.kind == views.FOLDER and r.title == came_from[len(path)]), -1)
-        self.currents[APPS] = i if i >= 0 else model.first()
+        self.currents[c] = i if i >= 0 else model.first()
         self.changed.emit()
 
     @Property("QVariantList", notify=changed)
     def folderPath(self):  # noqa: N802
-        return list(self._path)
+        return list(self.paths[self._category])
+
+    def in_folder(self):
+        """Whether a folder below the tab's own is open."""
+        return self.apps_tab() and len(self.paths[self._category]) > len(self.cat().root)
 
     def back(self):
-        if self._category == APPS and self._filter:
+        if self.apps_tab() and self._filter:
             self.set_filter("")
-        elif self._category == APPS and self._path:
-            self._open_folder(self._path[:-1])
+        elif self.in_folder():
+            self._open_folder(self.paths[self._category][:-1])
         elif self._category != APPS:
             self.set_category(APPS)
         else:
@@ -404,9 +488,9 @@ class Shell(QObject):
         elif verb == inp.HOME:
             self.go_home()
         elif verb in (inp.LEFT, inp.PREV_TAB):
-            self.set_category(self._category - 1)
+            self.set_category(self.index() - 1)
         elif verb in (inp.RIGHT, inp.NEXT_TAB):
-            self.set_category(self._category + 1)
+            self.set_category(self.index() + 1)
         elif verb == inp.ACTIVATE:
             self.choose(row)
         elif verb == inp.ACTIONS:
@@ -422,7 +506,7 @@ class Shell(QObject):
         """A key on the menu: a verb, or typing into the Apps filter.
         Whether the shell took it."""
         self._set_device("keys")
-        filtering = self._category == APPS and not self._panel and not self._question
+        filtering = self.apps_tab() and not self._panel and not self._question
         verb = inp.verb_for_key(name, shift, typing=filtering and bool(self._filter))
         if verb is None:
             if filtering and name == "Key_Backspace":
@@ -510,7 +594,7 @@ class Shell(QObject):
     def set_filter(self, text):
         if text != self._filter:
             self._filter = text
-            self._show_rows(APPS, keep=False)
+            self._show_rows(self._category, keep=False)
 
     def say(self, text, error=False):
         self._message, self._error = text, error
@@ -528,6 +612,7 @@ class Shell(QObject):
         if not self._menu_visible:
             self._menu_visible = True
             self.menuVisibleChanged.emit()
+        self.reload_menu()
         self.refresh()
 
     @Slot()
@@ -591,26 +676,30 @@ class Shell(QObject):
             pairs = [(inp.UP, "move"), (inp.ACTIVATE, "choose"), (inp.BACK, "close")]
         else:
             row = self.current_row()
+            # Only what the current row does, and back where there is a back.
             pairs = []
-            if row is not None and (row.call or row.sheet or row.kind == views.SLIDER or row.confirm):
-                pairs.append((inp.ACTIVATE, "open" if self._category == APPS else "choose"))
-            if row is not None and row.sheet:
-                pairs.append((inp.ACTIONS, "options"))
+            if row is not None and (row.call or row.kind == views.SLIDER or row.confirm):
+                pairs.append((inp.ACTIVATE, "open" if self.apps_tab() else "choose"))
+                if row.sheet:
+                    pairs.append((inp.ACTIONS, "options"))
+            elif row is not None and row.sheet:
+                pairs.append((inp.ACTIVATE, "options"))
             if row is not None and row.instance:
                 pairs.append((inp.CLOSE, "close"))
-            pairs.append((inp.NEXT_TAB, "category"))
-            pairs.append((inp.BACK, "back"))
+            if self._filter or self.in_folder():
+                pairs.append((inp.BACK, "back"))
         return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device, self._family)]
 
     def _colors(self):
         return background.colors(self.look, self.now(), self.tokens) or ("", "")
 
-    categories = Property("QVariantList", lambda s: [{"name": n, "icon": i} for n, i in views.CATEGORIES], constant=True)
-    pageModels = Property("QVariantList", lambda s: s.pages, constant=True)
+    categories = Property("QVariantList", lambda s: [{"name": c.name, "icon": c.icon} for c in s.cats],
+                          notify=categoriesChanged)
+    pageModels = Property("QVariantList", lambda s: [s.pages[c.key] for c in s.cats], notify=categoriesChanged)
     options = Property(QObject, lambda s: s.options_model, constant=True)
     noticeModel = Property(QObject, lambda s: s.notices_model, constant=True)
 
-    category = Property(int, lambda s: s._category, notify=changed)
+    category = Property(int, lambda s: s.index(), notify=changed)
     section = Property(str, section, notify=changed)
     headersBefore = Property(int, lambda s: s.offset()[0], notify=changed)
     rowsBefore = Property(int, lambda s: s.offset()[1], notify=changed)

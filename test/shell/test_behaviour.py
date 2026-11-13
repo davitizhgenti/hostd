@@ -4,6 +4,8 @@ background's guarantee: text reads on it at every month and hour."""
 
 import colorsys
 import datetime
+import os
+import tempfile
 import unittest
 
 import fixtures
@@ -13,10 +15,17 @@ from hostd_shell.glide import Glide
 from hostd_shell.shell import APPS, SETTINGS, STATUS, USERS, Shell
 
 
-def shell():
-    s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW, look_path="/nonexistent/ui.toml")
-    for c in range(4):
-        s.refresh(c)
+def shell(menu=None):
+    """A shell on the fixture data; menu: the menu file's text (tabs)."""
+    menu_path = "/nonexistent/menu.toml"
+    if menu is not None:
+        menu_path = os.path.join(tempfile.mkdtemp(), "menu.toml")
+        with open(menu_path, "w") as f:
+            f.write(menu)
+    s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW, look_path="/nonexistent/ui.toml",
+              menu_path=menu_path)
+    for c in s.cats:
+        s.refresh(c.key)
     return s
 
 
@@ -25,28 +34,31 @@ def titles(s):
 
 
 class Moving(unittest.TestCase):
-    def test_starts_on_the_first_item_skipping_headers(self):
+    def test_starts_on_the_first_item(self):
         s = shell()
         self.assertEqual(s.state()["category"], APPS)
         self.assertEqual(s.current_row().title, "Steam")
-        self.assertEqual(s.property("section"), "Running")
-        self.assertEqual((s.offset()), (1, 0))
+        self.assertEqual(s.property("section"), "")  # Apps has no headers
+        self.assertEqual((s.offset()), (0, 0))
 
-    def test_down_skips_headers_and_stops_at_the_end(self):
+    def test_running_apps_folders_then_apps_once_each(self):
+        s = shell()
+        self.assertEqual(titles(s)[:5], ["Steam", "Chromium", "Games", "Services", "Kodi"])
+        self.assertEqual(titles(s).count("Steam"), 1)
+        self.assertEqual([r.mark for r in s.page().rows[:3]], ["positive", "warning", ""])
+
+    def test_down_stops_at_the_end(self):
         s = shell()
         s.handle("down")
-        s.handle("down")  # over the "Apps" header, onto the Games folder
-        self.assertEqual(s.current_row().title, "Games")
-        self.assertEqual(s.property("section"), "Apps")
-        self.assertEqual(s.offset(), (2, 2))
         s.handle("down")
-        self.assertEqual(s.current_row().title, "Steam")
+        self.assertEqual(s.current_row().title, "Games")
+        self.assertEqual(s.offset(), (0, 2))
         for _ in range(30):
             s.handle("down")
         self.assertEqual(s.current_row().title, "VLC")
         for _ in range(30):
             s.handle("up")
-        self.assertEqual(s.state()["current"], 1)
+        self.assertEqual(s.state()["current"], 0)
 
     def test_left_and_right_change_category_and_wrap(self):
         s = shell()
@@ -147,7 +159,7 @@ class Filtering(unittest.TestCase):
         self.assertEqual(s.state()["filter"], "do")
         s.handle("back")
         self.assertEqual(s.state()["filter"], "")
-        self.assertIn("Running", titles(s))
+        self.assertIn("Games", titles(s))
 
     def test_typing_elsewhere_is_ignored(self):
         s = shell()
@@ -157,9 +169,27 @@ class Filtering(unittest.TestCase):
 
 
 class Hints(unittest.TestCase):
-    def test_hints_follow_the_state_and_the_device(self):
+    def test_hints_name_only_what_the_row_does(self):
         s = shell()
-        self.assertEqual([h["what"] for h in s._hints()], ["open", "options", "close", "category", "back"])
+        what = lambda: [h["what"] for h in s._hints()]  # noqa: E731
+        self.assertEqual(what(), ["open", "options", "close"])  # Steam, running
+        s.handle("down")
+        s.handle("down")
+        self.assertEqual(what(), ["open"])  # the Games folder
+        s.handle("activate")
+        self.assertEqual(what(), ["open", "back"])  # a folder open: back goes up
+        s.handle("home")
+        s.handle("down")
+        s.handle("down")
+        s.handle("down")
+        s.handle("activate")  # Services
+        self.assertEqual(what(), ["options", "back"])  # a service acts through its options
+        s.handle("right")
+        s.handle("down")
+        self.assertEqual(what(), ["choose"])  # Users: guest
+
+    def test_hints_follow_the_device(self):
+        s = shell()
         s.on_event({"type": "display.nav", "data": {"what": "down"}})  # the menu is not in front: ignored
         self.assertEqual(s.current_row().title, "Steam")
         s.showMenu()
@@ -192,10 +222,10 @@ class FolderNavigation(unittest.TestCase):
         s = self.s
         self.go_to_games()
         self.assertEqual((list(s.property("folderPath")), s.property("section")), (["Games"], "Games"))
-        self.assertEqual([r.title for r in s.page().rows], ["Games", "Dolphin", "Steam"])
+        self.assertEqual(titles(s)[:2], ["Dolphin", "Steam"])
         self.assertEqual(s.current_row().title, "Dolphin")
         s.handle("activate")
-        self.assertEqual([r.title for r in s.page().rows], ["Games / Dolphin", "Wii", "Dolphin"])
+        self.assertEqual(titles(s)[:2], ["Wii", "Dolphin"])
         s.handle("activate")  # Wii
         self.assertEqual(s.property("section"), "Games / Dolphin / Wii")
         self.assertEqual(s.current_row().title, "Mario Kart Wii")
@@ -233,8 +263,102 @@ class FolderNavigation(unittest.TestCase):
         s = self.s
         for ch in "mario":
             s.key("Key_" + ch.upper(), ch, False)
-        found = sorted(r.title for r in views.visible(s.all_rows[0], s._filter))
+        found = sorted(r.title for r in views.visible(s.all_rows[APPS], s._filter))
         self.assertEqual(found, ["Mario Kart Wii", "Super Mario Galaxy"])
+
+
+class Services(unittest.TestCase):
+    """Background apps are in Services; they start and stop through their
+    options, never on one press."""
+
+    def open_services(self, s):
+        while s.current_row().title != "Services":
+            s.handle("down")
+        s.handle("activate")
+
+    def test_states_and_options(self):
+        s = shell()
+        self.open_services(s)
+        self.assertEqual([(r.title, r.badge) for r in s.page().rows if not r.under],
+                         [("Home Assistant", "running"), ("Syncthing", "stopped"), ("Pi-hole", "failed")])
+        s.handle("activate")  # opens the options: nothing sent
+        self.assertEqual((s.state()["panel"], s.api.sent), ("options", []))
+        self.assertEqual([r.title for r in s.options_model.rows], ["Stop", "Restart"])
+        s.handle("down")
+        s.handle("activate")
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/homeassistant/restart", None))
+
+    def test_delete_does_not_stop_a_service(self):
+        s = shell()
+        self.open_services(s)
+        s.handle("close")
+        self.assertEqual(s.api.sent, [])
+
+    def test_a_failed_one_starts_again(self):
+        s = shell()
+        self.open_services(s)
+        s.handle("down")
+        s.handle("down")
+        s.handle("activate")
+        s.handle("activate")  # Start
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/pihole/open", None))
+
+
+class Tabs(unittest.TestCase):
+    """Folders the menu file marks are categories of their own."""
+
+    def test_the_marked_folders_are_tabs_after_apps(self):
+        s = shell(fixtures.MENU)
+        self.assertEqual([c["name"] for c in s.property("categories")],
+                         ["Apps", "Games", "Services", "Users", "Settings", "Status"])
+        self.assertEqual(s.property("categories")[1]["icon"], "gamepad-2")
+        self.assertEqual(titles(s)[:3], ["Steam", "Chromium", "Kodi"])  # Apps has no Games or Services folder
+        s.handle("right")
+        self.assertEqual((s.state()["category"], s.property("category")), ("tab:Games", 1))
+        self.assertEqual((titles(s), s.property("section")), (["Dolphin", "Steam"], ""))
+        s.handle("right")
+        self.assertEqual(titles(s), ["Home Assistant", "Syncthing", "Pi-hole"])
+
+    def test_back_stops_at_the_tab(self):
+        s = shell(fixtures.MENU)
+        s.handle("right")
+        s.handle("activate")  # Dolphin
+        self.assertEqual((s.property("section"), titles(s)), ("Games / Dolphin", ["Wii", "Dolphin"]))
+        s.handle("back")
+        self.assertEqual((s.state()["category"], s.current_row().title), ("tab:Games", "Dolphin"))
+        s.handle("back")  # at the tab's top: back to Apps, as from any category
+        self.assertEqual(s.state()["category"], APPS)
+
+    def test_typing_in_a_tab_searches_every_app(self):
+        s = shell(fixtures.MENU)
+        s.handle("right")
+        for ch in "kodi":
+            self.assertTrue(s.key("Key_" + ch.upper(), ch, False))
+        self.assertEqual(titles(s), ["Kodi"])
+        s.handle("right")  # leaving clears it
+        self.assertEqual((s.state()["filter"], s.state()["category"]), ("", "tab:Services"))
+
+    def test_changing_the_file_changes_the_tabs(self):
+        s = shell(fixtures.MENU)
+        changed = []
+        s.categoriesChanged.connect(lambda: changed.append(1))
+        s.handle("right")
+        s.handle("right")  # Services
+        with open(s.menu_path, "w") as f:
+            f.write('[[tab]]\nfolder = "Games"\n')
+        os.utime(s.menu_path, ns=(1, 1))  # a change the clock cannot miss
+        s.reload_menu()
+        self.assertEqual(changed, [1])
+        self.assertEqual([c["name"] for c in s.property("categories")], ["Apps", "Games", "Users", "Settings", "Status"])
+        self.assertEqual(s.state()["category"], APPS)  # its tab went: back to Apps
+        self.assertEqual(s.property("categories")[1]["icon"], "folder")
+        self.assertIn("Services", titles(s))
+        with open(s.menu_path, "w") as f:
+            f.write("[[tab]]\nfolder = 3\n")
+        os.utime(s.menu_path, ns=(2, 2))
+        s.reload_menu()
+        self.assertEqual(len(s.property("categories")), 4)
+        self.assertIn("menu.toml", s.property("message"))
 
 
 class Controllers(unittest.TestCase):
@@ -282,9 +406,8 @@ class Controllers(unittest.TestCase):
 
     def test_the_hints_follow_the_controller_in_hand(self):
         s = self.s
-        want = {"xbox": ["A", "Menu", "Y", "◀ ▶", "B"], "playstation": ["✕", "Options", "△", "◀ ▶", "○"],
-                "nintendo": ["A", "+", "X", "◀ ▶", "B"], "wii": ["A", "+", "2", "◀ ▶", "B"],
-                "generic": ["A", "Menu", "Y", "◀ ▶", "B"]}
+        want = {"xbox": ["A", "Menu", "Y"], "playstation": ["✕", "Options", "△"],
+                "nintendo": ["A", "+", "X"], "wii": ["A", "+", "2"], "generic": ["A", "Menu", "Y"]}
         for family, buttons in want.items():
             nav(s, "up", family)
             self.assertEqual([h["button"] for h in s._hints()], buttons, family)
@@ -463,21 +586,21 @@ class Models(unittest.TestCase):
         model.modelReset.connect(lambda: resets.append(1))
         s.refresh(APPS)
         self.assertEqual(resets, [])  # same items: data changed, no reset
-        s.api.reads["/v1/instances"] = []
+        s.api.reads["/v1/instances?all=true"] = []
         s.refresh(APPS)
         self.assertEqual(resets, [1])
-        self.assertNotIn("Running", titles(s))
-        self.assertEqual(s.current_row().title, "Games")  # the first thing it can choose now
+        self.assertEqual(s.current_row().title, "Steam")  # the same app, no longer first
+        self.assertEqual(titles(s)[:2], ["Games", "Services"])
 
     def test_roles(self):
         s = shell()
         model = s.pages[APPS]
         names = {bytes(v).decode(): k for k, v in model.roleNames().items()}
-        steam = model.index(1)
+        steam = model.index(0)
         self.assertEqual(model.data(steam, names["title"]), "Steam")
         self.assertEqual(model.data(steam, names["appIcon"]), fixtures.APP_ICON)
-        self.assertTrue(model.data(steam, names["mono"]))
-        self.assertEqual(model.data(model.index(0), names["kind"]), views.HEADER)
+        self.assertEqual(model.data(steam, names["mark"]), "positive")
+        self.assertEqual(model.data(model.index(2), names["kind"]), views.FOLDER)
 
 
 if __name__ == "__main__":

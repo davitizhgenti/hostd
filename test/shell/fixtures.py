@@ -13,6 +13,8 @@ LONG = "A game with a very long title that cannot fit in the column however wide
 INSTANCES = [
     {"id": "steam", "app": "steam", "name": "Steam", "surface": "window", "state": "running"},
     {"id": "chromium", "app": "chromium", "name": "Chromium", "surface": "window", "state": "starting"},
+    {"id": "homeassistant", "app": "homeassistant", "surface": "background", "state": "running"},
+    {"id": "pihole", "app": "pihole", "surface": "background", "state": "failed"},
 ]
 APPS = [
     {"id": "steam", "name": "Steam", "surface": "window", "icon": APP_ICON,
@@ -29,7 +31,13 @@ APPS = [
     {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii"},
     {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii"},
     {"id": "steam-launcher", "name": "Steam", "surface": "window", "folder": "Games/Steam"},
+    {"id": "homeassistant", "name": "Home Assistant", "surface": "background"},
+    {"id": "syncthing", "name": "Syncthing", "surface": "background"},
+    {"id": "pihole", "name": "Pi-hole", "surface": "background"},
 ]
+# The menu file (menu.toml) of a screen with tabs: Games and Services.
+MENU = '[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\n\n[[tab]]\nfolder = "Services"\nicon = "server"\n'
+
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]
 AUDIO = {"available": True, "percent": 70, "muted": False, "outputs": [
     {"name": "hdmi", "description": "GP107GL HDMI", "default": True},
@@ -49,7 +57,7 @@ LOG = [
      "source": {"name": "phone"}},
 ]
 READS = {
-    "/v1/instances": INSTANCES,
+    "/v1/instances?all=true": INSTANCES,
     "/v1/apps": [{"spec": a} for a in APPS],
     "/v1/seat": SEATS,
     "/v1/audio": AUDIO,

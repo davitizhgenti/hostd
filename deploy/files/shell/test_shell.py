@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hostd_shell import api, background, input as inp, notices, views  # noqa: E402
+from hostd_shell import api, background, input as inp, menu, notices, views  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -46,16 +46,24 @@ class AppsPage(unittest.TestCase):
     def titles(self, rows):
         return [r.title for r in rows]
 
-    def test_running_then_apps(self):
-        self.assertEqual(self.titles(views.visible(self.rows, "")), ["Running", "Steam", "Apps", "Steam", "Chromium"])
+    def test_one_row_per_app_running_first(self):
+        # No list of running apps apart: a running app is marked in place.
+        self.assertEqual(self.titles(views.visible(self.rows, "")), ["Steam", "Chromium"])
+        self.assertEqual([r.kind for r in self.rows], [views.ITEM] * len(self.rows))
         self.assertEqual(self.summary, "1 running   2 apps")
 
     def test_running_row(self):
-        r = self.rows[1]
-        self.assertEqual((r.instance, r.badge, r.tone), ("steam", "running", "positive"))
+        r = self.rows[0]
+        self.assertEqual((r.instance, r.mark, r.badge, r.subtitle), ("steam", "positive", "", ""))
         self.assertEqual(r.call, views.Call("POST", "/v1/instances/steam/switch"))
         self.assertEqual(self.titles(r.sheet), ["Bring to front", "Close", "Big Picture", "Dota 2"])
         self.assertEqual(r.sheet[1].tone, "danger")
+
+    def test_several_instances_each_in_the_options(self):
+        two = INSTANCES + [{"id": "steam#2", "app": "steam", "surface": "window", "state": "starting"}]
+        rows, _ = views.apps_page(two, APPS)
+        self.assertEqual(self.titles(rows[0].sheet)[:4],
+                         ["Bring to front  steam", "Close  steam", "Bring to front  steam#2", "Close  steam#2"])
 
     def test_nested_apps_only_when_filtering(self):
         dota = [r for r in self.rows if r.app == "steam-570"]
@@ -63,16 +71,25 @@ class AppsPage(unittest.TestCase):
         self.assertEqual(self.titles(views.visible(self.rows, "dota")), ["Dota 2"])
         self.assertEqual(self.titles(views.visible(self.rows, "  ")), self.titles(views.visible(self.rows, "")))
 
-    def test_app_row_and_its_sheet(self):
-        steam = [r for r in self.rows if r.app == "steam" and not r.instance][0]
-        self.assertEqual(steam.value, "1 action  1 app")
-        self.assertEqual(steam.call, views.Call("POST", "/v1/apps/steam/open"))
-        self.assertEqual(steam.sheet[1].call, views.Call("POST", "/v1/apps/steam/open", {"action": "bigpicture"}))
+    def test_a_running_nested_app_is_next_to_its_launcher(self):
+        dota = {"id": "steam-570", "app": "steam-570", "name": "Dota 2", "surface": "window", "state": "running"}
+        rows, summary = views.apps_page(INSTANCES + [dota], APPS)
+        self.assertEqual(self.titles(views.visible(rows, "")), ["Steam", "Dota 2", "Chromium"])
+        self.assertEqual(summary, "2 running   2 apps")
 
-    def test_nothing_running(self):
+    def test_app_row_and_its_sheet(self):
         rows, summary = views.apps_page([], APPS)
-        self.assertEqual(rows[0].title, "Apps")
-        self.assertEqual(summary, "0 running   2 apps")
+        steam = rows[0]
+        self.assertEqual((steam.title, steam.value, steam.mark, steam.instance), ("Steam", "", "", ""))
+        self.assertEqual(steam.call, views.Call("POST", "/v1/apps/steam/open"))
+        self.assertEqual(self.titles(steam.sheet), ["Start", "Big Picture", "Dota 2"])
+        self.assertEqual(steam.sheet[1].call, views.Call("POST", "/v1/apps/steam/open", {"action": "bigpicture"}))
+        self.assertEqual(summary, "2 apps")
+
+    def test_instances_of_no_app_are_listed(self):
+        run = {"id": "run-1", "app": "run-1", "name": "make", "surface": "window", "state": "running"}
+        rows, _ = views.apps_page(INSTANCES + [run], APPS)
+        self.assertEqual((rows[0].title, rows[0].instance, rows[0].mark), ("make", "run-1", "positive"))
 
     def test_key_keeps_identity(self):
         again, _ = views.apps_page(INSTANCES, APPS)
@@ -88,23 +105,18 @@ FOLDER_APPS = APPS + [
 
 
 class Folders(unittest.TestCase):
-    def titles(self, path=()):
-        rows, _ = views.apps_page(INSTANCES, FOLDER_APPS, path)
+    def titles(self, path=(), apps=FOLDER_APPS, root=(), tabs=()):
+        rows, _ = views.apps_page(INSTANCES, apps, path, root, tabs)
         return [(r.kind, r.title) for r in views.visible(rows, "")]
 
-    def test_the_top_has_folders_then_loose_apps(self):
-        t = self.titles()
-        self.assertEqual(t[:3], [("header", "Running"), ("item", "Steam"), ("header", "Apps")])
-        self.assertEqual(t[3], ("folder", "Games"))
-        self.assertIn(("item", "Chromium"), t[4:])
-        self.assertNotIn(("item", "Dolphin"), t)  # in a folder
+    def test_running_then_folders_then_apps(self):
+        self.assertEqual(self.titles(), [("item", "Steam"), ("folder", "Games"), ("item", "Chromium")])
 
     def test_opening_a_folder(self):
-        self.assertEqual(self.titles(("Games",)), [("header", "Games"), ("folder", "Dolphin"), ("folder", "Steam")])
-        self.assertEqual(self.titles(("Games", "Dolphin")),
-                         [("header", "Games / Dolphin"), ("folder", "Wii"), ("item", "Dolphin")])
+        self.assertEqual(self.titles(("Games",)), [("folder", "Dolphin"), ("folder", "Steam")])
+        self.assertEqual(self.titles(("Games", "Dolphin")), [("folder", "Wii"), ("item", "Dolphin")])
         self.assertEqual(self.titles(("Games", "Dolphin", "Wii")),
-                         [("header", "Games / Dolphin / Wii"), ("item", "Mario Kart Wii"), ("item", "Super Mario Galaxy")])
+                         [("item", "Mario Kart Wii"), ("item", "Super Mario Galaxy")])
 
     def test_folder_row(self):
         rows, _ = views.apps_page(INSTANCES, FOLDER_APPS)
@@ -115,17 +127,85 @@ class Folders(unittest.TestCase):
         dota = {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam", "folder": "Games/Steam"}
         apps = FOLDER_APPS + [dota]
         rows, _ = views.apps_page(INSTANCES, apps, ("Games", "Steam"))
-        self.assertEqual([r.title for r in views.visible(rows, "")], ["Games / Steam", "Steam", "Dota 2"])
-        steam = next(r for r in rows if r.app == "steam" and not r.instance)
+        self.assertEqual([r.title for r in views.visible(rows, "")], ["Steam", "Dota 2"])
+        steam = next(r for r in rows if r.app == "steam")
         self.assertIn("Dota 2", [x.title for x in steam.sheet])  # and still in Steam's options
-
-    def test_running_apps_only_at_the_top(self):
-        self.assertNotIn(("header", "Running"), self.titles(("Games",)))
 
     def test_filtering_searches_every_folder(self):
         rows, _ = views.apps_page(INSTANCES, FOLDER_APPS)
         self.assertEqual([r.title for r in views.visible(rows, "mario")], ["Mario Kart Wii", "Super Mario Galaxy"])
+        self.assertEqual(next(r for r in rows if r.app == "mkw").value, "Games / Dolphin / Wii")
         self.assertTrue(all(r.kind != views.FOLDER for r in views.visible(rows, "a")))
+
+
+class Tabs(unittest.TestCase):
+    def test_categories(self):
+        cats = views.categories([("Games", "gamepad-2"), ("Services", "server")])
+        self.assertEqual([c.name for c in cats], ["Apps", "Games", "Services", "Users", "Settings", "Status"])
+        self.assertEqual([c.key for c in cats][:3], ["apps", "tab:Games", "tab:Services"])
+        self.assertEqual((cats[1].kind, cats[1].root, cats[1].icon), ("apps", ("Games",), "gamepad-2"))
+        for c in views.categories():
+            self.assertTrue(os.path.exists(os.path.join(HERE, "icons", c.icon + ".svg")), c.icon)
+
+    def test_a_tab_lists_its_folder(self):
+        rows, summary = views.apps_page(INSTANCES, FOLDER_APPS, ("Games",), ("Games",), ["Games"])
+        self.assertEqual([(r.kind, r.title) for r in views.visible(rows, "")], [("folder", "Dolphin"), ("folder", "Steam")])
+        self.assertEqual(summary, "4 apps")
+        # A path outside the tab is the tab's own folder.
+        again, _ = views.apps_page(INSTANCES, FOLDER_APPS, ("Elsewhere",), ("Games",), ["Games"])
+        self.assertEqual([r.key() for r in again], [r.key() for r in rows])
+
+    def test_apps_leaves_out_the_tabs(self):
+        rows, summary = views.apps_page(INSTANCES, FOLDER_APPS, (), (), ["Games"])
+        self.assertEqual([r.title for r in views.visible(rows, "")], ["Steam", "Chromium"])
+        self.assertEqual(summary, "1 running   2 apps")
+        self.assertEqual([r.title for r in views.visible(rows, "mario")], ["Mario Kart Wii", "Super Mario Galaxy"])
+
+    def test_every_tab_searches_every_app(self):
+        rows, _ = views.apps_page(INSTANCES, FOLDER_APPS, ("Games",), ("Games",), ["Games"])
+        self.assertEqual([r.title for r in views.visible(rows, "chrom")], ["Chromium"])
+
+
+SERVICE_APPS = APPS + [
+    {"id": "jelly", "name": "Jellyfin", "surface": "background"},
+    {"id": "ha", "name": "Home Assistant", "surface": "background"},
+    {"id": "px", "name": "Proxy", "surface": "background"},
+    {"id": "sync", "name": "Syncthing", "surface": "background", "folder": "Tools"},
+]
+SERVICE_INSTANCES = INSTANCES + [
+    {"id": "jelly", "app": "jelly", "surface": "background", "state": "running"},
+    {"id": "px", "app": "px", "surface": "background", "state": "failed"},
+    {"id": "ha", "app": "ha", "surface": "background", "state": "exited"},
+]
+
+
+class Services(unittest.TestCase):
+    def rows(self, path=()):
+        rows, _ = views.apps_page(SERVICE_INSTANCES, SERVICE_APPS, path)
+        return views.visible(rows, "")
+
+    def test_background_apps_are_in_services(self):
+        self.assertEqual([(r.kind, r.title) for r in self.rows()],
+                         [("item", "Steam"), ("folder", "Services"), ("folder", "Tools"), ("item", "Chromium")])
+        self.assertEqual([r.title for r in self.rows(("Services",))], ["Jellyfin", "Home Assistant", "Proxy"])
+        self.assertEqual([r.title for r in self.rows(("Tools",))], ["Syncthing"])
+
+    def test_the_summary_counts_services_apart(self):
+        self.assertEqual(views.apps_page(SERVICE_INSTANCES, SERVICE_APPS)[1], "1 running   2 apps   4 services")
+        self.assertEqual(views.apps_page(SERVICE_INSTANCES, SERVICE_APPS, ("Services",), ("Services",), ["Services"])[1],
+                         "3 services")
+
+    def test_a_service_shows_its_state_and_acts_through_its_options(self):
+        jelly, ha, px = self.rows(("Services",))
+        self.assertEqual([(r.badge, r.tone) for r in (jelly, ha, px)],
+                         [("running", "positive"), ("stopped", ""), ("failed", "danger")])
+        for r in (jelly, ha, px):  # nothing starts or stops on one press
+            self.assertEqual((r.call, r.instance, r.icon), (None, "", "server"))
+        self.assertEqual([(o.title, o.call) for o in jelly.sheet],
+                         [("Stop", views.Call("POST", "/v1/instances/jelly/close")),
+                          ("Restart", views.Call("POST", "/v1/instances/jelly/restart"))])
+        self.assertEqual([(o.title, o.call) for o in px.sheet], [("Start", views.Call("POST", "/v1/apps/px/open"))])
+        self.assertEqual([o.title for o in ha.sheet], ["Start"])
 
 
 class UsersPage(unittest.TestCase):
@@ -228,12 +308,38 @@ class StatusPage(unittest.TestCase):
         self.assertIn("Nothing done yet", [r.title for r in views.status_page({}, {}, [])])
 
 
-class Categories(unittest.TestCase):
-    def test_names_and_icons(self):
-        self.assertEqual([n for n, _ in views.CATEGORIES], ["Apps", "Users", "Settings", "Status"])
-        for _, icon in views.CATEGORIES:
-            self.assertTrue(os.path.exists(os.path.join(HERE, "icons", icon + ".svg")))
+class MenuFile(unittest.TestCase):
+    def load(self, text, has_icon=None):
+        d = tempfile.mkdtemp()
+        f = os.path.join(d, "menu.toml")
+        with open(f, "w") as out:
+            out.write(text)
+        return menu.load(f, has_icon)
 
+    def test_no_file_no_tabs(self):
+        self.assertEqual(menu.load("/nonexistent/menu.toml"), ([], ""))
+        self.assertEqual(menu.mtime("/nonexistent/menu.toml"), 0)
+
+    def test_tabs_in_order(self):
+        tabs, problem = self.load('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\n[[tab]]\nfolder = "/Services/"\n',
+                                  has_icon=lambda n: n == "gamepad-2")
+        self.assertEqual((tabs, problem), ([("Games", "gamepad-2"), ("Services", "folder")], ""))
+
+    def test_an_unknown_icon_is_the_folder(self):
+        self.assertEqual(self.load('[[tab]]\nfolder = "Games"\nicon = "nope"\n', lambda n: False)[0], [("Games", "folder")])
+
+    def test_problems_give_no_tabs(self):
+        for text, said in (('[[tab]\n', "menu.toml"),
+                           ('tab = "Games"\n', "list of tables"),
+                           ('[[tab]]\nfolder = "Games/Steam"\n', "one folder"),
+                           ('[[tab]]\nicon = "x"\n', "one folder"),
+                           ('[[tab]]\nfolder = "Games"\n[[tab]]\nfolder = "Games"\n', "a tab already")):
+            tabs, problem = self.load(text)
+            self.assertEqual(tabs, [], text)
+            self.assertIn(said, problem, text)
+
+
+class Categories(unittest.TestCase):
     def test_every_page_has_icons(self):
         rows, _ = views.apps_page(INSTANCES, APPS)
         rows += views.users_page([{"user": "serve", "vt": 7}]) + views.status_page({}, DISPLAY, [])

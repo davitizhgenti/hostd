@@ -10,7 +10,7 @@ from PySide6.QtCore import QAbstractListModel, QByteArray, Qt
 
 from hostd_shell import views
 
-ROLES = ("title", "subtitle", "value", "badge", "tone", "kind", "icon", "appIcon", "app",
+ROLES = ("title", "subtitle", "value", "badge", "tone", "mark", "kind", "icon", "appIcon", "app",
          "level", "mono", "options", "key")
 
 

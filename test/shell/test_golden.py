@@ -24,7 +24,7 @@ CHANNEL, SHARE = 8, 0.001  # a channel may differ by 8; at most 0.1 % of pixels 
 KEYS_DOL = [("Key_D", "d"), ("Key_O", "o"), ("Key_L", "l")]
 # (state, surface, what to do first, what it shows)
 STATES = [
-    ("01-apps", "Menu", [], "Apps: running apps, then the catalog; the current item at the list's top"),
+    ("01-apps", "Menu", [], "Apps: running apps (marked), folders, then the catalog; the current item at the list's top"),
     ("02-apps-down", "Menu", ["down"] * 4, "Four down: passed items scrolled away under the row"),
     ("02b-folders", "Menu", ["down", "down"], "A folder in the list, among the apps"),
     ("02c-folder-open", "Menu", ["down", "down", "activate", "activate"], "Inside Games / Dolphin: a subfolder and an app"),
@@ -39,11 +39,15 @@ STATES = [
     ("11-notices", "NoticeLayer", "notices", "Notices, critical first"),
     ("12-osd", "OsdLayer", "osd", "The OSD"),
     ("13-gallery", "Gallery", [], "The component sheet"),
+    ("14-tabs", "Menu+tabs", ["right"], "The Games tab, marked in the menu file"),
+    ("15-services", "Menu+tabs", ["right", "right"], "The Services tab: each service's state"),
+    ("16-service-options", "Menu+tabs", ["right", "right", "activate"], "A service's options: Stop, Restart"),
 ]
 
 
 def render(size, surface, steps):
-    with Screen(size, surface) as s:
+    surface, _, tabs = surface.partition("+")
+    with Screen(size, surface, tabs=bool(tabs)) as s:
         if steps == "notices":
             s.shell.notify("Steam", "Download finished", "Dota 2 is ready to play", 0, 1, -1)
             s.shell.notify("hostd", "Video memory nearly full", "3.9 GB of 4 GB in use", 0, 2, -1)

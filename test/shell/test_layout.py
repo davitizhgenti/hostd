@@ -62,12 +62,13 @@ class Contract(unittest.TestCase):
         # icon on the axis; all of the row inside its band.
         band = s.rect("rowBand")
         self.near(band[1], g["rowTop"], f"{where}: row band top")
-        for c in range(4):
+        n = len(s.shell.property("categories"))
+        for c in range(n):
             icon, name = s.rect(f"categoryIcon/{c}"), s.rect(f"categoryName/{c}")
             self.near(cx(name), cx(icon), f"{where}: category {c} name centred on its icon")
             self.assertTrue(inside((icon[0], icon[1], 1, icon[3]), (-1e9, band[1], 2e9, band[3])),
                             f"{where}: category {c} icon outside the band")
-        for c in range(4):  # a category shown is wholly inside the safe margins, never cut
+        for c in range(n):  # a category shown is wholly inside the safe margins, never cut
             if s.shown(f"category/{c}"):
                 icon = s.rect(f"categoryIcon/{c}")
                 self.assertTrue(icon[0] >= g["safe"] - TOL and icon[0] + icon[2] <= w - g["safe"] + TOL,
@@ -75,7 +76,7 @@ class Contract(unittest.TestCase):
         # The axis is the screen's centre; the list is a block centred on it.
         self.near(g["axis"], w / 2, f"{where}: the axis is the screen's centre")
         self.near(g["rowLeft"] + g["columnWidth"] / 2, w / 2, f"{where}: the list block is centred")
-        current = s.shell.state()["category"]
+        current = s.shell.property("category")
         self.near(cx(s.rect(f"categoryIcon/{current}")), g["axis"], f"{where}: current category on the axis")
 
         # The section label and the list: under the band, on the text column.
@@ -164,12 +165,24 @@ class MenuLayout(Contract):
                 self.assertEqual(s.shell.current_row().kind, "folder")
                 self.check(s, f"{size_name} a folder row")
                 s.verb("activate")
+                self.assertEqual(s.shell.property("section"), "Games")
                 self.check(s, f"{size_name} Games")
                 s.verb("activate")  # Dolphin, the first folder in Games
                 self.assertEqual(s.shell.property("section"), "Games / Dolphin")
                 self.check(s, f"{size_name} Games / Dolphin")
                 s.verb("back", "back")
                 self.check(s, f"{size_name} back at the top")
+
+    def test_tabs_and_services_keep_the_grid(self):
+        for size_name, size in SIZES.items():
+            with Screen(size, tabs=True) as s:
+                self.check(s, f"{size_name} apps with tabs")
+                for c in ("Games", "Services", "Users", "Settings", "Status"):
+                    s.verb("right")
+                    self.check(s, f"{size_name} {c} tab")
+                s.verb("home", "right", "activate")
+                self.assertEqual(s.shell.property("section"), "Games / Dolphin")
+                self.check(s, f"{size_name} a folder in a tab")
 
     def test_options_panel(self):
         for size_name, size in SIZES.items():

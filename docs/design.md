@@ -52,21 +52,21 @@ QML takes every color from Theme; a test fails on a color written anywhere else.
 
 ## The grid
 
-The menu is laid out like the PSP's XMB: the categories (Apps, Users, Settings, Status) on one row, the current one's items in a column under it. `Place.qml` computes every position from the tokens:
+The menu is laid out like the PSP's XMB: the categories (Apps, any [tabs](#tabs), Users, Settings, Status) on one row, the current one's items in a column under it. `Place.qml` computes every position from the tokens:
 
 ```
                                                           13:30
                                                           Sat 14 February
    ▦        ⚇        ☰        ∿                           2 running   9 apps
   Apps                                                    ← the row band: nothing from the list enters it
-   │ RUNNING                                              ← the current item's section
-   ▷ Steam                                running        ← the current item, at the list's top
-   │ steam                                                  (its second line under its title line)
-   C Chromium                            starting
-   │ APPS
-   D Dolphin
+   │                                                      ← the section: a folder's path, or a Settings group
+   ▷ Steam                                      ■        ← the current item, at the list's top; ■ it runs
+   │                                                        (a second line under its title line, if it has one)
+   C Chromium                                   ■
+   ▭ Games                                   4 apps
+   K Kodi
    │
- axis  text column                       trail edge                 Enter open   ◀ ▶ category   Esc back
+ axis  text column                       trail edge                 Enter open   Menu options   Del close
 ```
 
 - **The axis** is the screen's vertical centre line. The current category's icon sits on it and the other categories fan out either side. **The list is a block** of fixed width (`column-width`) centred on the same axis: item icons centred in the icon column at its left edge, states and values ending at its right edge.
@@ -139,10 +139,29 @@ Super (or holding a controller's Guide button) opens it; the same goes back. Its
 
 | Category | Shows |
 | --- | --- |
-| Apps | the running apps, then the catalog in folders (`folder` in an app's file: Games / Steam, Games / Dolphin / Wii). A folder is a row that opens like a list of its own; Back goes up one level, Home returns to the top, and typing searches every folder. Choose an app to bring it forward or start it; its actions (and the apps under it, such as Steam's games) are in its options |
+| Apps | the catalog in folders (`folder` in an app's file: Games / Steam, Games / Dolphin / Wii): the running apps first, then the folders, then the other apps. Each app is listed once; a running one has a small square in its state's color (running, starting, failed) and is brought forward when chosen, Delete closes it. A folder is a row that opens like a list of its own; Back goes up one level, Home returns to the top, and typing searches every folder (and every tab). Its actions (and the apps under it, such as Steam's games) are in its options; a game started from them is listed next to its launcher while it runs |
+| Services | a folder (or a [tab](#tabs)) of the background apps: those with `surface = "background"` and no `folder` of their own. Each shows its state in a word: running, starting, stopping, stopped or failed. Choosing one opens its options, Start, or Stop and Restart: a service never starts or stops on one press |
 | Users | who may use the screen and who has it now. Choose another user to give them the screen, keyboard and controllers (the [seats add-on](install.md)) |
 | Settings | the volume, mute and sound output; each screen's resolution; turning the screen off; the background |
 | Status | the hostd version, video memory, and the latest actions with who sent them |
+
+The hints at the bottom right name only what the current row does (open, options, close) and back where there is somewhere to go back to (an open folder, a filter, a panel).
+
+### Tabs
+
+A top-level folder can be a category of its own, after Apps, by listing it in `~/.config/hostd/menu.toml`:
+
+```toml
+[[tab]]
+folder = "Games"
+icon = "gamepad-2"   # one of the menu's icons (deploy/files/shell/icons); the folder icon otherwise
+
+[[tab]]
+folder = "Services"
+icon = "server"
+```
+
+A tab lists its folder like Apps lists the top: the running apps, the subfolders, then the apps. Back goes up within it and, at its top, to Apps. Apps no longer shows a folder that is a tab. The menu reads the file again when it changes; a file it cannot use gives no tabs, and the menu says why. hostd ships no tabs: the file is the user's.
 
 The menu acts with the machine's local token (`~/.config/hostd/local.token`, scopes `read,apps,audio,display`, and `seat` with the seats add-on), so what is chosen on the screen counts as someone at the screen.
 

@@ -128,6 +128,7 @@ Item {
                     required value
                     required badge
                     required tone
+                    required mark
                     required kind
                     required icon
                     required appIcon
