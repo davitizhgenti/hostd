@@ -6,8 +6,9 @@ extends = "steam"
 name = "Steam"
 # Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
 # processes, so closing Steam in hostd ends Steam, and starting it while
-# it runs brings it forward.
-runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }
+# it runs brings it forward. Closing Big Picture's window leaves Steam
+# running in the background, so closing it asks Steam to shut down (quit).
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam", "-gamepadui"], handoff = "FLATPAK_ID=com.valvesoftware.Steam", quit = ["flatpak", "run", "com.valvesoftware.Steam", "-shutdown"] }
 # Steam's own desktop actions open its desktop window; these open pages
 # in Big Picture instead (Steam is started first if it does not run).
 replace_actions = true

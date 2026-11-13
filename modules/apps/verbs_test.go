@@ -3,6 +3,7 @@ package apps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -200,5 +201,58 @@ func TestRunInstancesTakeTheSameVerbs(t *testing.T) {
 	}
 	if got := r.live(); len(got) != 0 {
 		t.Fatalf("still running: %v", got)
+	}
+}
+
+const quitApps = `
+-- steam.toml --
+runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam"], handoff = "FLATPAK_ID=com.valvesoftware.Steam", quit = ["flatpak", "run", "com.valvesoftware.Steam", "-shutdown"] }
+`
+
+// An app whose window closing does not end it (Steam) says how it quits:
+// closing runs that, and an app that ends in time is never stopped or its
+// windows closed.
+func TestCloseRunsTheQuitCommand(t *testing.T) {
+	sd := unitstest.NewFakeSystemd()
+	w := &windows{}
+	r := newRigWith(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, rigApps, w.module())
+	writeApps(t, r.m.opts.AppsDir, quitApps)
+	r.m.loadFiles()
+	waitUntil(t, func() bool { return sd.Watching() == 1 })
+	ran := make(chan []string, 1)
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(_ context.Context, argv, _ []string, _ string) error {
+		ran <- argv
+		sd.Exit(contract.UnitName("steam"), 0, 0) // Steam shuts down
+		return nil
+	}
+	r.start(t, "steam")
+	data, err := r.verb(t, contract.ActionInstanceClose, map[string]any{"id": "steam"})
+	if err != nil || data["quit"] != true {
+		t.Fatalf("close: %v %v", data, err)
+	}
+	if argv := <-ran; argv[len(argv)-1] != "-shutdown" {
+		t.Fatalf("ran %q", argv)
+	}
+	if got := w.calls(); len(got) != 0 {
+		t.Fatalf("windows were closed too: %v", got)
+	}
+}
+
+// One that does not quit in time is closed the usual way.
+func TestCloseFallsBackWhenTheQuitCommandFails(t *testing.T) {
+	sd := unitstest.NewFakeSystemd()
+	w := &windows{}
+	r := newRigWith(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, rigApps, w.module())
+	writeApps(t, r.m.opts.AppsDir, quitApps)
+	r.m.loadFiles()
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(context.Context, []string, []string, string) error {
+		return errors.New("flatpak: no such app")
+	}
+	r.start(t, "steam")
+	if _, err := r.verb(t, contract.ActionInstanceClose, map[string]any{"id": "steam"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.calls(); len(got) != 1 || got[0] != "window.close steam" {
+		t.Fatalf("display was asked %v", got)
 	}
 }

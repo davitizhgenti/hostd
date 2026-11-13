@@ -40,7 +40,7 @@ func TestControllerEvents(t *testing.T) {
 		t.Fatalf("%s %+v", typ, c)
 	}
 	list, _ := r.m.Read(context.Background(), "controllers", nil)
-	if cs := list.([]evdev.Controller); len(cs) != 1 || !reflect.DeepEqual(cs[0].Buttons, []string{"guide", "start", "select"}) {
+	if cs := list.([]evdev.Controller); len(cs) != 1 || !reflect.DeepEqual(cs[0].Buttons, []string{"guide", "start", "select", "south", "east", "west", "north", "lb", "rb", "ls", "rs"}) {
 		t.Fatalf("read %+v", list)
 	}
 	_ = os.Remove(filepath.Join(r.sys, "dev/input/event9"))

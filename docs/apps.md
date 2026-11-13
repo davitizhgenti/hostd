@@ -64,6 +64,8 @@ Each instance runs in its own systemd unit or container. Stopping hostd never st
 
 **Handoff.** Some commands pass the app to another program and exit, such as `steam steam://rungameid/620`. `runner.handoff = "KEY=value"` makes the instance last as long as processes with that variable exist. A single-instance Flatpak app does this by default (`FLATPAK_ID`). The same variable finds the app when hostd did not start it: a game started from Steam's own menu has its app file's `SteamAppId`, so it becomes that app's instance, listed in the menu, in front on a workspace of its own, closed like any other, and ended with its processes. (An app that just ended is not looked for again for 30 seconds, while its processes finish.)
 
+**Quitting.** Some apps keep running when their window closes (Steam goes to the background). `runner.quit = ["command", ...]` is how such an app quits cleanly: closing the instance (the menu's Close, Super+Q, `hostctl close`) runs it and waits up to 20 seconds for the app to end, before closing its windows and, if it still runs, stopping it. The steam add-on's Steam uses `quit = ["flatpak", "run", "com.valvesoftware.Steam", "-shutdown"]`.
+
 ## The screen
 
 One app is in front at a time, fullscreen. Super (or holding a controller's Guide button) opens [the menu](design.md#the-menu). Super+Tab and Super+Shift+Tab switch apps, and Super+Q closes the one in front. These keys can be changed in [`hostd.toml`](config.md).

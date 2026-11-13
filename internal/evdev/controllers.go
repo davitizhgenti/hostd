@@ -344,8 +344,13 @@ func scanControllers(s sysfs, ps *Profiles) []Controller {
 func controllerOf(dev string, d deviceInfo, p *Profile) Controller {
 	c := Controller{Device: dev, ID: DeviceID(d, dev), Name: d.Name, Vendor: d.Vendor, Product: d.Product,
 		Profile: p.ID, Kind: p.Name, Raw: p.Raw, App: p.App}
+	// What can be bound on it: its placed buttons and its pad's.
+	have := map[string]bool{}
+	for _, b := range p.codes {
+		have[b] = true
+	}
 	for _, b := range ButtonNames {
-		if _, ok := p.Buttons[b]; ok {
+		if have[b] {
 			c.Buttons = append(c.Buttons, b)
 		}
 	}

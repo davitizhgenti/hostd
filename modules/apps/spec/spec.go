@@ -112,6 +112,12 @@ type Runner struct {
 	// exit, such as "steam steam://rungameid/620": the instance runs while
 	// processes with this KEY=value in their environment exist.
 	Handoff string `json:"handoff,omitempty" toml:"handoff"`
+
+	// Quit is a command that makes the running app quit cleanly, for an app
+	// whose window closing does not end it (Steam stays in the background):
+	// closing the instance runs it and waits for the app to end before
+	// closing windows or stopping it. exec runners only.
+	Quit []string `json:"quit,omitempty" toml:"quit"`
 }
 
 // Window options for window apps.

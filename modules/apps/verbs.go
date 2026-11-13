@@ -22,6 +22,10 @@ import (
 
 const closeTimeout = 90 * time.Second // the display module waits up to a minute for the windows
 
+// quitWait is how long an app's quit command has to end it (Steam takes
+// several seconds to shut down) before it is closed the usual way.
+const quitWait = 20 * time.Second
+
 var switchSchema = json.RawMessage(`{"type":"object","properties":{
 	"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
 	"front":{"type":"boolean","description":"switch even while someone is using the screen (needs scope display.front)"}},
@@ -87,6 +91,9 @@ func (m *Module) handleClose(ctx context.Context, a sdk.Action) (sdk.Result, err
 	if err != nil {
 		return sdk.Result{}, err
 	}
+	if quit, ok := m.quitApp(ctx, in); ok {
+		return quit, nil
+	}
 	if in.Surface == SurfaceWindow && m.core.Handles(contract.ActionWindowClose) {
 		// The display module marks it as closing, closes the windows, waits,
 		// and stops the app if one stays open.
@@ -119,4 +126,48 @@ func (m *Module) liveInstance(id string) (Instance, error) {
 		return Instance{}, sdk.Errorf(sdk.CodeInstanceNotRunning, "instance %q is not running", id)
 	}
 	return *in, nil
+}
+
+// quitApp asks an app with a quit command (runner.quit) to quit, and waits
+// for it to end: ok is false when the app has none, cannot be asked, or
+// did not end in quitWait (then it is closed the usual way).
+func (m *Module) quitApp(ctx context.Context, in Instance) (sdk.Result, bool) {
+	ptr, known := m.catalog().Get(in.App)
+	if !known || len(ptr.Runner.Quit) == 0 {
+		return sdk.Result{}, false
+	}
+	app := *ptr
+	p, ok := m.backend(app.Runner.Type).(Passer)
+	if !ok {
+		return sdk.Result{}, false
+	}
+	// Its end counts as asked-for.
+	if _, err := m.handleClosing(sdk.Action{Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil {
+		return sdk.Result{}, false
+	}
+	quitter := app
+	quitter.Runner.Command = app.Runner.Quit
+	qctx, cancel := context.WithTimeout(ctx, quitWait)
+	defer cancel()
+	if err := p.Pass(qctx, in, &quitter); err != nil {
+		m.log.Warn("asking an app to quit", "instance", in.ID, "err", err)
+		return sdk.Result{}, false
+	}
+	tick := m.opts.Clock.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	deadline := m.opts.Clock.Now().Add(quitWait)
+	for {
+		if _, err := m.liveInstance(in.ID); err != nil {
+			return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": in.ID, "quit": true})}, true
+		}
+		if !m.opts.Clock.Now().Before(deadline) {
+			m.log.Info("the app did not quit in time; closing it", "instance", in.ID)
+			return sdk.Result{}, false
+		}
+		select {
+		case <-tick.C():
+		case <-ctx.Done():
+			return sdk.Result{}, false
+		}
+	}
 }
