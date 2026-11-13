@@ -54,7 +54,7 @@ func TestWritesEveryTarget(t *testing.T) {
 	for _, want := range []string{"pragma Singleton", "property real scale: 1.0",
 		`readonly property color colorBg: "#000000"`,
 		`readonly property string fontText: "Inter"`, "readonly property int typeBody: Math.max(1, Math.round(27 * scale))",
-		"property real animate: 1.0", "readonly property int motionBase: Math.round(150 * animate)",
+		"property real animate: 1.0", "property int screenWidth: 1920", "readonly property int motionBase: Math.round(150 * animate)",
 		"readonly property int layoutSafeMargin: Math.max(1, Math.round(48 * scale))"} {
 		if !strings.Contains(string(qml), want) {
 			t.Errorf("Theme.qml lacks %q:\n%s", want, qml)

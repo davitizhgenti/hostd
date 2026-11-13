@@ -55,9 +55,8 @@ base = 220 # sliding: the category row, the item column, the panel
 
 [layout]
 safe-margin   = 48  # kept clear at the screen's edges (projectors and TVs crop)
-cross-x       = 384 # the cross point: where the category row and item column meet
-cross-y       = 288
-column-width  = 1040 # the item column: its states and values end here
+cross-y       = 288 # the top of the category row
+column-width  = 1040 # the list's block, centred on the screen: icons at its left edge, states at its right
 category-step = 184 # from one category to the next
 icon-category = 64
 icon-item     = 40

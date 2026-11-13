@@ -6,6 +6,8 @@ import QtQuick
 QtObject {
     // Sizes are for a 1080-pixel-high screen; the shell sets the scale.
     property real scale: 1.0
+    // The screen's width in px, set by the shell: the menu is centred on it.
+    property int screenWidth: 1920
     // Every duration is multiplied by this: tests set 0, so nothing moves.
     property real animate: 1.0
 
@@ -55,7 +57,6 @@ QtObject {
 
     // layout
     readonly property int layoutSafeMargin: Math.max(1, Math.round(48 * scale))
-    readonly property int layoutCrossX: Math.max(1, Math.round(384 * scale))
     readonly property int layoutCrossY: Math.max(1, Math.round(288 * scale))
     readonly property int layoutColumnWidth: Math.max(1, Math.round(1040 * scale))
     readonly property int layoutCategoryStep: Math.max(1, Math.round(184 * scale))

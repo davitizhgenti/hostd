@@ -35,7 +35,7 @@ class Contract(unittest.TestCase):
     def grid(self, s):
         g = s.engine.singletonInstance("Hostd", "Place")
         t = s.engine.singletonInstance("Hostd", "Theme")
-        return {k: g.property(k) for k in ("axis", "rowLeft", "text", "trailEnd", "rowTop", "rowBottom",
+        return {k: g.property(k) for k in ("axis", "rowLeft", "iconAxis", "columnWidth", "text", "trailEnd", "rowTop", "rowBottom",
                                            "sectionTop", "listTop", "bottomReserve")} | {
             "safe": t.property("layoutSafeMargin"),
             "rowHeight": t.property("layoutItemHeight"),
@@ -71,6 +71,9 @@ class Contract(unittest.TestCase):
                 icon = s.rect(f"categoryIcon/{c}")
                 self.assertTrue(icon[0] >= g["safe"] - TOL and icon[0] + icon[2] <= w - g["safe"] + TOL,
                                 f"{where}: category {c} shown across the safe margin: {icon}")
+        # The axis is the screen's centre; the list is a block centred on it.
+        self.near(g["axis"], w / 2, f"{where}: the axis is the screen's centre")
+        self.near(g["rowLeft"] + g["columnWidth"] / 2, w / 2, f"{where}: the list block is centred")
         current = s.shell.state()["category"]
         self.near(cx(s.rect(f"categoryIcon/{current}")), g["axis"], f"{where}: current category on the axis")
 
@@ -100,7 +103,7 @@ class Contract(unittest.TestCase):
                 self.near(s.rect(f"itemSection/{i}")[0], g["text"], f"{label} section label on the text column")
                 continue
             icon, title = s.rect(f"itemIcon/{i}"), s.rect(f"itemTitle/{i}")
-            self.near(cx(icon), g["axis"], f"{label} icon on the axis")
+            self.near(cx(icon), g["iconAxis"], f"{label} icon on the icon column's axis")
             self.near(title[0], g["text"], f"{label} title on the text column")
             self.near(cy(icon), cy(title), f"{label} icon and title on one line")
             trail = s.rect(f"itemTrail/{i}")

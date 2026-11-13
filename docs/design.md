@@ -45,7 +45,7 @@ CI fails when one of them is out of date. The groups:
 | `space` | `xs` 4, `s` 8, `m` 16, `l` 24, `xl` 32, `xxl` 48, `xxxl` 64 | px |
 | `line` | `hair`, `focus` | px |
 | `motion` | `fast`, `base` | ms |
-| `layout` | `safe-margin`; the cross: `cross-x`, `cross-y`, `column-width`, `category-step`, `icon-category`, `icon-item`, `icon-small`, `item-height`, `item-line`, `section`; `panel-width`, `notice-width`, `osd-width` | px |
+| `layout` | `safe-margin`; the cross: `cross-y`, `column-width`, `category-step`, `icon-category`, `icon-item`, `icon-small`, `item-height`, `item-line`, `section`; `panel-width`, `notice-width`, `osd-width` | px |
 | `month` | `jan` … `dec`: the background's hue in its month mode | |
 
 QML takes every color from Theme; a test fails on a color written anywhere else.
@@ -69,7 +69,7 @@ The menu is laid out like the PSP's XMB: the categories (Apps, Users, Settings, 
  axis  text column                       trail edge                 Enter open   ◀ ▶ category   Esc back
 ```
 
-- **The axis:** the current category's icon, every item icon and its column are centred on one vertical line.
+- **The axis** is the screen's vertical centre line. The current category's icon sits on it and the other categories fan out either side. **The list is a block** of fixed width (`column-width`) centred on the same axis: item icons centred in the icon column at its left edge, states and values ending at its right edge.
 - **The text column:** every title, second line and section label starts at the same x, on every row, current or not.
 - **Category names** are centred under their icons; the current one's name shows, the others' space is kept. A category that would cross the safe margin is not shown, never cut by the screen's edge.
 - **The row band** (the icons and the name) and the **list** below it never overlap: passed items scroll up and fade before the list's top.

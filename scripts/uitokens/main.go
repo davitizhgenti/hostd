@@ -197,6 +197,8 @@ func qmlFile(tokens []token) []byte {
 		"pragma Singleton\nimport QtQuick\n\nQtObject {\n" +
 		"    // Sizes are for a 1080-pixel-high screen; the shell sets the scale.\n" +
 		"    property real scale: 1.0\n" +
+		"    // The screen's width in px, set by the shell: the menu is centred on it.\n" +
+		"    property int screenWidth: 1920\n" +
 		"    // Every duration is multiplied by this: tests set 0, so nothing moves.\n" +
 		"    property real animate: 1.0\n")
 	group := ""

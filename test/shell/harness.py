@@ -55,6 +55,7 @@ class Screen:
         self.engine.warnings.connect(lambda ws: self.warnings.extend(w.toString() for w in ws))
         theme = self.engine.singletonInstance("Hostd", "Theme")
         theme.setProperty("scale", shellapp.scale_for(size[1]))
+        theme.setProperty("screenWidth", size[0])
         theme.setProperty("animate", 0)
         for c in range(4):
             self.shell.refresh(c)

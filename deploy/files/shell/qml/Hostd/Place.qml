@@ -4,9 +4,12 @@ import QtQuick
 // The layout contract ("Place", as QtQuick has its own Grid): every position on the menu comes from here, and the
 // layout tests check the screens against it (docs/design.md, "The grid").
 //
-//   axis       a vertical line through the cross point. The current
-//              category's icon, every item icon and its column are centred
-//              on it.
+//   axis       the screen's vertical centre line. The current category's
+//              icon sits on it, the other categories fan out either side,
+//              and the list is a block centred on it.
+//   block      the list: columnWidth wide, centred on the axis. Item icons
+//              are centred in the icon column at its left edge; states and
+//              values end at its right edge.
 //   text       where every title, second line and section label starts.
 //   row band   crossY .. rowBottom: the category icons and the current
 //              category's name. Nothing from the list enters it.
@@ -15,12 +18,13 @@ import QtQuick
 //   list       listTop .. the bottom margin, clipped: the current item at
 //              its top, the rest below it.
 QtObject {
-    readonly property int axis: Theme.layoutCrossX
-    readonly property int iconColumn: Theme.layoutIconCategory // as wide as a category icon
-    readonly property int rowLeft: axis - iconColumn / 2
-    readonly property int text: rowLeft + iconColumn + Theme.spaceL
-    readonly property int trailEnd: rowLeft + Theme.layoutColumnWidth
+    readonly property int axis: Math.round(Theme.screenWidth / 2)
     readonly property int columnWidth: Theme.layoutColumnWidth
+    readonly property int iconColumn: Theme.layoutIconCategory // as wide as a category icon
+    readonly property int rowLeft: axis - Math.round(columnWidth / 2)
+    readonly property int iconAxis: rowLeft + iconColumn / 2 // where every item icon is centred
+    readonly property int text: rowLeft + iconColumn + Theme.spaceL
+    readonly property int trailEnd: rowLeft + columnWidth
 
     readonly property int rowTop: Theme.layoutCrossY
     readonly property int nameHeight: Math.round(Theme.typeTitle * 1.35)

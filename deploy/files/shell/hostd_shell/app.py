@@ -51,6 +51,7 @@ def engine_for(app, shell):
     theme = engine.singletonInstance("Hostd", "Theme")
     screen = app.primaryScreen()
     theme.setProperty("scale", scale_for(screen.size().height() if screen else BASE_HEIGHT))
+    theme.setProperty("screenWidth", screen.size().width() if screen else 1920)
     return engine
 
 
