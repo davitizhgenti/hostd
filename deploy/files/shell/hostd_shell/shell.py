@@ -11,14 +11,12 @@ all of the behaviour is tested here without a screen.
 import datetime
 import json
 import os
-import subprocess
 
 from PySide6.QtCore import Property, QFileSystemWatcher, QObject, QTimer, Signal, Slot
 
 from hostd_shell import api as hapi
 from hostd_shell import background, menu, notices, views
 from hostd_shell import input as inp
-from hostd_shell.glide import Glide
 from hostd_shell.models import RowsModel
 
 # The fixed categories' keys; a tab's is "tab:" and its folder.
@@ -32,6 +30,7 @@ REFRESH_ON = {
 }
 OSD_MS = 1600
 SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
+POINTER_MS = 3000  # a mouse's pointer fades after this long without moving
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
@@ -60,15 +59,6 @@ def fetch(api, category, look, tokens, path=(), tabs=()):
     return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12")), ""
 
 
-def warp_pointer(x, y):
-    """Moves the pointer (Sway's own command; the session gives SWAYSOCK)."""
-    try:
-        subprocess.run(["swaymsg", "seat", "-", "cursor", "set", str(int(x)), str(int(y))],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2, check=False)
-    except (OSError, subprocess.TimeoutExpired):
-        pass  # not in Sway: the pointer stays where it is
-
-
 class NoticesModel(RowsModel):
     """The notices on screen, as rows: title the summary, subtitle the body,
     value the app, tone the urgency."""
@@ -88,6 +78,7 @@ class Shell(QObject):
     menuVisibleChanged = Signal()
     menuClosed = Signal()  # the menu was hidden: its launcher can end
     noticeClosed = Signal(int, int)  # id, reason (the spec's)
+    pointerChanged = Signal()
     _posted = Signal(object)
 
     def __init__(self, api, tokens, now=datetime.datetime.now, look_path=None, has_icon=None, menu_path=None,
@@ -118,6 +109,8 @@ class Shell(QObject):
         self._asked = None  # the call the question is about
         self._yes = False
         self._filter = ""
+        self._hover = -1  # the row under the pointer
+        self._mouse_last = None  # where the mouse was last seen
         self._message, self._error = "", False
         self._device = "keys"
         self._family = ""  # the kind of the controller used last (xbox, playstation, ...)
@@ -133,9 +126,11 @@ class Shell(QObject):
         self.notice_timer = QTimer(self, singleShot=True, timeout=self._expire_notices)
         self.osd_timer = QTimer(self, singleShot=True, interval=OSD_MS, timeout=self._hide_osd)
         self.say_timer = QTimer(self, singleShot=True, timeout=lambda: self.say(""))
-        # The mouse, with no pointer: movement glides the selection (glide.py).
-        self.glide = Glide.from_tokens(tokens)
-        self.warp = warp_pointer  # puts the hidden pointer back in the middle
+        # The pointer (a mouse's, or a Wii Remote's): where it is as a share
+        # of the screen, and whether it shows; it fades after a few seconds
+        # without movement.
+        self._pointer = {"x": 0.5, "y": 0.5, "visible": False, "down": False, "source": ""}
+        self.pointer_timer = QTimer(self, singleShot=True, interval=POINTER_MS, timeout=self.hide_pointer)
         self.events = None
         self._load_menu()
 
@@ -250,6 +245,12 @@ class Shell(QObject):
 
     def on_event(self, ev):
         kind = ev.get("type", "")
+        if kind == "display.pointer":  # a Wii Remote's, while the menu is in front
+            data = ev.get("data") or {}
+            if self._menu_visible and self._menu_active:
+                self.pointer_at(data.get("x"), data.get("y"), bool(data.get("visible")), bool(data.get("down")),
+                                data.get("family") if isinstance(data.get("family"), str) else "")
+            return
         if kind == "display.nav":  # a controller, while the menu is in front
             data = ev.get("data") or {}
             verb = inp.verb_for_nav(data.get("what", ""))
@@ -259,6 +260,8 @@ class Shell(QObject):
                     self._family = family
                     self.changed.emit()
                 self._set_device("controller")
+                if family != "wii":  # a Wii Remote's buttons go with its pointer
+                    self.hide_pointer()
                 self.handle(verb)
             return
         osd = notices.osd_for(ev)
@@ -511,6 +514,7 @@ class Shell(QObject):
         """A key on the menu: a verb, or typing into the Apps filter.
         Whether the shell took it."""
         self._set_device("keys")
+        self.hide_pointer()
         filtering = self.apps_tab() and not self._panel and not self._question
         verb = inp.verb_for_key(name, shift, typing=filtering and bool(self._filter))
         if verb is None:
@@ -534,16 +538,26 @@ class Shell(QObject):
             name = ""
         return self.key(name, text, shift)
 
-    @Slot(int)
-    def clickItem(self, i):  # noqa: N802 - called from QML
-        self._set_device("keys")
+    @Slot(int, str)
+    def clickItem(self, i, button="left"):  # noqa: N802 - called from QML
+        """A click on a row: it becomes current and is opened (a right click:
+        its options)."""
         if self._panel or self._question:
             return
-        if i == self.currents[self._category]:
-            self.choose(self.current_row())
-        elif self.page().row(i) is not None and self.page().row(i).kind != views.HEADER:
-            self.currents[self._category] = i
-            self.changed.emit()
+        row = self.page().row(i)
+        if row is None or row.kind == views.HEADER:
+            return
+        self.currents[self._category] = i
+        if button == "right":
+            self.open_options(row)
+        else:
+            self.choose(row)
+        self.changed.emit()
+
+    @Slot(int)
+    def hover(self, i):
+        """The pointer is over row i of the list (-1: over none)."""
+        self._hover = i
 
     @Slot(int)
     def clickCategory(self, c):  # noqa: N802
@@ -571,28 +585,56 @@ class Shell(QObject):
         elif dy:
             self.handle(inp.UP if dy > 0 else inp.DOWN)
 
-    @Slot(float, float, int, int, int)
-    def pointer(self, x, y, width, height, t_ms):
-        """The hidden pointer moved: glide the selection. Sideways glides
-        change category, or the answer to a question; inside a panel they
-        do nothing (left would close it)."""
-        verbs = self.glide.motion(x, y, t_ms)
-        if verbs:
-            self._set_device("keys")
-        for verb in verbs:
-            if self._panel and verb in (inp.LEFT, inp.RIGHT):
-                continue
-            self.handle(verb)
-        to = self.glide.recentre(x, y, width, height, margin=max(8, min(width, height) // 8))
-        if to is not None:
-            self.warp(*to)
+    @Slot(float, float, int, int)
+    def mouseAt(self, x, y, width, height):  # noqa: N802 - called from QML
+        """The mouse moved to x, y in a window of width x height."""
+        if width <= 0 or height <= 0:
+            return
+        last, self._mouse_last = self._mouse_last, (x, y)
+        # The first sample after the menu opens is where the cursor already
+        # was, and a hover with no movement is not the mouse moving.
+        if last is None or abs(x - last[0]) + abs(y - last[1]) < 2:
+            return
+        self._set_pointer(x / width, y / height, True, None, "mouse")
+        self.pointer_timer.start()
+
+    def pointer_at(self, x, y, visible, down, source="wii"):
+        """A Wii Remote's pointer: x, y as shares of the screen; not visible
+        when it points away from the screen."""
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            return
+        self.pointer_timer.stop()
+        self._set_pointer(min(1.0, max(0.0, float(x))), min(1.0, max(0.0, float(y))), visible, down, source or "wii")
+        if visible:
+            self._set_device("controller")
+
+    @Slot(bool)
+    def mouseDown(self, down):  # noqa: N802 - called from QML
+        self._set_pointer(None, None, None, down, None)
+
+    @Slot()
+    def hide_pointer(self):
+        self.pointer_timer.stop()
+        self._set_pointer(None, None, False, False, None)
+
+    def _set_pointer(self, x, y, visible, down, source):
+        new = dict(self._pointer)
+        for k, v in (("x", x), ("y", y), ("visible", visible), ("down", down), ("source", source)):
+            if v is not None:
+                new[k] = v
+        if new != self._pointer:
+            self._pointer = new
+            self.pointerChanged.emit()
 
     @Slot(str)
     def mouseButton(self, button):  # noqa: N802 - called from QML
-        """A click acts on what is current: there is nothing to point at."""
+        """A click that is on no row: the middle and side buttons, and the
+        right button (options of what is current)."""
         self._set_device("keys")
-        verb = {"left": inp.ACTIVATE, "right": inp.ACTIONS, "middle": inp.HOME,
-                "back": inp.BACK, "forward": inp.NEXT_TAB}.get(button)
+        if button == "right" and self._hover >= 0 and not (self._panel or self._question):
+            self.clickItem(self._hover, "right")  # the options of the row under the pointer
+            return
+        verb = {"right": inp.ACTIONS, "middle": inp.HOME, "back": inp.BACK, "forward": inp.NEXT_TAB}.get(button)
         if verb:
             self.handle(verb)
 
@@ -621,6 +663,7 @@ class Shell(QObject):
     def showMenu(self):  # noqa: N802
         if not self._menu_visible:
             self._menu_visible = True
+            self._mouse_last = None
             self.menuVisibleChanged.emit()
         self.reload_menu()
         self.refresh()
@@ -719,6 +762,7 @@ class Shell(QObject):
     options = Property(QObject, lambda s: s.options_model, constant=True)
     noticeModel = Property(QObject, lambda s: s.notices_model, constant=True)
 
+    pointer = Property("QVariantMap", lambda s: dict(s._pointer), notify=pointerChanged)
     category = Property(int, lambda s: s.index(), notify=changed)
     view = Property(str, lambda s: s.cat().view, notify=changed)
     focus = Property("QVariantMap", lambda s: s.focus_info(), notify=changed)

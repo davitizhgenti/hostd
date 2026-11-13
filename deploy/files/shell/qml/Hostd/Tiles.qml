@@ -61,6 +61,15 @@ Item {
                 readonly property real above: -(column.y + y)
 
                 objectName: "tile/" + index
+                MouseArea {
+                    objectName: "tileHit/" + item.index
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.BlankCursor
+                    onClicked: tiles.shell.clickItem(item.index, "left")
+                    onEntered: tiles.shell.hover(item.index)
+                    onExited: tiles.shell.hover(-1)
+                }
                 width: column.width
                 height: heading ? Theme.layoutSection
                       : (current ? Place.tileHeight : Place.tileSmallHeight) + tiles.gap

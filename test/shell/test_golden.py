@@ -39,6 +39,7 @@ STATES = [
     ("11-notices", "NoticeLayer", "notices", "Notices, critical first"),
     ("12-osd", "OsdLayer", "osd", "The OSD"),
     ("13-gallery", "Gallery", [], "The component sheet"),
+    ("03b-pointer", "Menu", [("pointer", 0.42, 0.575, 1)], "The pointer over a row (underlined); the selection stays"),
     ("14-tabs", "Menu+tabs", ["right"], "The Games tab (tiles): a launcher heads its group"),
     ("14b-tiles-game", "Menu+tabs", ["right", "down"], "A game: its tile, and on the right its banner and details"),
     ("14c-tiles-other", "Menu+tabs", ["right"] + ["down"] * 4, "A game with no banner, in the Steam group"),
@@ -57,7 +58,15 @@ def render(size, surface, steps):
             s.shell.show_osd("Volume", "70%", 70)
         else:
             for step in steps:
-                if isinstance(step, tuple):
+                if isinstance(step, tuple) and step[0] == "pointer":
+                    _, px, py, row = step  # the pointer at px, py (shares of the screen), over row `row`
+                    w, h = s.size
+                    s.shell.mouseAt(w * px - 30, h * py, w, h)
+                    s.shell.mouseAt(w * px, h * py, w, h)
+                    s.shell.hover(row)
+                    s.window.setProperty("hoverRow", row)
+                    s.item(f"itemHover/{row}").setProperty("visible", True)  # hover cannot be sent offscreen
+                elif isinstance(step, tuple):
                     s.key(*step)
                 else:
                     s.verb(step)

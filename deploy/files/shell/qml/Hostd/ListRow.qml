@@ -30,6 +30,11 @@ Item {
     property int column: Place.iconColumn
     property int index: -1
     property string tag: "item" // the tests' name for its parts: item, option
+    property bool pointing: false // a pointer is on the screen: a row under it is underlined
+
+    signal activated()
+    signal entered()
+    signal exited()
 
     readonly property bool header: kind === "header"
     readonly property bool big: current && !compact
@@ -49,6 +54,30 @@ Item {
         caps: true
         muted: true
         text: row.title
+    }
+
+    // The pointer: hovering underlines the row (it never moves the
+    // selection: the list scrolls the current row to its top), a click opens it.
+    MouseArea {
+        id: hit
+        objectName: row.tag + "Hit/" + row.index
+        anchors.fill: parent
+        enabled: !row.header
+        hoverEnabled: true
+        cursorShape: Qt.BlankCursor
+        onClicked: row.activated()
+        onEntered: row.entered()
+        onExited: row.exited()
+    }
+
+    Rectangle {
+        objectName: row.tag + "Hover/" + row.index
+        visible: hit.containsMouse && row.pointing && !row.header
+        x: row.textX
+        y: row.line
+        width: row.width - row.textX
+        height: Theme.lineHair
+        color: Theme.colorTextMuted
     }
 
     Icon {

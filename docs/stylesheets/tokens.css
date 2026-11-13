@@ -53,12 +53,7 @@
   --layout-osd-width: 440px;
   --layout-tile: 320px;
   --layout-tile-small: 160px;
-
-  --input-glide-step: 40;
-  --input-glide-cross: 100;
-  --input-glide-rest: 250;
-  --input-glide-floor: 60;
-  --input-glide-burst: 3;
+  --layout-pointer: 16px;
 
   --month-jan: #9097a3;
   --month-feb: #b39a4f;

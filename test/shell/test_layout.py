@@ -150,13 +150,26 @@ class MenuLayout(Contract):
                     s.verb("down", "down")
                     self.check(s, f"{size_name} {c} down 2")
 
-    def test_the_menu_has_no_pointer(self):
-        from PySide6.QtCore import Qt
-        with Screen(SIZES["1920x1080"]) as s:
-            glide = s.item("glide")
-            self.assertEqual(glide.property("cursorShape"), Qt.BlankCursor)
-            r = s.rect("glide")
-            self.assertEqual(r, (0.0, 0.0, 1920.0, 1080.0))
+    def test_the_pointer_is_drawn_where_it_is_and_rows_can_be_hit(self):
+        for size_name, size in SIZES.items():
+            with Screen(size) as s:
+                w, h = size
+                s.settle(12)  # the window's own first hover has landed
+                s.shell.hide_pointer()
+                self.assertFalse(s.shell.property("pointer")["visible"], size_name)
+                s.shell.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
+                s.shell.mouseAt(w * 0.3, h * 0.7, w, h)
+                s.settle()
+                r = s.rect("pointer")
+                self.assertTrue(s.shown("pointer"), size_name)
+                self.near(cx(r), w * 0.3, f"{size_name}: pointer x")
+                self.near(cy(r), h * 0.7, f"{size_name}: pointer y")
+                self.assertGreater(r[2], 4, size_name)
+                # Every row drawn has a hit area as big as the row.
+                for i, row in self.rows(s):
+                    self.assertEqual(s.rect(f"itemHit/{i}")[2:], s.rect(row)[2:], f"{size_name}: row {i} hit area")
+                for c in range(4):
+                    self.assertTrue(s.item(f"categoryHit/{c}") is not None, size_name)
 
     def test_folders_keep_the_grid(self):
         for size_name, size in SIZES.items():

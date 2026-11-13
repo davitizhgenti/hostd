@@ -52,6 +52,14 @@ Item {
                     opacity: isCurrent ? 1 : fits ? 0.4 : 0
                     Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
 
+                    MouseArea {
+                        objectName: "categoryHit/" + category.index
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.BlankCursor
+                        onClicked: cross.shell.clickCategory(category.index)
+                    }
+
                     Icon {
                         id: categoryIcon
                         objectName: "categoryIcon/" + category.index
@@ -148,6 +156,10 @@ Item {
                     readonly property real above: -(rowsColumn.y + y)
 
                     width: rowsColumn.width
+                    pointing: cross.shell.pointer.visible
+                    onActivated: cross.shell.clickItem(item.index, "left")
+                    onEntered: cross.shell.hover(item.index)
+                    onExited: cross.shell.hover(-1)
                     current: index === cross.shell.current
                     opacity: (current ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Theme.layoutItemHeight))
                 }

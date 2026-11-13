@@ -64,6 +64,8 @@ Rectangle {
             required app
 
             width: options.width
+            pointing: panel.shell.pointer.visible
+            onActivated: panel.shell.clickOption(option.index)
             column: Theme.layoutIconItem
             tag: "option"
             compact: true

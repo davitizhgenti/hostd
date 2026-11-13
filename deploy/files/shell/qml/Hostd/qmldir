@@ -12,6 +12,7 @@ Tiles 1.0 Tiles.qml
 Panel 1.0 Panel.qml
 Dialog 1.0 Dialog.qml
 Clock 1.0 Clock.qml
+Pointer 1.0 Pointer.qml
 Hints 1.0 Hints.qml
 Notice 1.0 Notice.qml
 Osd 1.0 Osd.qml

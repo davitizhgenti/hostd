@@ -11,7 +11,6 @@ import unittest
 import fixtures
 import harness  # noqa: F401 - the Qt application the shell's timers need
 from hostd_shell import background, views
-from hostd_shell.glide import Glide
 from hostd_shell.shell import APPS, SETTINGS, STATUS, USERS, Shell
 
 
@@ -446,98 +445,95 @@ class Controllers(unittest.TestCase):
         self.assertEqual(s.state()["category"], APPS)
 
 
-def path(g, points, t0=0, dt=10):
-    """Feeds positions dt ms apart; returns the verbs."""
-    verbs = []
-    for i, (x, y) in enumerate(points):
-        verbs += g.motion(x, y, t0 + i * dt)
-    return verbs
-
-
-def line(x0, y0, x1, y1, n):
-    return [(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n) for i in range(n + 1)]
-
-
-class Gliding(unittest.TestCase):
-    """The mouse with no pointer: movement is felt, not aimed."""
-
-    def g(self):
-        return Glide(step=40, cross=100, rest_ms=250, floor=60, burst=3)
-
-    def test_one_push_one_item(self):
-        self.assertEqual(path(self.g(), line(500, 500, 500, 545, 9)), ["down"])
-        self.assertEqual(path(self.g(), line(500, 500, 500, 455, 9)), ["up"])
-
-    def test_a_long_push_several(self):
-        self.assertEqual(path(self.g(), line(500, 300, 500, 470, 17)), ["down"] * 4)
-
-    def test_a_resting_hand_does_nothing(self):
-        # 1 px every 50 ms: 20 px/s, under the floor, for ten seconds.
-        self.assertEqual(path(self.g(), [(500, 500 + i) for i in range(200)], dt=50), [])
-
-    def test_a_diagonal_moves_one_way(self):
-        verbs = path(self.g(), line(500, 500, 540, 590, 9))
-        self.assertEqual(set(verbs), {"down"})
-
-    def test_sideways_changes_category_and_needs_more(self):
-        self.assertEqual(path(self.g(), line(500, 500, 560, 505, 6)), [])  # 60 px: not yet
-        self.assertEqual(path(self.g(), line(500, 500, 610, 505, 11)), ["right"])
-
-    def test_a_pause_forgets_half_a_step(self):
-        g = self.g()
-        self.assertEqual(path(g, line(500, 500, 500, 530, 3)), [])  # 30 of 40 px
-        self.assertEqual(path(g, line(500, 530, 500, 545, 3), t0=1000), [])  # after a pause: 15, not 45
-
-    def test_a_fling_is_bounded(self):
-        self.assertEqual(path(self.g(), [(500, 0), (500, 2000)]), ["down"] * 3)
-
-    def test_the_edge_recentres_and_the_jump_is_no_move(self):
-        g = self.g()
-        self.assertIsNone(g.recentre(500, 500, 1920, 1080, 100))
-        self.assertEqual(g.recentre(500, 1050, 1920, 1080, 100), (960, 540))
-        path(g, [(500, 1000), (500, 1050)])
-        self.assertEqual(g.motion(960, 540, 100), [])  # the jump up is not "up" x10
-        self.assertEqual(path(g, line(960, 540, 960, 590, 5), t0=110), ["down"])
-
-
 class Mouse(unittest.TestCase):
+    """The mouse has a pointer: hovering never moves the selection, a click
+    opens the row clicked, the wheel moves the selection."""
+
     def setUp(self):
         self.s = shell()
-        self.s.glide = Glide(step=40, cross=100)
-        self.warped = []
-        self.s.warp = lambda x, y: self.warped.append((x, y))
 
-    def move(self, points, t0=0):
-        for i, (x, y) in enumerate(points):
-            self.s.pointer(x, y, 1920, 1080, t0 + i * 10)
-
-    def test_gliding_moves_the_selection_and_category(self):
+    def test_moving_shows_the_pointer_and_it_fades(self):
         s = self.s
-        self.move(line(900, 400, 900, 445, 9))
+        self.assertFalse(s.property("pointer")["visible"])
+        s.mouseAt(900, 270, 1920, 1080)  # where it was when the menu opened: no pointer yet
+        self.assertFalse(s.property("pointer")["visible"])
+        s.mouseAt(901, 270, 1920, 1080)  # a hover with no movement
+        self.assertFalse(s.property("pointer")["visible"])
+        s.mouseAt(960, 270, 1920, 1080)
+        p = s.property("pointer")
+        self.assertEqual((p["x"], p["y"], p["visible"], p["source"]), (0.5, 0.25, True, "mouse"))
+        self.assertTrue(s.pointer_timer.isActive())
+        s.pointer_timer.timeout.emit()  # three seconds without moving
+        self.assertFalse(s.property("pointer")["visible"])
+
+    def test_keys_and_pads_put_it_away_and_a_wii_remote_does_not(self):
+        s = self.s
+        s.showMenu()
+        s.setMenuActive(True)
+        s.mouseAt(90, 90, 1000, 1000)
+        s.mouseAt(100, 100, 1000, 1000)
+        self.assertTrue(s.property("pointer")["visible"])
+        s.key("Key_Down", "", False)
+        self.assertFalse(s.property("pointer")["visible"])
+        s.mouseAt(110, 110, 1000, 1000)
+        s.on_event({"type": "display.nav", "data": {"what": "down", "family": "xbox"}})
+        self.assertFalse(s.property("pointer")["visible"])
+        s.on_event({"type": "display.pointer", "data": {"x": 0.25, "y": 0.5, "visible": True, "down": False, "family": "wii"}})
+        s.on_event({"type": "display.nav", "data": {"what": "choose", "family": "wii"}})
+        p = s.property("pointer")
+        self.assertEqual((p["x"], p["y"], p["visible"], p["source"]), (0.25, 0.5, True, "wii"))
+        self.assertFalse(s.pointer_timer.isActive())  # a Wii pointer shows while it points at the screen
+        s.on_event({"type": "display.pointer", "data": {"x": 2, "y": -1, "visible": False, "family": "wii"}})
+        self.assertEqual((s.property("pointer")["visible"], s.property("pointer")["x"]), (False, 1.0))
+        s.on_event({"type": "display.pointer", "data": {"x": "no"}})  # junk is ignored
+
+    def test_a_pointer_event_while_the_menu_is_away_is_ignored(self):
+        s = self.s
+        s.on_event({"type": "display.pointer", "data": {"x": 0.5, "y": 0.5, "visible": True}})
+        self.assertFalse(s.property("pointer")["visible"])
+
+    def test_the_button_down_fills_it(self):
+        s = self.s
+        s.mouseAt(10, 10, 100, 100)
+        s.mouseAt(20, 20, 100, 100)
+        s.mouseDown(True)
+        self.assertTrue(s.property("pointer")["down"])
+        s.mouseDown(False)
+        self.assertFalse(s.property("pointer")["down"])
+
+    def test_clicking_a_row_makes_it_current_and_opens_it(self):
+        s = self.s
+        s.hover(1)  # hovering moves nothing
+        self.assertEqual(s.current_row().title, "Steam")
+        s.clickItem(1, "left")
         self.assertEqual(s.current_row().title, "Chromium")
-        self.move(line(900, 445, 1015, 450, 11), t0=1000)
-        self.assertEqual(s.state()["category"], USERS)
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/chromium/switch", None))
 
-    def test_clicks_act_on_what_is_current(self):
+    def test_a_right_click_opens_the_options_of_the_row_under_the_pointer(self):
         s = self.s
+        s.hover(1)
         s.mouseButton("right")
-        self.assertEqual(s.state()["panel"], "options")
+        self.assertEqual((s.state()["panel"], s.current_row().title), ("options", "Chromium"))
         s.mouseButton("back")
         self.assertEqual(s.state()["panel"], "")
-        s.mouseButton("left")
-        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
+        s.hover(-1)
+        s.mouseButton("right")  # over no row: the current one's options
+        self.assertEqual((s.state()["panel"], s.current_row().title), ("options", "Chromium"))
+
+    def test_clicks_on_headers_and_during_a_panel_do_nothing(self):
+        s = self.s
+        s.clickItem(99, "left")
+        s.handle("actions")
+        sent = len(s.api.sent)
+        s.clickItem(2, "left")
+        self.assertEqual((len(s.api.sent), s.state()["panel"]), (sent, "options"))
+
+    def test_the_other_buttons(self):
+        s = self.s
         s.mouseButton("forward")
         self.assertEqual(s.state()["category"], USERS)
         s.mouseButton("middle")
         self.assertEqual(s.state()["category"], APPS)
-
-    def test_sideways_in_a_panel_does_not_close_it(self):
-        s = self.s
-        s.mouseButton("right")
-        self.move(line(900, 400, 1100, 400, 20))
-        self.assertEqual(s.state()["panel"], "options")
-        self.move(line(1100, 400, 1100, 445, 9), t0=1000)
-        self.assertEqual(s.state()["option"], 1)
 
     def test_the_wheel(self):
         s = self.s
@@ -545,10 +541,6 @@ class Mouse(unittest.TestCase):
         self.assertEqual(s.current_row().title, "Chromium")
         s.wheel(-120, 0)
         self.assertEqual(s.state()["category"], USERS)
-
-    def test_the_pointer_is_put_back_from_the_edge(self):
-        self.move([(900, 1060), (900, 1070)])
-        self.assertEqual(self.warped[-1], (960.0, 540.0))
 
 
 class MenuWindow(unittest.TestCase):

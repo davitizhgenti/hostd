@@ -121,15 +121,15 @@ Every input becomes one of a few verbs (`hostd_shell/input.py`), and the shell a
 
 | Verb | Keyboard | Controller | Mouse |
 | --- | --- | --- | --- |
-| item | Up/Down, Page Up/Down | D-pad or left stick up/down; LT/RT or right stick for a page | glide up or down, wheel |
-| category | Left/Right, Tab | D-pad or left stick left/right; LB/RB | glide sideways, tilt the wheel, forward button |
-| choose | Enter, Space | A (✕; on a Nintendo pad its A) | click (anywhere) |
+| item | Up/Down, Page Up/Down | D-pad or left stick up/down; LT/RT or right stick for a page | wheel |
+| category | Left/Right, Tab | D-pad or left stick left/right; LB/RB | tilt the wheel, forward button, or click a category |
+| choose | Enter, Space | A (✕; on a Nintendo pad its A) | click a row |
 | back | Esc, Backspace | B (○) | back button |
 | options | Menu, Shift+F10 | X (□) or Start | right click |
 | close an app | Delete | Y (△) | |
 | first category | | Select | middle click |
 
-**The mouse has no pointer in the menu.** It is felt rather than aimed, like a trackpad on a TV: a short push up or down (about 40 px at 1080p) moves one item, a firmer push sideways (about 100 px) changes category, and a click acts on the current item wherever the hidden pointer is. Slow movement (a hand resting on the mouse) does nothing, a diagonal push moves along one axis only, a half-made step is forgotten after a quarter of a second, and one fling moves at most three items. The pointer is put back in the middle of the screen near an edge, so it never runs out of room. The `input` tokens set these. Outside the menu, Sway hides the pointer after 2 seconds as before.
+**The pointer.** A mouse (and a Wii Remote pointed at the screen) has a pointer in the menu: a small flat square with a light edge and a dark line outside it, filled while a button is held (`layout.pointer`). It shows when the mouse moves, fades after three seconds, and goes when the keyboard or a pad is used; a Wii Remote's shows while it points at the screen. Hovering a row underlines it but never moves the selection (the list scrolls the current row to its top, so selecting on hover would move the row from under the pointer). Clicking a row makes it current and opens it; clicking a category goes to it; clicking outside a panel or question closes it; right click opens the options of the row under the pointer; the wheel moves the selection and its tilt changes category. The real cursor is hidden over the menu; outside it, Sway hides the cursor after 2 seconds as before.
 
 Left and right always change the category; a level (the volume) is changed in its panel with up and down. Typing on Apps filters it. Controllers (Xbox, PlayStation, Nintendo and Wii; see [Controllers](config.md)) reach the menu as hostd's `display.nav` events, which say the controller's kind, so the hints show the buttons printed on it: while the menu is in front, hostd holds the controller that opened it, so the app behind does not act on its buttons too.
 

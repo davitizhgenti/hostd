@@ -52,8 +52,6 @@ def engine_for(app, shell):
     screen = app.primaryScreen()
     theme.setProperty("scale", scale_for(screen.size().height() if screen else BASE_HEIGHT))
     theme.setProperty("screenWidth", screen.size().width() if screen else 1920)
-    from hostd_shell.glide import Glide
-    shell.glide = Glide.from_tokens(shell.tokens, scale_for(screen.size().height() if screen else BASE_HEIGHT))
     return engine
 
 
