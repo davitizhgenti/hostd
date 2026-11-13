@@ -337,6 +337,26 @@ func TestSteamAddonEngine(t *testing.T) {
 		t.Errorf("hook not run: %q", m.ran)
 	}
 
+	// An update replaces an older version of the add-on's app file, and
+	// leaves one the user made their own (no "Managed by hostd" line).
+	steamToml := filepath.Join(m.root, "home/screen/.config/hostd/apps/steam.toml")
+	want, _ := os.ReadFile(steamToml)
+	os.WriteFile(steamToml, []byte("# Managed by hostd's steam add-on; changes here are overwritten.\nextends = \"steam\"\n"), 0o644)
+	if err := in.addons(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(steamToml); !bytes.Equal(got, want) {
+		t.Errorf("an older version stays:\n%s", got)
+	}
+	mine := []byte("extends = \"steam\"\nname = \"My Steam\"\n")
+	os.WriteFile(steamToml, mine, 0o644)
+	if err := in.addons(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(steamToml); !bytes.Equal(got, mine) {
+		t.Errorf("the user's own file was replaced:\n%s", got)
+	}
+
 	m.ran = nil
 	if err := s.RemoveAddons(ctx, "screen", []string{"steam"}); err != nil {
 		t.Fatal(err)

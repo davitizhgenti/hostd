@@ -19,7 +19,8 @@ flatpaks = ["org.DolphinEmu.dolphin-emu"]   # apps from Flathub, uninstalled wit
 
 resources = ["apps/steam.toml"]         # hostd resources it ships: <folder>/<name>.toml in this directory
                                         # (apps, scenes, rules, scripts, modules); put in ~/.config/hostd/<folder>/,
-                                        # followed by hostd (no rescan), removed with the add-on, and a person's edit is kept
+                                        # followed by hostd (no rescan), removed with the add-on; an update replaces it while it
+                                        # has its "# Managed by hostd's ... add-on" line (delete the line to keep your edits)
 
 kernel_modules = ["uinput"]             # loaded now and at boot
 

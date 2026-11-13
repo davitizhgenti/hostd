@@ -389,13 +389,19 @@ func (in *installer) installAddon(ctx context.Context, a Addon) error {
 		}
 		b = bytes.ReplaceAll(b, []byte("@HOME@"), []byte(in.user.home))
 		dest := in.user.home + "/.config/hostd/" + r
+		// The add-on's version replaces one that still says it is hostd's
+		// (an older version: "Managed by hostd's ... add-on"). Without that
+		// line the file is the user's own and is left as it is.
 		if in.exists(dest) {
-			if cur, _ := os.ReadFile(in.path(dest)); !bytes.Equal(cur, b) {
-				in.Out.Info("%s differs from the add-on's: left as it is", r)
-			} else {
+			cur, _ := os.ReadFile(in.path(dest))
+			switch {
+			case bytes.Equal(cur, b):
 				in.Out.Info("%s up to date", r)
+				continue
+			case !bytes.Contains(cur, []byte(managedMark)):
+				in.Out.Info("%s is no longer the add-on's (no %q line): left as it is", r, managedMark)
+				continue
 			}
-			continue
 		}
 		if _, err := in.installFile(b, dest, 0o644, in.user.name); err != nil {
 			return err
