@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Let the container use KVM
@@ -30,7 +30,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
       - name: The Debian image (cached)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: test/e2e/.vm/cache
           key: e2e-debian-13-generic-${{ github.run_id }}
@@ -46,7 +46,7 @@ jobs:
           for f in test/e2e/.vm/out/*.log; do echo "::group::$f"; tail -60 "$f"; echo "::endgroup::"; done
       - name: Logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-logs
           path: test/e2e/.vm/out/
