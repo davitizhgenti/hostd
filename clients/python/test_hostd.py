@@ -126,12 +126,14 @@ class ClientTest(unittest.TestCase):
         self.core.switch("show", front=True)
         self.core.close("show#2")
         self.core.stop("show#2")
+        self.core.restart("show")
         self.assertEqual([s[2] for s in FakeAPI.sent], [
             {"type": "app.open", "args": {"id": "show"}},
             {"type": "app.open", "args": {"id": "show"}},
             {"type": "instance.switch", "args": {"id": "show", "front": True}},
             {"type": "instance.close", "args": {"id": "show#2"}},
             {"type": "instance.stop", "args": {"id": "show#2"}},
+            {"type": "instance.restart", "args": {"id": "show"}},
         ])
 
     def test_apps_are_the_specs_of_the_resources(self):

@@ -2917,6 +2917,79 @@
         "x-hostd-scope": "read"
       }
     },
+    "/v1/instances/{id}/restart": {
+      "post": {
+        "description": "Stop an instance and start its app again, as it was started",
+        "operationId": "instance.restart",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Stop an instance and start its app again, as it was started",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-action": "instance.restart",
+        "x-hostd-scope": "apps"
+      }
+    },
     "/v1/instances/{id}/stop": {
       "post": {
         "description": "Stop a running instance",

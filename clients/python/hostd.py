@@ -225,6 +225,12 @@ class Hostd:
         """End an instance now (scope apps)."""
         self.action("instance.stop", id=instance)
 
+    def restart(self, instance):
+        """Stop an instance and start its app again, as it was started
+        (scope apps). Returns the answer's data: the new run's instance and
+        state."""
+        return self.action("instance.restart", id=instance)
+
     def define(self, app, toml):
         """Add or replace an app file (scope run): TOML, as written by hand."""
         return self.apply("apps", app, toml)

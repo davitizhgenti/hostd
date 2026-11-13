@@ -16,6 +16,7 @@ import (
 //	instance.close   ask it to close, as its window's close button would;
 //	                 stop it if it does not
 //	instance.stop    end it now
+//	instance.restart stop it and start its app again, as it was started
 //
 // switch and close need a window, which the display module knows; for an
 // instance with none (a background service) close is a polite stop.
@@ -46,6 +47,11 @@ func verbActions() []sdk.ActionSpec {
 			Timeout: sdk.Duration(closeTimeout),
 			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/close"},
 			CLI:     &sdk.CLI{Alias: []string{"close"}, Done: []string{"stopped {instance} (it did not close) if stopped", "closed {instance}"}}},
+		{Type: contract.ActionInstanceRestart, Description: "Stop an instance and start its app again, as it was started",
+			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
+			Timeout: sdk.Duration(5 * time.Minute), // the start can pull an image
+			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/restart"},
+			CLI:     &sdk.CLI{Alias: []string{"restart"}, Done: []string{"restarted {instance} ({state})"}}},
 	}
 }
 
@@ -115,6 +121,26 @@ func (m *Module) handleClose(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return sdk.Result{}, err
 	}
 	return sdk.Result{Data: sdk.MustJSON(map[string]any{"instance": in.ID, "stopped": true})}, nil
+}
+
+// handleRestart stops an instance, then opens its app again with what it
+// was started with: the same action, and a release's directory,
+// environment, image and ports.
+func (m *Module) handleRestart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	var args struct{ ID string }
+	if err := a.DecodeArgs(&args); err != nil {
+		return sdk.Result{}, err
+	}
+	in, err := m.liveInstance(args.ID)
+	if err != nil {
+		return sdk.Result{}, err
+	}
+	if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil &&
+		sdk.CodeOf(err) != sdk.CodeInstanceNotRunning {
+		return sdk.Result{}, err
+	}
+	start := contract.AppStart{ID: in.App, Action: in.Action, Dir: in.Dir, Env: in.Env, Image: in.Image, Ports: in.Ports}
+	return m.core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(start)})
 }
 
 // liveInstance returns a copy of an instance that is running.

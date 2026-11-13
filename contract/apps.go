@@ -64,6 +64,10 @@ const (
 	// {"id": instance} (switch also {"front": bool}).
 	ActionInstanceSwitch = "instance.switch"
 	ActionInstanceClose  = "instance.close"
+	// ActionInstanceRestart stops an instance and starts its app again, as
+	// it was started (the same action, release and environment). Args:
+	// {"id": instance}.
+	ActionInstanceRestart = "instance.restart"
 
 	// The display module's window actions, which apps sends so a started
 	// app comes to the front.

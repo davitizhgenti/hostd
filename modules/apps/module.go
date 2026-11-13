@@ -282,7 +282,8 @@ func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 	switch a.Type {
 	case contract.ActionAppOpen:
 		return m.validateStart(a)
-	case contract.ActionInstanceStop, contract.ActionInstanceClosing, contract.ActionInstanceSwitch, contract.ActionInstanceClose:
+	case contract.ActionInstanceStop, contract.ActionInstanceClosing, contract.ActionInstanceSwitch, contract.ActionInstanceClose,
+		contract.ActionInstanceRestart:
 		return m.validateStop(a)
 	}
 	return nil
@@ -298,6 +299,8 @@ func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 		return m.handleSwitch(ctx, a)
 	case contract.ActionInstanceClose:
 		return m.handleClose(ctx, a)
+	case contract.ActionInstanceRestart:
+		return m.handleRestart(ctx, a)
 	case contract.ActionInstanceClosing:
 		return m.handleClosing(a)
 	case "secret.set", "secret.remove":

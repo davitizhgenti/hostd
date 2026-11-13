@@ -256,3 +256,23 @@ func TestCloseFallsBackWhenTheQuitCommandFails(t *testing.T) {
 		t.Fatalf("display was asked %v", got)
 	}
 }
+
+// Restart stops an instance and starts its app again: a new run under the
+// same ID, and what was not running cannot be restarted.
+func TestRestartStartsTheAppAgain(t *testing.T) {
+	sd := unitstest.NewFakeSystemd()
+	r := newRigWith(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, rigApps, (&windows{}).module())
+	r.start(t, "jelly")
+	before := r.m.readInstances(nil)[0].Started
+	data, err := r.verb(t, contract.ActionInstanceRestart, map[string]any{"id": "jelly"})
+	if err != nil || data["instance"] != "jelly" || data["state"] != "running" {
+		t.Fatalf("restart: %v %v", data, err)
+	}
+	live := r.m.readInstances(nil)
+	if len(live) != 1 || live[0].ID != "jelly" || live[0].Started.Before(before) {
+		t.Fatalf("after restart: %+v", live)
+	}
+	if _, err := r.verb(t, contract.ActionInstanceRestart, map[string]any{"id": "nothing"}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("restarting what does not run: %v", err)
+	}
+}
