@@ -438,7 +438,7 @@ func wireguardMachine(t *testing.T) *hookRig {
 esac`)
 	r.script("wg", `case $1 in
 genkey) echo "priv-$RANDOM$RANDOM$RANDOM-key"; exit 0 ;;
-pubkey) printf '%sA=\n' "$(od -An -tx1 | tr -d ' \n' | head -c 42)"; exit 0 ;;
+pubkey) printf '%sA=\n' "$( (od -An -tx1 | tr -d ' \n'; printf '%042d' 0) | head -c 42)"; exit 0 ;; # 42 characters whatever the private key's length
 show) [ -f "$STUB_DIR/wg.handshakes" ] && cat "$STUB_DIR/wg.handshakes"; exit 0 ;;
 esac`)
 	return r
