@@ -60,9 +60,15 @@ type App struct {
 	Under string `json:"under,omitempty"`
 	// Folder is where menus list the app: a "/"-separated path such as
 	// "Games/Dolphin/Wii". Empty: at the top.
-	Folder  string `json:"folder,omitempty"`
-	Match   Match  `json:"match,omitzero"`
-	Restart string `json:"restart,omitempty"`
+	Folder string `json:"folder,omitempty"`
+	// Cover and Backdrop are pictures of the app for menus, as absolute
+	// paths: a cover (portrait, a game's box) and a wide backdrop drawn
+	// behind the menu. An add-on that knows where a launcher keeps them
+	// (Steam's cache) writes them in the app file.
+	Cover    string `json:"cover,omitempty"`
+	Backdrop string `json:"backdrop,omitempty"`
+	Match    Match  `json:"match,omitzero"`
+	Restart  string `json:"restart,omitempty"`
 	// Autostart: hostd starts the app when it starts (at boot, after an
 	// update), unless it already runs. Background apps only.
 	Autostart bool              `json:"autostart,omitempty"`

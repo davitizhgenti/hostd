@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ const (
 // Options configure the apps module.
 type Options struct {
 	DesktopDirs []string // .desktop directories, lowest priority first
+	Sandboxes   string   // where Flatpak apps keep their data (~/.var/app): their own shortcuts; "" for none
 	AppsDir     string   // hand-written app files
 	SecretsDir  string   // secrets, one 0600 file each
 	Desktop     string   // for OnlyShowIn/NotShowIn; default "sway"
@@ -169,7 +171,7 @@ func (m *Module) Start(_ context.Context, core sdk.Core) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range m.opts.DesktopDirs {
+	for _, d := range append(slices.Clone(m.opts.DesktopDirs), catalog.SandboxDesktopDirs(m.opts.Sandboxes)...) {
 		if d == "" {
 			continue
 		}
@@ -229,7 +231,7 @@ func (m *Module) watch() {
 
 // rescan reads the desktop entries again and rebuilds the catalog.
 func (m *Module) rescan() {
-	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
+	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Sandboxes: m.opts.Sandboxes, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
 	discovered, problems := src.Scan()
 	m.mu.Lock()
 	m.discovered, m.discProblems = discovered, problems
@@ -329,7 +331,7 @@ func (m *Module) handleCheck(a sdk.Action) (sdk.Result, error) {
 	if fi, err := os.Stat(args.Dir); err != nil || !fi.IsDir() {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s is not a folder", args.Dir)
 	}
-	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
+	src := catalog.DesktopSource{Dirs: m.opts.DesktopDirs, Sandboxes: m.opts.Sandboxes, Desktop: m.opts.Desktop, LookPath: m.opts.LookPath}
 	discovered, _ := src.Scan()
 	files, problems := catalog.LoadAppFiles(args.Dir)
 	cat := catalog.Build(discovered, files, problems)

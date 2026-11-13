@@ -73,6 +73,34 @@ class SteamGames(unittest.TestCase):
         self.assertEqual(sg.sync(self.home, self.apps, remove_all=True), (0, 1))
         self.assertEqual(os.listdir(self.apps), ["steam-999.toml"])
 
+    def test_a_game_with_a_shortcut_extends_it_and_has_its_pictures(self):
+        share = os.path.join(self.home, ".var/app/com.valvesoftware.Steam/.local/share")
+        os.makedirs(os.path.join(share, "applications"))
+        with open(os.path.join(share, "applications", "Portal 2.desktop"), "w") as f:
+            f.write("[Desktop Entry]\nName=Portal 2\nExec=steam steam://rungameid/620\nIcon=steam_icon_620\n")
+        with open(os.path.join(share, "applications", "Other.desktop"), "w") as f:
+            f.write("[Desktop Entry]\nName=Other\nExec=other\n")
+        cache = os.path.join(self.root, "appcache", "librarycache")
+        os.makedirs(os.path.join(cache, "620"))
+        for n in ("620/library_600x900.jpg", "620/library_hero.jpg", "440_header.jpg"):  # new and old layouts
+            open(os.path.join(cache, n), "w").close()
+        self.assertEqual(sg.shortcuts(self.home), {"620": "steam-portal-2"})
+        sg.sync(self.home, self.apps)
+        with open(os.path.join(self.apps, "steam-620.toml")) as f:
+            portal = f.read()
+        self.assertIn('extends = "steam-portal-2"', portal)
+        self.assertIn(f'cover = "{cache}/620/library_600x900.jpg"', portal)
+        self.assertIn(f'backdrop = "{cache}/620/library_hero.jpg"', portal)
+        with open(os.path.join(self.apps, "steam-440.toml")) as f:
+            tf2 = f.read()
+        self.assertNotIn("extends", tf2)  # no shortcut: a file of its own
+        self.assertNotIn("cover", tf2)
+        self.assertIn(f'backdrop = "{cache}/440_header.jpg"', tf2)
+
+    def test_id_part_is_hostds(self):
+        self.assertEqual(sg.id_part("steam-JoJo's Bizarre Adventure: All-Star"), "steam-jojo-s-bizarre-adventure--all-star")
+        self.assertEqual(sg.id_part("..."), "app")
+
     def test_no_steam_is_no_games(self):
         with tempfile.TemporaryDirectory() as empty:
             self.assertEqual(sg.games(empty), {})

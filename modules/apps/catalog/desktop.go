@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
@@ -258,11 +259,47 @@ type DesktopSource struct {
 	// Dirs to scan, lowest priority first: an entry in a later directory
 	// replaces one with the same ID from an earlier one.
 	Dirs []string
+	// Sandboxes is where Flatpak apps keep their data (~/.var/app): a
+	// launcher in a Flatpak (Steam, Heroic, Lutris) writes the shortcuts
+	// of the games it installs inside its sandbox,
+	// <Sandboxes>/<flatpak-id>/.local/share/applications, with their icons
+	// beside them. Each is an app run inside that Flatpak. "" for none.
+	Sandboxes string
 	// Desktop is the current desktop name for OnlyShowIn/NotShowIn
 	// (default "sway").
 	Desktop string
 	// LookPath finds TryExec binaries; defaults to exec.LookPath.
 	LookPath func(string) (string, error)
+}
+
+// GamesFolder is where an app whose desktop entry says it is a game
+// (Categories=Game) is listed, unless its app file says otherwise.
+const GamesFolder = "Games"
+
+// DefaultSandboxes is ~/.var/app, where Flatpak apps keep their data.
+func DefaultSandboxes() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(h, ".var", "app")
+}
+
+// SandboxDesktopDirs lists the shortcut folders inside the Flatpak
+// sandboxes under root that exist now: what to watch for new games.
+func SandboxDesktopDirs(root string) []string {
+	if root == "" {
+		return nil
+	}
+	ents, _ := os.ReadDir(root)
+	var out []string
+	for _, e := range ents {
+		d := filepath.Join(root, e.Name(), ".local", "share", "applications")
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // DefaultDesktopDirs returns <dir>/applications for XDG_DATA_DIRS (lowest
@@ -371,6 +408,9 @@ func (s *DesktopSource) Scan() ([]spec.App, []Problem) {
 				Window: spec.Window{Fullscreen: true},
 				Hidden: e.NoDisplay || e.Terminal || !shownIn(e, desktop) || hiddenByCategory(e.Categories),
 			}
+			if slices.Contains(e.Categories, "Game") {
+				app.Folder = GamesFolder
+			}
 			if e.Flatpak != "" {
 				app.Runner = spec.Runner{Type: spec.RunnerFlatpak, AppID: e.Flatpak}
 			}
@@ -385,7 +425,130 @@ func (s *DesktopSource) Scan() ([]spec.App, []Problem) {
 			byFileID[fileID] = app
 		}
 	}
-	return assignIDs(byFileID), problems
+	apps := assignIDs(byFileID)
+	sandboxed, more := s.scanSandboxes(desktop, apps)
+	return append(apps, sandboxed...), append(problems, more...)
+}
+
+// scanSandboxes reads the shortcuts launchers in Flatpaks made for what
+// they installed. Each runs inside its Flatpak (flatpak run --command=...),
+// its icon is the best file the sandbox has for it, and a game is in
+// Games/<the Flatpak's name>. Its ID is its file's, unless an app above
+// has it already; then the Flatpak's short name goes first. Either way
+// <short name>-<file> ("steam-portal-2") finds it too: a name an add-on
+// can work out, to extend it.
+func (s *DesktopSource) scanSandboxes(desktop string, have []spec.App) ([]spec.App, []Problem) {
+	if s.Sandboxes == "" {
+		return nil, nil
+	}
+	names := map[string]string{} // Flatpak ID -> its app's name
+	taken := map[string]bool{}
+	for _, a := range have {
+		taken[a.ID] = true
+		if a.Runner.Type == spec.RunnerFlatpak {
+			names[a.Runner.AppID] = a.Name
+		}
+	}
+	var out []spec.App
+	var problems []Problem
+	for _, dir := range SandboxDesktopDirs(s.Sandboxes) {
+		flatpak := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(dir))))
+		sandbox := filepath.Join(s.Sandboxes, flatpak)
+		ents, _ := os.ReadDir(dir)
+		for _, f := range ents {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".desktop") {
+				continue
+			}
+			path := filepath.Join(dir, f.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				problems = append(problems, Problem{File: path, Error: err.Error()})
+				continue
+			}
+			e, err := ParseDesktopEntry(data)
+			if err != nil {
+				problems = append(problems, Problem{File: path, Error: err.Error()})
+				continue
+			}
+			if e.Hidden || e.Type != "Application" {
+				continue
+			}
+			argv, err := ExecArgs(e.Exec)
+			if err != nil || len(argv) == 0 {
+				problems = append(problems, Problem{File: path, Error: "Exec: no command"})
+				continue
+			}
+			id := sanitizeID(strings.TrimSuffix(f.Name(), ".desktop"))
+			alias := SandboxAlias(flatpak, f.Name())
+			if taken[id] {
+				id = alias
+			}
+			if taken[id] {
+				continue
+			}
+			taken[id] = true
+			app := spec.App{
+				ID: id, Name: e.Name, Icon: sandboxIcon(sandbox, e.Icon), Source: "desktop", Files: []string{path},
+				Runner: spec.Runner{Type: spec.RunnerExec,
+					Command: append([]string{"flatpak", "run", "--command=" + argv[0], flatpak}, argv[1:]...)},
+				Window: spec.Window{Fullscreen: true},
+				Hidden: e.NoDisplay || e.Terminal || !shownIn(e, desktop) || hiddenByCategory(e.Categories),
+			}
+			if alias != id {
+				app.Aliases = []string{alias}
+			}
+			if slices.Contains(e.Categories, "Game") {
+				launcher := names[flatpak]
+				if launcher == "" {
+					launcher = filepath.Ext(flatpak)[1:] // com.valvesoftware.Steam -> Steam
+				}
+				app.Folder = CleanFolder(GamesFolder + "/" + strings.ReplaceAll(launcher, "/", " "))
+			}
+			out = append(out, app)
+		}
+	}
+	return out, problems
+}
+
+// SandboxAlias is the name a shortcut in a Flatpak's sandbox is always
+// found by: the Flatpak's short name and the file's, as an ID
+// (com.valvesoftware.Steam, "Portal 2.desktop" -> "steam-portal-2").
+func SandboxAlias(flatpak, file string) string {
+	return sanitizeID(shortID(flatpak) + "-" + strings.TrimSuffix(file, ".desktop"))
+}
+
+// sandboxIcon finds an icon name in a sandbox's own icon theme: the
+// scalable one, else the largest. The name as it was when there is none
+// there (an icon of the system's theme), or it is a path already.
+func sandboxIcon(sandbox, name string) string {
+	if name == "" || filepath.IsAbs(name) || strings.ContainsRune(name, '/') {
+		return name
+	}
+	base := filepath.Join(sandbox, ".local", "share", "icons", "hicolor")
+	if p := filepath.Join(base, "scalable", "apps", name+".svg"); fileExists(p) {
+		return p
+	}
+	best, bestSize := "", 0
+	dirs, _ := os.ReadDir(base)
+	for _, d := range dirs {
+		w, _, ok := strings.Cut(d.Name(), "x")
+		size, err := strconv.Atoi(w)
+		if !ok || err != nil || size <= bestSize {
+			continue
+		}
+		if p := filepath.Join(base, d.Name(), "apps", name+".png"); fileExists(p) {
+			best, bestSize = p, size
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return name
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }
 
 func shownIn(e DesktopEntry, desktop string) bool {

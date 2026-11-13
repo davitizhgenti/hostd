@@ -9,6 +9,11 @@ Steam gives the game's processes, listed under the Steam app
 (requires = ["steam"]), so Steam is hostd's Big Picture app. Files it made carry a marker line; it
 removes those whose game is gone, and never touches other files. Run it
 again any time; --remove deletes everything it made.
+
+hostd itself finds the shortcut Steam makes for a game in its sandbox
+(its name and icon); a file here extends it ("steam-<file name>"), adding
+only what is Steam's: knowing when the game ends (the handoff), and the
+pictures Steam keeps for its library (its cover and backdrop).
 """
 
 import os
@@ -96,14 +101,62 @@ def games(home):
     return found
 
 
+def sandbox(home):
+    return os.path.join(home, ".var", "app", STEAM_ID, ".local", "share")
+
+
+def id_part(s):
+    """A name as hostd makes it into an ID (catalog.sanitizeID)."""
+    out = re.sub(r"[^a-z0-9._-]", "-", s.lower()).lstrip(".-_")
+    return out or "app"
+
+
+def shortcuts(home):
+    """{appid: hostd's name for Steam's shortcut to the game}, for the games
+    Steam made a shortcut for (catalog.SandboxAlias)."""
+    found = {}
+    apps = os.path.join(sandbox(home), "applications")
+    try:
+        names = sorted(os.listdir(apps))
+    except OSError:
+        return found
+    for name in names:
+        if not name.endswith(".desktop"):
+            continue
+        try:
+            with open(os.path.join(apps, name), encoding="utf-8") as f:
+                m = re.search(r"^Exec=.*steam://rungameid/(\d+)\s*$", f.read(), re.M)
+        except (OSError, UnicodeDecodeError):
+            continue
+        if m:
+            found.setdefault(m.group(1), id_part("steam-" + name[:-len(".desktop")]))
+    return found
+
+
+def pictures(home, appid):
+    """(cover, backdrop): the pictures Steam keeps of a game for its
+    library, as paths ("" where there is none). Newer Steam keeps them in a
+    folder per game, older Steam beside each other."""
+    cache = os.path.join(sandbox(home), "Steam", "appcache", "librarycache")
+
+    def first(*names):
+        for n in names:
+            for p in (os.path.join(cache, appid, n), os.path.join(cache, f"{appid}_{n}")):
+                if os.path.isfile(p):
+                    return p
+        return ""
+    return first("library_600x900.jpg"), first("library_hero.jpg", "header.jpg")
+
+
 def toml_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def app_file(appid, name):
+def app_file(appid, name, extends="", cover="", backdrop=""):
     command = f'["flatpak", "run", "{STEAM_ID}", "steam://rungameid/{appid}"]'
+    more = "".join(f"{k} = {toml_string(v)}\n" for k, v in (("extends", extends), ("cover", cover), ("backdrop", backdrop)) if v)
     return f"""{MARKER}
-name = {toml_string(name)}
+{more}name = {toml_string(name)}
 under = "steam"
 folder = "Games/Steam"
 requires = ["steam"]
@@ -130,12 +183,13 @@ def sync(home, apps_dir, remove_all=False):
     """Writes the game apps and removes stale ones. Returns (written, removed)."""
     os.makedirs(apps_dir, exist_ok=True)
     wanted = {} if remove_all else games(home)
+    made = shortcuts(home)
     written = removed = 0
     for appid, name in wanted.items():
         path = os.path.join(apps_dir, f"steam-{appid}.toml")
         if os.path.exists(path) and not ours(path):
             continue  # the person's own file for this game wins
-        body = app_file(appid, name)
+        body = app_file(appid, name, made.get(appid, ""), *pictures(home, appid))
         try:
             with open(path, encoding="utf-8") as f:
                 if f.read() == body:

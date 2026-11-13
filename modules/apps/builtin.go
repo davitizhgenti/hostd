@@ -20,7 +20,7 @@ var Builtin = host.Builtin{
 		c := conf.(*Config)
 		engine := &podman.EngineAPI{Socket: podman.DefaultEngineSocket(h.RuntimeDir)}
 		return New(Options{
-			DesktopDirs: catalog.DefaultDesktopDirs(), AppsDir: filepath.Join(h.ConfigDir, "apps"), SecretsDir: h.Secrets.Dir, Logger: h.Log,
+			DesktopDirs: catalog.DefaultDesktopDirs(), Sandboxes: catalog.DefaultSandboxes(), AppsDir: filepath.Join(h.ConfigDir, "apps"), SecretsDir: h.Secrets.Dir, Logger: h.Log,
 			Backends: map[string]Backend{
 				RunnerExec: &units.ExecRunner{Systemd: h.Systemd, RuntimeDir: h.RuntimeDir, HomeDir: h.Home,
 					StateDir: h.StateDir, Browser: c.Browser, Gamescope: c.Gamescope},

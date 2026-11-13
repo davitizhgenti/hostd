@@ -7,6 +7,7 @@ package catalog
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -275,6 +276,11 @@ func validate(a *spec.App) error {
 	}
 	if a.Folder != "" && a.Folder != CleanFolder(a.Folder) {
 		bad("folder %q: names separated by /, no empty or . names", a.Folder)
+	}
+	for _, pic := range [][2]string{{"cover", a.Cover}, {"backdrop", a.Backdrop}} {
+		if pic[1] != "" && !filepath.IsAbs(pic[1]) {
+			bad("%s %q: an absolute path to a picture", pic[0], pic[1])
+		}
 	}
 	if s := a.Window.ShownBy; s != "" && (!ValidID(s) || s == a.ID) {
 		bad("window.shown_by %q: another app's id", s)

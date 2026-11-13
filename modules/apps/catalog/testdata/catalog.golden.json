@@ -295,6 +295,7 @@
         "if_running": "focus"
       },
       "hidden": false,
+      "folder": "Games",
       "restart": "never"
     }
   ],

@@ -1,6 +1,6 @@
 # Apps
 
-hostd's catalog has the installed desktop apps (their `.desktop` files), Flatpak apps, and the apps you describe in **app files**: `~/.config/hostd/apps/<id>.toml`. The file name is the app's ID. Apps are [resources](resources.md): a new or changed file is picked up within a second, and `hostctl apps --all` lists the catalog, with any file that cannot be used on a row of its own and the reason beside it (the version before it, if there was one, stays in use).
+hostd's catalog has the installed desktop apps (their `.desktop` files), Flatpak apps, the shortcuts launchers in a Flatpak make inside its sandbox for what they install (Steam, Heroic and Lutris games: `~/.var/app/<flatpak>/.local/share/applications`, run inside that Flatpak, with the icon the sandbox has for them, and also found as `<flatpak short name>-<file name>`, such as `steam-portal-2`), and the apps you describe in **app files**: `~/.config/hostd/apps/<id>.toml`. The file name is the app's ID. Apps are [resources](resources.md): a new or changed file is picked up within a second, and `hostctl apps --all` lists the catalog, with any file that cannot be used on a row of its own and the reason beside it (the version before it, if there was one, stays in use).
 
 ```sh
 hostctl apps                 # the catalog (--all: hidden apps too)
@@ -42,7 +42,8 @@ http = "http://127.0.0.1:8096/health"
 | `requires` | Apps started first: `requires = ["database"]` |
 | `hidden` | Not listed (still startable) |
 | `under` | Listed in another app's actions box: `under = "steam"` |
-| `folder` | Where the menu lists it: `folder = "Games/Dolphin/Wii"`. Folders nest to any depth and open like a list of their own; an app with none stays at the top, and a background app with none is in `Services`. A folder can be a tab of the menu ([menu.toml](design.md#tabs)). The steam add-on puts Steam and its games in `Games/Steam`, the dolphin add-on's Dolphin in `Games/Dolphin` |
+| `cover`, `backdrop` | Pictures for the menu, as absolute paths: a portrait cover (2:3, a game's box) for a [covers tab](design.md#tabs), and a wide picture behind the menu. The steam add-on sets them from Steam's library cache |
+| `folder` | Where the menu lists it: `folder = "Games/Dolphin/Wii"`. Folders nest to any depth and open like a list of their own; an app with none stays at the top, a background app with none is in `Services`, and a desktop entry that says it is a game (`Categories=Game`) is in `Games` (a launcher's shortcut in `Games/<the launcher>`). A folder can be a tab of the menu ([menu.toml](design.md#tabs)). The steam add-on puts Steam and its games in `Games/Steam`, the dolphin add-on's Dolphin in `Games/Dolphin` |
 | `[instance]` | `policy = "single"` (default) or `"multiple"`; `if_running = "focus"` (default), `"new"` or `"restart"` |
 | `[window]` | `fullscreen` (true for installed desktop apps; set it in an app file); `wrap = "gamescope"`; `shown_by = "<app>"` for an app drawn in another's window |
 | `[audio]` | `volume`: its own volume (0-150) when it starts |
