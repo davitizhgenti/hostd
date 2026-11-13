@@ -379,7 +379,7 @@ func TestMenuTakesTheControllers(t *testing.T) {
 	r.input.send(t, evdev.InputEvent{Nav: []string{"choose"}})
 	select {
 	case ev := <-nav:
-		if string(ev.Data) != `{"device":"","player":0,"what":"choose"}` || ev.Source == nil || ev.Source.Kind != sdk.SourceLocal {
+		if string(ev.Data) != `{"device":"","family":"","player":0,"what":"choose"}` || ev.Source == nil || ev.Source.Kind != sdk.SourceLocal {
 			t.Fatalf("nav event %s from %+v", ev.Data, ev.Source)
 		}
 	case <-time.After(5 * time.Second):
@@ -565,10 +565,10 @@ func TestMenuBelongsToTheControllerThatOpenedIt(t *testing.T) {
 	// Player 1's navigation does nothing to the menu; player 2's does, with
 	// who it was.
 	r.input.send(t, evdev.InputEvent{Device: one, Player: 1, Nav: []string{"down"}})
-	r.input.send(t, evdev.InputEvent{Device: two, Player: 2, Nav: []string{"choose"}})
+	r.input.send(t, evdev.InputEvent{Device: two, Player: 2, Family: "playstation", Nav: []string{"choose"}})
 	select {
 	case ev := <-nav:
-		if string(ev.Data) != `{"device":"`+two+`","player":2,"what":"choose"}` {
+		if string(ev.Data) != `{"device":"`+two+`","family":"playstation","player":2,"what":"choose"}` {
 			t.Fatalf("nav = %s (player 1's move reached the menu?)", ev.Data)
 		}
 	case <-time.After(5 * time.Second):

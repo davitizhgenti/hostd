@@ -101,6 +101,7 @@ class Shell(QObject):
         self._filter = ""
         self._message, self._error = "", False
         self._device = "keys"
+        self._family = ""  # the kind of the controller used last (xbox, playstation, ...)
         self._menu_visible = False
         self._menu_active = False
         self._osd = ("", "", -1)
@@ -165,8 +166,13 @@ class Shell(QObject):
     def on_event(self, ev):
         kind = ev.get("type", "")
         if kind == "display.nav":  # a controller, while the menu is in front
-            verb = inp.verb_for_nav((ev.get("data") or {}).get("what", ""))
+            data = ev.get("data") or {}
+            verb = inp.verb_for_nav(data.get("what", ""))
             if verb and self._menu_visible and self._menu_active:
+                family = data.get("family") if isinstance(data.get("family"), str) else ""
+                if family != self._family:
+                    self._family = family
+                    self.changed.emit()
                 self._set_device("controller")
                 self.handle(verb)
             return
@@ -225,6 +231,16 @@ class Shell(QObject):
             self._show_rows(APPS, keep=False)
         self._category = c
         self.refresh(c)
+        self.changed.emit()
+
+    def go_home(self):
+        """The first category, its first item, with no filter."""
+        if self._filter:
+            self._filter = ""
+            self._show_rows(APPS, keep=False)
+        self._category = APPS
+        self.currents[APPS] = self.pages[APPS].first()
+        self.refresh(APPS)
         self.changed.emit()
 
     def move(self, steps):
@@ -344,6 +360,8 @@ class Shell(QObject):
             self.move(1 if verb == inp.DOWN else -1)
         elif verb in (inp.PAGE_UP, inp.PAGE_DOWN):
             self.move(5 if verb == inp.PAGE_DOWN else -5)
+        elif verb == inp.HOME:
+            self.go_home()
         elif verb in (inp.LEFT, inp.PREV_TAB):
             self.set_category(self._category - 1)
         elif verb in (inp.RIGHT, inp.NEXT_TAB):
@@ -511,7 +529,7 @@ class Shell(QObject):
                 pairs.append((inp.CLOSE, "close"))
             pairs.append((inp.NEXT_TAB, "category"))
             pairs.append((inp.BACK, "back"))
-        return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device)]
+        return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device, self._family)]
 
     def _colors(self):
         return background.colors(self.look, self.now(), self.tokens) or ("", "")

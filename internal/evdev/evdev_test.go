@@ -103,7 +103,7 @@ func TestProfileButtonsReachBindings(t *testing.T) {
 	ps, _ := LoadProfiles(dir)
 	p := ps.forInput(deviceInfo{Vendor: "0079", Gamepad: true})
 	var got []InputEvent
-	readEvents(&chunked{data: append(inputEvent(evKey, 0x13b, 1), inputEvent(0, 0, 0)...), n: 1000}, p.codes,
+	readEvents(&chunked{data: append(inputEvent(evKey, 0x13b, 1), inputEvent(0, 0, 0)...), n: 1000}, p.codes, nil,
 		func(e InputEvent) { got = append(got, e) })
 	if len(got) != 1 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) {
 		t.Fatalf("events %+v", got)
@@ -132,13 +132,13 @@ func TestReadEvents(t *testing.T) {
 
 	for _, chunk := range []int{1, 7, eventSize, 1000} { // however the reads split it
 		calls := 0
-		readEvents(&chunked{data: stream.Bytes(), n: chunk}, nil, func(InputEvent) { calls++ })
+		readEvents(&chunked{data: stream.Bytes(), n: chunk}, nil, nil, func(InputEvent) { calls++ })
 		if calls == 0 {
 			t.Fatalf("chunk %d: no activity seen", chunk)
 		}
 	}
 	calls := 0
-	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), nil, func(InputEvent) { calls++ })
+	readEvents(bytes.NewReader(append(inputEvent(evLed, 0, 1), inputEvent(evSyn, 0, 0)...)), nil, nil, func(InputEvent) { calls++ })
 	if calls != 0 {
 		t.Fatalf("LED and sync events counted as a person: %d", calls)
 	}
@@ -241,32 +241,12 @@ func TestReadEventsGuide(t *testing.T) {
 	var stream []byte
 	stream = append(stream, inputEvent(evKey, btnMode, 1)...) // press
 	stream = append(stream, inputEvent(0, 0, 0)...)
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
+	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, nil, func(e InputEvent) { got = append(got, e) })
 	stream = append(inputEvent(evKey, btnMode, 0), inputEvent(0, 0, 0)...) // release
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e) })
+	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, nil, func(e InputEvent) { got = append(got, e) })
 	if len(got) != 2 || !reflect.DeepEqual(got[0].Buttons, []string{"guide"}) || len(got[1].Buttons) != 0 ||
 		!reflect.DeepEqual(got[1].Released, []string{"guide"}) {
 		t.Fatalf("events %+v", got)
-	}
-}
-
-func TestReadEventsNav(t *testing.T) {
-	var stream []byte
-	for _, e := range [][3]int{{evKey, btnSouth, 1}, {evKey, btnSouth, 0}, {evAbs, absHat0Y, -1}, {evAbs, absHat0Y, 0},
-		{evKey, btnEast, 1}, {evKey, btnWest, 1}, {evKey, 0x223, 1}} {
-		stream = append(stream, inputEvent(uint16(e[0]), uint16(e[1]), int32(e[2]))...)
-	}
-	stream = append(stream, inputEvent(0, 0, 0)...)
-	var got []string
-	readEvents(&chunked{data: stream, n: 1000}, map[uint16]string{btnMode: "guide"}, func(e InputEvent) { got = append(got, e.Nav...) })
-	if want := []string{"choose", "up", "back", "actions", "right"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("nav %q, want %q", got, want)
-	}
-	// A keyboard (no controller profile) never navigates.
-	got = nil
-	readEvents(&chunked{data: stream, n: 1000}, nil, func(e InputEvent) { got = append(got, e.Nav...) })
-	if len(got) != 0 {
-		t.Fatalf("keyboard nav %q", got)
 	}
 }
 
@@ -305,7 +285,7 @@ func TestStickDriftIsNotPresence(t *testing.T) {
 	pad := map[uint16]string{btnMode: "guide"}
 	count := func(codes map[uint16]string, events ...[]byte) int {
 		n := 0
-		readEvents(bytes.NewReader(bytes.Join(events, nil)), codes, func(InputEvent) { n++ })
+		readEvents(bytes.NewReader(bytes.Join(events, nil)), codes, nil, func(InputEvent) { n++ })
 		return n
 	}
 	if n := count(pad, inputEvent(evAbs, absX, 300), inputEvent(evAbs, absRZ, 12), inputEvent(evSyn, 0, 0)); n != 0 {
@@ -343,7 +323,7 @@ func FuzzReadEvents(f *testing.F) {
 		if pad {
 			codes = map[uint16]string{btnMode: "guide", btnSouth: "start"}
 		}
-		readEvents(&chunked{data: data, n: 1 + len(data)%11}, codes, func(e InputEvent) {
+		readEvents(&chunked{data: data, n: 1 + len(data)%11}, codes, nil, func(e InputEvent) {
 			if !pad && (len(e.Nav) > 0 || len(e.Buttons) > 0) {
 				t.Fatalf("a device without a profile reported %+v", e)
 			}

@@ -1,0 +1,19 @@
+# The Nunchuk on a Wii Remote (hid-wiimote shows it as its own device named
+# "Nintendo Wii Remote Nunchuk"): its stick moves in the menu, C and Z are
+# the shoulder buttons. Axis ranges are what the kernel reports on the real
+# device; these numbers only stand in where it cannot be asked.
+name = "Wii Nunchuk"
+match = { name = "Nintendo Wii Remote Nunchuk*" }
+
+[pad]
+family = "wii"
+confirm = "east"
+back = "south"
+
+[pad.keys]
+BTN_C = "lb"
+BTN_Z = "rb"
+
+[pad.axes]
+ABS_X = { as = "lx", min = -100, max = 100 }
+ABS_Y = { as = "ly", min = -100, max = 100 }

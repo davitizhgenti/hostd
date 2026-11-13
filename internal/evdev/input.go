@@ -47,22 +47,19 @@ type InputEvent struct {
 	// Buttons pressed and let go, by name (see Buttons), for the
 	// binding table.
 	Buttons, Released []string
-	// Nav is a controller's navigation, for the menu: up, down, left,
-	// right (D-pad), choose (A), back (B) and actions (X or Y).
+	// Nav is a controller's navigation, for the menu: the verbs of nav.go
+	// (up, down, left, right, choose, back, actions, close, prev_tab,
+	// next_tab, page_up, page_down, home), from any button, stick or
+	// trigger, with repeats while a direction is held.
 	Nav []string
+	// Family is the controller's kind (xbox, playstation, nintendo, wii,
+	// generic): what the menu's hints are labelled with. Empty for a
+	// keyboard or a mouse.
+	Family string
 }
 
-// Controller buttons and axes for Nav. X and Y are numbered differently
-// by different drivers; either opens the actions.
-const (
-	btnSouth, btnEast, btnNorth, btnWest = 0x130, 0x131, 0x133, 0x134
-	absHat0X, absHat0Y                   = 0x10, 0x11
-)
-
-var navButtons = map[uint16]string{
-	btnSouth: "choose", btnEast: "back", btnNorth: "actions", btnWest: "actions",
-	0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right", // BTN_DPAD_*
-}
+// The d-pad as hat axes, for presence.
+const absHat0X = 0x10
 
 // evioCGrab is EVIOCGRAB: while held, only the grabbing file gets the
 // device's events.
@@ -121,6 +118,8 @@ type Evdev struct {
 	// nil: the built-in ones.
 	Profiles *Profiles
 	SysRoot  string // where sysfs is mounted, "/" outside tests
+	// Nav overrides what a canonical button does in the menu ([display.nav]).
+	Nav map[string]string
 
 	mu      sync.Mutex
 	pads    map[string]*pad // open controllers, by path
@@ -264,9 +263,10 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 		// The device's buttons, by its profile: a known pad's Guide,
 		// nothing for a keyboard.
 		var codes map[uint16]string
+		var prof *Profile
 		info := sys.input(path)
 		if p := profiles.padFor(info); p != nil {
-			codes = p.codes
+			codes, prof = p.codes, p
 		}
 		id := ""
 		if codes != nil {
@@ -283,11 +283,17 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 		} else {
 			emit = func(ev InputEvent) {
 				ev.Device = id
+				ev.Family = prof.Family()
 				e.mu.Lock()
 				ev.Player = e.players().Slot(id) // it may have been reassigned
 				e.mu.Unlock()
 				fn(ev)
 			}
+		}
+		var nav *Navigator
+		if prof != nil {
+			nav = NewNavigator(prof, e.Nav, func(verbs []string) { emit(InputEvent{Nav: verbs}) })
+			readRanges(f, prof, nav)
 		}
 		wg.Add(1)
 		go func() {
@@ -299,7 +305,12 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 			stop := context.AfterFunc(ctx, func() { f.Close() })
 			defer stop()
 			defer f.Close()
-			readEvents(f, codes, emit)
+			defer func() {
+				if nav != nil {
+					nav.Reset()
+				}
+			}()
+			readEvents(f, codes, nav, emit)
 		}()
 	}
 
@@ -331,7 +342,7 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 // readEvents reads input events until the device goes away. codes names
 // the device's bindable buttons; a device with codes is a controller,
 // whose navigation is reported too.
-func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
+func readEvents(r io.Reader, codes map[uint16]string, nav *Navigator, fn func(InputEvent)) {
 	buf := make([]byte, eventSize*64)
 	var pending []byte
 	for {
@@ -355,14 +366,17 @@ func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
 						}
 					}
 				}
-				if codes != nil {
-					if nav := navOf(typ, code, value); nav != "" {
-						ev.Nav = append(ev.Nav, nav)
+				if nav != nil {
+					switch typ {
+					case evKey:
+						ev.Nav = append(ev.Nav, nav.Key(code, value)...)
+					case evAbs:
+						ev.Nav = append(ev.Nav, nav.Abs(code, value)...)
 					}
 				}
 				pending = pending[eventSize:]
 			}
-			if active {
+			if active || len(ev.Nav) > 0 {
 				fn(ev) // one call per read, however many events it held
 			}
 		}
@@ -372,21 +386,25 @@ func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
 	}
 }
 
-// navOf reads one controller event as navigation, or "".
-func navOf(typ, code uint16, value int32) string {
-	switch {
-	case typ == evKey && value == 1:
-		return navButtons[code]
-	case typ == evAbs && code == absHat0X && value != 0:
-		if value < 0 {
-			return "left"
-		}
-		return "right"
-	case typ == evAbs && code == absHat0Y && value != 0:
-		if value < 0 {
-			return "up"
-		}
-		return "down"
+// readRanges asks the kernel for each axis's real range (EVIOCGABS), which
+// the profile's own numbers stand in for where it cannot say (a test's
+// plain file, a driver that refuses).
+func readRanges(f *os.File, p *Profile, nav *Navigator) {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return
 	}
-	return ""
+	for code, ax := range p.pad.axes {
+		var info [6]int32 // struct input_absinfo: value, minimum, maximum, fuzz, flat, resolution
+		var errno syscall.Errno
+		_ = rc.Control(func(fd uintptr) {
+			_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, evioCGAbs+uintptr(code), uintptr(unsafe.Pointer(&info[0])))
+		})
+		if errno == 0 && info[2] > info[1] {
+			nav.setRange(code, ax.as, info[1], info[2])
+		}
+	}
 }
+
+// EVIOCGABS(abs): read struct input_absinfo of an axis.
+const evioCGAbs = 0x80184540

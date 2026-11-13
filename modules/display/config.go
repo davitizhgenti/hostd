@@ -3,6 +3,7 @@ package display
 import (
 	"fmt"
 
+	"github.com/davitizhgenti/hostd/internal/evdev"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -15,6 +16,8 @@ import (
 //	"F1" = "display.menu"
 //	[display.buttons]
 //	guide = "display.menu"
+//	[display.nav]       # what a controller's buttons do in the menu (docs/config.md)
+//	rs = "home"         # the right stick's click: back to Apps
 //	[display.players.2.buttons]   # what player 2's controller does differently
 //	guide = ""                     # "" turns a binding off for that player
 //	[display.outputs.HDMI-A-1]    # a screen's resolution, set whenever hostd meets the compositor
@@ -24,6 +27,11 @@ type Config struct {
 	Hold      sdk.Duration      `toml:"hold"`
 	Keys      map[string]string `toml:"keys"`
 	Buttons   map[string]string `toml:"buttons"`
+	// Nav changes what a controller's buttons do to the menu: a button
+	// (south, lb, rt, ls, start, ...) to a verb (choose, back, actions,
+	// close, prev_tab, next_tab, page_up, page_down, home, up, down, left,
+	// right), or "" for nothing.
+	Nav map[string]string `toml:"nav"`
 	// Players change the button bindings for one controller, by its player
 	// slot (see PlayerBindings).
 	Players map[string]PlayerConfig `toml:"players"`
@@ -54,6 +62,9 @@ func (c *Config) Check() error {
 		if !reMode.MatchString(o.Mode) {
 			return fmt.Errorf("outputs.%s: mode %q: use WIDTHxHEIGHT or WIDTHxHEIGHT@HZ, e.g. 1920x1080@60", name, o.Mode)
 		}
+	}
+	if err := evdev.ValidateNav(c.Nav); err != nil {
+		return err
 	}
 	_, buttons, err := Bindings(c.Keys, c.Buttons)
 	if err != nil {

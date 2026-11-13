@@ -316,7 +316,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 			{Type: EventGPUFull, Description: "Video memory is nearly full (90%); a notice asks to lower the game's settings"},
 			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
-			{Type: EventNav, Description: "evdev.Controller navigation for hostd's menu while it is in front (up, down, left, right, choose, back, actions); apps do not see the controllers then"},
+			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front: what is one of up, down, left, right, choose, back, actions, close, prev_tab, next_tab, page_up, page_down, home; family is the controller's kind (xbox, playstation, nintendo, wii, generic). Held directions repeat. Apps do not see the controller then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventDeviceConnected, Description: "A keyboard, mouse or controller was plugged in (see GET /v1/devices)"},
 			{Type: EventDeviceDisconnected, Description: "An input device was unplugged"},

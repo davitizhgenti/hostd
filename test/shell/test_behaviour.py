@@ -162,7 +162,73 @@ class Hints(unittest.TestCase):
         s.setMenuActive(True)
         s.on_event({"type": "display.nav", "data": {"what": "down"}})
         self.assertEqual(s.current_row().title, "Chromium")
-        self.assertEqual([h["button"] for h in s._hints()][:2], ["A", "X"])
+        self.assertEqual([h["button"] for h in s._hints()][:2], ["A", "Menu"])
+
+
+def nav(s, what, family="xbox"):
+    s.on_event({"type": "display.nav", "data": {"what": what, "family": family}})
+
+
+class Controllers(unittest.TestCase):
+    """Every verb hostd's controller reader sends moves the menu, and the
+    hints name the buttons printed on the controller in hand."""
+
+    def setUp(self):
+        self.s = shell()
+        self.s.showMenu()
+        self.s.setMenuActive(True)
+
+    def test_bumpers_change_category_and_triggers_page(self):
+        s = self.s
+        nav(s, "next_tab")
+        self.assertEqual(s.state()["category"], USERS)
+        nav(s, "next_tab")
+        nav(s, "prev_tab")
+        self.assertEqual(s.state()["category"], USERS)
+        nav(s, "prev_tab")
+        self.assertEqual(s.state()["category"], APPS)
+        before = s.state()["current"]
+        nav(s, "page_down")
+        self.assertGreater(s.state()["current"], before + 3)
+        nav(s, "page_up")
+        self.assertEqual(s.state()["current"], before)
+
+    def test_close_and_actions(self):
+        s = self.s
+        nav(s, "close")
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/close", None))
+        nav(s, "actions")
+        self.assertEqual(s.state()["panel"], "options")
+
+    def test_home_goes_back_to_the_first_app(self):
+        s = self.s
+        for _ in range(6):
+            nav(s, "down")
+        nav(s, "next_tab")
+        nav(s, "next_tab")
+        nav(s, "home")
+        self.assertEqual((s.state()["category"], s.current_row().title, s.state()["filter"]), (APPS, "Steam", ""))
+        s.set_filter("dol")
+        nav(s, "home")
+        self.assertEqual((s.state()["filter"], s.current_row().title), ("", "Steam"))
+
+    def test_the_hints_follow_the_controller_in_hand(self):
+        s = self.s
+        want = {"xbox": ["A", "Menu", "Y", "◀ ▶", "B"], "playstation": ["✕", "Options", "△", "◀ ▶", "○"],
+                "nintendo": ["A", "+", "X", "◀ ▶", "B"], "wii": ["A", "+", "2", "◀ ▶", "B"],
+                "generic": ["A", "Menu", "Y", "◀ ▶", "B"]}
+        for family, buttons in want.items():
+            nav(s, "up", family)
+            self.assertEqual([h["button"] for h in s._hints()], buttons, family)
+        nav(s, "up", "not-a-family")  # an unknown one falls back to the generic labels
+        self.assertEqual(s._hints()[0]["button"], "A")
+        nav(s, "up", None)  # as does a missing or odd one
+        self.assertEqual(s._hints()[0]["button"], "A")
+
+    def test_a_controller_does_nothing_while_the_menu_is_away(self):
+        s = shell()
+        nav(s, "next_tab")
+        self.assertEqual(s.state()["category"], APPS)
 
 
 class MenuWindow(unittest.TestCase):

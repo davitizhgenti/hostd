@@ -1,0 +1,38 @@
+# The Classic Controller on a Wii Remote (hid-wiimote shows it as its own
+# device named "Nintendo Wii Remote Classic Controller"). Its layout is a
+# SNES pad's: A on the right, B at the bottom. The stick and trigger axes
+# are hid-wiimote's hat axes (HAT1: left stick, HAT2: right stick, HAT3:
+# analog L and R); their real ranges are read from the device.
+# (Unconfirmed on hardware: check with the controllers checklist.)
+name = "Wii Classic Controller"
+match = { name = "Nintendo Wii Remote Classic Controller*" }
+
+[pad]
+family = "nintendo"
+confirm = "east"
+back = "south"
+
+[pad.keys]
+BTN_A = "east"
+BTN_B = "south"
+BTN_X = "north"
+BTN_Y = "west"
+BTN_TL = "lb"
+BTN_TR = "rb"
+BTN_TL2 = "lt"           # ZL
+BTN_TR2 = "rt"           # ZR
+BTN_START = "start"
+BTN_SELECT = "select"
+BTN_MODE = "guide"
+BTN_DPAD_UP = "up"
+BTN_DPAD_DOWN = "down"
+BTN_DPAD_LEFT = "left"
+BTN_DPAD_RIGHT = "right"
+
+[pad.axes]
+ABS_HAT1X = { as = "lx", min = -32, max = 32 }
+ABS_HAT1Y = { as = "ly", min = -32, max = 32 }
+ABS_HAT2X = { as = "rx", min = -16, max = 16 }
+ABS_HAT2Y = { as = "ry", min = -16, max = 16 }
+ABS_HAT3X = { as = "lt", min = 0, max = 32 }
+ABS_HAT3Y = { as = "rt", min = 0, max = 32 }

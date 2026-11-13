@@ -121,14 +121,15 @@ Every input becomes one of a few verbs (`hostd_shell/input.py`), and the shell a
 
 | Verb | Keyboard | Controller | Mouse |
 | --- | --- | --- | --- |
-| item | Up/Down, Page Up/Down | D-pad up/down | wheel, click |
-| category | Left/Right, Tab | D-pad left/right | click a category |
-| choose | Enter, Space | A | click the current item |
-| back | Esc, Backspace | B | |
-| options | Menu, Shift+F10 | X | right click |
-| close an app | Delete | | |
+| item | Up/Down, Page Up/Down | D-pad or left stick up/down; LT/RT or right stick for a page | wheel, click |
+| category | Left/Right, Tab | D-pad or left stick left/right; LB/RB | click a category |
+| choose | Enter, Space | A (✕; on a Nintendo pad its A) | click the current item |
+| back | Esc, Backspace | B (○) | |
+| options | Menu, Shift+F10 | X (□) or Start | right click |
+| close an app | Delete | Y (△) | |
+| first category | | Select | |
 
-Left and right always change the category; a level (the volume) is changed in its panel with up and down. Typing on Apps filters it. Controllers reach the menu as hostd's `display.nav` events: while the menu is in front, hostd holds the controller that opened it, so the app behind does not act on its buttons too.
+Left and right always change the category; a level (the volume) is changed in its panel with up and down. Typing on Apps filters it. Controllers (Xbox, PlayStation, Nintendo and Wii; see [Controllers](config.md)) reach the menu as hostd's `display.nav` events, which say the controller's kind, so the hints show the buttons printed on it: while the menu is in front, hostd holds the controller that opened it, so the app behind does not act on its buttons too.
 
 ## The menu
 

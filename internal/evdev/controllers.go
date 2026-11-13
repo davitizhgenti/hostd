@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -25,23 +26,27 @@ import (
 //go:embed controllers/*.toml
 var builtinProfiles embed.FS
 
-// ButtonNames are the buttons hostd can bind (see Bindings): meanings, not
-// codes. A profile says which evdev key each one is on its devices.
-var ButtonNames = []string{"guide", "start", "select"}
-
 // Profile describes a family of controllers.
 type Profile struct {
 	ID      string            `toml:"-" json:"id"` // the file name
 	Name    string            `toml:"name" json:"name"`
 	Match   ProfileMatch      `toml:"match" json:"match"`
 	Buttons map[string]string `toml:"buttons" json:"buttons,omitempty"` // button -> evdev key ("BTN_MODE")
+	// Pad places the device's buttons and sticks on the canonical gamepad
+	// (see gamepad.go); without it, the kernel's standard gamepad.
+	Pad *PadMap `toml:"pad" json:"pad,omitempty"`
 	// Raw: the device has no input device, only raw HID that its app
 	// reads (App); hostd lists it but cannot see its buttons.
 	Raw bool   `toml:"raw" json:"raw,omitempty"`
 	App string `toml:"app" json:"app,omitempty"`
 
-	codes map[uint16]string // evdev code -> button
+	codes map[uint16]string // evdev code -> button, for the binding table
+	pad   *padRuntime       // the canonical gamepad
 }
+
+// Family is the profile's family of controllers (xbox, playstation,
+// nintendo, wii, generic): what the shell labels its hints with.
+func (p *Profile) Family() string { return p.pad.family }
 
 // ProfileMatch recognises devices: by USB vendor (and products), by name,
 // or both. All that are set must match.
@@ -84,21 +89,31 @@ func (p *Profile) prepare() error {
 			return fmt.Errorf("match.name %q: %w", p.Match.Name, err)
 		}
 	}
+	pad, err := resolvePad(p.Pad)
+	if err != nil {
+		return err
+	}
+	p.pad = pad
 	p.codes = map[uint16]string{}
 	for button, key := range p.Buttons {
 		if !slices.Contains(ButtonNames, button) {
 			return fmt.Errorf("button %q: use one of %s", button, strings.Join(ButtonNames, ", "))
 		}
-		code, ok := keyCodes[key]
-		if !ok {
-			if n, err := strconv.ParseUint(key, 0, 16); err == nil {
-				code, ok = uint16(n), true
-			}
-		}
+		code, ok := keyCode(key)
 		if !ok {
 			return fmt.Errorf("button %q: unknown key %q (an evdev name such as BTN_MODE, or a number)", button, key)
 		}
 		p.codes[code] = button
+	}
+	// Every other button of the pad can be bound too, unless the profile
+	// placed that button itself above.
+	for code, button := range pad.keys {
+		if _, taken := p.codes[code]; taken || slices.Contains(slices.Collect(maps.Keys(p.Buttons)), button) {
+			continue
+		}
+		if slices.Contains(ButtonNames, button) {
+			p.codes[code] = button
+		}
 	}
 	return nil
 }

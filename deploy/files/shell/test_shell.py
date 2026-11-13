@@ -280,10 +280,32 @@ class Input(unittest.TestCase):
         for v in inp._NAV.values():
             self.assertIn(v, inp.VERBS)
 
+    def test_every_hostd_verb_is_known(self):
+        """The verbs internal/evdev/nav.go can send, kept in step with the menu."""
+        for what, verb in (("close", inp.CLOSE), ("prev_tab", inp.PREV_TAB), ("next_tab", inp.NEXT_TAB),
+                           ("page_up", inp.PAGE_UP), ("page_down", inp.PAGE_DOWN), ("home", inp.HOME)):
+            self.assertEqual(inp.verb_for_nav(what), verb)
+
+    def test_the_go_side_and_the_shell_agree_on_the_verbs(self):
+        with open(os.path.join(HERE, "..", "..", "..", "internal", "evdev", "nav.go")) as f:
+            src = f.read()
+        sent = set(re.findall(r'Verb\w+\s*(?:,\s*Verb\w+)*\s*=\s*((?:"[a-z_]+"(?:,\s*)?)+)', src))
+        verbs = set(re.findall(r'"([a-z_]+)"', " ".join(sent)))
+        self.assertTrue({"up", "choose", "home", "page_down"} <= verbs, verbs)
+        for verb in verbs:
+            self.assertIsNotNone(inp.verb_for_nav(verb), f"hostd sends {verb!r}; the shell does not know it")
+
+    def test_hints_per_family(self):
+        pairs = [(inp.ACTIVATE, "open"), (inp.CLOSE, "close"), (inp.BACK, "back")]
+        self.assertEqual(inp.hint_text(pairs, "controller", "playstation"), "✕ open   △ close   ○ back")
+        self.assertEqual(inp.hint_text(pairs, "controller", "nintendo"), "A open   X close   B back")
+        self.assertEqual(inp.hint_text(pairs, "controller", "wii"), "A open   2 close   B back")
+        self.assertEqual(inp.hint_text(pairs, "controller", "???"), "A open   Y close   B back")
+
     def test_hints(self):
         pairs = [(inp.ACTIVATE, "open"), (inp.CLOSE, "close"), (inp.BACK, "back")]
         self.assertEqual(inp.hint_text(pairs), "Enter open   Del close   Esc back")
-        self.assertEqual(inp.hint_text(pairs, "controller"), "A open   B back")
+        self.assertEqual(inp.hint_text(pairs, "controller"), "A open   Y close   B back")  # a pad has a close button now
 
 
 class Clock:

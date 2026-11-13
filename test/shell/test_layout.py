@@ -35,8 +35,9 @@ class Contract(unittest.TestCase):
     def grid(self, s):
         g = s.engine.singletonInstance("Hostd", "Place")
         t = s.engine.singletonInstance("Hostd", "Theme")
-        return {k: g.property(k) for k in ("axis", "rowLeft", "iconAxis", "columnWidth", "text", "trailEnd", "rowTop", "rowBottom",
-                                           "sectionTop", "listTop", "bottomReserve")} | {
+        names = ("axis", "rowLeft", "iconAxis", "columnWidth", "text", "trailEnd", "rowTop", "rowBottom",
+                 "sectionTop", "listTop", "bottomReserve")
+        return {k: g.property(k) for k in names} | {
             "safe": t.property("layoutSafeMargin"),
             "rowHeight": t.property("layoutItemHeight"),
             "sectionHeight": t.property("layoutSection")}

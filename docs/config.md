@@ -36,6 +36,10 @@ hold = "600ms"
 "F1" = "display.menu"
 [display.buttons]
 guide = "display.menu"
+# What a controller's buttons do in the menu (see "Controllers" below): a
+# button to a verb, "" for nothing.
+[display.nav]
+rs = "home"
 # A screen's resolution, set whenever hostd meets Sway (at start, and again
 # if Sway restarts), so every app draws at one size. "*" names every screen.
 [display.outputs.HDMI-A-1]
@@ -96,6 +100,25 @@ Every keyboard, mouse and controller is a **device** with an ID of its own (vend
 guide = ""                  # player 2's Guide does nothing
 select = "window.next"      # and Select goes to the next app
 ```
+
+**Controllers.** Every controller family is mapped onto one canonical gamepad (`internal/evdev/controllers/*.toml`, a `[pad]` table per profile): the face buttons by position (`south` is an Xbox's A and a PlayStation's cross, `east` its B and circle, `west` X and square, `north` Y and triangle), `lb` and `rb`, the triggers `lt` and `rt` (analog or digital), the stick clicks `ls` and `rs`, `start`, `select`, `guide`, and the d-pad. Built in: Xbox (360, One, Series), PlayStation (DualShock 4, DualSense; their touchpad and motion devices are not controllers), Nintendo (Switch Pro, Joy-Cons), a Wii Remote alone, with a Nunchuk, or a Classic Controller (all of one remote are one player), 8BitDo and a generic gamepad. A new kind is a new profile file in `~/.config/hostd/controllers`, not code.
+
+In the menu, with the menu in front (`display.nav` events):
+
+| Controller | Does |
+| --- | --- |
+| d-pad, left stick | up, down, left, right (a stick past 60 % of its range; held directions repeat after 0.4 s, then every 90 ms) |
+| `south` (A, cross; on a Nintendo pad `east`, its A) | choose |
+| `east` (B, circle; on a Nintendo pad `south`, its B) | back |
+| `west` (X, square), `start` | the item's options |
+| `north` (Y, triangle) | close the running app |
+| `lb`, `rb`; right stick left and right | previous and next category |
+| `lt`, `rt`; right stick up and down | page up and down |
+| `select` | back to the first category |
+| `ls` (stick click) | choose |
+| `guide` | opens and closes the menu (a binding, not a nav verb) |
+
+The menu's hints name the buttons printed on the controller in hand. Change any of it with `[display.nav]`: a button (`south`, `east`, `west`, `north`, `lb`, `rb`, `lt`, `rt`, `ls`, `rs`, `start`, `select`) to a verb (`choose`, `back`, `actions`, `close`, `prev_tab`, `next_tab`, `page_up`, `page_down`, `home`, `up`, `down`, `left`, `right`), or `""` for none. `[display.buttons]` can bind any of those buttons too, not only `guide`, `start` and `select`. A controller's stick or trigger movement does not count as someone at the screen (a worn stick drifts); its buttons and d-pad do.
 
 Keyboards and mice are never taken from the apps. (Keys come from the compositor, which does not say which keyboard sent them, so key bindings are the same for every keyboard.)
 

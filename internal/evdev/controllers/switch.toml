@@ -1,5 +1,36 @@
 # Nintendo Switch Pro controller and Joy-Cons: hid-nintendo. Home is the
-# Guide button.
+# Guide button. Nintendo's A is on the right and B at the bottom, so A
+# confirms and B goes back.
 name = "Nintendo Switch controller"
 match = { vendor = "057e", products = ["2009", "2006", "2007", "200e"] }
 buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }
+
+[pad]
+family = "nintendo"
+confirm = "east"
+back = "south"
+
+[pad.keys]
+BTN_SOUTH = "south"      # B
+BTN_EAST = "east"        # A
+BTN_NORTH = "north"      # X
+BTN_WEST = "west"        # Y
+BTN_TL = "lb"            # L
+BTN_TR = "rb"            # R
+BTN_TL2 = "lt"           # ZL (a button: no analog trigger)
+BTN_TR2 = "rt"           # ZR
+BTN_THUMBL = "ls"
+BTN_THUMBR = "rs"
+BTN_START = "start"      # +
+BTN_SELECT = "select"    # -
+BTN_MODE = "guide"       # Home
+BTN_DPAD_UP = "up"
+BTN_DPAD_DOWN = "down"
+BTN_DPAD_LEFT = "left"
+BTN_DPAD_RIGHT = "right"
+
+[pad.axes]
+ABS_X = { as = "lx", min = -32767, max = 32767 }
+ABS_Y = { as = "ly", min = -32767, max = 32767 }
+ABS_RX = { as = "rx", min = -32767, max = 32767 }
+ABS_RY = { as = "ry", min = -32767, max = 32767 }

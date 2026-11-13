@@ -1,5 +1,41 @@
-# Xbox controllers (360, One, Series) over USB: the kernel's xpad driver.
-# Wireless ones need an Xbox wireless adapter or Bluetooth.
+# Xbox controllers (360, One, Series) over USB: the kernel's xpad driver
+# (and xpadneo over Bluetooth). Wireless ones need an Xbox wireless adapter
+# or Bluetooth.
 name = "Xbox controller"
 match = { vendor = "045e" }
 buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }
+
+# xpad calls X and Y BTN_X (0x133) and BTN_Y (0x134), which the kernel also
+# names BTN_NORTH and BTN_WEST: on an Xbox pad they are the *left* and *top*
+# buttons, the other way round from a PlayStation pad's.
+[pad]
+family = "xbox"
+confirm = "south"
+back = "east"
+
+[pad.keys]
+BTN_SOUTH = "south"      # A
+BTN_EAST = "east"        # B
+BTN_X = "west"           # X
+BTN_Y = "north"          # Y
+BTN_TL = "lb"
+BTN_TR = "rb"
+BTN_THUMBL = "ls"
+BTN_THUMBR = "rs"
+BTN_START = "start"      # Menu
+BTN_SELECT = "select"    # View
+BTN_MODE = "guide"
+BTN_DPAD_UP = "up"
+BTN_DPAD_DOWN = "down"
+BTN_DPAD_LEFT = "left"
+BTN_DPAD_RIGHT = "right"
+
+[pad.axes]
+ABS_X = { as = "lx", min = -32768, max = 32767 }
+ABS_Y = { as = "ly", min = -32768, max = 32767 }
+ABS_RX = { as = "rx", min = -32768, max = 32767 }
+ABS_RY = { as = "ry", min = -32768, max = 32767 }
+ABS_Z = { as = "lt", min = 0, max = 1023 }
+ABS_RZ = { as = "rt", min = 0, max = 1023 }
+ABS_HAT0X = { as = "hatx", min = -1, max = 1 }
+ABS_HAT0Y = { as = "haty", min = -1, max = 1 }

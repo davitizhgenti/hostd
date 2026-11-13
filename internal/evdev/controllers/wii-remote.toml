@@ -1,5 +1,32 @@
 # A Wii Remote paired over Bluetooth, driven by the kernel (hid-wiimote):
 # Home is the Guide button. (Through a DolphinBar, see dolphinbar.toml.)
+#
+# Held upright it has a d-pad, A, B, 1, 2, + and -. A confirms and B goes
+# back; 2 closes an app and + opens the options. A Nunchuk (wii-nunchuk) or
+# a Classic Controller (wii-classic) plugged into it shows up as a further
+# device of the same remote: the same player.
 name = "Wii Remote"
 match = { name = "Nintendo Wii Remote*" }
 buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }
+
+[pad]
+family = "wii"
+confirm = "east"
+back = "south"
+
+[pad.keys]
+BTN_A = "east"           # A, the big button
+BTN_B = "south"          # B, the trigger
+BTN_1 = "west"
+BTN_2 = "north"
+BTN_START = "start"      # +
+BTN_SELECT = "select"    # -
+BTN_MODE = "guide"       # Home
+KEY_UP = "up"
+KEY_DOWN = "down"
+KEY_LEFT = "left"
+KEY_RIGHT = "right"
+BTN_DPAD_UP = "up"
+BTN_DPAD_DOWN = "down"
+BTN_DPAD_LEFT = "left"
+BTN_DPAD_RIGHT = "right"

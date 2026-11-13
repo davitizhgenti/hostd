@@ -41,7 +41,7 @@ var Builtin = host.Builtin{
 			return nil, err
 		}
 		return New(Options{Connect: SwayConnector(h.RuntimeDir), Logger: h.Log,
-			Input: &seat.Gate{Inner: &evdev.Evdev{Profiles: profiles, Players: players}, User: currentUser()}, Players: players, Profiles: profiles, IdleAfter: time.Duration(c.IdleAfter),
+			Input: &seat.Gate{Inner: &evdev.Evdev{Profiles: profiles, Players: players, Nav: c.Nav}, User: currentUser()}, Players: players, Profiles: profiles, IdleAfter: time.Duration(c.IdleAfter),
 			Notifier: &notify.Desktop{RuntimeDir: h.RuntimeDir}, Keys: keys, Buttons: buttons, PlayerButtons: playerButtons, Outputs: c.Outputs,
 			HoldFor: time.Duration(c.Hold), GPU: gpu.System{}}), nil
 	},

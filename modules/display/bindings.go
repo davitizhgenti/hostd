@@ -150,7 +150,7 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 		// player's buttons do nothing to it.
 		if front && core != nil && (owner == "" || owner == ev.Device) {
 			for _, n := range ev.Nav {
-				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]any{"what": n, "device": ev.Device, "player": ev.Player}),
+				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]any{"what": n, "device": ev.Device, "player": ev.Player, "family": ev.Family}),
 					Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
 			}
 		}
