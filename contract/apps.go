@@ -174,7 +174,7 @@ func UnitName(instance string) string {
 }
 
 // InstanceFromUnit reads the instance from a unit name made by UnitName.
-// hostd.service itself is not an instance.
+// hostd.service and hostd's own support services are not instances.
 func InstanceFromUnit(unit string) (string, bool) {
 	name, ok := strings.CutSuffix(unit, ".service")
 	if !ok {
@@ -182,6 +182,13 @@ func InstanceFromUnit(unit string) (string, bool) {
 	}
 	id, ok := strings.CutPrefix(name, "hostd-")
 	if !ok || id == "" {
+		return "", false
+	}
+	switch id {
+	case "shell", "notices", "rollback", "update", "steam-games", "seat-helper":
+		return "", false
+	}
+	if strings.HasPrefix(id, "session-") {
 		return "", false
 	}
 	return strings.ReplaceAll(id, `\x23`, "#"), true

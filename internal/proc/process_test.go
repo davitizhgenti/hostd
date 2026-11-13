@@ -58,7 +58,8 @@ func TestResolve(t *testing.T) {
 		Match: &contract.Match{Class: "portal2*", Env: "SteamAppId=620"}}
 	foot := contract.Instance{ID: "foot", App: "foot", PID: 400}
 	chrome := contract.Instance{ID: "chrome", App: "chrome", PID: 600}
-	live := []contract.Instance{steam, game, foot, chrome}
+	menu := contract.Instance{ID: "hostd-menu", App: "hostd-menu", PID: 700, Match: &contract.Match{AppID: "hostd-menu"}}
+	live := []contract.Instance{steam, game, foot, chrome, menu}
 
 	steamEnv := []string{"FLATPAK_ID=com.valvesoftware.Steam"}
 	gameEnv := []string{"FLATPAK_ID=com.valvesoftware.Steam", "SteamAppId=620"}
@@ -71,6 +72,7 @@ func TestResolve(t *testing.T) {
 	fake(t, root, 30, "/user.slice/app-chromium.scope", nil, 600) // moved out of its unit
 	fake(t, root, 31, "/user.slice/x.scope", nil, 30)             // and a child of it
 	fake(t, root, 40, "/user.slice/x.scope", nil, 1)              // nobody's
+	fake(t, root, 50, unit("shell"), nil, 1)                      // hostd's shell service, not an instance
 
 	for _, c := range []struct {
 		name string
@@ -87,6 +89,7 @@ func TestResolve(t *testing.T) {
 		{"moved out of its unit: found by descent", Subject{PID: 30}, "chrome"},
 		{"and its child", Subject{PID: 31}, "chrome"},
 		{"nobody's", Subject{PID: 40}, ""},
+		{"shell service matched by app_id", Subject{PID: 50, AppID: "hostd-menu"}, "hostd-menu"},
 		{"no process", Subject{PID: 0}, ""},
 		{"a process that is gone", Subject{PID: 999}, ""},
 	} {
@@ -96,6 +99,9 @@ func TestResolve(t *testing.T) {
 	}
 	if got := Resolve(root, Subject{PID: 10}, nil); got != "foot" {
 		t.Errorf("with nothing live the unit still names the instance: %q", got)
+	}
+	if got := Resolve(root, Subject{PID: 50, AppID: "hostd-menu"}, nil); got != "" {
+		t.Errorf("shell service with nothing live = %q, want empty", got)
 	}
 }
 

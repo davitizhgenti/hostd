@@ -19,7 +19,7 @@ func TestPrepareInstallsNoHostd(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(m.root, "etc/greetd/config.toml")); err != nil {
 		t.Error("no autologin")
 	}
-	for _, p := range []string{"usr/local/bin/hostctl", "home/screen/.local/lib/hostd/current"} {
+	for _, p := range []string{"usr/local/bin/hostctl", "home/screen/.local/lib/hostd/current", "home/screen/.config/systemd/user/hostd-shell.service"} {
 		if _, err := os.Lstat(filepath.Join(m.root, p)); err == nil {
 			t.Errorf("prepare installed %s", p)
 		}

@@ -97,7 +97,7 @@ func (s *Setup) Install(ctx context.Context, o Options) error {
 	defer os.RemoveAll(work)
 	in.work = work
 	steps := []func(context.Context) error{
-		in.checkSystem, in.enableNonFree, in.packages, in.nvidiaSway, in.screenUser, in.sshKeysOnly,
+		in.checkSystem, in.enableNonFree, in.packages, in.nvidiaSway, in.screenUser, in.sessionConfig, in.sshKeysOnly,
 		in.autologin, in.installHostd, in.installSelf, in.addons, in.updates,
 	}
 	if s.User != nil { // the user's own: what needs root is the admin's (hostd-admin)
@@ -427,7 +427,7 @@ func (in *installer) screenUser(ctx context.Context) error {
 		return err
 	}
 
-	return in.sessionConfig(ctx)
+	return nil
 }
 
 // sessionConfig is the part of the user's setup that lives in their home:
@@ -985,11 +985,17 @@ func (in *installer) startHostd(ctx context.Context) error {
 	if in.oldNotices {
 		_, _ = in.asScreen(ctx, "systemctl", "--user", "stop", "hostd-notices.service")
 	}
-	if in.shellChanged || in.shellFilesChanged || in.oldNotices {
+	swaySocks, _ := filepath.Glob(in.path(in.user.runtime() + "/sway-ipc.*.sock"))
+	changedShell := in.shellChanged || in.shellFilesChanged || in.oldNotices
+	if changedShell || len(swaySocks) > 0 {
 		active := in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd-shell.service")
-		if active || in.oldNotices {
+		if (changedShell && (active || in.oldNotices)) || (!active && len(swaySocks) > 0) {
 			if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd-shell.service"); err == nil {
-				in.Out.Changed("restarted hostd-shell")
+				if active {
+					in.Out.Changed("restarted hostd-shell")
+				} else {
+					in.Out.Changed("started hostd-shell")
+				}
 			} else {
 				in.Out.Warn("warning: hostd-shell did not start; its packages come with: sudo hostd-admin prepare")
 			}

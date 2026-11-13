@@ -202,7 +202,7 @@ func (s *Setup) runExtra(ctx context.Context, o Options, port int) error {
 	}
 	defer os.RemoveAll(work)
 	in.work = work
-	for _, step := range []func(context.Context) error{in.checkSystem, in.screenUser, in.userConfig, in.installHostd} {
+	for _, step := range []func(context.Context) error{in.checkSystem, in.screenUser, in.sessionConfig, in.userConfig, in.installHostd} {
 		if err := step(ctx); err != nil {
 			return err
 		}
