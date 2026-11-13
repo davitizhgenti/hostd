@@ -155,13 +155,19 @@ A top-level folder can be a category of its own, after Apps, by listing it in `~
 [[tab]]
 folder = "Games"
 icon = "gamepad-2"   # one of the menu's icons (deploy/files/shell/icons); the folder icon otherwise
+view = "covers"      # "list" (the default) or "covers"
+backdrop = true      # the current app's picture behind the menu (the default)
 
 [[tab]]
 folder = "Services"
 icon = "server"
 ```
 
-A tab lists its folder like Apps lists the top: the running apps, the subfolders, then the apps. Back goes up within it and, at its top, to Apps. Apps no longer shows a folder that is a tab. The menu reads the file again when it changes; a file it cannot use gives no tabs, and the menu says why. hostd ships no tabs: the file is the user's.
+A list tab lists its folder like Apps lists the top: the running apps, the subfolders, then the apps. Back goes up within it and, at its top, to Apps. Apps no longer shows a folder that is a tab. The menu reads the file again when it changes; a file it cannot use gives no tabs, and the menu says why. hostd ships no tabs: the file is the user's.
+
+**Covers.** A tab with `view = "covers"` shows every app anywhere in its folder in one column of covers, as the PSP showed games: no folders to open. The games come first (running ones first), the launchers they need (Steam, Dolphin) last. The current cover is big (`layout.cover`, 2:3) at the list block's left edge, at the list's top, with its title, where it is from and its state beside it on the text column; the others are small (`layout.cover-small`) under it on the same axis, and slide up and fade as the list does. Covers are flat and square with a hairline edge. A cover is the app's `cover` picture; an app without one shows its own icon on a plain tile.
+
+**The app's picture behind the menu.** In a tab with `backdrop` (the default), the current app's `backdrop` picture (else its cover) fills the screen behind the menu, cross-fading as the selection moves, under `art.dim` of the background color so text reads on any picture (the readability test checks text on white). Settings, "Game art behind the menu", turns it off on this screen (`art = false` in `ui.toml`); Apps, Users, Settings and Status always keep the plain background.
 
 The menu acts with the machine's local token (`~/.config/hostd/local.token`, scopes `read,apps,audio,display`, and `seat` with the seats add-on), so what is chosen on the screen counts as someone at the screen.
 

@@ -22,8 +22,8 @@ def shell(menu=None):
         menu_path = os.path.join(tempfile.mkdtemp(), "menu.toml")
         with open(menu_path, "w") as f:
             f.write(menu)
-    s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW, look_path="/nonexistent/ui.toml",
-              menu_path=menu_path)
+    s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW,
+              look_path=os.path.join(tempfile.mkdtemp(), "ui.toml"), menu_path=menu_path)
     for c in s.cats:
         s.refresh(c.key)
     return s
@@ -315,12 +315,14 @@ class Tabs(unittest.TestCase):
         self.assertEqual(titles(s)[:3], ["Steam", "Chromium", "Kodi"])  # Apps has no Games or Services folder
         s.handle("right")
         self.assertEqual((s.state()["category"], s.property("category")), ("tab:Games", 1))
-        self.assertEqual((titles(s), s.property("section")), (["Dolphin", "Steam"], ""))
+        # A covers tab: every game in it, flat; the launcher last.
+        self.assertEqual((s.property("view"), titles(s), s.property("section")),
+                         ("covers", ["Mario Kart Wii", "Super Mario Galaxy", "Steam", "Dolphin"], ""))
         s.handle("right")
         self.assertEqual(titles(s), ["Home Assistant", "Syncthing", "Pi-hole"])
 
     def test_back_stops_at_the_tab(self):
-        s = shell(fixtures.MENU)
+        s = shell('[[tab]]\nfolder = "Games"\n')  # a list tab: its folders open
         s.handle("right")
         s.handle("activate")  # Dolphin
         self.assertEqual((s.property("section"), titles(s)), ("Games / Dolphin", ["Wii", "Dolphin"]))
@@ -328,6 +330,25 @@ class Tabs(unittest.TestCase):
         self.assertEqual((s.state()["category"], s.current_row().title), ("tab:Games", "Dolphin"))
         s.handle("back")  # at the tab's top: back to Apps, as from any category
         self.assertEqual(s.state()["category"], APPS)
+
+    def test_the_current_games_art_is_behind_the_menu(self):
+        s = shell(fixtures.MENU)
+        self.assertEqual(s.property("artImage"), "")  # Apps: never
+        s.handle("right")
+        self.assertEqual(s.property("artImage"), "file://" + fixtures.BACKDROP_A)  # its backdrop
+        s.handle("down")
+        self.assertEqual(s.property("artImage"), "file://" + fixtures.COVER_B)  # no backdrop: its cover
+        s.handle("down")
+        self.assertEqual(s.property("artImage"), "")  # no picture at all
+        s.handle("up")
+        s.send(views.local("background", {**s.look, "art": False}))  # Settings: Game art behind the menu, off
+        self.assertEqual(s.property("artImage"), "")
+        self.assertEqual(s.page().rows[0].subtitle, "Dolphin / Wii")
+
+    def test_a_tab_can_have_no_art(self):
+        s = shell('[[tab]]\nfolder = "Games"\nview = "covers"\nbackdrop = false\n')
+        s.handle("right")
+        self.assertEqual(s.property("artImage"), "")
 
     def test_typing_in_a_tab_searches_every_app(self):
         s = shell(fixtures.MENU)
@@ -570,6 +591,14 @@ class Readability(unittest.TestCase):
         for name, setting in background.choices(look, harness.TOKENS):
             if setting["mode"] == "color":
                 self.check(setting, fixtures.NOW, name)
+
+    def test_text_reads_on_any_game_picture(self):
+        # The worst picture is white: under art.dim of the background color.
+        dim, bg = harness.TOKENS["art"]["dim"], background.rgb(harness.TOKENS["color"]["bg"])
+        over = "#" + "".join(f"{round(255 * ((1 - dim) + dim * c)):02x}" for c in bg)
+        text, muted = harness.TOKENS["color"]["text"], harness.TOKENS["color"]["text-muted"]
+        self.assertGreaterEqual(contrast(text, over), 4.5, f"text on {over}")
+        self.assertGreaterEqual(contrast(muted, over), 3.0, f"muted text on {over}")
 
     def test_a_light_color_is_darkened(self):
         self.check({"mode": "color", "color": "#ffffff", "image": ""}, fixtures.NOW, "white")

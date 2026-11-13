@@ -4,6 +4,8 @@ of their own, next to Apps.
     [[tab]]
     folder = "Games"     # a top-level folder (an app file's folder = "Games/...")
     icon = "gamepad-2"   # one of the menu's icons; the folder icon if not
+    view = "covers"      # "list" (the default), or every app in it as covers in one column
+    backdrop = true      # the current app's picture behind the menu (the default; ui.toml can turn it off)
 
 The tabs come after Apps, in the file's order. With no file there are no
 tabs; a file that cannot be used gives none and says why.
@@ -11,9 +13,18 @@ tabs; a file that cannot be used gives none and says why.
 
 import os
 import tomllib
+from typing import NamedTuple
 
 DEFAULT_ICON = "folder"
 MAX_TABS = 8
+VIEWS = ("list", "covers")
+
+
+class Tab(NamedTuple):
+    folder: str
+    icon: str = DEFAULT_ICON
+    view: str = "list"
+    backdrop: bool = True
 
 
 def path():
@@ -22,8 +33,8 @@ def path():
 
 
 def load(file=None, has_icon=None):
-    """(tabs, problem): tabs as (folder, icon) pairs; problem is "" or what
-    is wrong with the file. has_icon tells whether an icon name exists."""
+    """(tabs, problem): tabs as Tabs; problem is "" or what is wrong with
+    the file. has_icon tells whether an icon name exists."""
     has_icon = has_icon or (lambda name: True)
     try:
         with open(file or path(), "rb") as f:
@@ -45,7 +56,13 @@ def load(file=None, has_icon=None):
             return [], f"menu.toml: tab {n}: {folder} is a tab already"
         seen.add(folder)
         icon = t.get("icon")
-        out.append((folder, icon if isinstance(icon, str) and has_icon(icon) else DEFAULT_ICON))
+        view = t.get("view", "list")
+        if view not in VIEWS:
+            return [], f"menu.toml: tab {n}: view must be one of {', '.join(VIEWS)}"
+        backdrop = t.get("backdrop", True)
+        if not isinstance(backdrop, bool):
+            return [], f"menu.toml: tab {n}: backdrop is true or false"
+        out.append(Tab(folder, icon if isinstance(icon, str) and has_icon(icon) else DEFAULT_ICON, view, backdrop))
     if len(out) > MAX_TABS:
         return [], f"menu.toml: at most {MAX_TABS} tabs"
     return out, ""

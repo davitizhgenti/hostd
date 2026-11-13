@@ -39,7 +39,8 @@ STATES = [
     ("11-notices", "NoticeLayer", "notices", "Notices, critical first"),
     ("12-osd", "OsdLayer", "osd", "The OSD"),
     ("13-gallery", "Gallery", [], "The component sheet"),
-    ("14-tabs", "Menu+tabs", ["right"], "The Games tab, marked in the menu file"),
+    ("14-tabs", "Menu+tabs", ["right"], "The Games tab (covers), with the current game's picture behind"),
+    ("14b-covers-down", "Menu+tabs", ["right", "down", "down"], "Down two: a game with no picture, its icon on a tile"),
     ("15-services", "Menu+tabs", ["right", "right"], "The Services tab: each service's state"),
     ("16-service-options", "Menu+tabs", ["right", "right", "activate"], "A service's options: Stop, Restart"),
 ]

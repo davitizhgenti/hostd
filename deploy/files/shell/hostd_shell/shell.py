@@ -31,6 +31,7 @@ REFRESH_ON = {
     "status": ("hostd.", "action."),
 }
 OSD_MS = 1600
+SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
@@ -40,7 +41,7 @@ def fetch(api, category, look, tokens, path=(), tabs=()):
     if category.kind == "apps":
         instances = api.get("/v1/instances?all=true") or []
         apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
-        return views.apps_page(instances, apps, path, category.root, tabs)
+        return views.apps_page(instances, apps, path, category.root, tabs, flat=category.view == "covers")
     if category.kind == "users":
         try:
             seats = api.get("/v1/seat")
@@ -131,6 +132,7 @@ class Shell(QObject):
         self.debounce = QTimer(self, singleShot=True, interval=100, timeout=self._refresh_pending)
         self.notice_timer = QTimer(self, singleShot=True, timeout=self._expire_notices)
         self.osd_timer = QTimer(self, singleShot=True, interval=OSD_MS, timeout=self._hide_osd)
+        self.say_timer = QTimer(self, singleShot=True, timeout=lambda: self.say(""))
         # The mouse, with no pointer: movement glides the selection (glide.py).
         self.glide = Glide.from_tokens(tokens)
         self.warp = warp_pointer  # puts the hidden pointer back in the middle
@@ -219,7 +221,7 @@ class Shell(QObject):
             return
         try:
             rows, summary = fetch(self.api, self.cat(c), self.look, self.tokens, self.paths[c],
-                                  [f for f, _icon in self.tabs])
+                                  [t.folder for t in self.tabs])
         except Exception as e:  # noqa: BLE001 - shown on the screen
             self.say(f"Cannot reach hostd: {e}", error=True)
             return
@@ -323,6 +325,8 @@ class Shell(QObject):
             self.paths[old] = self.cat(old).root  # leaving a tab closes its folders
             self.refresh(old, keep=False)
         self._category = c
+        if self._message and not self._message.startswith("Cannot reach hostd"):
+            self.say("")  # it was about the category left
         self.refresh(c)
         self.changed.emit()
 
@@ -597,7 +601,12 @@ class Shell(QObject):
             self._show_rows(self._category, keep=False)
 
     def say(self, text, error=False):
+        """A message at the bottom left, for a few seconds."""
         self._message, self._error = text, error
+        if text:
+            self.say_timer.start(ERROR_MS if error else SAY_MS)
+        else:
+            self.say_timer.stop()
         self.changed.emit()
 
     def _set_device(self, device):
@@ -690,6 +699,16 @@ class Shell(QObject):
                 pairs.append((inp.BACK, "back"))
         return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device, self._family)]
 
+    def art(self):
+        """The current app's picture (a file URL) behind the menu, in a tab
+        that shows them while the setting allows it; ""."""
+        c = self.cat()
+        row = self.current_row()
+        if c.kind != "apps" or not c.backdrop or not self.look.get("art", True) or row is None or self._filter:
+            return ""
+        pic = row.backdrop or row.cover
+        return "file://" + pic if pic else ""
+
     def _colors(self):
         return background.colors(self.look, self.now(), self.tokens) or ("", "")
 
@@ -700,6 +719,8 @@ class Shell(QObject):
     noticeModel = Property(QObject, lambda s: s.notices_model, constant=True)
 
     category = Property(int, lambda s: s.index(), notify=changed)
+    view = Property(str, lambda s: s.cat().view, notify=changed)
+    artImage = Property(str, art, notify=changed)
     section = Property(str, section, notify=changed)
     headersBefore = Property(int, lambda s: s.offset()[0], notify=changed)
     rowsBefore = Property(int, lambda s: s.offset()[1], notify=changed)

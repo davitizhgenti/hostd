@@ -179,10 +179,48 @@ class MenuLayout(Contract):
                 self.check(s, f"{size_name} apps with tabs")
                 for c in ("Games", "Services", "Users", "Settings", "Status"):
                     s.verb("right")
-                    self.check(s, f"{size_name} {c} tab")
-                s.verb("home", "right", "activate")
-                self.assertEqual(s.shell.property("section"), "Games / Dolphin")
-                self.check(s, f"{size_name} a folder in a tab")
+                    if c == "Games":
+                        self.check_covers(s, f"{size_name} {c} tab")
+                    else:
+                        self.check(s, f"{size_name} {c} tab")
+
+    def test_covers_keep_the_grid(self):
+        for size_name, size in SIZES.items():
+            with Screen(size, tabs=True) as s:
+                s.verb("right")  # Games: covers
+                for n in range(4):
+                    self.check_covers(s, f"{size_name} covers down {n}")
+                    s.verb("down")
+
+    def check_covers(self, s, where):
+        g, (w, h) = self.grid(s), s.size
+        p = s.engine.singletonInstance("Hostd", "Place")
+        self.assertEqual(s.warnings, [], f"{where}: QML warnings")
+        area, band = s.rect("coversArea"), s.rect("rowBand")
+        self.assertFalse(s.shown("listArea"), f"{where}: the list shows too")
+        self.near(area[0], g["rowLeft"], f"{where}: covers at the block's left")
+        self.near(area[1], g["listTop"], f"{where}: covers at the list's top")
+        self.assertLessEqual(area[1] + area[3], h - g["bottomReserve"] + TOL, f"{where}: covers into the hints")
+        cur = s.shell.state()["current"]
+        tile, title = s.rect(f"coverTile/{cur}"), s.rect(f"coverTitle/{cur}")
+        self.near(tile[1], area[1], f"{where}: the current cover at the list's top")
+        self.near(tile[3], p.property("coverHeight"), f"{where}: the current cover's height")
+        self.near(tile[2], p.property("coverWidth"), f"{where}: the current cover's width")
+        self.near(title[0], p.property("coverText"), f"{where}: its title beside it")
+        self.near(title[1], tile[1], f"{where}: its title level with its top")
+        safe = (g["safe"], g["safe"], w - 2 * g["safe"], h - 2 * g["safe"])
+        self.assertTrue(inside(tile, safe), f"{where}: cover outside the margins")
+        drawn = 0
+        for name, it in s.items().items():
+            if not name.startswith("coverTile/") or not s.shown(it):
+                continue
+            r = s.rect(it)
+            if not intersects(r, area):
+                continue
+            drawn += 1
+            self.near(cx(r), p.property("coverAxis"), f"{where}: {name} on the covers' axis")
+            self.assertGreaterEqual(r[1], band[1] + band[3], f"{where}: {name} enters the category row")
+        self.assertGreaterEqual(drawn, 1, f"{where}: no covers drawn")
 
     def test_options_panel(self):
         for size_name, size in SIZES.items():

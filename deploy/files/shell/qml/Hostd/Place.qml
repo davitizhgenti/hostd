@@ -33,6 +33,16 @@ QtObject {
     readonly property int sectionTop: rowBottom + Theme.spaceL
     readonly property int listTop: sectionTop + Theme.layoutSection
 
+    // The covers view: a column of covers (2:3) at the block's left edge, the
+    // current one big with its title beside it on coverText, the others small
+    // under it, all centred on coverAxis.
+    readonly property int coverHeight: Theme.layoutCover
+    readonly property int coverWidth: Math.round(coverHeight * 2 / 3)
+    readonly property int coverSmallHeight: Theme.layoutCoverSmall
+    readonly property int coverSmallWidth: Math.round(coverSmallHeight * 2 / 3)
+    readonly property int coverAxis: rowLeft + Math.round(coverWidth / 2)
+    readonly property int coverText: rowLeft + coverWidth + Theme.spaceL
+
     // Kept clear at the bottom for the hints and the message.
     readonly property int bottomReserve: Theme.layoutSafeMargin + Math.round(Theme.typeLabel * 1.5) + Theme.spaceL
 }

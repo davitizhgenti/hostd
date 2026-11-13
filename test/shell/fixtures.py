@@ -7,6 +7,9 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_ICON = os.path.join(HERE, "fixtures", "app-icon.svg")
+COVER_A = os.path.join(HERE, "fixtures", "cover-a.png")
+COVER_B = os.path.join(HERE, "fixtures", "cover-b.png")
+BACKDROP_A = os.path.join(HERE, "fixtures", "backdrop-a.png")
 NOW = datetime.datetime(2026, 2, 14, 13, 30)  # February (gold), early afternoon
 LONG = "A game with a very long title that cannot fit in the column however wide the screen is"
 
@@ -28,15 +31,18 @@ APPS = [
     {"id": "long", "name": LONG, "surface": "window"},
     {"id": "firefox", "name": "Firefox", "surface": "window"},
     {"id": "vlc", "name": "VLC", "surface": "window"},
-    {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii"},
-    {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii"},
+    {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii",
+     "requires": ["dolphin"], "cover": COVER_A, "backdrop": BACKDROP_A},
+    {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii",
+     "requires": ["dolphin"], "cover": COVER_B},
     {"id": "steam-launcher", "name": "Steam", "surface": "window", "folder": "Games/Steam"},
     {"id": "homeassistant", "name": "Home Assistant", "surface": "background"},
     {"id": "syncthing", "name": "Syncthing", "surface": "background"},
     {"id": "pihole", "name": "Pi-hole", "surface": "background"},
 ]
 # The menu file (menu.toml) of a screen with tabs: Games and Services.
-MENU = '[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\n\n[[tab]]\nfolder = "Services"\nicon = "server"\n'
+MENU = ('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\nview = "covers"\n\n'
+        '[[tab]]\nfolder = "Services"\nicon = "server"\n')
 
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]
 AUDIO = {"available": True, "percent": 70, "muted": False, "outputs": [

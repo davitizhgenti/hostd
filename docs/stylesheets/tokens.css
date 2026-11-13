@@ -51,12 +51,16 @@
   --layout-panel-width: 640px;
   --layout-notice-width: 600px;
   --layout-osd-width: 440px;
+  --layout-cover: 264px;
+  --layout-cover-small: 96px;
 
   --input-glide-step: 40;
   --input-glide-cross: 100;
   --input-glide-rest: 250;
   --input-glide-floor: 60;
   --input-glide-burst: 3;
+
+  --art-dim: 0.72;
 
   --month-jan: #9097a3;
   --month-feb: #b39a4f;

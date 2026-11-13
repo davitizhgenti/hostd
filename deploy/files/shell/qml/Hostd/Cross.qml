@@ -91,10 +91,18 @@ Item {
         text: cross.shell.section
     }
 
+    // A tab of covers, in place of the list.
+    Covers {
+        shell: cross.shell
+        visible: cross.shell.view === "covers"
+        height: parent.height - Place.listTop - Place.bottomReserve
+    }
+
     // The list: the current item at its top.
     Item {
         id: list
         objectName: "listArea"
+        visible: cross.shell.view !== "covers"
         x: Place.rowLeft
         y: Place.listTop
         width: Place.columnWidth

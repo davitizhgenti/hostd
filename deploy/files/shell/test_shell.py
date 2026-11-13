@@ -140,10 +140,12 @@ class Folders(unittest.TestCase):
 
 class Tabs(unittest.TestCase):
     def test_categories(self):
-        cats = views.categories([("Games", "gamepad-2"), ("Services", "server")])
+        cats = views.categories([menu.Tab("Games", "gamepad-2", "covers"), menu.Tab("Services", "server", backdrop=False)])
         self.assertEqual([c.name for c in cats], ["Apps", "Games", "Services", "Users", "Settings", "Status"])
         self.assertEqual([c.key for c in cats][:3], ["apps", "tab:Games", "tab:Services"])
-        self.assertEqual((cats[1].kind, cats[1].root, cats[1].icon), ("apps", ("Games",), "gamepad-2"))
+        self.assertEqual((cats[1].kind, cats[1].root, cats[1].icon, cats[1].view, cats[1].backdrop),
+                         ("apps", ("Games",), "gamepad-2", "covers", True))
+        self.assertEqual((cats[2].view, cats[2].backdrop, cats[0].backdrop), ("list", False, False))
         for c in views.categories():
             self.assertTrue(os.path.exists(os.path.join(HERE, "icons", c.icon + ".svg")), c.icon)
 
@@ -164,6 +166,38 @@ class Tabs(unittest.TestCase):
     def test_every_tab_searches_every_app(self):
         rows, _ = views.apps_page(INSTANCES, FOLDER_APPS, ("Games",), ("Games",), ["Games"])
         self.assertEqual([r.title for r in views.visible(rows, "chrom")], ["Chromium"])
+
+
+class Covers(unittest.TestCase):
+    """A covers tab: every app in it, flat, games before launchers."""
+
+    APPS = FOLDER_APPS + [
+        {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam", "folder": "Games/Steam",
+         "requires": ["steam"], "cover": "/c/dota.jpg", "backdrop": "/c/dota-hero.jpg"},
+        {"id": "launcher", "name": "Launcher", "surface": "window", "folder": "Games"},
+        {"id": "wiigame", "name": "Wii Sports", "surface": "window", "folder": "Games/Dolphin/Wii", "requires": ["dolphin"]},
+    ]
+
+    def rows(self, instances=INSTANCES):
+        rows, summary = views.apps_page(instances, self.APPS,
+                                        ("Games", "Dolphin"), ("Games",), ["Games"], flat=True)
+        return views.visible(rows, ""), summary
+
+    def test_every_app_in_the_tab_flat_games_first(self):
+        rows, summary = self.rows()
+        self.assertEqual([(r.kind, r.title) for r in rows],
+                         [("item", "Mario Kart Wii"), ("item", "Super Mario Galaxy"), ("item", "Steam"),
+                          ("item", "Dota 2"), ("item", "Launcher"), ("item", "Wii Sports"), ("item", "Dolphin")])
+        self.assertEqual(summary, "7 apps")
+
+    def test_each_says_where_it_is_from_and_has_its_pictures(self):
+        rows, _ = self.rows([{"id": "steam-570", "app": "steam-570", "surface": "window", "state": "running"}])
+        dota = rows[0]  # running: first
+        self.assertEqual((dota.title, dota.subtitle, dota.cover, dota.backdrop),
+                         ("Dota 2", "Steam · running", "/c/dota.jpg", "/c/dota-hero.jpg"))
+        wii = next(r for r in rows if r.title == "Wii Sports")
+        self.assertEqual(wii.subtitle, "Dolphin / Wii")
+        self.assertEqual(next(r for r in rows if r.title == "Launcher").subtitle, "")
 
 
 SERVICE_APPS = APPS + [
@@ -272,7 +306,11 @@ class SettingsPage(unittest.TestCase):
         bg = rows["Background"]
         self.assertEqual(bg.value, "Month and time of day")
         self.assertEqual(bg.sheet[0].badge, "now")
-        self.assertEqual(bg.sheet[0].call, views.local("background", {"mode": "month", "color": "", "image": "/pics/sea.jpg"}))
+        self.assertEqual(bg.sheet[0].call, views.local("background", {"mode": "month", "color": "", "image": "/pics/sea.jpg",
+                                                                       "art": True}))
+        art = rows["Game art behind the menu"]
+        self.assertEqual((art.kind, art.value), (views.TOGGLE, "on"))
+        self.assertEqual(art.call, views.local("background", {**look, "art": False}))
         self.assertEqual(bg.sheet[-1].title, "Image: sea.jpg")
         gold = [r for r in bg.sheet if r.title == "Gold"][0]
         self.assertEqual(gold.call.body["mode"], "color")
@@ -323,17 +361,23 @@ class MenuFile(unittest.TestCase):
     def test_tabs_in_order(self):
         tabs, problem = self.load('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\n[[tab]]\nfolder = "/Services/"\n',
                                   has_icon=lambda n: n == "gamepad-2")
-        self.assertEqual((tabs, problem), ([("Games", "gamepad-2"), ("Services", "folder")], ""))
+        self.assertEqual((tabs, problem), ([menu.Tab("Games", "gamepad-2"), menu.Tab("Services", "folder")], ""))
+
+    def test_view_and_backdrop(self):
+        tabs, problem = self.load('[[tab]]\nfolder = "Games"\nview = "covers"\nbackdrop = false\n')
+        self.assertEqual((tabs, problem), ([menu.Tab("Games", "folder", "covers", False)], ""))
 
     def test_an_unknown_icon_is_the_folder(self):
-        self.assertEqual(self.load('[[tab]]\nfolder = "Games"\nicon = "nope"\n', lambda n: False)[0], [("Games", "folder")])
+        self.assertEqual(self.load('[[tab]]\nfolder = "Games"\nicon = "nope"\n', lambda n: False)[0], [menu.Tab("Games")])
 
     def test_problems_give_no_tabs(self):
         for text, said in (('[[tab]\n', "menu.toml"),
                            ('tab = "Games"\n', "list of tables"),
                            ('[[tab]]\nfolder = "Games/Steam"\n', "one folder"),
                            ('[[tab]]\nicon = "x"\n', "one folder"),
-                           ('[[tab]]\nfolder = "Games"\n[[tab]]\nfolder = "Games"\n', "a tab already")):
+                           ('[[tab]]\nfolder = "Games"\n[[tab]]\nfolder = "Games"\n', "a tab already"),
+                           ('[[tab]]\nfolder = "Games"\nview = "grid"\n', "view must be"),
+                           ('[[tab]]\nfolder = "Games"\nbackdrop = "yes"\n', "true or false")):
             tabs, problem = self.load(text)
             self.assertEqual(tabs, [], text)
             self.assertIn(said, problem, text)
@@ -369,9 +413,11 @@ class Background(unittest.TestCase):
         self.assertEqual(background.load(self.file)["mode"], "month")
 
     def test_save_and_load(self):
-        setting = {"mode": "image", "color": "#203040", "image": '/pics/a "b".jpg'}
+        setting = {"mode": "image", "color": "#203040", "image": '/pics/a "b".jpg', "art": True}
         background.save(setting, self.file)
         self.assertEqual(background.load(self.file), setting)
+        background.save({**setting, "art": False}, self.file)
+        self.assertFalse(background.load(self.file)["art"])
 
     def test_month_gives_the_hue(self):
         noon = datetime.datetime(2026, 12, 1, 13, 0)

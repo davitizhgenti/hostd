@@ -11,7 +11,7 @@ from PySide6.QtCore import QAbstractListModel, QByteArray, Qt
 from hostd_shell import views
 
 ROLES = ("title", "subtitle", "value", "badge", "tone", "mark", "kind", "icon", "appIcon", "app",
-         "level", "mono", "options", "key")
+         "level", "mono", "options", "key", "cover")
 
 
 def role_value(row, name):
@@ -22,6 +22,8 @@ def role_value(row, name):
         return bool(row.subtitle) and row.subtitle in (row.app, row.instance)
     if name == "options":
         return bool(row.sheet)
+    if name == "cover":
+        return "file://" + row.cover if row.cover else ""
     if name == "key":
         return "\x1f".join(str(x) for x in row.key())
     return getattr(row, name)

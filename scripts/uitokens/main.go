@@ -131,6 +131,9 @@ func (t token) qmlProperty() string {
 		if t.group == "motion" {
 			return fmt.Sprintf("readonly property int %s: Math.round(%v * animate)", name, v)
 		}
+		if f, ok := v.(float64); ok && f != float64(int64(f)) {
+			return fmt.Sprintf("readonly property real %s: %v", name, v) // a share, such as art.dim
+		}
 		return fmt.Sprintf("readonly property int %s: %v", name, v)
 	default:
 		s := fmt.Sprint(v)

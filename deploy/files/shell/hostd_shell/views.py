@@ -24,6 +24,8 @@ class Category:
     icon: str
     kind: str
     root: tuple = ()
+    view: str = "list"  # an app tab's: list, or covers
+    backdrop: bool = False  # an app tab's: the current app's picture behind the menu
 
 
 APPS_CATEGORY = Category("apps", "Apps", "layout-grid", "apps")
@@ -33,10 +35,10 @@ FIXED = (Category("users", "Users", "users", "users"),
 
 
 def categories(tabs=()):
-    """The categories, left to right: Apps, the marked folders' tabs (as
-    (folder, icon) pairs, in the menu file's order), Users, Settings and
-    Status."""
-    return [APPS_CATEGORY, *(Category("tab:" + f, f, icon, "apps", (f,)) for f, icon in tabs), *FIXED]
+    """The categories, left to right: Apps, the marked folders' tabs
+    (menu.Tab, in the menu file's order), Users, Settings and Status."""
+    return [APPS_CATEGORY, *(Category("tab:" + t.folder, t.folder, t.icon, "apps", (t.folder,), t.view, t.backdrop)
+                             for t in tabs), *FIXED]
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,8 @@ class Row:
     step_back: Call | None = None  # down
     icon: str = ""  # hostd's icon (icons/NAME.svg)
     app_icon: str = ""  # the app's own icon, preferred to icon
+    cover: str = ""  # the app's cover (a path): the covers view draws it
+    backdrop: str = ""  # its wide picture (a path), behind the menu
 
     def key(self):
         """Its identity across refreshes, to keep the selection: an app's
@@ -131,13 +135,17 @@ LIVE = ("starting", "running", "stopping")
 TONES = {"starting": "warning", "stopping": "warning", "running": "positive", "failed": "danger"}
 
 
-def apps_page(instances, apps, path=(), root=(), tabs=()):
+def apps_page(instances, apps, path=(), root=(), tabs=(), flat=False):
     """An app tab's rows: the folder open (path; root is the tab's own
     folder, () for Apps) as its subfolders and its apps, running apps first.
     A running app is its own row, marked: there is no separate list of
     them. Apps under another (Steam's games) are in its options, unless
     they run. Every other app is a hidden row, shown when filtering. Apps
     leaves out the folders that are tabs (tabs: their names).
+
+    flat (a covers tab): every app anywhere in the tab, no folders, the
+    games before the launchers (apps others are under or require), each
+    saying where it is from.
 
     instances: /v1/instances?all=true (an ended one tells a failed service)."""
     path = tuple(path) if tuple(path)[:len(root)] == tuple(root) else tuple(root)
@@ -171,9 +179,16 @@ def apps_page(instances, apps, path=(), root=(), tabs=()):
         return bool(root) or not (folder and folder[0] in tabs)
 
     placed = [(a, place(a)) for a in listed]
-    here = [a for a, f in placed if f == path]
-    here.sort(key=lambda a: a["id"] not in live)  # running first, else the catalog's order
-    deeper = [a for a, f in placed if f is not None and mine(f) and f[:len(path)] == path and len(f) > len(path)]
+    if flat:
+        path = root
+        launchers = {a.get("under") for a in listed} | {r for a in listed for r in a.get("requires") or []}
+        here = [a for a, f in placed if f is not None and mine(f) and f[:len(root)] == root]
+        here.sort(key=lambda a: (a["id"] in launchers, a["id"] not in live))
+        deeper = []
+    else:
+        here = [a for a, f in placed if f == path]
+        here.sort(key=lambda a: a["id"] not in live)  # running first, else the catalog's order
+        deeper = [a for a, f in placed if f is not None and mine(f) and f[:len(path)] == path and len(f) > len(path)]
     subfolders = sorted({folder_of(a)[:len(path) + 1] for a in deeper})
     shown_ids = {a["id"] for a in here}
 
@@ -192,6 +207,11 @@ def apps_page(instances, apps, path=(), root=(), tabs=()):
             rows.append(service_row(a, live.get(a["id"], []), ended.get(a["id"])))
         else:
             rows.append(app_row(a, live.get(a["id"], []), children))
+        if flat:
+            parent = (by_id.get(a.get("under")) or {}).get("name")
+            where = parent or " / ".join(folder_of(a)[len(root):])
+            state = rows[-1].badge or {"positive": "running", "warning": "starting", "danger": "failed"}.get(rows[-1].mark, "")
+            rows[-1].subtitle = " · ".join(x for x in (where, state) if x)
     if running_here == len(here):
         rows += folders
     # Shown only when filtering: every other app, wherever it is.
@@ -223,7 +243,8 @@ def app_row(app, running, children):
     Delete closes it; its options are each instance's, then the app's."""
     opening = open_call(app["id"])
     row = Row(app.get("name") or app["id"], call=opening, app=app["id"],
-              icon="app-window", app_icon=app.get("icon") or "")
+              icon="app-window", app_icon=app.get("icon") or "",
+              cover=app.get("cover") or "", backdrop=app.get("backdrop") or "")
     if not running:
         row.sheet = [Row("Start", call=opening, icon="play")] + app_sheet(app, children)
         return row
@@ -261,7 +282,8 @@ def service_row(app, running, last):
         state = "failed" if last and last.get("state") == "failed" else "stopped"
         sheet = [Row("Start", call=open_call(app["id"]), icon="play")]
     return Row(app.get("name") or app["id"], app=app["id"], badge=state, tone=TONES.get(state, ""),
-               icon="server", app_icon=app.get("icon") or "", sheet=sheet)
+               icon="server", app_icon=app.get("icon") or "", sheet=sheet,
+               cover=app.get("cover") or "", backdrop=app.get("backdrop") or "")
 
 
 def switch_call(instance):
@@ -365,6 +387,9 @@ def settings_page(audio, display, look=None, tokens=None):
                         sheet=[Row(t, call=local("background", s), icon="image" if s["mode"] == "image" else "palette",
                                    badge="now" if t == now else "", tone="accent")
                                for t, s in options]))
+        art = look.get("art", True)
+        rows.append(Row("Game art behind the menu", TOGGLE, value="on" if art else "off", icon="image",
+                        call=local("background", {**look, "art": not art})))
     return rows
 
 
