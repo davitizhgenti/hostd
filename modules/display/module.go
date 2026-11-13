@@ -27,10 +27,11 @@ const (
 	EventOpened  = "window.opened"
 	EventFocused = "window.focused"
 	EventClosed  = "window.closed"
-	EventActive  = "display.active" // someone started using the screen
-	EventIdle    = "display.idle"   // no input for IdleAfter
-	EventNotice  = "display.notice" // a notice shown on the screen
-	EventNav     = "display.nav"    // controller navigation for the menu in front
+	EventActive  = "display.active"  // someone started using the screen
+	EventIdle    = "display.idle"    // no input for IdleAfter
+	EventNotice  = "display.notice"  // a notice shown on the screen
+	EventNav     = "display.nav"     // controller navigation for the menu in front
+	EventPointer = "display.pointer" // a Wii Remote's pointer for the menu in front
 	EventGPUFull = "display.gpu.full"
 	EventGPUOK   = "display.gpu.ok"
 	EventOutputs = "display.output.changed"
@@ -316,6 +317,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 			{Type: EventGPUFull, Description: "Video memory is nearly full (90%); a notice asks to lower the game's settings"},
 			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
+			{Type: EventPointer, Description: "Where a Wii Remote points, for hostd's menu while it is in front: x and y are shares of the screen's width and height (0..1), visible is false when it points away from the screen, down while its A button is held; family is its kind (wii). Sent when it appears, goes, is clicked, and as it moves (at most about 30 times a second). Apps do not see it"},
 			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front: what is one of up, down, left, right, choose, back, actions, close, prev_tab, next_tab, page_up, page_down, home; family is the controller's kind (xbox, playstation, nintendo, wii, generic). Held directions repeat. Apps do not see the controller then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventDeviceConnected, Description: "A keyboard, mouse or controller was plugged in (see GET /v1/devices)"},

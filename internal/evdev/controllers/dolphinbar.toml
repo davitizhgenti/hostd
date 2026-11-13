@@ -1,8 +1,39 @@
-# Mayflash DolphinBar in its Dolphin mode (mode 4): Wii Remotes reach
-# Dolphin through raw HID, one channel per remote. There is no input
-# device, so hostd cannot see the buttons: open hostd's menu with another
-# controller or the keyboard. The dolphin add-on gives Dolphin access.
+# Mayflash DolphinBar in its Dolphin mode (mode 4): each Wii Remote paired
+# to it is a raw HID device (one channel per remote), speaking the Wii
+# Remote's own protocol; the kernel driver does not bind to it, so there is
+# no input device. hostd reads the channels itself (reader = "wiimote": the
+# buttons, a Nunchuk, and the IR camera as a pointer) while Dolphin is not
+# running; while it runs, the channels are Dolphin's and hostd leaves them
+# alone (open hostd's menu with another controller or the keyboard then).
 name = "Wii Remotes (Mayflash DolphinBar)"
 match = { vendor = "057e", products = ["0306"] }
 raw = true
 app = "dolphin-emu"
+reader = "wiimote"
+buttons = { guide = "BTN_MODE", start = "BTN_START", select = "BTN_SELECT" }
+
+# The same as a remote the kernel drives (wii-remote.toml), with a
+# Nunchuk's (wii-nunchuk.toml): hostd gives these codes to what it reads.
+[pad]
+family = "wii"
+confirm = "east"
+back = "south"
+
+[pad.keys]
+BTN_A = "east"           # A, the big button
+BTN_B = "south"          # B, the trigger
+BTN_1 = "west"
+BTN_2 = "north"
+BTN_START = "start"      # +
+BTN_SELECT = "select"    # -
+BTN_MODE = "guide"       # Home
+KEY_UP = "up"
+KEY_DOWN = "down"
+KEY_LEFT = "left"
+KEY_RIGHT = "right"
+BTN_C = "lb"             # Nunchuk
+BTN_Z = "rb"
+
+[pad.axes]
+ABS_X = { as = "lx", min = -100, max = 100 }
+ABS_Y = { as = "ly", min = -100, max = 100 }

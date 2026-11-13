@@ -39,10 +39,16 @@ type Profile struct {
 	// reads (App); hostd lists it but cannot see its buttons.
 	Raw bool   `toml:"raw" json:"raw,omitempty"`
 	App string `toml:"app" json:"app,omitempty"`
+	// Reader: hostd reads the raw device itself, while App is not running
+	// ("wiimote": a Wii Remote's HID protocol, over a DolphinBar).
+	Reader string `toml:"reader" json:"reader,omitempty"`
 
 	codes map[uint16]string // evdev code -> button, for the binding table
 	pad   *padRuntime       // the canonical gamepad
 }
+
+// ReaderWiimote reads a Wii Remote's HID protocol (wiimote.go).
+const ReaderWiimote = "wiimote"
 
 // Family is the profile's family of controllers (xbox, playstation,
 // nintendo, wii, generic): what the shell labels its hints with.
@@ -343,7 +349,7 @@ func scanControllers(s sysfs, ps *Profiles) []Controller {
 
 func controllerOf(dev string, d deviceInfo, p *Profile) Controller {
 	c := Controller{Device: dev, ID: DeviceID(d, dev), Name: d.Name, Vendor: d.Vendor, Product: d.Product,
-		Profile: p.ID, Kind: p.Name, Raw: p.Raw, App: p.App}
+		Profile: p.ID, Kind: p.Name, Raw: p.Raw && p.Reader == "", App: p.App} // raw: only its app reads it
 	// What can be bound on it: its placed buttons and its pad's.
 	have := map[string]bool{}
 	for _, b := range p.codes {

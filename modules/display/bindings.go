@@ -142,6 +142,16 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 	for _, b := range ev.Buttons {
 		m.hold(ev.Device, ev.Player, b)
 	}
+	if ev.Pointer != nil {
+		m.mu.Lock()
+		front, core, owner := m.menuFront, m.core, m.menuOwner
+		m.mu.Unlock()
+		if front && core != nil && (owner == "" || owner == ev.Device) {
+			core.Emit(sdk.Event{Type: EventPointer, Data: sdk.MustJSON(map[string]any{"x": ev.Pointer.X, "y": ev.Pointer.Y,
+				"visible": ev.Pointer.Visible, "down": ev.Pointer.Down, "device": ev.Device, "player": ev.Player, "family": ev.Family}),
+				Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
+		}
+	}
 	if len(ev.Nav) > 0 {
 		m.mu.Lock()
 		front, core, owner := m.menuFront, m.core, m.menuOwner

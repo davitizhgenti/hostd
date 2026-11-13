@@ -56,6 +56,9 @@ type InputEvent struct {
 	// generic): what the menu's hints are labelled with. Empty for a
 	// keyboard or a mouse.
 	Family string
+	// Pointer is where a Wii Remote points, when it moved, appeared, went or
+	// was clicked.
+	Pointer *Pointer
 }
 
 // The d-pad as hat axes, for presence.
@@ -120,6 +123,10 @@ type Evdev struct {
 	SysRoot  string // where sysfs is mounted, "/" outside tests
 	// Nav overrides what a canonical button does in the menu ([display.nav]).
 	Nav map[string]string
+	// Busy tells whether an app runs that reads a raw controller itself (a
+	// profile's app): then hostd leaves that controller alone. Default: a
+	// process of that name exists.
+	Busy func(app string) bool
 
 	mu      sync.Mutex
 	pads    map[string]*pad // open controllers, by path
@@ -242,6 +249,11 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 	if err := w.Add(dir); err != nil {
 		return err
 	}
+	// Raw Wii Remotes (a DolphinBar's), read by hostd while Dolphin is not.
+	var wiiWG sync.WaitGroup
+	wiiWG.Add(1)
+	go func() { defer wiiWG.Done(); e.watchWii(ctx, fn, profiles, sys) }()
+	defer wiiWG.Wait()
 
 	var mu sync.Mutex
 	open := map[string]bool{}
