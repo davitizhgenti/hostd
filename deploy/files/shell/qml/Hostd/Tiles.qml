@@ -195,24 +195,13 @@ Item {
             text: info.now.subtitle || ""
         }
 
-        // The banner: as wide as the right side, as high as its own shape
-        // makes it (never stretched); nothing when there is none.
-        Image {
-            id: banner
-            objectName: "tilesBanner"
-            y: infoSubtitle.y + infoSubtitle.height + Theme.spaceM
-            width: info.width
-            height: status === Image.Ready && implicitWidth > 0 ? Math.round(width * implicitHeight / implicitWidth) : 0
-            source: info.now.banner || ""
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            sourceSize.width: info.width
-            visible: height > 0
-        }
-
+        // The details sit at the bottom of the right side (up to three
+        // lines); the banner takes what is left above them: as wide as the
+        // side allows and as high as the space allows, in its own
+        // proportions (never stretched, never cut).
         Txt {
+            id: infoDetails
             objectName: "tilesDetails"
-            y: banner.y + banner.height + (banner.height > 0 ? Theme.spaceM : 0)
             width: info.width
             role: "label"
             muted: true
@@ -220,6 +209,22 @@ Item {
             maximumLineCount: 3
             elide: Text.ElideRight
             text: info.now.details || ""
+            y: text === "" ? info.height : Math.min(info.height - height, banner.y + banner.height + Theme.spaceM)
+        }
+
+        Image {
+            id: banner
+            objectName: "tilesBanner"
+            y: infoSubtitle.y + infoSubtitle.height + Theme.spaceM
+            readonly property real room: info.height - y - (infoDetails.text === "" ? 0 : infoDetails.height + Theme.spaceM)
+            readonly property real shape: implicitWidth > 0 ? implicitHeight / implicitWidth : 0
+            readonly property real fitWidth: shape > 0 ? Math.min(info.width, Math.max(0, room) / shape) : 0
+            width: Math.floor(fitWidth)
+            height: status === Image.Ready ? Math.floor(width * shape) : 0
+            source: info.now.banner || ""
+            fillMode: Image.Stretch // width and height already have its shape
+            asynchronous: true
+            visible: height > 0
         }
     }
 }

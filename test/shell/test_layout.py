@@ -219,12 +219,24 @@ class MenuLayout(Contract):
         info = s.rect("tilesInfo")
         self.near(info[0] + info[2], g["trailEnd"], f"{where}: the right side ends at the block's edge")
         banner = s.item("tilesBanner")
+        details = s.rect("tilesDetails")
         if s.shown(banner):
             b = s.rect(banner)
-            self.near(b[2], info[2], f"{where}: the banner as wide as the right side")
+            self.assertLessEqual(b[2], info[2] + TOL, f"{where}: the banner wider than the right side")
+            self.near(b[0], info[0], f"{where}: the banner at the right side's left")
             ratio = banner.property("implicitHeight") / banner.property("implicitWidth")
             self.near(b[3], b[2] * ratio, f"{where}: the banner keeps its shape")
-            self.assertGreaterEqual(s.rect("tilesDetails")[1], b[1] + b[3], f"{where}: details under the banner")
+            sub = s.rect("tilesSubtitle")
+            self.assertGreaterEqual(b[1], sub[1] + sub[3] - TOL, f"{where}: banner over the subtitle")
+            if s.item("tilesDetails").property("text"):
+                self.assertGreaterEqual(details[1], b[1] + b[3] - TOL, f"{where}: details over the banner")
+        # Nothing on the right is cut off by the area's edge.
+        for name in ("tilesTitle", "tilesSubtitle", "tilesBanner", "tilesDetails"):
+            if s.shown(name) and (name != "tilesDetails" or s.item(name).property("text")):
+                r = s.rect(name)
+                self.assertLessEqual(r[1] + r[3], area[1] + area[3] + TOL, f"{where}: {name} cut off at the bottom")
+        if s.item("tilesDetails").property("text"):
+            self.assertLessEqual(s.item("tilesDetails").property("contentHeight"), details[3] + TOL, f"{where}: details cut")
         safe = (g["safe"], g["safe"], w - 2 * g["safe"], h - 2 * g["safe"])
         drawn = 0
         for name, it in s.items().items():
