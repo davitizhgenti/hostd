@@ -89,11 +89,13 @@ class SteamGames(unittest.TestCase):
         with open(os.path.join(self.apps, "steam-620.toml")) as f:
             portal = f.read()
         self.assertIn('extends = "steam-portal-2"', portal)
+        self.assertIn('id = "steam-620"', portal)
         self.assertIn(f'cover = "{cache}/620/library_600x900.jpg"', portal)
         self.assertIn(f'backdrop = "{cache}/620/library_hero.jpg"', portal)
         with open(os.path.join(self.apps, "steam-440.toml")) as f:
             tf2 = f.read()
         self.assertNotIn("extends", tf2)  # no shortcut: a file of its own
+        self.assertNotIn("id =", tf2)  # its file name is its ID
         self.assertNotIn("cover", tf2)
         self.assertIn(f'backdrop = "{cache}/440_header.jpg"', tf2)
 

@@ -154,7 +154,11 @@ def toml_string(s):
 
 def app_file(appid, name, extends="", cover="", backdrop=""):
     command = f'["flatpak", "run", "{STEAM_ID}", "steam://rungameid/{appid}"]'
-    more = "".join(f"{k} = {toml_string(v)}\n" for k, v in (("extends", extends), ("cover", cover), ("backdrop", backdrop)) if v)
+    # Extending Steam's shortcut keeps this file's ID (steam-<appid>); the
+    # shortcut's own name still finds it.
+    ident = ("id", f"steam-{appid}") if extends else ("", "")
+    more = "".join(f"{k} = {toml_string(v)}\n"
+                   for k, v in (("extends", extends), ident, ("cover", cover), ("backdrop", backdrop)) if v)
     return f"""{MARKER}
 {more}name = {toml_string(name)}
 under = "steam"
