@@ -9,6 +9,8 @@
   launcher goes away without asking (killed), the menu is hidden too.
 """
 
+import sys
+
 from gi.repository import Gio, GLib
 
 from hostd_shell import notices
@@ -44,6 +46,7 @@ SHELL_XML = """
   <interface name="org.hostd.Shell">
     <method name="ShowMenu"/>
     <method name="HideMenu"/>
+    <method name="Ping"/>
     <signal name="MenuClosed"/>
   </interface>
 </node>
@@ -101,6 +104,7 @@ class Bus:
             self.shell.showMenu()
         elif method == "HideMenu":
             self.shell.hideMenu()
+        # Ping: answering is the point (the launcher checks the shell is alive)
         invocation.return_value(None)
 
     def _watch_launcher(self, conn, sender):
@@ -117,10 +121,16 @@ class Bus:
             self.conn.emit_signal(None, SHELL_PATH, SHELL_NAME, "MenuClosed", None)
 
 
+PING_EVERY, PING_TIMEOUT, PING_FAILS = 10, 3, 2  # seconds, seconds, misses before giving up
+
+
 def launch_menu():
     """`hostd-shell menu`: show the menu, and live until it is closed. Stopped
-    (SIGTERM: hostd closing the instance), it hides the menu. Returns the
-    exit code."""
+    (SIGTERM: hostd closing the instance), it hides the menu. If the shell
+    goes away or stops answering, the menu is gone with it, so the launcher
+    ends too (hostd then sees the menu app closed, never stuck "running").
+    Returns the exit code."""
+    import signal
     loop = GLib.MainLoop()
     try:
         conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -132,17 +142,41 @@ def launch_menu():
         print(f"hostd-shell menu: the shell is not running ({e.message}); systemctl --user start hostd-shell")
         return 1
 
+    result = {"code": 0, "misses": 0}
+
+    def call(method, timeout_ms):
+        conn.call_sync(SHELL_NAME, SHELL_PATH, SHELL_NAME, method, None, None,
+                       Gio.DBusCallFlags.NO_AUTO_START, timeout_ms, None)
+
     def stop():
         try:
-            conn.call_sync(SHELL_NAME, SHELL_PATH, SHELL_NAME, "HideMenu", None, None,
-                           Gio.DBusCallFlags.NO_AUTO_START, 2000, None)
+            call("HideMenu", 2000)
         except GLib.Error:
             pass
         loop.quit()
         return False
 
-    import signal
+    def shell_gone(*_):
+        print("hostd-shell menu: the shell went away", file=sys.stderr)
+        result["code"] = 1
+        loop.quit()
+
+    def ping():
+        try:
+            call("Ping", PING_TIMEOUT * 1000)
+            result["misses"] = 0
+        except GLib.Error:
+            result["misses"] += 1
+            if result["misses"] >= PING_FAILS:
+                print("hostd-shell menu: the shell does not answer", file=sys.stderr)
+                result["code"] = 1
+                loop.quit()
+                return False
+        return True
+
+    Gio.bus_watch_name_on_connection(conn, SHELL_NAME, Gio.BusNameWatcherFlags.NONE, None, shell_gone)
+    GLib.timeout_add_seconds(PING_EVERY, ping)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)
     loop.run()
-    return 0
+    return result["code"]

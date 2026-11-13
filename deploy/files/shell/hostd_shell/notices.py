@@ -9,6 +9,11 @@ on screen at once; the rest wait their turn.
 import time
 
 MAX_SHOWN = 3
+# Notifications come from any program, so they are bounded: what one may
+# say, how many wait, and how fast one program may add them.
+MAX_APP, MAX_SUMMARY, MAX_BODY = 64, 200, 1000
+MAX_QUEUE = 50
+RATE_COUNT, RATE_SECONDS = 20, 10.0
 DEFAULT_TIMEOUT = 8.0  # seconds
 CRITICAL_TIMEOUT = 30.0
 LOW, NORMAL, CRITICAL = 0, 1, 2
@@ -27,6 +32,16 @@ class Notice:
         return f"Notice({self.id}, {self.summary!r})"
 
 
+def clean(text, limit, newlines=False):
+    """text as one safe string: control characters out (newlines kept in a
+    body), cut at limit with an ellipsis. Not a str: shown as ""."""
+    if not isinstance(text, str):
+        return ""
+    keep = "\n" if newlines else ""
+    text = "".join(c if (c.isprintable() or c in keep) else " " for c in text)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 class Notices:
     """The notices waiting and shown. clock: seconds, monotonic."""
 
@@ -34,16 +49,24 @@ class Notices:
         self.clock = clock
         self.all = []  # oldest first
         self.next_id = 1
+        self.arrivals = {}  # app -> when its recent notices came
 
     def notify(self, app, summary, body="", replaces_id=0, urgency=NORMAL, expire_ms=-1):
         """Adds a notice (or replaces one); returns its id."""
+        app, summary, body = clean(app, MAX_APP), clean(summary, MAX_SUMMARY), clean(body, MAX_BODY, newlines=True)
+        if not isinstance(expire_ms, int):
+            expire_ms = -1
         if expire_ms and expire_ms > 0:
             timeout = expire_ms / 1000
         elif urgency == CRITICAL:
             timeout = CRITICAL_TIMEOUT
         else:
             timeout = DEFAULT_TIMEOUT
-        old = self.find(replaces_id) if replaces_id else None
+        old = self.find(replaces_id) if isinstance(replaces_id, int) and replaces_id else None
+        if old is None and self.too_fast(app):
+            # A program adding notices faster than anyone can read them
+            # replaces its latest instead of piling up.
+            old = next((n for n in reversed(self.all) if n.app == app), None)
         if old is not None:
             old.app, old.summary, old.body, old.urgency, old.timeout = app, summary, body, urgency, timeout
             if old.shown_at is not None:
@@ -52,8 +75,29 @@ class Notices:
         n = Notice(self.next_id, app, summary, body, urgency, timeout)
         self.next_id += 1
         self.all.append(n)
+        self.trim()
         self.fill()
         return n.id
+
+    def too_fast(self, app):
+        """Records an arrival of app; whether it has made RATE_COUNT in the
+        last RATE_SECONDS."""
+        now = self.clock()
+        recent = [t for t in self.arrivals.get(app, []) if now - t < RATE_SECONDS]
+        recent.append(now)
+        self.arrivals[app] = recent
+        if len(self.arrivals) > 200:  # many programs: forget the quiet ones
+            self.arrivals = {a: ts for a, ts in self.arrivals.items() if now - ts[-1] < RATE_SECONDS}
+        return len(recent) > RATE_COUNT
+
+    def trim(self):
+        """At most MAX_QUEUE notices: the oldest ones not on screen go first
+        (low urgency before the rest)."""
+        while len(self.all) > MAX_QUEUE:
+            waiting = [n for n in self.all if n.shown_at is None]
+            if not waiting:
+                return
+            self.all.remove(min(waiting, key=lambda n: (n.urgency == CRITICAL, n.urgency, n.id)))
 
     def find(self, nid):
         return next((n for n in self.all if n.id == nid), None)

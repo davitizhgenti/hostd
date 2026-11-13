@@ -15,9 +15,26 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 sys.dont_write_bytecode = True
 
+EX_CONFIG = 78  # the unit does not restart on this: retrying cannot help
+
+
+def need(*modules):
+    """Imports modules, or ends with EX_CONFIG and one clear line: a missing
+    package is not a crash to retry every two seconds."""
+    for name in modules:
+        try:
+            __import__(name)
+        except ImportError as e:
+            print(f"hostd-shell: a package is missing ({e}): sudo hostd-admin add shell, or sudo hostd-admin prepare",
+                  file=sys.stderr)
+            sys.exit(EX_CONFIG)
+
+
 if __name__ == "__main__":
     if sys.argv[1:2] == ["menu"]:
+        need("gi")
         from hostd_shell.bus import launch_menu
         sys.exit(launch_menu())
+    need("gi", "PySide6.QtQuick", "PySide6.QtQml")
     from hostd_shell.app import run
     sys.exit(run(sys.argv))

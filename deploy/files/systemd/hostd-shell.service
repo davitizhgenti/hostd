@@ -11,3 +11,5 @@ After=graphical-session-pre.target
 ExecStart=@SHELL@/hostd-shell
 Restart=always
 RestartSec=2
+# 78: a package is missing (hostd-shell says which); trying again cannot help.
+RestartPreventExitStatus=78

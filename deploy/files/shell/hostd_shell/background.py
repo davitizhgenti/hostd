@@ -35,7 +35,9 @@ def load(file=None):
     try:
         with open(file or path(), "rb") as f:
             raw = tomllib.load(f).get("background") or {}
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, ValueError, RecursionError):  # ValueError: bad TOML, or bytes that are no UTF-8
+        raw = {}
+    if not isinstance(raw, dict):
         raw = {}
     mode = raw.get("mode") if raw.get("mode") in MODES else "month"
     color = raw.get("color") if is_color(raw.get("color")) else ""

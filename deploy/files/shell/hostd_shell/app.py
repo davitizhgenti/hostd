@@ -19,6 +19,17 @@ SURFACES = ("Background", "NoticeLayer", "OsdLayer", "Menu")
 BASE_HEIGHT, MIN_SCALE = 1080, 0.85
 
 
+EX_CONFIG = 78  # the unit does not restart on this: retrying cannot help
+
+
+def layer_shell_present():
+    """Whether the layer-shell QML module is installed (notices, OSD and the
+    background need it)."""
+    from PySide6.QtCore import QLibraryInfo
+    paths = [QLibraryInfo.path(QLibraryInfo.QmlImportsPath), *os.environ.get("QML_IMPORT_PATH", "").split(":")]
+    return any(os.path.isdir(os.path.join(p, "org", "kde", "layershell")) for p in paths if p)
+
+
 def tokens():
     with open(os.path.join(HERE, "tokens.json")) as f:
         return json.load(f)
@@ -71,6 +82,10 @@ def run(argv):
     else:
         app.bus = Bus(shell, on_lost=lost)
         surfaces = SURFACES
+    if "--gallery" not in argv and not layer_shell_present():
+        print("hostd-shell: the layer-shell QML module is missing (qml6-module-org-kde-layershell): "
+              "sudo hostd-admin add shell, or sudo hostd-admin prepare", file=sys.stderr)
+        return EX_CONFIG
     for name in surfaces:
         if not load(engine, name):
             print(f"hostd-shell: cannot load {name}.qml", file=sys.stderr)

@@ -112,9 +112,9 @@ func TestProfileButtonsReachBindings(t *testing.T) {
 
 func inputEvent(typ, code uint16, value int32) []byte {
 	b := make([]byte, eventSize)
-	binary.LittleEndian.PutUint16(b[16:], typ)
-	binary.LittleEndian.PutUint16(b[18:], code)
-	binary.LittleEndian.PutUint32(b[20:], uint32(value))
+	binary.LittleEndian.PutUint16(b[typeOffset:], typ)
+	binary.LittleEndian.PutUint16(b[codeOffset:], code)
+	binary.LittleEndian.PutUint32(b[valueOffset:], uint32(value))
 	return b
 }
 
@@ -268,4 +268,85 @@ func TestReadEventsNav(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("keyboard nav %q", got)
 	}
+}
+
+// Only a controller is read as one: a vendor's profile also matches the
+// touchpad and the motion sensor a PlayStation controller shows as devices
+// of their own, and a keyboard of the same vendor.
+func TestPadFor(t *testing.T) {
+	ps, _ := LoadProfiles("")
+	for _, c := range []struct {
+		name string
+		d    deviceInfo
+		want string
+	}{
+		{"pad", deviceInfo{Name: "Wireless Controller", Vendor: "054c", Product: "0ce6", Gamepad: true}, "playstation"},
+		{"touchpad", deviceInfo{Name: "Wireless Controller Touchpad", Vendor: "054c", Product: "0ce6"}, ""},
+		{"motion", deviceInfo{Name: "Wireless Controller Motion Sensors", Vendor: "054c", Product: "0ce6"}, ""},
+		{"keyboard", deviceInfo{Name: "Xbox keyboard", Vendor: "045e", Product: "0750"}, ""},
+		{"a wii remote is named, not a gamepad", deviceInfo{Name: "Nintendo Wii Remote", Vendor: "057e", Product: "0306"}, "wii-remote"},
+		{"unknown pad", deviceInfo{Name: "Joystick", Vendor: "0079", Product: "0006", Gamepad: true}, "gamepad"},
+		{"unknown device", deviceInfo{Name: "Mouse", Vendor: "046d", Product: "c077"}, ""},
+	} {
+		got := ""
+		if p := ps.padFor(c.d); p != nil {
+			got = p.ID
+		}
+		if got != c.want {
+			t.Errorf("%s: profile %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// A controller's stick wobble and drift are no one at the screen; its
+// buttons and d-pad are. A touchpad's movement is.
+func TestStickDriftIsNotPresence(t *testing.T) {
+	const evSyn, absX, absRZ = 0, 0, 5
+	pad := map[uint16]string{btnMode: "guide"}
+	count := func(codes map[uint16]string, events ...[]byte) int {
+		n := 0
+		readEvents(bytes.NewReader(bytes.Join(events, nil)), codes, func(InputEvent) { n++ })
+		return n
+	}
+	if n := count(pad, inputEvent(evAbs, absX, 300), inputEvent(evAbs, absRZ, 12), inputEvent(evSyn, 0, 0)); n != 0 {
+		t.Errorf("stick drift counted as presence: %d", n)
+	}
+	if n := count(pad, inputEvent(evAbs, absHat0X, 1), inputEvent(evSyn, 0, 0)); n != 1 {
+		t.Errorf("the d-pad did not count: %d", n)
+	}
+	if n := count(pad, inputEvent(evKey, btnSouth, 1), inputEvent(evSyn, 0, 0)); n != 1 {
+		t.Errorf("a button did not count: %d", n)
+	}
+	if n := count(nil, inputEvent(evAbs, absX, 300), inputEvent(evSyn, 0, 0)); n != 1 {
+		t.Errorf("a touchpad's movement did not count: %d", n)
+	}
+}
+
+func TestEventSizeIsAnInputEvent(t *testing.T) {
+	if eventSize != 24 && eventSize != 16 {
+		t.Fatalf("eventSize %d: a struct input_event is 24 bytes (64-bit) or 16 (32-bit)", eventSize)
+	}
+	if got := inputEvent(evKey, 30, 1); len(got) != eventSize || got[valueOffset] != 1 {
+		t.Fatalf("event %v", got)
+	}
+}
+
+// readEvents survives anything a device (or a bug) sends: it never panics,
+// and what it reports is well formed.
+func FuzzReadEvents(f *testing.F) {
+	f.Add(inputEvent(evKey, btnSouth, 1), true)
+	f.Add(append(inputEvent(evAbs, absHat0X, -1), inputEvent(0, 0, 0)...), true)
+	f.Add([]byte{1, 2, 3}, false)
+	f.Add(make([]byte, eventSize*3+5), true)
+	f.Fuzz(func(t *testing.T, data []byte, pad bool) {
+		var codes map[uint16]string
+		if pad {
+			codes = map[uint16]string{btnMode: "guide", btnSouth: "start"}
+		}
+		readEvents(&chunked{data: data, n: 1 + len(data)%11}, codes, func(e InputEvent) {
+			if !pad && (len(e.Nav) > 0 || len(e.Buttons) > 0) {
+				t.Fatalf("a device without a profile reported %+v", e)
+			}
+		})
+	})
 }

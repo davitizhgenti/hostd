@@ -25,6 +25,7 @@ exec dbus-run-session -- bash -c '
   export QT_QPA_PLATFORM=wayland QT_QUICK_BACKEND=software HOSTD_TOKEN=none
   shell=/repo/deploy/files/shell/hostd-shell
   $shell >"'"$out"'/shell.log" 2>&1 &
+  shellpid=$!
   owner() { python3 -c "
 from gi.repository import Gio, GLib
 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
@@ -49,6 +50,15 @@ exit(0 if c != \"#000000\" else 1)" && ok "the background layer draws the settin
   [ $code -eq 0 ] && ok "the launcher ends cleanly when stopped" || bad "the launcher exited $code"
   sleep 1
   swaymsg -t get_tree | grep -q "\"app_id\": \"hostd-menu\"" && bad "the menu stayed after its launcher stopped" || ok "stopping the launcher closes the menu"
+  # The shell dying under an open menu must end its launcher (hostd then
+  # sees the menu app closed, not stuck running).
+  $shell menu >"'"$out"'/launcher2.log" 2>&1 &
+  launcher=$!
+  sleep 2
+  kill $shellpid; sleep 0.5
+  for i in $(seq 20); do kill -0 $launcher 2>/dev/null || break; sleep 0.5; done
+  if kill -0 $launcher 2>/dev/null; then bad "the launcher outlived a dead shell"; kill $launcher
+  else wait $launcher; [ $? -eq 1 ] && ok "the launcher ends when the shell dies" || bad "the launcher ended with the wrong code"; fi
   grep -q "qml:" "'"$out"'/shell.log" && bad "QML warnings: $(grep qml: "'"$out"'/shell.log" | head -3)" || ok "no QML warnings"
   exit $fail
 '

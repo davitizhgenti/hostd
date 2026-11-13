@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
+	"unsafe"
 
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/sys/unix"
@@ -78,21 +80,34 @@ const (
 	evAbs = 0x03 // touchpads, gamepad sticks and triggers
 )
 
-// eventSize is sizeof(struct input_event) on 64-bit Linux: a 16-byte
-// timeval, then type, code (uint16) and value (int32).
-const eventSize = 24
+// An input_event is a timeval (16 bytes on 64-bit Linux, 8 on 32-bit), then
+// type and code (uint16) and value (int32).
+const (
+	timevalSize = int(unsafe.Sizeof(syscall.Timeval{}))
+	eventSize   = timevalSize + 8
+	typeOffset  = timevalSize
+	codeOffset  = timevalSize + 2
+	valueOffset = timevalSize + 4
+)
+
+// isHat reports whether an EV_ABS code is one of the hat axes ABS_HAT0X to
+// ABS_HAT3Y (d-pads reported as axes).
+func isHat(code uint16) bool { return code >= absHat0X && code <= absHat0X+7 }
 
 // isActivity reads one input_event and reports whether it is a person's
-// doing. Small analog stick wobble on gamepads (|value| within a few units
-// of centre arrives as EV_ABS too) still counts: hostd only needs "someone
-// is here", and a resting controller sends nothing.
-func isActivity(ev []byte) bool {
+// doing. pad: the device is a controller, whose sticks and triggers send
+// EV_ABS for the smallest wobble or drift: only its buttons and d-pad (hat)
+// count, so a resting controller with a worn stick does not keep the screen
+// "in use". Elsewhere (a touchpad, a mouse) any movement counts.
+func isActivity(ev []byte, pad bool) bool {
 	if len(ev) < eventSize {
 		return false
 	}
-	switch binary.LittleEndian.Uint16(ev[16:18]) {
-	case evKey, evRel, evAbs:
+	switch binary.LittleEndian.Uint16(ev[typeOffset : typeOffset+2]) {
+	case evKey, evRel:
 		return true
+	case evAbs:
+		return !pad || isHat(binary.LittleEndian.Uint16(ev[codeOffset:codeOffset+2]))
 	}
 	return false
 }
@@ -250,7 +265,7 @@ func (e *Evdev) Watch(ctx context.Context, fn func(InputEvent)) error {
 		// nothing for a keyboard.
 		var codes map[uint16]string
 		info := sys.input(path)
-		if p := profiles.forInput(info); p != nil {
+		if p := profiles.padFor(info); p != nil {
 			codes = p.codes
 		}
 		id := ""
@@ -327,9 +342,9 @@ func readEvents(r io.Reader, codes map[uint16]string, fn func(InputEvent)) {
 			var ev InputEvent
 			for len(pending) >= eventSize {
 				e := pending[:eventSize]
-				active = active || isActivity(e)
-				typ, code := binary.LittleEndian.Uint16(e[16:18]), binary.LittleEndian.Uint16(e[18:20])
-				value := int32(binary.LittleEndian.Uint32(e[20:24]))
+				active = active || isActivity(e, codes != nil)
+				typ, code := binary.LittleEndian.Uint16(e[typeOffset:]), binary.LittleEndian.Uint16(e[codeOffset:])
+				value := int32(binary.LittleEndian.Uint32(e[valueOffset:]))
 				if typ == evKey {
 					if name, ok := codes[code]; ok {
 						switch value {

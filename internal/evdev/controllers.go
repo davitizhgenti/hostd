@@ -187,6 +187,18 @@ func (ps *Profiles) forInput(d deviceInfo) *Profile {
 	return nil
 }
 
+// padFor is forInput for what hostd treats as a controller: a gamepad, or
+// a device a profile names exactly. A keyboard, or the touchpad and motion
+// sensor a PlayStation controller shows as separate devices, match a
+// vendor's profile but are no controller.
+func (ps *Profiles) padFor(d deviceInfo) *Profile {
+	p := ps.forInput(d)
+	if p == nil || (!d.Gamepad && p.Match.Name == "") {
+		return nil
+	}
+	return p
+}
+
 // forRaw finds the profile of a raw HID device, or nil.
 func (ps *Profiles) forRaw(d deviceInfo) *Profile {
 	for _, p := range ps.list {
@@ -296,8 +308,8 @@ func scanControllers(s sysfs, ps *Profiles) []Controller {
 	for _, ev := range events {
 		dev := "/dev/input/" + filepath.Base(ev)
 		d := s.input(dev)
-		p := ps.forInput(d)
-		if p == nil || (!d.Gamepad && p.Match.Name == "") {
+		p := ps.padFor(d)
+		if p == nil {
 			continue // a keyboard of a known vendor is no controller
 		}
 		out = append(out, controllerOf(dev, d, p))

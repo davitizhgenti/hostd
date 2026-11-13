@@ -353,6 +353,126 @@ class NoticeQueue(unittest.TestCase):
         self.assertIsNone(notices.osd_for({"type": "instance.started"}))
 
 
+class Hostile(unittest.TestCase):
+    """Notifications come from any program; whatever one sends is bounded
+    and shown as plain text."""
+
+    def setUp(self):
+        self.clock = Clock()
+        self.n = notices.Notices(self.clock)
+
+    def test_text_is_bounded_and_cleaned(self):
+        nid = self.n.notify("a" * 500, "s" * 5000, "b" * 50000)
+        n = self.n.find(nid)
+        self.assertEqual((len(n.app), len(n.summary), len(n.body)), (notices.MAX_APP, notices.MAX_SUMMARY, notices.MAX_BODY))
+        self.assertTrue(n.summary.endswith("…"))
+        n = self.n.find(self.n.notify("x", "a\x00b\x1b[31mc\u202ed\nline", "l1\nl2\x07"))
+        self.assertEqual(n.summary, "a b [31mc d line".replace("\u202e", " "))  # controls and bidi marks become spaces
+        self.assertEqual(n.body, "l1\nl2 ")  # a body keeps its newlines
+
+    def test_wrong_types_are_survived(self):
+        odd = [(None, None, None, "x", "y"), (1, 2, 3, 4.5, None), ([], {}, b"", -1, 10 ** 30)]
+        for app, summary, body, replaces, expire in odd:
+            nid = self.n.notify(app, summary, body, replaces, NORMAL_URGENCY, expire)
+            self.assertGreater(nid, 0)
+            self.assertIsInstance(self.n.find(nid).summary, str)
+
+    def test_the_queue_is_capped(self):
+        for i in range(notices.MAX_QUEUE * 3):
+            self.clock.t += 1  # slowly enough that no program is rate limited
+            self.n.notify(f"app{i}", f"n{i}")
+        self.assertLessEqual(len(self.n.all), notices.MAX_QUEUE)
+        self.assertEqual(len(self.n.shown()), notices.MAX_SHOWN)
+
+    def test_a_critical_notice_outlasts_a_flood(self):
+        crit = self.n.notify("a", "fire", urgency=notices.CRITICAL)
+        for i in range(notices.MAX_QUEUE * 2):
+            self.clock.t += 1
+            self.n.notify(f"app{i}", f"n{i}")
+        self.assertIsNotNone(self.n.find(crit))
+
+    def test_one_program_cannot_flood(self):
+        ids = {self.n.notify("spam", f"msg {i}") for i in range(500)}  # no time passes
+        mine = [x for x in self.n.all if x.app == "spam"]
+        self.assertLessEqual(len(mine), notices.RATE_COUNT)
+        self.assertLessEqual(len(ids), notices.RATE_COUNT)
+        self.clock.t += notices.RATE_SECONDS + 1  # a quiet moment: it may speak again
+        before = len(self.n.all)
+        self.n.notify("spam", "later")
+        self.assertEqual(len(self.n.all), before + 1)
+        other = self.n.notify("other", "hello")
+        self.assertIsNotNone(self.n.find(other))
+
+
+NORMAL_URGENCY = 1
+
+
+class Garbage(unittest.TestCase):
+    """What hostd's socket, the settings file or the program's own
+    environment send must not take the shell down."""
+
+    def test_websocket_frames_survive_random_bytes(self):
+        import random
+        rng = random.Random(7)
+        for _ in range(300):
+            data = bytes(rng.randrange(256) for _ in range(rng.randrange(1, 200)))
+            a, b = socket.socketpair()
+            a.sendall(data)
+            a.close()
+            f = api.Frames(b)
+            try:
+                for _i in range(50):
+                    f.next()
+            except (ValueError, OSError, EOFError):
+                pass  # ended: the stream reconnects
+            b.close()
+
+    def test_an_oversized_frame_is_refused_not_allocated(self):
+        a, b = socket.socketpair()
+        a.sendall(bytes([0x81, 127]) + (1 << 40).to_bytes(8, "big"))
+        a.close()
+        with self.assertRaises((ValueError, OSError, EOFError)):
+            api.Frames(b).next()
+        b.close()
+
+    def test_the_settings_file_may_be_anything(self):
+        d = tempfile.mkdtemp()
+        file = os.path.join(d, "ui.toml")
+        for body in (b"", b"\xff\xfe\x00garbage", b"[background]\nmode = 5\n", b"[background]\nmode = \"image\"\nimage = 7\n",
+                     b"x" * (1 << 20), b"[background\n", b"[background]\ncolor = \"#12\"\nmode = \"color\"\n"):
+            with open(file, "wb") as f:
+                f.write(body)
+            look = background.load(file)
+            self.assertIn(look["mode"], background.MODES, body[:20])
+            if look["mode"] == "color":
+                self.assertTrue(background.is_color(look["color"]))
+        os.mkdir(os.path.join(d, "dir.toml"))  # a directory where a file should be
+        self.assertEqual(background.load(os.path.join(d, "dir.toml"))["mode"], "month")
+
+    def test_saving_the_setting_into_a_read_only_place_fails_cleanly(self):
+        with self.assertRaises(OSError):
+            background.save({"mode": "month", "color": "", "image": ""}, "/proc/hostd-nothing/ui.toml")
+
+
+class Entry(unittest.TestCase):
+    def test_a_missing_package_ends_with_78_and_a_clear_line(self):
+        """No PySide6/gi: the unit must not restart it every two seconds."""
+        import subprocess
+        code = ("import runpy, sys\n"
+                "sys.modules['PySide6'] = None; sys.modules['gi'] = None\n"
+                "sys.argv = ['hostd-shell']\n"
+                f"runpy.run_path({os.path.join(HERE, 'hostd-shell')!r}, run_name='__main__')\n")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 78, out.stderr)
+        self.assertIn("a package is missing", out.stderr)
+        self.assertIn("hostd-admin", out.stderr)
+
+    def test_the_unit_does_not_retry_a_missing_package(self):
+        unit = os.path.join(os.path.dirname(os.path.dirname(HERE)), "files", "systemd", "hostd-shell.service")
+        with open(unit) as f:
+            self.assertIn("RestartPreventExitStatus=78", f.read())
+
+
 class Theme(unittest.TestCase):
     def test_tokens_json(self):
         t = tokens()

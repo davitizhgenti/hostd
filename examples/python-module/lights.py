@@ -13,9 +13,9 @@ module like the built-in ones: its actions go through the same pipeline
 
 both work, and a rule can apply them.
 
-Configure it in ~/.config/hostd/hostd.toml:
+Configure it with a file, ~/.config/hostd/modules/lights.toml (the file's
+name is the module's name), and restart hostd:
 
-    [external.lights]
     command = ["python3", "/path/to/lights.py"]
 """
 

@@ -20,7 +20,8 @@ Everything hostd shows on a screen follows one design: the menu, notices, the vo
 - **Python holds the state and the behaviour** (`hostd_shell/shell.py`): what is current, what each verb does, the data from hostd's API and events, the background setting. It is tested without a screen.
 - **QML only draws it** (`qml/Hostd/`). Every surface gets the shell as a property; there are no global context properties, so qmllint checks every use.
 - **The menu stays hostd's app `hostd-menu`.** Its command, `hostd-shell menu`, asks the shell to show the menu (D-Bus, `org.hostd.Shell`) and runs until it is closed; the shell's menu window has the app_id `hostd-menu`, which the app's `[match]` rule claims. So hostd sees the menu as running exactly while it is on screen, holds the controllers for it and handles Back, as for any app.
-- **Notices:** the shell is the session's notification server (`org.freedesktop.Notifications`), so hostd's own notices and every app's are drawn in this design.
+- **Notices:** the shell is the session's notification server (`org.freedesktop.Notifications`), so hostd's own notices and every app's are drawn in this design. What an app sends is untrusted: text is plain, control characters are dropped, the summary is cut at 200 characters and the body at 1000, at most 50 notices wait, and a program adding more than 20 in 10 seconds replaces its latest instead.
+- **A missing package** (Qt, the layer-shell module) makes `hostd-shell` exit with status 78 and one clear line; its unit does not retry that. Add the packages with `sudo hostd-admin prepare`.
 
 ## Tokens
 
