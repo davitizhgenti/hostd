@@ -79,6 +79,55 @@ class AppsPage(unittest.TestCase):
         self.assertEqual([r.key() for r in again], [r.key() for r in self.rows])
 
 
+FOLDER_APPS = APPS + [
+    {"id": "dolphin", "name": "Dolphin", "surface": "window", "folder": "Games/Dolphin"},
+    {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii"},
+    {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii"},
+    {"id": "steam-folder", "name": "Steam", "surface": "window", "folder": "Games/Steam"},
+]
+
+
+class Folders(unittest.TestCase):
+    def titles(self, path=()):
+        rows, _ = views.apps_page(INSTANCES, FOLDER_APPS, path)
+        return [(r.kind, r.title) for r in views.visible(rows, "")]
+
+    def test_the_top_has_folders_then_loose_apps(self):
+        t = self.titles()
+        self.assertEqual(t[:3], [("header", "Running"), ("item", "Steam"), ("header", "Apps")])
+        self.assertEqual(t[3], ("folder", "Games"))
+        self.assertIn(("item", "Chromium"), t[4:])
+        self.assertNotIn(("item", "Dolphin"), t)  # in a folder
+
+    def test_opening_a_folder(self):
+        self.assertEqual(self.titles(("Games",)), [("header", "Games"), ("folder", "Dolphin"), ("folder", "Steam")])
+        self.assertEqual(self.titles(("Games", "Dolphin")),
+                         [("header", "Games / Dolphin"), ("folder", "Wii"), ("item", "Dolphin")])
+        self.assertEqual(self.titles(("Games", "Dolphin", "Wii")),
+                         [("header", "Games / Dolphin / Wii"), ("item", "Mario Kart Wii"), ("item", "Super Mario Galaxy")])
+
+    def test_folder_row(self):
+        rows, _ = views.apps_page(INSTANCES, FOLDER_APPS)
+        games = next(r for r in rows if r.kind == views.FOLDER)
+        self.assertEqual((games.value, games.icon, games.call), ("4 apps", "folder", views.local("folder", ["Games"])))
+
+    def test_games_under_steam_are_in_its_folder_too(self):
+        dota = {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam", "folder": "Games/Steam"}
+        apps = FOLDER_APPS + [dota]
+        rows, _ = views.apps_page(INSTANCES, apps, ("Games", "Steam"))
+        self.assertEqual([r.title for r in views.visible(rows, "")], ["Games / Steam", "Steam", "Dota 2"])
+        steam = next(r for r in rows if r.app == "steam" and not r.instance)
+        self.assertIn("Dota 2", [x.title for x in steam.sheet])  # and still in Steam's options
+
+    def test_running_apps_only_at_the_top(self):
+        self.assertNotIn(("header", "Running"), self.titles(("Games",)))
+
+    def test_filtering_searches_every_folder(self):
+        rows, _ = views.apps_page(INSTANCES, FOLDER_APPS)
+        self.assertEqual([r.title for r in views.visible(rows, "mario")], ["Mario Kart Wii", "Super Mario Galaxy"])
+        self.assertTrue(all(r.kind != views.FOLDER for r in views.visible(rows, "a")))
+
+
 class UsersPage(unittest.TestCase):
     def test_holder_and_others(self):
         rows = views.users_page([{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}])

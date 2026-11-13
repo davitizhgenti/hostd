@@ -139,7 +139,7 @@ Super (or holding a controller's Guide button) opens it; the same goes back. Its
 
 | Category | Shows |
 | --- | --- |
-| Apps | the running apps, then the catalog. Choose one to bring it forward or start it; its actions (and the apps under it, such as Steam's games) are in its options |
+| Apps | the running apps, then the catalog in folders (`folder` in an app's file: Games / Steam, Games / Dolphin / Wii). A folder is a row that opens like a list of its own; Back goes up one level, Home returns to the top, and typing searches every folder. Choose an app to bring it forward or start it; its actions (and the apps under it, such as Steam's games) are in its options |
 | Users | who may use the screen and who has it now. Choose another user to give them the screen, keyboard and controllers (the [seats add-on](install.md)) |
 | Settings | the volume, mute and sound output; each screen's resolution; turning the screen off; the background |
 | Status | the hostd version, video memory, and the latest actions with who sent them |

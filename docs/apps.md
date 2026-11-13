@@ -41,6 +41,7 @@ http = "http://127.0.0.1:8096/health"
 | `requires` | Apps started first: `requires = ["database"]` |
 | `hidden` | Not listed (still startable) |
 | `under` | Listed in another app's actions box: `under = "steam"` |
+| `folder` | Where the menu lists it: `folder = "Games/Dolphin/Wii"`. Folders nest to any depth and open like a list of their own; an app with none stays at the top. The steam add-on puts Steam and its games in `Games/Steam`, the dolphin add-on's Dolphin in `Games/Dolphin` |
 | `[instance]` | `policy = "single"` (default) or `"multiple"`; `if_running = "focus"` (default), `"new"` or `"restart"` |
 | `[window]` | `fullscreen` (true for installed desktop apps; set it in an app file); `wrap = "gamescope"`; `shown_by = "<app>"` for an app drawn in another's window |
 | `[audio]` | `volume`: its own volume (0-150) when it starts |

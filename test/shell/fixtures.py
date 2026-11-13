@@ -19,13 +19,16 @@ APPS = [
      "actions": [{"id": "bigpicture", "name": "Big Picture"}]},
     {"id": "steam-570", "name": "Dota 2", "surface": "window", "under": "steam"},
     {"id": "chromium", "name": "Chromium", "surface": "window"},
-    {"id": "dolphin", "name": "Dolphin", "surface": "window"},
+    {"id": "dolphin", "name": "Dolphin", "surface": "window", "folder": "Games/Dolphin"},
     {"id": "kodi", "name": "Kodi", "surface": "window", "actions": [{"id": "music", "name": "Music"}]},
     {"id": "jellyfin", "name": "Jellyfin", "surface": "window"},
     {"id": "retroarch", "name": "RetroArch", "surface": "window"},
     {"id": "long", "name": LONG, "surface": "window"},
     {"id": "firefox", "name": "Firefox", "surface": "window"},
     {"id": "vlc", "name": "VLC", "surface": "window"},
+    {"id": "mkw", "name": "Mario Kart Wii", "surface": "window", "folder": "Games/Dolphin/Wii"},
+    {"id": "smg", "name": "Super Mario Galaxy", "surface": "window", "folder": "Games/Dolphin/Wii"},
+    {"id": "steam-launcher", "name": "Steam", "surface": "window", "folder": "Games/Steam"},
 ]
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]
 AUDIO = {"available": True, "percent": 70, "muted": False, "outputs": [

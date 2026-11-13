@@ -105,6 +105,7 @@ def app_file(appid, name):
     return f"""{MARKER}
 name = {toml_string(name)}
 under = "steam"
+folder = "Games/Steam"
 requires = ["steam"]
 runner = {{ type = "exec", command = {command}, handoff = "SteamAppId={appid}" }}
 

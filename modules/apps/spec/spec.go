@@ -57,7 +57,10 @@ type App struct {
 	Hidden   bool           `json:"hidden"`
 	// Under is the app this one is listed under rather than on its own: a
 	// Steam game under Steam. Menus show it with that app's actions.
-	Under   string `json:"under,omitempty"`
+	Under string `json:"under,omitempty"`
+	// Folder is where menus list the app: a "/"-separated path such as
+	// "Games/Dolphin/Wii". Empty: at the top.
+	Folder  string `json:"folder,omitempty"`
 	Match   Match  `json:"match,omitzero"`
 	Restart string `json:"restart,omitempty"`
 	// Autostart: hostd starts the app when it starts (at boot, after an

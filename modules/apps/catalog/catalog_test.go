@@ -309,6 +309,7 @@ func TestShippedAppFiles(t *testing.T) {
 	}
 	paths = append(paths, "../../../deploy/files/shell/hostd-menu.toml")
 	desktop := []spec.App{{ID: "chromium", Name: "Chromium Web Browser", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"chromium"}}},
+		{ID: "dolphin-emu", Name: "Dolphin", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "org.DolphinEmu.dolphin-emu"}},
 		{ID: "mpv", Name: "mpv", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"mpv"}}},
 		{ID: "moonlight", Name: "Moonlight", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "com.moonlight_stream.Moonlight"}},
 		{ID: "steam", Name: "Steam", Runner: spec.Runner{Type: spec.RunnerFlatpak, AppID: "com.valvesoftware.Steam"},
@@ -531,5 +532,66 @@ func TestArgsInAppFiles(t *testing.T) {
 		if (want == "") != (got == "") || !strings.Contains(got, want) {
 			t.Errorf("%q: problem %q, want %q", body, got, want)
 		}
+	}
+}
+
+// The chromium add-on's app file over a Flatpak entry that has its own
+// incognito action (new-private-window): one incognito entry, not two; and
+// over an entry without one, it still adds it.
+func TestChromiumAddonHasOneIncognitoEntry(t *testing.T) {
+	data, err := os.ReadFile("../../../deploy/addons/chromium/apps/chromium.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ParseAppFile("/x/chromium.toml", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incognito := func(a *spec.App) (n int) {
+		for _, x := range a.Actions {
+			if strings.Contains(strings.Join(x.Command, " "), "--incognito") {
+				n++
+			}
+		}
+		return
+	}
+	withOwn := spec.App{ID: "chromium", Name: "Chromium", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"chromium"}},
+		Actions: []spec.AppAction{{ID: "new-window", Name: "New Window", Command: []string{"chromium"}},
+			{ID: "new-private-window", Name: "New Incognito Window", Command: []string{"chromium", "--incognito"}}}}
+	app, _ := Build([]spec.App{withOwn}, []AppFile{f}, nil).Get("chromium")
+	if n := incognito(app); n != 1 || len(app.Actions) != 2 {
+		t.Fatalf("over the Flatpak's own: %d incognito entries, actions %+v", n, app.Actions)
+	}
+	bare := spec.App{ID: "chromium", Name: "Chromium", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"chromium"}}}
+	app, _ = Build([]spec.App{bare}, []AppFile{f}, nil).Get("chromium")
+	if n := incognito(app); n != 1 {
+		t.Fatalf("over an entry without one: %d incognito entries", n)
+	}
+}
+
+func TestFolders(t *testing.T) {
+	for _, c := range [][2]string{{"Games/Dolphin/Wii", "Games/Dolphin/Wii"}, {" Games // Steam/", "Games/Steam"}, {"/", ""}, {"a/../b", "a/b"}, {"", ""}} {
+		if got := CleanFolder(c[0]); got != c[1] {
+			t.Errorf("CleanFolder(%q) = %q, want %q", c[0], got, c[1])
+		}
+	}
+	f, err := ParseAppFile("/x/wii.toml", []byte("runner = { type = \"exec\", command = [\"dolphin-emu\"] }\nfolder = \"Games / Dolphin/Wii\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat := Build(nil, []AppFile{f}, nil)
+	app, ok := cat.Get("wii")
+	if !ok || app.Folder != "Games/Dolphin/Wii" || len(cat.Problems) != 0 {
+		t.Fatalf("%+v %v", app, cat.Problems)
+	}
+	// It extends a desktop entry's, and a file without a folder keeps the one it had.
+	base := spec.App{ID: "dolphin-emu", Name: "Dolphin", Runner: spec.Runner{Type: spec.RunnerExec, Command: []string{"dolphin-emu"}}}
+	f1, _ := ParseAppFile("/x/dolphin-emu.toml", []byte("extends = \"dolphin-emu\"\nfolder = \"Games/Dolphin\"\n"))
+	f2, _ := ParseAppFile("/x/dolphin-emu.toml", []byte("extends = \"dolphin-emu\"\nname = \"Dolphin\"\n"))
+	if a, _ := Build([]spec.App{base}, []AppFile{f1}, nil).Get("dolphin-emu"); a.Folder != "Games/Dolphin" {
+		t.Errorf("folder %q", a.Folder)
+	}
+	if a, _ := Build([]spec.App{base}, []AppFile{f2}, nil).Get("dolphin-emu"); a.Folder != "" {
+		t.Errorf("a file with no folder: %q", a.Folder)
 	}
 }

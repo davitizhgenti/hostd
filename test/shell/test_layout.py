@@ -157,6 +157,20 @@ class MenuLayout(Contract):
             r = s.rect("glide")
             self.assertEqual(r, (0.0, 0.0, 1920.0, 1080.0))
 
+    def test_folders_keep_the_grid(self):
+        for size_name, size in SIZES.items():
+            with Screen(size) as s:
+                s.verb("down", "down")
+                self.assertEqual(s.shell.current_row().kind, "folder")
+                self.check(s, f"{size_name} a folder row")
+                s.verb("activate")
+                self.check(s, f"{size_name} Games")
+                s.verb("activate")  # Dolphin, the first folder in Games
+                self.assertEqual(s.shell.property("section"), "Games / Dolphin")
+                self.check(s, f"{size_name} Games / Dolphin")
+                s.verb("back", "back")
+                self.check(s, f"{size_name} back at the top")
+
     def test_options_panel(self):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
@@ -209,7 +223,7 @@ class MenuLayout(Contract):
             for ch in "dol":
                 s.key("Key_" + ch.upper(), ch)
             titles = [row.property("title") for _index, row in self.rows(s)]
-            self.assertEqual(titles, ["Dolphin"])
+            self.assertEqual(titles, ["Dolphin", "Mario Kart Wii", "Super Mario Galaxy"])  # the folder is searched too
             self.assertTrue(s.shown("filter"))
             self.check(s, "filtered")
 

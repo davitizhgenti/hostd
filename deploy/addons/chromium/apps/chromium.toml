@@ -1,9 +1,11 @@
 # Managed by hostd's chromium add-on; changes here are overwritten.
-# The Flatpak entry has no actions: an incognito window is one.
+# An incognito window is an action. Newer Flatpak entries have one of their
+# own (new-private-window): this has the same id, so it replaces that one
+# instead of listing a second; an older entry without one gets this.
 extends = "chromium"
 name = "Chromium"
 
 [[actions]]
-id = "incognito"
+id = "new-private-window"
 name = "New incognito window"
 command = ["chromium", "--incognito"]

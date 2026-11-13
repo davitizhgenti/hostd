@@ -33,12 +33,13 @@ OSD_MS = 1600
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
-def fetch(api, category, look, tokens):
-    """A category's rows and its summary line, from hostd."""
+def fetch(api, category, look, tokens, path=()):
+    """A category's rows and its summary line, from hostd. path: the folder
+    open in Apps."""
     if category == APPS:
         instances = api.get("/v1/instances") or []
         apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
-        return views.apps_page(instances, apps)
+        return views.apps_page(instances, apps, path)
     if category == USERS:
         try:
             seats = api.get("/v1/seat")
@@ -110,6 +111,7 @@ class Shell(QObject):
         self._asked = None  # the call the question is about
         self._yes = False
         self._filter = ""
+        self._path = ()  # the folder open in Apps
         self._message, self._error = "", False
         self._device = "keys"
         self._family = ""  # the kind of the controller used last (xbox, playstation, ...)
@@ -150,7 +152,7 @@ class Shell(QObject):
     def refresh(self, category=None, keep=True):
         c = self._category if category is None else category
         try:
-            rows, summary = fetch(self.api, c, self.look, self.tokens)
+            rows, summary = fetch(self.api, c, self.look, self.tokens, self._path)
         except Exception as e:  # noqa: BLE001 - shown on the screen
             self.say(f"Cannot reach hostd: {e}", error=True)
             return
@@ -243,6 +245,9 @@ class Shell(QObject):
         if self._category == APPS and self._filter:
             self._filter = ""
             self._show_rows(APPS, keep=False)
+        if self._path:
+            self._path = ()  # leaving Apps closes its folders
+            self.refresh(APPS, keep=False)
         self._category = c
         self.refresh(c)
         self.changed.emit()
@@ -253,8 +258,9 @@ class Shell(QObject):
             self._filter = ""
             self._show_rows(APPS, keep=False)
         self._category = APPS
+        self._path = ()
+        self.refresh(APPS, keep=False)
         self.currents[APPS] = self.pages[APPS].first()
-        self.refresh(APPS)
         self.changed.emit()
 
     def move(self, steps):
@@ -303,8 +309,10 @@ class Shell(QObject):
         return res
 
     def _local(self, call):
-        """A change on this screen alone: the background."""
-        if call.path == "background":
+        """A change on this screen alone: the background, or a folder."""
+        if call.path == "folder":
+            self._open_folder(tuple(call.body or ()))
+        elif call.path == "background":
             try:
                 background.save(call.body, self.look_path)
             except OSError as e:
@@ -320,9 +328,28 @@ class Shell(QObject):
             self.backgroundChanged.emit()
             self.refresh(SETTINGS)
 
+    def _open_folder(self, path):
+        """Opens a folder in Apps (() the top), with its first item chosen;
+        going up lands on the folder it came out of."""
+        came_from = self._path
+        self._path = path
+        self.refresh(APPS, keep=False)
+        model = self.pages[APPS]
+        i = -1
+        if len(came_from) > len(path) and came_from[:len(path)] == path:
+            i = next((j for j, r in enumerate(model.rows) if r.kind == views.FOLDER and r.title == came_from[len(path)]), -1)
+        self.currents[APPS] = i if i >= 0 else model.first()
+        self.changed.emit()
+
+    @Property("QVariantList", notify=changed)
+    def folderPath(self):  # noqa: N802
+        return list(self._path)
+
     def back(self):
         if self._category == APPS and self._filter:
             self.set_filter("")
+        elif self._category == APPS and self._path:
+            self._open_folder(self._path[:-1])
         elif self._category != APPS:
             self.set_category(APPS)
         else:

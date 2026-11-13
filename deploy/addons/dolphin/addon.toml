@@ -5,5 +5,6 @@
 description = "Dolphin (Flatpak): GameCube and Wii games, real Wii Remotes through a DolphinBar"
 needs = ["flatpak", "controllers"]
 flatpaks = ["org.DolphinEmu.dolphin-emu"]
+resources = ["apps/dolphin-emu.toml"]
 rescan = true
 keeps = "Dolphin's own data (settings, saves) stays in ~/.var/app/org.DolphinEmu.dolphin-emu"

@@ -26,6 +26,8 @@ KEYS_DOL = [("Key_D", "d"), ("Key_O", "o"), ("Key_L", "l")]
 STATES = [
     ("01-apps", "Menu", [], "Apps: running apps, then the catalog; the current item at the list's top"),
     ("02-apps-down", "Menu", ["down"] * 4, "Four down: passed items scrolled away under the row"),
+    ("02b-folders", "Menu", ["down", "down"], "A folder in the list, among the apps"),
+    ("02c-folder-open", "Menu", ["down", "down", "activate", "activate"], "Inside Games / Dolphin: a subfolder and an app"),
     ("03-options", "Menu", ["actions"], "An item's options, at the right edge"),
     ("04-filter", "Menu", KEYS_DOL, "Typing filters Apps"),
     ("05-users", "Menu", ["right"], "Users"),

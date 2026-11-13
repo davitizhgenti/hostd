@@ -35,10 +35,12 @@ class Moving(unittest.TestCase):
     def test_down_skips_headers_and_stops_at_the_end(self):
         s = shell()
         s.handle("down")
-        s.handle("down")  # over the "Apps" header
-        self.assertEqual(s.current_row().title, "Steam")
+        s.handle("down")  # over the "Apps" header, onto the Games folder
+        self.assertEqual(s.current_row().title, "Games")
         self.assertEqual(s.property("section"), "Apps")
         self.assertEqual(s.offset(), (2, 2))
+        s.handle("down")
+        self.assertEqual(s.current_row().title, "Steam")
         for _ in range(30):
             s.handle("down")
         self.assertEqual(s.current_row().title, "VLC")
@@ -139,7 +141,8 @@ class Filtering(unittest.TestCase):
         s = shell()
         for ch in "dol":
             self.assertTrue(s.key("Key_" + ch.upper(), ch, False))
-        self.assertEqual(titles(s), ["Dolphin"])
+        # Dolphin, and the games in its folder (the folder is searched too).
+        self.assertEqual(titles(s), ["Dolphin", "Mario Kart Wii", "Super Mario Galaxy"])
         self.assertTrue(s.key("Key_Backspace", "", False))
         self.assertEqual(s.state()["filter"], "do")
         s.handle("back")
@@ -168,6 +171,70 @@ class Hints(unittest.TestCase):
 
 def nav(s, what, family="xbox"):
     s.on_event({"type": "display.nav", "data": {"what": what, "family": family}})
+
+
+class FolderNavigation(unittest.TestCase):
+    """Folders open like lists of their own; back goes up."""
+
+    def setUp(self):
+        self.s = shell()
+
+    def go_to_games(self):
+        s = self.s
+        for _ in range(40):
+            if s.current_row().kind == "folder":
+                break
+            s.handle("down")
+        self.assertEqual(s.current_row().title, "Games")
+        s.handle("activate")
+
+    def test_open_drill_in_and_back_out(self):
+        s = self.s
+        self.go_to_games()
+        self.assertEqual((list(s.property("folderPath")), s.property("section")), (["Games"], "Games"))
+        self.assertEqual([r.title for r in s.page().rows], ["Games", "Dolphin", "Steam"])
+        self.assertEqual(s.current_row().title, "Dolphin")
+        s.handle("activate")
+        self.assertEqual([r.title for r in s.page().rows], ["Games / Dolphin", "Wii", "Dolphin"])
+        s.handle("activate")  # Wii
+        self.assertEqual(s.property("section"), "Games / Dolphin / Wii")
+        self.assertEqual(s.current_row().title, "Mario Kart Wii")
+        s.handle("back")  # up to Games / Dolphin, on Wii
+        self.assertEqual((list(s.property("folderPath")), s.current_row().title), (["Games", "Dolphin"], "Wii"))
+        s.handle("back")
+        s.handle("back")
+        self.assertEqual((list(s.property("folderPath")), s.current_row().title), ([], "Games"))
+        self.assertEqual(s.api.sent, [])  # folders never asked hostd to do anything
+
+    def test_choosing_an_app_in_a_folder_opens_it(self):
+        s = self.s
+        self.go_to_games()
+        s.handle("down")  # the Steam folder
+        s.handle("activate")
+        self.assertEqual(s.current_row().title, "Steam")
+        s.handle("activate")
+        self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/steam-launcher/open", None))
+
+    def test_leaving_apps_and_home_close_folders(self):
+        s = self.s
+        self.go_to_games()
+        s.handle("right")
+        s.handle("left")
+        self.assertEqual(list(s.property("folderPath")), [])
+        self.go_to_games()
+        s.handle("home")
+        self.assertEqual((list(s.property("folderPath")), s.property("category")), ([], 0))
+
+    def test_back_at_the_top_still_goes_back(self):
+        self.s.handle("back")
+        self.assertEqual(self.s.api.sent[-1], ("POST", "/v1/windows/back", None))
+
+    def test_a_filter_searches_inside_folders(self):
+        s = self.s
+        for ch in "mario":
+            s.key("Key_" + ch.upper(), ch, False)
+        found = sorted(r.title for r in views.visible(s.all_rows[0], s._filter))
+        self.assertEqual(found, ["Mario Kart Wii", "Super Mario Galaxy"])
 
 
 class Controllers(unittest.TestCase):
@@ -400,7 +467,7 @@ class Models(unittest.TestCase):
         s.refresh(APPS)
         self.assertEqual(resets, [1])
         self.assertNotIn("Running", titles(s))
-        self.assertEqual(s.current_row().title, "Steam")  # kept the place it could
+        self.assertEqual(s.current_row().title, "Games")  # the first thing it can choose now
 
     def test_roles(self):
         s = shell()

@@ -34,7 +34,7 @@ def action(kind, **args):
 
 
 # Row kinds: how a row is drawn and what left/right do on it.
-HEADER, ITEM, SLIDER, TOGGLE = "header", "item", "slider", "toggle"
+HEADER, ITEM, SLIDER, TOGGLE, FOLDER = "header", "item", "slider", "toggle", "folder"
 
 
 @dataclass
@@ -70,11 +70,11 @@ class Row:
 
 def visible(rows, text):
     """The rows a filter shows: with no text, all but the nested apps; with
-    text, the matching ones, headers left out."""
+    text, the matching ones (in any folder), headers and folders left out."""
     text = text.strip()
     if not text:
         return [r for r in rows if not r.under]
-    return [r for r in rows if r.kind != HEADER and r.matches(text)]
+    return [r for r in rows if r.kind not in (HEADER, FOLDER) and r.matches(text)]
 
 
 # --- Apps ------------------------------------------------------------------
@@ -84,9 +84,22 @@ def plural(n, word):
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
-def apps_page(instances, apps):
-    """Running apps, then the catalog; apps under another (Steam's games)
-    are in its sheet, and in the list only when filtering."""
+def folder_of(app):
+    return tuple(n for n in (app.get("folder") or "").split("/") if n)
+
+
+def folder_row(path, apps):
+    """A folder as a row: choosing it opens it (the menu's own change)."""
+    n = sum(1 for a in apps if folder_of(a)[:len(path)] == path)
+    return Row(path[-1], FOLDER, icon="folder", value=plural(n, "app"), call=local("folder", list(path)))
+
+
+def apps_page(instances, apps, path=()):
+    """Running apps, then the catalog in folders. path is the folder open
+    ((), the top; ("Games", "Dolphin")): its subfolders and its apps.
+    Running apps are shown at the top only. Apps under another (Steam's
+    games) are in its sheet, and everything is in the list when filtering."""
+    path = tuple(path)
     running = [i for i in instances
                if i.get("app") != MENU_ID and i.get("surface") == "window"
                and i.get("state") in ("starting", "running")]
@@ -96,12 +109,17 @@ def apps_page(instances, apps):
     for a in listed:
         if a.get("under"):
             children.setdefault(a["under"], []).append(a)
-    top = [a for a in listed if not a.get("under")]
+    # An app under another is in that app's options; one with a folder is
+    # also listed in it (Steam's games, in Games / Steam).
+    top = [a for a in listed if not a.get("under") or a.get("folder")]
+    here = [a for a in top if folder_of(a) == path]
+    inside = [a for a in top if folder_of(a)[:len(path)] == path and len(folder_of(a)) > len(path)]
+    subfolders = sorted({folder_of(a)[:len(path) + 1] for a in inside})
 
     rows = []
-    if running:
+    if running and not path:
         rows.append(Row("Running", HEADER))
-    for inst in running:
+    for inst in running if not path else []:
         app = by_id.get(inst.get("app")) or {}
         switch = Call("POST", f"/v1/instances/{inst['id']}/switch")
         rows.append(Row(inst.get("name") or inst["id"], subtitle=inst["id"], icon="app-window", app_icon=app.get("icon") or "",
@@ -110,20 +128,27 @@ def apps_page(instances, apps):
                         value=inst.get("action") or "", call=switch,
                         sheet=instance_sheet(inst, app, children, switch),
                         instance=inst["id"], app=inst.get("app") or ""))
-    rows.append(Row("Apps", HEADER))
-    for a in top:
+    rows.append(Row(" / ".join(path) if path else "Apps", HEADER))
+    for sub in subfolders:
+        rows.append(folder_row(sub, top))
+    for a in here:
         more = []
         if a.get("actions"):
             more.append(plural(len(a["actions"]), "action"))
         if children.get(a["id"]):
             more.append(plural(len(children[a["id"]]), "app"))
         rows.append(app_row(a, "  ".join(more), children))
+    # Shown only when filtering: apps under another, and apps in other folders.
     for a in listed:
-        if a.get("under"):
+        if a in here:
+            continue
+        if a.get("under") and not a.get("folder"):
             parent = (by_id.get(a["under"]) or {}).get("name") or a["under"]
             row = app_row(a, parent, children)
-            row.under = True
-            rows.append(row)
+        else:
+            row = app_row(a, "/".join(folder_of(a)), children)
+        row.under = True
+        rows.append(row)
     return rows, f"{len(running)} running   {plural(len(top), 'app')}"
 
 

@@ -4,6 +4,7 @@
 # the games hand Steam a steam:// link.
 extends = "steam"
 name = "Steam"
+folder = "Games/Steam"
 # Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
 # processes, so closing Steam in hostd ends Steam, and starting it while
 # it runs brings it forward. Closing Big Picture's window leaves Steam

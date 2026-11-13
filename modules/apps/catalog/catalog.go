@@ -273,6 +273,9 @@ func validate(a *spec.App) error {
 	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {
 		bad("under %q: another app's id", u)
 	}
+	if a.Folder != "" && a.Folder != CleanFolder(a.Folder) {
+		bad("folder %q: names separated by /, no empty or . names", a.Folder)
+	}
 	if s := a.Window.ShownBy; s != "" && (!ValidID(s) || s == a.ID) {
 		bad("window.shown_by %q: another app's id", s)
 	}
@@ -454,4 +457,16 @@ func Diff(old, cur *Catalog) (added, removed, changed []string) {
 	sort.Strings(removed)
 	sort.Strings(changed)
 	return added, removed, changed
+}
+
+// CleanFolder normalises a folder path: names separated by single slashes,
+// trimmed, none empty. "" for a path with nothing in it.
+func CleanFolder(p string) string {
+	var names []string
+	for _, n := range strings.Split(p, "/") {
+		if n = strings.TrimSpace(n); n != "" && n != "." && n != ".." {
+			names = append(names, n)
+		}
+	}
+	return strings.Join(names, "/")
 }

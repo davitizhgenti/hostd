@@ -1,0 +1,12 @@
+# Managed by hostd's dolphin add-on; changes here are overwritten.
+# Dolphin has its own folder in the menu, Games / Dolphin. Games to start
+# straight from the menu go in Games / Dolphin / Wii (or GameCube): an app
+# file of your own in ~/.config/hostd/apps, such as
+#
+#   name = "Mario Kart Wii"
+#   folder = "Games/Dolphin/Wii"
+#   runner = { type = "exec", command = ["flatpak", "run", "org.DolphinEmu.dolphin-emu", "-b", "-e", "/path/to/game.rvz"] }
+#   [window]
+#   fullscreen = true
+extends = "dolphin-emu"
+folder = "Games/Dolphin"
