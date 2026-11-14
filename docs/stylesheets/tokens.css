@@ -11,6 +11,14 @@
   --color-positive: #8cc4a2;
   --color-warning: #dcb872;
   --color-danger: #e07e7e;
+  --color-device-blue: #7fa8e0;
+  --color-device-orange: #e0a070;
+  --color-device-green: #94c98f;
+  --color-device-pink: #e08fb4;
+  --color-device-yellow: #dcc872;
+  --color-device-teal: #6cc4c4;
+  --color-device-red: #d9776f;
+  --color-device-violet: #a894e0;
 
   --font-text: "Inter", sans-serif;
   --font-mono: "DejaVu Sans Mono", sans-serif;

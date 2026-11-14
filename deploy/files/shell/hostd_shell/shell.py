@@ -31,6 +31,7 @@ REFRESH_ON = {
 OSD_MS = 1600
 SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
 POINTER_MS = 3000  # a mouse's pointer fades after this long without moving
+MOUSE = "mouse"  # the mouse's pointer; each Wii Remote's is its device's ID
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
@@ -79,6 +80,9 @@ class Shell(QObject):
     menuClosed = Signal()  # the menu was hidden: its launcher can end
     noticeClosed = Signal(int, int)  # id, reason (the spec's)
     pointerChanged = Signal()
+    pointerIdsChanged = Signal()  # a device's pointer came to exist
+    pointerPressed = Signal(str)  # a Wii Remote's button went down: click where it points
+    devicesChanged = Signal()
     _posted = Signal(object)
 
     def __init__(self, api, tokens, now=datetime.datetime.now, look_path=None, has_icon=None, menu_path=None,
@@ -109,7 +113,7 @@ class Shell(QObject):
         self._asked = None  # the call the question is about
         self._yes = False
         self._filter = ""
-        self._hover = -1  # the row under the pointer
+        self.devices = []  # the input devices (hostd's GET /v1/devices)
         self._mouse_last = None  # where the mouse was last seen
         self._message, self._error = "", False
         self._device = "keys"
@@ -126,10 +130,12 @@ class Shell(QObject):
         self.notice_timer = QTimer(self, singleShot=True, timeout=self._expire_notices)
         self.osd_timer = QTimer(self, singleShot=True, interval=OSD_MS, timeout=self._hide_osd)
         self.say_timer = QTimer(self, singleShot=True, timeout=lambda: self.say(""))
-        # The pointer (a mouse's, or a Wii Remote's): where it is as a share
-        # of the screen, and whether it shows; it fades after a few seconds
-        # without movement.
-        self._pointer = {"x": 0.5, "y": 0.5, "visible": False, "down": False, "source": ""}
+        # The pointers, one for each device that points: where it is as a
+        # share of the screen, whether it shows, and the row under it. A
+        # mouse's fades after a few seconds without moving; a Wii Remote's
+        # shows while it points at the screen.
+        self._pointers = {}
+        self._last_pointer = MOUSE
         self.pointer_timer = QTimer(self, singleShot=True, interval=POINTER_MS, timeout=self.hide_pointer)
         self.events = None
         self._load_menu()
@@ -150,6 +156,7 @@ class Shell(QObject):
         self.watcher.directoryChanged.connect(lambda _p: self._reload_look())
         for c in self.cats:
             self.refresh(c.key)
+        self._load_devices()
 
     # --- data ---
 
@@ -248,8 +255,9 @@ class Shell(QObject):
         if kind == "display.pointer":  # a Wii Remote's, while the menu is in front
             data = ev.get("data") or {}
             if self._menu_visible and self._menu_active:
+                text = lambda k: data.get(k) if isinstance(data.get(k), str) else ""  # noqa: E731
                 self.pointer_at(data.get("x"), data.get("y"), bool(data.get("visible")), bool(data.get("down")),
-                                data.get("family") if isinstance(data.get("family"), str) else "")
+                                text("family"), text("device") or "wii", text("name"), text("colour"))
             return
         if kind == "display.nav":  # a controller, while the menu is in front
             data = ev.get("data") or {}
@@ -260,9 +268,15 @@ class Shell(QObject):
                     self._family = family
                     self.changed.emit()
                 self._set_device("controller")
+                device = data.get("device") if isinstance(data.get("device"), str) else ""
                 if family != "wii":  # a Wii Remote's buttons go with its pointer
                     self.hide_pointer()
+                elif verb == inp.ACTIVATE and self._pointers.get(device or "wii", {}).get("visible"):
+                    return  # its A button clicks where it points (pointerPressed), not the highlighted row
                 self.handle(verb)
+            return
+        if kind.startswith(("device.", "controller.")):
+            self._load_devices()
             return
         osd = notices.osd_for(ev)
         if osd is not None:
@@ -556,8 +570,13 @@ class Shell(QObject):
 
     @Slot(int)
     def hover(self, i):
-        """The pointer is over row i of the list (-1: over none)."""
-        self._hover = i
+        """The mouse is over row i of the list (-1: over none)."""
+        self._set_pointer(MOUSE, hover=i)
+
+    @Slot(str, int)
+    def pointerHover(self, device, i):  # noqa: N802 - called from QML
+        """A Wii Remote's pointer is over row i of the list (-1: none)."""
+        self._set_pointer(device, hover=i)
 
     @Slot(int)
     def clickCategory(self, c):  # noqa: N802
@@ -595,35 +614,71 @@ class Shell(QObject):
         # was, and a hover with no movement is not the mouse moving.
         if last is None or abs(x - last[0]) + abs(y - last[1]) < 2:
             return
-        self._set_pointer(x / width, y / height, True, None, "mouse")
+        self._set_pointer(MOUSE, x=x / width, y=y / height, visible=True, source="mouse")
         self.pointer_timer.start()
 
-    def pointer_at(self, x, y, visible, down, source="wii"):
+    def pointer_at(self, x, y, visible, down, source="wii", device="wii", name="", colour=""):
         """A Wii Remote's pointer: x, y as shares of the screen; not visible
-        when it points away from the screen."""
+        when it points away from the screen. Each remote has its own, and
+        none of them touches the mouse's."""
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
             return
-        self.pointer_timer.stop()
-        self._set_pointer(min(1.0, max(0.0, float(x))), min(1.0, max(0.0, float(y))), visible, down, source or "wii")
+        was = self._pointers.get(device, {}).get("down", False)
+        self._set_pointer(device, x=min(1.0, max(0.0, float(x))), y=min(1.0, max(0.0, float(y))), visible=visible,
+                          down=down, source=source or "wii", name=name or None, colour=colour or None)
         if visible:
             self._set_device("controller")
+            if down and not was:
+                self.pointerPressed.emit(device)
 
     @Slot(bool)
     def mouseDown(self, down):  # noqa: N802 - called from QML
-        self._set_pointer(None, None, None, down, None)
+        self._set_pointer(MOUSE, down=down)
 
     @Slot()
     def hide_pointer(self):
+        """The mouse's pointer goes (the keyboard or a pad is used, or it
+        was still for a while)."""
         self.pointer_timer.stop()
-        self._set_pointer(None, None, False, False, None)
+        if MOUSE in self._pointers:
+            self._set_pointer(MOUSE, visible=False, down=False)
 
-    def _set_pointer(self, x, y, visible, down, source):
-        new = dict(self._pointer)
-        for k, v in (("x", x), ("y", y), ("visible", visible), ("down", down), ("source", source)):
+    def _set_pointer(self, device, **kv):
+        old = self._pointers.get(device)
+        new = dict(old) if old else {"id": device, "x": 0.5, "y": 0.5, "visible": False, "down": False, "source": "",
+                                     "name": "", "colour": "", "hover": -1}
+        for k, v in kv.items():
             if v is not None:
                 new[k] = v
-        if new != self._pointer:
-            self._pointer = new
+        if not new["name"] or not new["colour"]:
+            new["name"], new["colour"] = self._identity(device, new["name"], new["colour"])
+        if new != old:
+            self._pointers[device] = new
+            if old is None:
+                self.pointerIdsChanged.emit()
+            if new["visible"] and (old is None or not old["visible"] or kv.get("x") is not None):
+                self._last_pointer = device
+            self.pointerChanged.emit()
+
+    def _identity(self, device, name, colour):
+        """A pointer's name and colour: the device's, when hostd listed it."""
+        for d in self.devices:
+            if d.get("id") == device or (device == MOUSE and d.get("kind") == "pointer"):
+                return name or d.get("label", ""), colour or d.get("colour", "")
+        return name or ("Mouse" if device == MOUSE else "Wii Remote"), colour or "blue"
+
+    def _load_devices(self):
+        try:
+            devices = self.api.get("/v1/devices")
+        except hapi.APIError:
+            devices = []  # an older hostd: no strip
+        devices = [d for d in devices or [] if isinstance(d, dict)]
+        if devices != self.devices:
+            self.devices = devices
+            for k, p in list(self._pointers.items()):  # a renamed or recoloured device's pointer follows
+                name, colour = self._identity(k, "", "")
+                self._pointers[k] = {**p, "name": name, "colour": colour}
+            self.devicesChanged.emit()
             self.pointerChanged.emit()
 
     @Slot(str)
@@ -631,8 +686,9 @@ class Shell(QObject):
         """A click that is on no row: the middle and side buttons, and the
         right button (options of what is current)."""
         self._set_device("keys")
-        if button == "right" and self._hover >= 0 and not (self._panel or self._question):
-            self.clickItem(self._hover, "right")  # the options of the row under the pointer
+        hover = self._pointers.get(MOUSE, {}).get("hover", -1)
+        if button == "right" and hover >= 0 and not (self._panel or self._question):
+            self.clickItem(hover, "right")  # the options of the row under the pointer
             return
         verb = {"right": inp.ACTIONS, "middle": inp.HOME, "back": inp.BACK, "forward": inp.NEXT_TAB}.get(button)
         if verb:
@@ -753,6 +809,24 @@ class Shell(QObject):
                 "badge": row.badge, "tone": row.tone, "mark": row.mark, "launcher": row.kind == views.LAUNCHER,
                 "banner": "file://" + row.banner if row.banner else "", "details": row.details}
 
+    def last_pointer(self):
+        """The pointer that moved last (all that one pointer showed once)."""
+        p = self._pointers.get(self._last_pointer)
+        return self._shown(p) if p else {"id": MOUSE, "x": 0.5, "y": 0.5, "visible": False, "down": False, "source": "",
+                                  "name": "", "colour": "", "hover": -1}
+
+    def hovers_list(self):
+        """The rows with a pointer over them: {row, colour} for each."""
+        return [{"row": p["hover"], "colour": self._shown(p)["colour"]} for p in self._pointers.values()
+                if p["visible"] and p["hover"] >= 0]
+
+    def _shown(self, pointer):
+        """A pointer as the screen draws it: in its device's colour only when
+        more than one device points (alone, it is plain: colour is for telling
+        them apart)."""
+        pointing = sum(1 for d in self.devices if d.get("pointer"))
+        return dict(pointer) if pointing > 1 else {**pointer, "colour": ""}
+
     def _colors(self):
         return background.colors(self.look, self.now(), self.tokens) or ("", "")
 
@@ -762,7 +836,11 @@ class Shell(QObject):
     options = Property(QObject, lambda s: s.options_model, constant=True)
     noticeModel = Property(QObject, lambda s: s.notices_model, constant=True)
 
-    pointer = Property("QVariantMap", lambda s: dict(s._pointer), notify=pointerChanged)
+    pointer = Property("QVariantMap", lambda s: s.last_pointer(), notify=pointerChanged)
+    pointers = Property("QVariantList", lambda s: [s._shown(p) for p in s._pointers.values()], notify=pointerChanged)
+    pointerIds = Property("QVariantList", lambda s: list(s._pointers), notify=pointerIdsChanged)
+    hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=pointerChanged)
+    deviceList = Property("QVariantList", lambda s: list(s.devices), notify=devicesChanged)
     category = Property(int, lambda s: s.index(), notify=changed)
     view = Property(str, lambda s: s.cat().view, notify=changed)
     focus = Property("QVariantMap", lambda s: s.focus_info(), notify=changed)

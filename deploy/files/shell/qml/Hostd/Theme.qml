@@ -22,6 +22,14 @@ QtObject {
     readonly property color colorPositive: "#8cc4a2"
     readonly property color colorWarning: "#dcb872"
     readonly property color colorDanger: "#e07e7e"
+    readonly property color colorDeviceBlue: "#7fa8e0"
+    readonly property color colorDeviceOrange: "#e0a070"
+    readonly property color colorDeviceGreen: "#94c98f"
+    readonly property color colorDevicePink: "#e08fb4"
+    readonly property color colorDeviceYellow: "#dcc872"
+    readonly property color colorDeviceTeal: "#6cc4c4"
+    readonly property color colorDeviceRed: "#d9776f"
+    readonly property color colorDeviceViolet: "#a894e0"
 
     // font
     readonly property string fontText: "Inter"

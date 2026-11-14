@@ -21,6 +21,7 @@ Window {
     }
 
     Item {
+        id: scene
         anchors.fill: parent
         focus: true
 
@@ -99,8 +100,10 @@ Window {
             anchors.margins: Theme.layoutSafeMargin
         }
 
-        // The pointer: a mouse's, or a Wii Remote's (hostd's display.pointer).
-        Pointer { shell: menu.shell }
+        // The pointers: the mouse's, and one for each Wii Remote (hostd's
+        // display.pointer); a remote's finds the row it is over and clicks it.
+        PointerHits { shell: menu.shell; scene: scene }
+        Pointers { shell: menu.shell; anchors.fill: parent }
 
         // The mouse, over everything but taking nothing: where it is, the wheel,
         // and the buttons that are on no row (the rows have their own).

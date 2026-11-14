@@ -150,6 +150,45 @@ class MenuLayout(Contract):
                     s.verb("down", "down")
                     self.check(s, f"{size_name} {c} down 2")
 
+    def test_a_remote_pointer_finds_the_row_under_it_and_clicks_it(self):
+        """Several pointers: a Wii Remote's is found in the scene as a mouse
+        would be, underlines the row in its colour and clicks it."""
+        for size_name, size in SIZES.items():
+            with Screen(size) as s:
+                w, h = size
+                s.shell.devices = [
+                    {"id": "m", "kind": "pointer", "label": "Mouse", "colour": "blue", "pointer": True},
+                    {"id": "w1", "kind": "gamepad", "label": "Wii Remote 1", "colour": "orange", "pointer": True}]
+                s.shell.showMenu()
+                s.shell.setMenuActive(True)
+                s.settle(12)
+
+                def over(i):
+                    r = s.rect(f"itemHit/{i}")
+                    return (r[0] + r[2] / 2) / w, (r[1] + r[3] / 2) / h
+
+                x, y = over(1)
+                s.shell.on_event({"type": "display.pointer", "data": {
+                    "x": x, "y": y, "visible": True, "down": False, "family": "wii", "device": "w1"}})
+                s.settle()
+                self.assertEqual([h_["row"] for h_ in s.shell.property("hovers") if h_["colour"] == "orange"], [1], size_name)
+                self.assertTrue(s.shown("itemPointed/1/0"), size_name)
+                self.assertEqual(s.shell.current, 0, size_name)  # hovering moves nothing
+                # Its button goes down on the row: that row opens.
+                s.shell.on_event({"type": "display.pointer", "data": {
+                    "x": x, "y": y, "visible": True, "down": True, "family": "wii", "device": "w1"}})
+                s.settle()
+                self.assertEqual(s.api.sent[-1][1], "/v1/instances/chromium/switch", size_name)
+                self.assertEqual(s.shell.current, 1, size_name)
+                # Both pointers are drawn, each where it is.
+                s.shell.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
+                s.shell.mouseAt(w * 0.3, h * 0.7, w, h)
+                s.settle()
+                self.assertTrue(s.shown("pointer") and s.shown("pointer/w1"), size_name)  # the mouse's moved last
+                r = s.rect("pointer/w1")
+                self.near(cx(r), w * x, f"{size_name}: remote pointer x")
+                self.near(cy(r), h * y, f"{size_name}: remote pointer y")
+
     def test_the_pointer_is_drawn_where_it_is_and_rows_can_be_hit(self):
         for size_name, size in SIZES.items():
             with Screen(size) as s:

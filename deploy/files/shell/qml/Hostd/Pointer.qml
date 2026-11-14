@@ -1,18 +1,20 @@
 import QtQuick
 
-// The pointer: a small flat square, a mouse's or a Wii Remote's, drawn over
-// everything. A dark line outside the light one keeps it visible on any
-// background; it is filled while a button is held. It is shown only while
-// the shell says it is in use (it fades after a few seconds without
-// moving, and goes while the keyboard or a pad is used).
+// One pointer: a small flat square, a mouse's or a Wii Remote's, drawn in
+// its device's color over everything. A dark line outside keeps it visible
+// on any background; it is filled while a button is held. It is shown only
+// while the shell says it is in use (a mouse's fades after a few seconds
+// without moving, and goes while the keyboard or a pad is used).
 Item {
     id: pointer
 
-    // The shell (Python): pointer = {x, y (shares of the screen), visible, down}.
-    required property var shell
-    readonly property var now: shell.pointer
+    // The pointer's state (Python): {id, x, y (shares of the screen), visible,
+    // down, colour}; first: the one the tests and the layout contract name.
+    required property var now
+    property bool first: false
+    readonly property color tint: Devices.colour(now.colour)
 
-    objectName: "pointer"
+    objectName: first ? "pointer" : "pointer/" + now.id
     x: Math.round(now.x * (parent ? parent.width : 0)) - width / 2
     y: Math.round(now.y * (parent ? parent.height : 0)) - height / 2
     width: Theme.layoutPointer
@@ -31,9 +33,9 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        color: pointer.now.down ? Theme.colorText : "transparent"
+        color: pointer.now.down ? pointer.tint : "transparent"
         border.width: Theme.lineFocus
-        border.color: Theme.colorText
+        border.color: pointer.tint
     }
     Rectangle {
         anchors.fill: parent

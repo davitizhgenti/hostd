@@ -157,6 +157,7 @@ Item {
 
                     width: rowsColumn.width
                     pointing: cross.shell.pointer.visible
+                    pointedBy: cross.shell.hovers.filter(h => h.row === item.index).map(h => h.colour)
                     onActivated: cross.shell.clickItem(item.index, "left")
                     onEntered: cross.shell.hover(item.index)
                     onExited: cross.shell.hover(-1)

@@ -445,6 +445,122 @@ class Controllers(unittest.TestCase):
         self.assertEqual(s.state()["category"], APPS)
 
 
+WII1, WII2 = "057e:0306-hidraw3", "057e:0306-hidraw4"
+
+
+def point(s, device, x, y, visible=True, down=False, name="", colour=""):
+    s.on_event({"type": "display.pointer", "data": {"x": x, "y": y, "visible": visible, "down": down, "family": "wii",
+                                                    "device": device, "name": name, "colour": colour}})
+
+
+class SeveralPointers(unittest.TestCase):
+    """Every pointing device has a pointer of its own: none moves, hides or
+    fades another's, and each says whose it is."""
+
+    def setUp(self):
+        self.s = shell()
+        self.s.showMenu()
+        self.s.setMenuActive(True)
+        self.s.devices = [
+            {"id": "mouse-1", "kind": "pointer", "label": "Mouse", "colour": "blue", "pointer": True},
+            {"id": WII1, "kind": "gamepad", "label": "Wii Remote 1", "colour": "orange", "pointer": True},
+            {"id": WII2, "kind": "gamepad", "label": "Mia", "colour": "violet", "pointer": True}]
+
+    def by_id(self):
+        return {p["id"]: p for p in self.s.property("pointers")}
+
+    def test_each_device_has_its_own_pointer(self):
+        s = self.s
+        s.mouseAt(90, 90, 1000, 1000)
+        s.mouseAt(100, 100, 1000, 1000)
+        point(s, WII1, 0.2, 0.3)
+        point(s, WII2, 0.8, 0.6, down=True)
+        p = self.by_id()
+        self.assertEqual({k: (v["x"], v["y"], v["visible"], v["colour"]) for k, v in p.items()}, {
+            "mouse": (0.1, 0.1, True, "blue"), WII1: (0.2, 0.3, True, "orange"), WII2: (0.8, 0.6, True, "violet")})
+        self.assertEqual((p[WII1]["name"], p[WII2]["name"], p[WII2]["down"], p["mouse"]["down"]),
+                         ("Wii Remote 1", "Mia", True, False))
+        # One remote moving, going or clicking leaves the others as they were.
+        point(s, WII1, 0.25, 0.35)
+        point(s, WII2, 0.0, 0.0, visible=False)
+        p = self.by_id()
+        self.assertEqual((p["mouse"]["x"], p["mouse"]["visible"], p[WII1]["x"], p[WII2]["visible"]), (0.1, True, 0.25, False))
+
+    def test_the_mouse_fading_or_a_key_leaves_the_remotes_pointing(self):
+        s = self.s
+        s.mouseAt(90, 90, 1000, 1000)
+        s.mouseAt(100, 100, 1000, 1000)
+        point(s, WII1, 0.2, 0.3)
+        s.pointer_timer.timeout.emit()
+        self.assertEqual((self.by_id()["mouse"]["visible"], self.by_id()[WII1]["visible"]), (False, True))
+        s.mouseAt(110, 110, 1000, 1000)
+        s.key("Key_Down", "", False)
+        self.assertEqual((self.by_id()["mouse"]["visible"], self.by_id()[WII1]["visible"]), (False, True))
+        self.assertFalse(s.pointer_timer.isActive())
+
+    def test_colours_tell_them_apart_only_when_there_are_several(self):
+        s = self.s
+        point(s, WII1, 0.2, 0.3)
+        self.assertEqual(self.by_id()[WII1]["colour"], "orange")
+        s.devices = [d for d in s.devices if d["id"] != WII2 and d["kind"] != "pointer"]  # alone: plain
+        s.pointerChanged.emit()
+        self.assertEqual(self.by_id()[WII1]["colour"], "")
+
+    def test_a_remote_button_going_down_clicks_once_where_it_points(self):
+        s = self.s
+        pressed = []
+        s.pointerPressed.connect(pressed.append)
+        point(s, WII1, 0.2, 0.3)
+        point(s, WII1, 0.2, 0.3, down=True)
+        point(s, WII1, 0.21, 0.3, down=True)  # held and moved: not another click
+        point(s, WII1, 0.21, 0.3)
+        point(s, WII2, 0.5, 0.5, visible=False, down=True)  # pointing away: nothing to click
+        point(s, WII1, 0.21, 0.3, down=True)
+        self.assertEqual(pressed, [WII1, WII1])
+
+    def test_a_remote_a_button_clicks_where_it_points_not_the_highlighted_row(self):
+        s = self.s
+        nav(s, "choose", "wii")  # no pointer showing: it opens the highlighted row
+        self.assertEqual(s.api.sent[-1][1], "/v1/instances/steam/switch")
+        s.api.sent.clear()
+        point(s, WII1, 0.2, 0.3)
+        s.on_event({"type": "display.nav", "data": {"what": "choose", "family": "wii", "device": WII1}})
+        self.assertEqual(s.api.sent, [])  # the click comes from pointerPressed
+        nav(s, "down", "wii")  # its other buttons still move the highlight
+        self.assertEqual(s.current_row().title, "Chromium")
+
+    def test_hover_is_each_pointers_own_and_underlines_in_its_colour(self):
+        s = self.s
+        s.mouseAt(90, 90, 1000, 1000)
+        s.mouseAt(100, 100, 1000, 1000)
+        s.hover(1)
+        point(s, WII1, 0.2, 0.3)
+        s.pointerHover(WII1, 1)
+        point(s, WII2, 0.2, 0.3)
+        s.pointerHover(WII2, 0)
+        self.assertEqual(sorted((h["row"], h["colour"]) for h in s.property("hovers")),
+                         [(0, "violet"), (1, "blue"), (1, "orange")])
+        point(s, WII1, 0, 0, visible=False)
+        self.assertEqual(sorted(h["row"] for h in s.property("hovers")), [0, 1])
+        s.mouseButton("right")  # the mouse's row, not a remote's
+        self.assertEqual(s.current_row().title, "Chromium")
+
+    def test_devices_come_from_hostd_and_follow_its_events(self):
+        s = self.s
+        s.api.reads["/v1/devices"] = [{"id": WII1, "kind": "gamepad", "label": "Dad", "colour": "teal", "pointer": True},
+                                      {"id": WII2, "kind": "gamepad", "label": "Mia", "colour": "pink", "pointer": True}]
+        s.on_event({"type": "device.changed", "data": {}})
+        self.assertEqual([d["label"] for d in s.property("deviceList")], ["Dad", "Mia"])
+        point(s, WII1, 0.2, 0.3)  # a pointer event that carries no name: the device's
+        self.assertEqual((self.by_id()[WII1]["name"], self.by_id()[WII1]["colour"]), ("Dad", "teal"))
+        s.api.reads["/v1/devices"][0]["label"] = "Granddad"  # renamed: the pointer follows
+        s.on_event({"type": "device.changed", "data": {}})
+        self.assertEqual(self.by_id()[WII1]["name"], "Granddad")
+        del s.api.reads["/v1/devices"]  # an older hostd
+        s.on_event({"type": "device.disconnected", "data": {}})
+        self.assertEqual(s.property("deviceList"), [])
+
+
 class Mouse(unittest.TestCase):
     """The mouse has a pointer: hovering never moves the selection, a click
     opens the row clicked, the wheel moves the selection."""

@@ -20,6 +20,15 @@ accent         = "#f2f2f4" # what is current: the text's own color
 positive       = "#8cc4a2" # running, done
 warning        = "#dcb872" # starting, skipped
 danger         = "#e07e7e" # errors, closing, critical notices
+# A device's own color (its pointer, its mark): eight, told apart on dark.
+device-blue    = "#7fa8e0"
+device-orange  = "#e0a070"
+device-green   = "#94c98f"
+device-pink    = "#e08fb4"
+device-yellow  = "#dcc872"
+device-teal    = "#6cc4c4"
+device-red     = "#d9776f"
+device-violet  = "#a894e0"
 
 [font] # one family each
 text = "Inter"

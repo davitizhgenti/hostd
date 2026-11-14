@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 
 // The one list item. Its parts sit at fixed places, the same for every
@@ -31,6 +32,7 @@ Item {
     property int index: -1
     property string tag: "item" // the tests' name for its parts: item, option
     property bool pointing: false // a pointer is on the screen: a row under it is underlined
+    property var pointedBy: [] // the colors of the pointers over it (a list's rows): each underlines it
 
     signal activated()
     signal entered()
@@ -70,9 +72,28 @@ Item {
         onExited: row.exited()
     }
 
-    Rectangle {
+    // Pointers over the row: each underlines its share of it in its color.
+    Row {
+        visible: !row.header
+        x: row.textX
+        y: row.line
+        width: row.width - row.textX
+        Repeater {
+            model: row.pointedBy
+            Rectangle {
+                required property string modelData
+                required property int index
+                objectName: row.tag + "Pointed/" + row.index + "/" + index
+                width: row.pointedBy.length > 0 ? (row.width - row.textX) / row.pointedBy.length : 0
+                height: modelData === "" ? Theme.lineHair : Theme.lineFocus
+                color: modelData === "" ? Theme.colorTextMuted : Devices.colour(modelData)
+            }
+        }
+    }
+
+    Rectangle {  // a panel's rows: the mouse alone
         objectName: row.tag + "Hover/" + row.index
-        visible: hit.containsMouse && row.pointing && !row.header
+        visible: hit.containsMouse && row.pointing && !row.header && row.pointedBy.length === 0
         x: row.textX
         y: row.line
         width: row.width - row.textX

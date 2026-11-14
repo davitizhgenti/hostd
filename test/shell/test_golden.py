@@ -64,8 +64,6 @@ def render(size, surface, steps):
                     s.shell.mouseAt(w * px - 30, h * py, w, h)
                     s.shell.mouseAt(w * px, h * py, w, h)
                     s.shell.hover(row)
-                    s.window.setProperty("hoverRow", row)
-                    s.item(f"itemHover/{row}").setProperty("visible", True)  # hover cannot be sent offscreen
                 elif isinstance(step, tuple):
                     s.key(*step)
                 else:
