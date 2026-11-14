@@ -530,9 +530,9 @@ func TestGameFromTheAppInFront(t *testing.T) {
 }
 
 // Two players: the menu opens for the controller whose Guide button was held,
-// only that controller is taken, and only its navigation moves the menu. The
-// other player keeps playing.
-func TestMenuBelongsToTheControllerThatOpenedIt(t *testing.T) {
+// and then every controller is taken, so that each one's navigation reaches
+// the menu, with who it was.
+func TestEveryControllerCanUseTheMenu(t *testing.T) {
 	r := newDisplayRig(t, true)
 	nav := r.e.Subscribe(t.Context(), EventNav)
 	r.procEnv(t, 500, `0::/user.slice/user-1000.slice/user@1000.service/app.slice/hostd-hostd-menu.service`)
@@ -542,7 +542,6 @@ func TestMenuBelongsToTheControllerThatOpenedIt(t *testing.T) {
 	r.event(t)
 
 	const one, two = "045e:028e-pad-one", "045e:028e-pad-two"
-	// Player 2 holds Guide while player 1 presses a button: only 2 opens it.
 	r.input.send(t, evdev.InputEvent{Device: one, Player: 1, Buttons: []string{"south"}})
 	r.input.send(t, evdev.InputEvent{Device: two, Player: 2, Buttons: []string{"guide"}})
 	waitFor(t, "guide held", func() bool {
@@ -562,43 +561,36 @@ func TestMenuBelongsToTheControllerThatOpenedIt(t *testing.T) {
 	r.b.focus(5)
 	r.event(t)
 
-	// Player 2's controller is taken once nothing of it is held; player 1's
-	// held button does not delay that.
+	// The controllers are taken (all of them) once nothing is held.
 	r.input.send(t, evdev.InputEvent{Device: two, Player: 2, Released: []string{"guide"}})
-	waitFor(t, "player 2 taken", func() bool { return len(r.input.grabbed()) > 0 })
+	r.input.send(t, evdev.InputEvent{Device: one, Player: 1, Released: []string{"south"}})
+	waitFor(t, "taken", func() bool { return len(r.input.grabbed()) > 0 })
 	r.input.mu.Lock()
 	devs := append([]string(nil), r.input.grabDevs...)
 	r.input.mu.Unlock()
-	if len(devs) != 1 || devs[0] != two {
-		t.Fatalf("taken: %v, want only %s", devs, two)
+	if len(devs) != 1 || devs[0] != "" {
+		t.Fatalf("taken: %v, want every controller", devs)
 	}
 
-	// Player 1's navigation does nothing to the menu; player 2's does, with
-	// who it was.
+	// Both players' navigation reaches the menu.
 	r.input.send(t, evdev.InputEvent{Device: one, Player: 1, Nav: []string{"down"}})
 	r.input.send(t, evdev.InputEvent{Device: two, Player: 2, Family: "playstation", Nav: []string{"choose"}})
-	select {
-	case ev := <-nav:
-		if string(ev.Data) != `{"device":"`+two+`","family":"playstation","player":2,"what":"choose"}` {
-			t.Fatalf("nav = %s (player 1's move reached the menu?)", ev.Data)
+	for _, want := range []string{
+		`{"device":"` + one + `","family":"","player":1,"what":"down"}`,
+		`{"device":"` + two + `","family":"playstation","player":2,"what":"choose"}`,
+	} {
+		select {
+		case ev := <-nav:
+			if string(ev.Data) != want {
+				t.Fatalf("nav = %s, want %s", ev.Data, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("no nav event")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no nav event")
-	}
-	select {
-	case ev := <-nav:
-		t.Fatalf("a second nav event: %s", ev.Data)
-	case <-time.After(50 * time.Millisecond):
 	}
 
-	// Back to the game: player 2's controller is given back, and the owner is forgotten.
+	// Back to the game: the controllers are given back.
 	r.b.focus(1)
 	r.event(t)
 	waitFor(t, "given back", func() bool { g := r.input.grabbed(); return len(g) == 2 && !g[1] })
-	r.m.mu.Lock()
-	owner := r.m.menuOwner
-	r.m.mu.Unlock()
-	if owner != "" {
-		t.Fatalf("owner %q after the menu closed", owner)
-	}
 }

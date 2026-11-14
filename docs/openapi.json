@@ -2111,6 +2111,203 @@
         "x-hostd-scope": "display"
       }
     },
+    "/v1/devices/{id}/colour": {
+      "post": {
+        "description": "Give an input device a colour: its pointer on the menu and its mark are drawn in it",
+        "operationId": "device.colour",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "colour": {
+                    "description": "the colour of its pointer and mark",
+                    "enum": [
+                      "blue",
+                      "orange",
+                      "green",
+                      "pink",
+                      "yellow",
+                      "teal",
+                      "red",
+                      "violet"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "colour"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Give an input device a colour: its pointer on the menu and its mark are drawn in it",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "device.colour",
+        "x-hostd-scope": "display"
+      }
+    },
+    "/v1/devices/{id}/rename": {
+      "post": {
+        "description": "Name an input device for the menu (a Wii Remote, a mouse, a controller)",
+        "operationId": "device.rename",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "the name the menu shows; empty: its own name again",
+                    "maxLength": 24,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Name an input device for the menu (a Wii Remote, a mouse, a controller)",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "device.rename",
+        "x-hostd-scope": "display"
+      }
+    },
     "/v1/display": {
       "get": {
         "operationId": "display.display",

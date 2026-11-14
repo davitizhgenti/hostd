@@ -32,6 +32,11 @@ var Builtin = host.Builtin{
 		if err := players.Load(); err != nil {
 			h.Log.Warn("the saved player slots cannot be read; starting without them", "err", err)
 		}
+		// Their names, colours and pointer calibrations.
+		identities := &evdev.Identities{File: filepath.Join(h.StateDir, "devices.json")}
+		if err := identities.Load(); err != nil {
+			h.Log.Warn("the saved device names cannot be read; starting without them", "err", err)
+		}
 		keys, buttons, err := Bindings(c.Keys, c.Buttons)
 		if err != nil {
 			return nil, err
@@ -41,7 +46,7 @@ var Builtin = host.Builtin{
 			return nil, err
 		}
 		return New(Options{Connect: SwayConnector(h.RuntimeDir), Logger: h.Log,
-			Input: &seat.Gate{Inner: &evdev.Evdev{Profiles: profiles, Players: players, Nav: c.Nav}, User: currentUser()}, Players: players, Profiles: profiles, IdleAfter: time.Duration(c.IdleAfter),
+			Input: &seat.Gate{Inner: &evdev.Evdev{Profiles: profiles, Players: players, Identities: identities, Nav: c.Nav}, User: currentUser()}, Players: players, Identities: identities, Profiles: profiles, IdleAfter: time.Duration(c.IdleAfter),
 			Notifier: &notify.Desktop{RuntimeDir: h.RuntimeDir}, Keys: keys, Buttons: buttons, PlayerButtons: playerButtons, Outputs: c.Outputs,
 			HoldFor: time.Duration(c.Hold), GPU: gpu.System{}}), nil
 	},

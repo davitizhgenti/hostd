@@ -74,7 +74,7 @@ func (w *wiiRemote) Gone() {
 	w.configured, w.irReady, w.extPlugged, w.nunchuk, w.classic = false, false, false, false, false
 	w.clHeld, w.clAxes = nil, nil
 	w.core, w.c, w.z, w.sx, w.sy = 0, false, false, 0, 0
-	w.tracker = pointerTracker{}
+	w.tracker = pointerTracker{Cal: w.tracker.Cal}
 	hadPointer := w.ptr.Visible
 	w.ptr = Pointer{}
 	w.mu.Unlock()
@@ -85,6 +85,7 @@ func (w *wiiRemote) Gone() {
 	if hadPointer {
 		w.emit(InputEvent{Pointer: &Pointer{}})
 	}
+	w.emit(InputEvent{Presence: "gone"})
 }
 
 // Handle takes one report as read from hidraw.
@@ -108,6 +109,7 @@ func (w *wiiRemote) Handle(b []byte) {
 	w.mu.Unlock()
 	if first {
 		w.slot() // connected: it has a player slot now
+		w.emit(InputEvent{Presence: "here"})
 	}
 	if first || reset {
 		w.send(wiiStatusRequest())
@@ -369,6 +371,7 @@ func (e *Evdev) readWii(ctx context.Context, f *os.File, id string, prof *Profil
 	var remote *wiiRemote
 	nav := NewNavigator(prof, e.Nav, func(verbs []string) { emit(InputEvent{Nav: verbs}) })
 	remote = &wiiRemote{rw: f, nav: nav, codes: prof.codes, slot: slot, emit: emit, now: time.Now, pause: time.Sleep}
+	remote.tracker.Cal = e.Identities.Calibration(id)
 	var lost *time.Timer
 	defer func() {
 		if lost != nil {

@@ -91,7 +91,9 @@ Every keyboard, mouse and controller is a **device** with an ID of its own (vend
 
 **Players.** The first controller is player 1, the next takes the lowest free slot, and a controller keeps its slot while hostd runs and across restarts (slots are saved in hostd's state folder). `hostctl device assign <id> <player>` moves one; the controller that had the slot gets the other's old one. A device that is not a controller has no slot.
 
-**The menu belongs to the controller that opened it.** Holding Guide opens it for that controller: only it is taken from the apps (the others keep playing) and only its buttons move the menu. The `display.nav` events say which device and player.
+**Names and colours.** Each device has a name and a colour for the menu, where its pointer is drawn in its colour and the strip of connected devices shows both. A new device gets a colour no other has; `hostctl device rename <id> "Mia"` and `hostctl device colour <id> violet` (blue, orange, green, pink, yellow, teal, red, violet) change them, and they are kept in hostd's state folder (`devices.json`) so a remote is the same remote when it comes back. A Wii Remote (on a DolphinBar) is a device too, once hostd hears from it.
+
+**The menu is every controller's while it is in front.** All controllers are taken from the apps then (an app does not act on a button that moved the menu), and any of them moves the menu; each pointing device (a mouse, each Wii Remote) has a pointer of its own, which hovers and clicks the row it is over, and the highlight of a controller's or keyboard's cursor follows whichever pressed last. The `display.nav` and `display.pointer` events say which device and player.
 
 **Bindings per player.** `[display.buttons]` binds controller buttons for everyone; a player's own table changes that for one slot:
 

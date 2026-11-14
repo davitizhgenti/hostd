@@ -119,6 +119,10 @@ func Bindings(keys, buttons map[string]string) (map[string]string, map[string]st
 
 // onInput is called for every input from every device.
 func (m *Module) onInput(ev evdev.InputEvent) {
+	if ev.Presence != "" { // a remote came or went: not someone using the screen
+		m.hear(ev)
+		return
+	}
 	m.presence.Touch()
 	if ev.Device != "" {
 		m.mu.Lock()
@@ -144,21 +148,23 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 	}
 	if ev.Pointer != nil {
 		m.mu.Lock()
-		front, core, owner := m.menuFront, m.core, m.menuOwner
+		front, core := m.menuFront, m.core
 		m.mu.Unlock()
-		if front && core != nil && (owner == "" || owner == ev.Device) {
+		if front && core != nil {
+			name, colour := m.pointerLabel(ev.Device, ev.Family, ev.Player)
 			core.Emit(sdk.Event{Type: EventPointer, Data: sdk.MustJSON(map[string]any{"x": ev.Pointer.X, "y": ev.Pointer.Y,
-				"visible": ev.Pointer.Visible, "down": ev.Pointer.Down, "device": ev.Device, "player": ev.Player, "family": ev.Family}),
+				"visible": ev.Pointer.Visible, "down": ev.Pointer.Down, "device": ev.Device, "player": ev.Player, "family": ev.Family,
+				"name": name, "colour": colour}),
 				Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
 		}
 	}
 	if len(ev.Nav) > 0 {
 		m.mu.Lock()
-		front, core, owner := m.menuFront, m.core, m.menuOwner
+		front, core := m.menuFront, m.core
 		m.mu.Unlock()
-		// The menu belongs to the controller that opened it: another
-		// player's buttons do nothing to it.
-		if front && core != nil && (owner == "" || owner == ev.Device) {
+		// Every controller can use the menu while it is in front; each
+		// pointer is its own, and the highlight follows whichever pressed last.
+		if front && core != nil {
 			for _, n := range ev.Nav {
 				core.Emit(sdk.Event{Type: EventNav, Data: sdk.MustJSON(map[string]any{"what": n, "device": ev.Device, "player": ev.Player, "family": ev.Family}),
 					Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
@@ -178,14 +184,11 @@ func (m *Module) isMenu(instance string) bool {
 func (m *Module) takeControllers(menuFront bool) {
 	m.mu.Lock()
 	m.menuFront = menuFront
-	if menuFront {
-		m.menuOwner = m.lastPad // the controller that asked for it; "" if none did
-	}
 	m.mu.Unlock()
 	m.syncGrab()
 	if !menuFront {
 		m.mu.Lock()
-		m.menuOwner, m.lastPad = "", ""
+		m.lastPad = ""
 		m.mu.Unlock()
 	}
 }
@@ -193,33 +196,21 @@ func (m *Module) takeControllers(menuFront bool) {
 // syncGrab takes or gives back the controllers. They are taken only once
 // no button is held: an app saw a held button (Guide, held to open the
 // menu) go down and must see it come up, or it stays down for the app.
-// Once taken, they stay taken while the menu is in front.
+// Once taken, they stay taken while the menu is in front: every one of them
+// is the menu's, each with its own pointer.
 func (m *Module) syncGrab() {
 	g, ok := m.opts.Input.(evdev.Grabber)
 	if !ok {
 		return
 	}
 	m.mu.Lock()
-	owner := m.menuOwner
-	if m.grabbed && m.grabbedDev != owner && m.grabbedDev != "" { // the owner changed: give back the old one
-		old := m.grabbedDev
-		m.mu.Unlock()
-		_ = g.Grab(old, false)
-		m.mu.Lock()
-		m.grabbed = false
-	}
-	held := false
-	for k := range m.down {
-		if owner == "" || strings.HasPrefix(k, owner+"/") {
-			held = true
-		}
-	}
+	held := len(m.down) > 0
 	want := m.menuFront && (m.grabbed || !held)
 	change := m.grabbed != want
-	m.grabbed, m.grabbedDev = want, owner
+	m.grabbed = want
 	m.mu.Unlock()
 	if change {
-		if err := g.Grab(owner, want); err != nil {
+		if err := g.Grab("", want); err != nil {
 			m.log.Warn("taking the controllers for the menu", "on", want, "err", err)
 		}
 	}

@@ -39,6 +39,7 @@ const (
 	EventDeviceConnected        = "device.connected"
 	EventDeviceDisconnected     = "device.disconnected"
 	EventDeviceAssigned         = "device.assigned"
+	EventDeviceChanged          = "device.changed"
 	EventControllerConnected    = "controller.connected"
 	EventControllerDisconnected = "controller.disconnected"
 )
@@ -70,6 +71,9 @@ type Options struct {
 	// Players are the controllers' slots, shared with the Input that reads
 	// them (nil: none are reported or assigned).
 	Players *evdev.Players
+	// Identities are the devices' names and colours (nil: a set that is not
+	// kept).
+	Identities *evdev.Identities
 	// Keys and Buttons bind inputs to actions (see Bindings; nil: the
 	// defaults).
 	Keys, Buttons map[string]string
@@ -137,14 +141,13 @@ type Module struct {
 	pressing      map[string]bool          // inputs whose action is being handled
 	holds         map[string]chan struct{} // controller buttons held down; closed on release
 	menuFront     bool                     // hostd's menu has the focus: controllers are taken for it
-	menuOwner     string                   // the controller that opened the menu ("": any)
 	playerButtons map[int]map[string]string
-	lastBy        map[string]time.Time // when each device last did something
-	lastPad       string               // the controller whose binding fired last
-	grabbedDev    string               // whose grab is held
-	grabbed       bool                 // the controllers are taken (evdev.Grabber)
-	down          map[string]bool      // controller buttons held down
-	gpuUsed       int64                // video memory in use, bytes (GPU)
+	lastBy        map[string]time.Time  // when each device last did something
+	lastPad       string                // the controller whose binding fired last
+	here          map[string]hereDevice // devices with no input node (Wii Remotes) heard from now
+	grabbed       bool                  // the controllers are taken (evdev.Grabber)
+	down          map[string]bool       // controller buttons held down
+	gpuUsed       int64                 // video memory in use, bytes (GPU)
 	gpuTotal      int64
 	life          context.Context      // ends when the module stops
 	failed        int                  // compositor commands that failed
@@ -193,10 +196,13 @@ func New(opts Options) *Module {
 	if opts.HoldFor == 0 {
 		opts.HoldFor = 600 * time.Millisecond
 	}
-	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{}, down: map[string]bool{}, lastBy: map[string]time.Time{},
+	m := &Module{opts: opts, log: opts.Logger, windows: map[int64]*trackedWindow{}, pressing: map[string]bool{}, holds: map[string]chan struct{}{}, down: map[string]bool{}, lastBy: map[string]time.Time{}, here: map[string]hereDevice{},
 		keys: opts.Keys, buttons: opts.Buttons, playerButtons: opts.PlayerButtons,
 		prefs: map[string]bool{}, launches: map[string]*launch{}, closeWait: map[int64]chan struct{}{},
 		ending: map[string]chan struct{}{}, gone: map[string]bool{}, warned: map[string]time.Time{}}
+	if m.opts.Identities == nil {
+		m.opts.Identities = &evdev.Identities{}
+	}
 	if m.opts.Profiles == nil {
 		m.opts.Profiles, _ = evdev.LoadProfiles("") // the built-in ones always load (a test checks)
 	}
@@ -222,6 +228,14 @@ var (
 		"id":{"type":"string","description":"the controller's ID (hostctl devices)"},
 		"player":{"type":"integer","minimum":1,"maximum":16,"description":"the slot"}},
 		"required":["id","player"],"additionalProperties":false}`)
+	renameArg = json.RawMessage(`{"type":"object","properties":{
+		"id":{"type":"string","description":"the device's ID (hostctl devices)"},
+		"name":{"type":"string","maxLength":24,"description":"the name the menu shows; empty: its own name again"}},
+		"required":["id","name"],"additionalProperties":false}`)
+	colourArg = json.RawMessage(`{"type":"object","properties":{
+		"id":{"type":"string","description":"the device's ID (hostctl devices)"},
+		"colour":{"type":"string","enum":["blue","orange","green","pink","yellow","teal","red","violet"],"description":"the colour of its pointer and mark"}},
+		"required":["id","colour"],"additionalProperties":false}`)
 	noticeArg = json.RawMessage(`{"type":"object","properties":{
 		"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}`)
 	powerArg = json.RawMessage(`{"type":"object","properties":{
@@ -292,6 +306,12 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "device.assign", Description: "Give a controller a player slot (the controller that has it gets this one's old slot)",
 				Schema: assignArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/assign"}},
+			{Type: "device.rename", Description: "Name an input device for the menu (a Wii Remote, a mouse, a controller)",
+				Schema: renameArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/rename"}},
+			{Type: "device.colour", Description: "Give an input device a colour: its pointer on the menu and its mark are drawn in it",
+				Schema: colourArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/colour"}},
 			{Type: "display.notice", Description: "Show a short notice on the screen, above any app",
 				Schema: noticeArg, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/display/notice"}},
@@ -317,11 +337,12 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventNotice, Description: "A notice was shown on the screen, e.g. an app opened in the background"},
 			{Type: EventGPUFull, Description: "Video memory is nearly full (90%); a notice asks to lower the game's settings"},
 			{Type: EventGPUOK, Description: "Video memory is below 80% again"},
-			{Type: EventPointer, Description: "Where a Wii Remote points, for hostd's menu while it is in front: x and y are shares of the screen's width and height (0..1), visible is false when it points away from the screen, down while its A button is held; family is its kind (wii). Sent when it appears, goes, is clicked, and as it moves (at most about 30 times a second). Apps do not see it"},
+			{Type: EventPointer, Description: "Where a pointing device (a Wii Remote) points, for hostd's menu while it is in front: x and y are shares of the screen's width and height (0..1), visible is false when it points away from the screen, down while its A button is held; family is its kind (wii). Sent when it appears, goes, is clicked, and as it moves (at most about 30 times a second). Apps do not see it"},
 			{Type: EventNav, Description: "Controller navigation for hostd's menu while it is in front: what is one of up, down, left, right, choose, back, actions, close, prev_tab, next_tab, page_up, page_down, home; family is the controller's kind (xbox, playstation, nintendo, wii, generic). Held directions repeat. Apps do not see the controller then"},
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventDeviceConnected, Description: "A keyboard, mouse or controller was plugged in (see GET /v1/devices)"},
 			{Type: EventDeviceDisconnected, Description: "An input device was unplugged"},
+			{Type: EventDeviceChanged, Description: "An input device was named or given a colour"},
 			{Type: EventDeviceAssigned, Description: "A controller was given another player slot"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},
 			{Type: EventControllerDisconnected, Description: "A game controller was unplugged"},

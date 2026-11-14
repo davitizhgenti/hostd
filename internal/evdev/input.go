@@ -59,6 +59,10 @@ type InputEvent struct {
 	// Pointer is where a Wii Remote points, when it moved, appeared, went or
 	// was clicked.
 	Pointer *Pointer
+	// Presence is "here" when a device that has no input node of its own
+	// (a Wii Remote on a DolphinBar) is heard from, "gone" when it falls
+	// silent: those are not found by scanning /dev/input.
+	Presence string
 }
 
 // The d-pad as hat axes, for presence.
@@ -133,6 +137,9 @@ type Evdev struct {
 	grabbed map[string]bool // taken: by ID, "" for all of them
 	// Players are the controllers' slots (default: one set of its own).
 	Players *Players
+	// Identities are the devices' names, colours and calibrations; the
+	// Wii Remotes' pointers are measured against theirs (nil: defaults).
+	Identities *Identities
 }
 
 // pad is an open controller.
