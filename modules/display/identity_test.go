@@ -158,3 +158,27 @@ func TestCalibratingARemote(t *testing.T) {
 		t.Fatalf("events: %v", got)
 	}
 }
+
+// Through the engine, as the menu and hostctl send them (validated first,
+// which looks for a window when an action is not known to name none): the
+// device actions are not about windows.
+func TestDeviceActionsGoThroughTheEngine(t *testing.T) {
+	r := newDisplayRig(t, true)
+	const wii = "057e:0306-hidraw3"
+	r.input.send(t, evdev.InputEvent{Device: wii, Player: 1, Family: "wii", Presence: "here"})
+	for typ, args := range map[string]string{
+		"device.colour":    `{"id":"` + wii + `","colour":"green"}`,
+		"device.rename":    `{"id":"` + wii + `","name":"Mia"}`,
+		"device.calibrate": `{"id":"` + wii + `"}`,
+	} {
+		if _, err := r.submit(t, typ, args, sdk.SourceLocal, "display"); err != nil {
+			t.Errorf("%s: %v", typ, err)
+		}
+	}
+	if d := r.m.deviceByID(wii); d.Label != "Mia" || d.Colour != "green" {
+		t.Fatalf("after: %+v", d)
+	}
+	if _, err := r.submit(t, "device.colour", `{"id":"nothing","colour":"green"}`, sdk.SourceLocal, "display"); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Errorf("unknown device: %v", err)
+	}
+}

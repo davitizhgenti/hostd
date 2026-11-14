@@ -65,6 +65,8 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 	switch a.Type {
 	case "display.notice":
 		return nil // shown or not, it targets nothing
+	case "device.assign", "device.rename", "device.colour", "device.calibrate":
+		return nil // they name a device, not a window; the handler says if there is none
 	case "display.power", "display.mode", "display.output.enable":
 		_, _, err := m.outputArgs(ctx, a)
 		return err
