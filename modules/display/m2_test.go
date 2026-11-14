@@ -48,6 +48,17 @@ func TestGuideButtonOpensMenu(t *testing.T) {
 	}
 }
 
+// A machine set up without the menu (--no-menu): Super says so.
+func TestNoMenuIsSaidPlainly(t *testing.T) {
+	r := newDisplayRig(t, true)
+	r.noMenuApp = true
+	_, err := r.e.Submit(context.Background(), sdk.Action{Type: "display.menu", Args: json.RawMessage(`{}`),
+		Source: sdk.Source{Kind: sdk.SourceLocal}}, core.Auth{Scopes: []string{sdk.ScopeAdmin}})
+	if sdk.CodeOf(err) != sdk.CodeNotFound || !strings.Contains(err.Error(), "hostd-setup add shell") {
+		t.Fatalf("display.menu without a menu: %v", err)
+	}
+}
+
 func TestGuideTapIsTheApps(t *testing.T) {
 	// A tap opens the app's own menu (Steam's); hostd waits for a hold.
 	r := newDisplayRig(t, true)

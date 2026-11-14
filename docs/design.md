@@ -1,6 +1,6 @@
 # Design
 
-Everything hostd shows on a screen follows one design: the menu, notices, the volume and screen OSD, the background behind the apps, and this docs site. Anything new that draws, such as a remote control, uses the same tokens, so it looks like the rest.
+Everything hostd shows on a screen follows one design (the menu, notices, OSD and background are the `shell` add-on, on by default; see [install](install.md)): the menu, notices, the volume and screen OSD, the background behind the apps, and this docs site. Anything new that draws, such as a remote control, uses the same tokens, so it looks like the rest.
 
 ## Principles
 

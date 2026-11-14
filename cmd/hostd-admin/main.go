@@ -38,6 +38,7 @@ Options:
   --gpu auto|nvidia|other   prepare: GPU setup (default: from the PCI devices)
   --user NAME               the screen user (default: screen)
   --ssh-passwords keep      prepare: leave SSH password login on
+  --no-menu                 prepare: leave out the packages of hostd's on-screen menu
   --all, --purge, --port N  as in hostd-setup (see its --help)
 
 Everything else (installing and updating hostd, add-ons that need no root) is
@@ -82,7 +83,7 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 	var names []string
 	var gpu, user, ssh string
 	var port int
-	var purge, all bool
+	var purge, all, noMenu bool
 	for i := 0; i < len(rest); i++ {
 		switch a := rest[i]; a {
 		case "--gpu", "--user", "--ssh-passwords", "--port":
@@ -105,6 +106,8 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 				}
 				port = n
 			}
+		case "--no-menu":
+			noMenu = true
 		case "--purge":
 			purge = true
 		case "--all":
@@ -128,7 +131,7 @@ func do(ctx context.Context, argv []string, stdout io.Writer) error {
 	if u := os.Getenv("HOSTD_RELEASE_URL"); u != "" {
 		release.URL = u
 	}
-	o := deploy.Options{ScreenUser: user, GPU: gpu, Release: release, SSHPasswords: ssh, SudoUser: os.Getenv("SUDO_USER"), Self: self}
+	o := deploy.Options{ScreenUser: user, GPU: gpu, Release: release, SSHPasswords: ssh, NoMenu: noMenu, SudoUser: os.Getenv("SUDO_USER"), Self: self}
 	var err error
 	switch cmd {
 	case "prepare":

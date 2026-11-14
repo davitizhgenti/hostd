@@ -50,6 +50,7 @@ Options:
   --user NAME               screen user name (default: screen)
   --from DIR                install hostd and hostctl from DIR (a build), not the release
   --source DIR              update, add: run DIR's hostd-setup instead of downloading the newest
+  --no-menu                 install: leave hostd's on-screen menu (the shell add-on) out
   --ssh-passwords keep      leave SSH password login on (by default it is turned off once
                             the admin running sudo has an SSH key)
   --all                     update: run every installed add-on; uninstall: also undo the base
@@ -73,6 +74,7 @@ type args struct {
 	sshPasswords        string
 	source              string
 	purge, all, verbose bool
+	noMenu              bool
 	port                int
 	names               []string
 	pass                []string // options handed to the newer installer by update
@@ -127,6 +129,9 @@ func parse(argv []string) (args, error) {
 			if arg != "--source" && arg != "--port" {
 				a.pass = append(a.pass, arg, v)
 			}
+		case "--no-menu":
+			a.noMenu = true
+			a.pass = append(a.pass, arg)
 		case "--purge":
 			a.purge = true
 		case "--all":
@@ -224,7 +229,7 @@ func run(ctx context.Context, argv []string, stdout, stderr io.Writer) int {
 	if k := os.Getenv("HOSTD_RELEASE_KEY"); k != "" {
 		key = []byte(k)
 	}
-	opts := deploy.Options{ScreenUser: a.user, GPU: a.gpu, From: a.from, Release: release, ReleaseKey: key, SSHPasswords: a.sshPasswords,
+	opts := deploy.Options{ScreenUser: a.user, GPU: a.gpu, From: a.from, Release: release, ReleaseKey: key, SSHPasswords: a.sshPasswords, NoMenu: a.noMenu,
 		SudoUser: os.Getenv("SUDO_USER"), Self: self, Auto: os.Getenv("HOSTD_AUTO") == "1",
 		Adding: fields(os.Getenv("HOSTD_ADDING"))}
 	if mode := os.Getenv("HOSTD_UPDATE_MODE"); mode != "" {

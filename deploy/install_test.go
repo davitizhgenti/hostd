@@ -153,6 +153,10 @@ func (f *fakeMachine) Run(_ context.Context, c Cmd) ([]byte, error) {
 		os.Remove(filepath.Join(lib, "current"))
 		os.Symlink("versions/v1", filepath.Join(lib, "current"))
 		return []byte("installed hostd v1\n"), nil
+	case strings.Join(argv, " ") == "systemctl --user is-active --quiet hostd-shell.service": // not running: the session starts it
+		return nil, fail
+	case strings.Join(argv, " ") == "systemctl --user restart hostd-shell.service":
+		return nil, nil
 	case strings.HasPrefix(strings.Join(argv, " "), "systemctl --user is-active --quiet hostd"):
 		if f.hostdUp {
 			return nil, nil
@@ -508,4 +512,98 @@ func (b brokenList) Run(ctx context.Context, c Cmd) ([]byte, error) {
 		return nil, fmt.Errorf("exit status 1")
 	}
 	return b.fakeMachine.Run(ctx, c)
+}
+
+// The menu is the shell add-on: on in a normal install, left out by
+// --no-menu, added and removed like any other add-on.
+func TestTheMenuIsAnAddon(t *testing.T) {
+	ctx := context.Background()
+	self := filepath.Join(t.TempDir(), "hostd-setup")
+	os.WriteFile(self, []byte("the installer"), 0o755)
+	has := func(m *fakeMachine, p string) bool { _, err := os.Stat(filepath.Join(m.root, p)); return err == nil }
+	menuPaths := []string{"/usr/local/lib/hostd/shell/hostd-shell", "/home/screen/.config/systemd/user/hostd-shell.service",
+		"/home/screen/.config/hostd/apps/hostd-menu.toml", "/home/screen/.config/hostd/local.token"}
+
+	// A normal install has it, and the add-on list says so.
+	m := newFakeMachine(t)
+	s := &Setup{Root: m.root, Run: m, Out: NewOutput(io.Discard, true), Chown: func(string, string) error { return nil }}
+	o := Options{GPU: "other", From: buildDir(t), SudoUser: "admin", Self: self}
+	if err := s.Install(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.installedAddons(); !slices.Equal(got, []string{"shell"}) {
+		t.Fatalf("installed %v", got)
+	}
+	if !m.didRun("dpkg-query -W -f=${Status} python3-pyside6.qtcore") {
+		t.Error("the Qt packages were not looked for")
+	}
+
+	// --no-menu: Sway and apps, no UI, no Qt packages, no token.
+	bare := newFakeMachine(t)
+	var out bytes.Buffer
+	bs := &Setup{Root: bare.root, Run: bare, Out: NewOutput(&out, true), Chown: func(string, string) error { return nil }}
+	if err := bs.Install(ctx, Options{GPU: "other", From: buildDir(t), SudoUser: "admin", Self: self, NoMenu: true}); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	for _, p := range menuPaths {
+		if has(bare, p) {
+			t.Errorf("--no-menu installed %s", p)
+		}
+	}
+	if len(bs.installedAddons()) != 0 || bare.didRun("dpkg-query -W -f=${Status} python3-pyside6") || bare.tokens != 0 {
+		t.Errorf("--no-menu: add-ons %v, tokens %d, ran %q", bs.installedAddons(), bare.tokens, bare.ran)
+	}
+	if !has(bare, "/home/screen/.config/systemd/user/hostd.service") || !has(bare, "/usr/local/bin/hostctl") {
+		t.Error("--no-menu left hostd itself out")
+	}
+	// An update of that machine keeps it bare.
+	if err := bs.Install(ctx, Options{GPU: "other", From: buildDir(t), SudoUser: "admin", Self: self, NoMenu: false, Update: &UpdateOptions{}}); err != nil {
+		t.Fatal(err)
+	}
+	if has(bare, menuPaths[0]) || len(bs.installedAddons()) != 0 {
+		t.Error("an update put the menu on a machine without it")
+	}
+	// hostd-setup add shell puts it on; remove shell takes it off again, keeping the person's settings.
+	if err := bs.AddAddons([]string{"shell"}); err != nil {
+		t.Fatal(err)
+	}
+	in := &installer{Setup: bs, o: Options{Adding: []string{"shell"}, Update: &UpdateOptions{}}, user: screenUser{name: "screen", home: "/home/screen", uid: 1001}}
+	if err := in.addons(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range menuPaths[:3] {
+		if !has(bare, p) {
+			t.Errorf("add shell did not install %s", p)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(bare.root, "home/screen/.config/hostd/menu.toml"), []byte("[[tab]]\nfolder = \"Games\"\n"), 0o644)
+	if err := bs.RemoveAddons(ctx, "screen", []string{"shell"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range menuPaths[:3] {
+		if has(bare, p) {
+			t.Errorf("remove shell left %s", p)
+		}
+	}
+	if !has(bare, "/home/screen/.config/hostd/menu.toml") || len(bs.installedAddons()) != 0 {
+		t.Error("remove shell took the person's settings, or stayed on the list")
+	}
+
+	// A machine from before the menu was an add-on (no list, the menu there):
+	// an update records it and changes nothing.
+	_ = os.Remove(filepath.Join(m.root, "etc/hostd/addons"))
+	_ = os.Remove(filepath.Join(m.root, "etc/hostd/addons.applied"))
+	out.Reset()
+	s.Out = NewOutput(&out, false)
+	o.Update = &UpdateOptions{}
+	if err := s.Install(ctx, o); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	s.Out.Close()
+	if got := s.installedAddons(); !slices.Equal(got, []string{"shell"}) {
+		t.Errorf("an update of an older machine recorded %v", got)
+	}
+	if !strings.Contains(out.String(), "No changes needed") {
+		t.Errorf("the migration changed something:\n%s", out.String())
+	}
 }

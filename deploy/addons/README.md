@@ -38,6 +38,7 @@ rescan = true                           # hostd reads the app catalog again afte
 keeps = "Dolphin's own data stays in ~/.var/app/org.DolphinEmu.dolphin-emu"   # said on remove
 
 hook = "hook.sh"                        # optional: steps the fields above cannot say
+builtin = "shell"                       # steps the installer does in Go (only the shell add-on: hostd's menu)
 ```
 
 Everything is checked first and changed only if it differs, so running an add-on again changes nothing that is already right.

@@ -57,6 +57,9 @@ type Addon struct {
 	Rescan    bool     `toml:"rescan"` // hostd reads the app catalog again after (hooks that write app files)
 	Keeps     string   `toml:"keeps"`  // what stays when it is removed (said then)
 	Hook      string   `toml:"hook"`   // a script with addon_install and addon_remove
+	// Builtin names steps the installer does in Go ("shell": hostd's
+	// on-screen UI, whose files are the installer's own).
+	Builtin string `toml:"builtin"`
 }
 
 // An AddonFile is one file an add-on puts on the machine. In Dest, ~ is the
@@ -238,12 +241,24 @@ func addonsBundle() string {
 // (Flatpak apps, the panel) are not worth a check on every build of hostd.
 func (in *installer) addons(ctx context.Context) error {
 	installed := in.installedAddons()
+	// The menu is an add-on that a normal install has: record it (an
+	// update of a machine from before it was one finds the menu there and
+	// records it too, changing nothing).
+	if !slices.Contains(installed, shellAddon) && in.menuWanted() {
+		installed = append(installed, shellAddon)
+		if err := in.setInstalled(installed); err != nil {
+			return err
+		}
+	}
 	if len(installed) == 0 {
 		return nil
 	}
 	bundle := addonsBundle()
 	stamp, _ := os.ReadFile(in.path(in.lay().addonsStamp))
 	forced := append(slices.Clone(in.o.Adding), forcedOf(in.o.Update)...)
+	if slices.Contains(installed, shellAddon) { // its files are the installer's own, not in the add-ons' stamp
+		forced = append(forced, shellAddon)
+	}
 	quick := in.o.Update != nil && !in.o.Update.All
 	if quick && strings.TrimSpace(string(stamp)) == bundle {
 		if len(forced) == 0 {
@@ -302,6 +317,9 @@ func (in *installer) owner(o string) string {
 }
 
 func (in *installer) installAddon(ctx context.Context, a Addon) error {
+	if a.Builtin == shellAddon {
+		return in.installShell(ctx)
+	}
 	if len(a.Packages) > 0 {
 		if err := in.ensurePackages(ctx, a.Packages...); err != nil {
 			return err
@@ -451,6 +469,9 @@ func (in *installer) rescan(ctx context.Context) {
 // removeAddon undoes an add-on: its files, units, apps and (if it says so)
 // packages; its hook's addon_remove.
 func (in *installer) removeAddon(ctx context.Context, a Addon) error {
+	if a.Builtin == shellAddon {
+		return in.removeShell(ctx)
+	}
 	if len(a.UserUnits) > 0 {
 		_, _ = in.asScreen(ctx, append([]string{"systemctl", "--user", "disable", "--now"}, a.UserUnits...)...)
 	}

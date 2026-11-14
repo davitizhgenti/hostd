@@ -41,6 +41,9 @@ type Options struct {
 	Update *UpdateOptions
 	Adding []string // add-ons just added (hostd-setup add): run them now
 	Auto   bool     // run by the update timer: add-ons that change data hold back
+	// NoMenu leaves hostd's on-screen UI (the shell add-on) out of this
+	// install: a screen machine with Sway and apps, no menu.
+	NoMenu bool
 }
 
 // UpdateOptions say which add-ons an update runs anyway.
@@ -264,10 +267,13 @@ var packages = []string{
 	"pipewire", "pipewire-pulse", "wireplumber", "rtkit", "dbus-user-session",
 	"podman", "uidmap", "fuse-overlayfs", "passt", "catatonit", "nftables",
 	"jq", "curl", "ca-certificates", "git", "openssl",
-	// The menu and the notices (GTK 4; the notices on the overlay layer),
-	// hostd-shell, the on-screen UI: Qt Quick through PySide6, the layer
-	// shell for notices over games, SVG for its icons, Gio for D-Bus, in the
-	// design's typeface.
+}
+
+// shellPackages are what the shell add-on needs from Debian: hostd-shell,
+// the on-screen UI (the menu, the notices, the OSD), is Qt Quick through
+// PySide6, with the layer shell for notices over games, SVG for its icons,
+// Gio for D-Bus, in the design's typeface.
+var shellPackages = []string{
 	"python3-gi", "gir1.2-glib-2.0",
 	"python3-pyside6.qtcore", "python3-pyside6.qtgui", "python3-pyside6.qtqml", "python3-pyside6.qtquick",
 	"qml6-module-qtquick", "qml6-module-qtquick-window", "qml6-module-qtqml-workerscript",
@@ -310,6 +316,9 @@ func (s *Setup) ensurePackages(ctx context.Context, pkgs ...string) error {
 func (in *installer) packages(ctx context.Context) error {
 	in.Out.Step("Installing packages")
 	pkgs := slices.Clone(packages)
+	if in.menuWanted() {
+		pkgs = append(pkgs, shellPackages...)
+	}
 	if in.gpu == "nvidia" {
 		pkgs = append(pkgs, "linux-headers-amd64", "firmware-misc-nonfree")
 		// NVIDIA's own driver (the nvidia add-on) replaces Debian's: keep it.
@@ -460,14 +469,6 @@ func (in *installer) sessionConfig(ctx context.Context) error {
 		in.oldNotices = true
 		_ = os.Remove(in.path(old))
 		in.Out.Changed("removed the notices service (hostd-shell draws them now)")
-	}
-	unit := bytes.ReplaceAll(file("systemd/hostd-shell.service"), []byte("@SHELL@"), []byte(in.lay().shell))
-	in.shellChanged, err = in.installFile(unit, home+"/.config/systemd/user/hostd-shell.service", 0o644, name)
-	if err != nil {
-		return err
-	}
-	if !in.shellChanged {
-		in.Out.Info("shell service up to date")
 	}
 	vncChanged, err := in.installFile(file("systemd/wayvnc.service"), home+"/.config/systemd/user/wayvnc.service", 0o644, name)
 	if err != nil {
@@ -749,9 +750,6 @@ func (in *installer) installHostd(ctx context.Context) error {
 	if err := in.installDocs(); err != nil {
 		return err
 	}
-	if err := in.installUI(); err != nil {
-		return err
-	}
 	if ch, err := in.installFile(file("systemd/hostd.service"), in.user.home+"/.config/systemd/user/hostd.service", 0o644, in.user.name); err != nil {
 		return err
 	} else if ch {
@@ -978,29 +976,6 @@ func (in *installer) startHostd(ctx context.Context) error {
 			in.Out.Changed("restarted the VNC server")
 		}
 	}
-	// The shell runs the UI's code: a new version of it, or of its unit,
-	// takes effect when it restarts. Where 0.2's notices ran, a session is
-	// up: the shell takes their place now rather than at the next login.
-	// Not running and no session: the session starts it.
-	if in.oldNotices {
-		_, _ = in.asScreen(ctx, "systemctl", "--user", "stop", "hostd-notices.service")
-	}
-	swaySocks, _ := filepath.Glob(in.path(in.user.runtime() + "/sway-ipc.*.sock"))
-	changedShell := in.shellChanged || in.shellFilesChanged || in.oldNotices
-	if changedShell || len(swaySocks) > 0 {
-		active := in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd-shell.service")
-		if (changedShell && (active || in.oldNotices)) || (!active && len(swaySocks) > 0) {
-			if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd-shell.service"); err == nil {
-				if active {
-					in.Out.Changed("restarted hostd-shell")
-				} else {
-					in.Out.Changed("started hostd-shell")
-				}
-			} else {
-				in.Out.Warn("warning: hostd-shell did not start; its packages come with: sudo hostd-admin prepare")
-			}
-		}
-	}
 	if in.hostdChange || !in.screenOK(ctx, "systemctl", "--user", "is-active", "--quiet", "hostd") {
 		// Type=notify: this returns once hostd is serving, or fails.
 		if _, err := in.asScreen(ctx, "systemctl", "--user", "restart", "hostd"); err != nil {
@@ -1025,16 +1000,7 @@ func (in *installer) startHostd(ctx context.Context) error {
 		}
 		in.Out.Changed("logged the %s user's hostctl in", in.user.name)
 	}
-	// The menu's token: kind "local", so what is chosen on the screen
-	// counts as someone at the screen (it comes to the front, and outranks
-	// phones and scripts).
-	localToken := in.user.home + "/.config/hostd/local.token"
-	if in.exists(config) {
-		if err := in.menuToken(ctx, localToken); err != nil {
-			return err
-		}
-	}
-	return in.restartMenu(ctx, localToken)
+	return nil
 }
 
 // menuScopes are what the menu's pages need: apps, sound, the screen, and
@@ -1329,6 +1295,9 @@ func untarGz(b []byte, dir string) error {
 func (in *installer) prerequisites(ctx context.Context) error {
 	in.Out.Step("Checking what the machine provides")
 	pkgs := slices.Clone(packages)
+	if in.menuWanted() {
+		pkgs = append(pkgs, shellPackages...)
+	}
 	if missing := in.missingPackages(ctx, pkgs); len(missing) > 0 {
 		in.Out.Warn("warning: not installed: %s (an admin: sudo hostd-admin prepare)", strings.Join(missing, " "))
 	} else {

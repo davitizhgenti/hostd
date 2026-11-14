@@ -656,7 +656,12 @@ func (m *Module) handleMenu(ctx context.Context, a sdk.Action) (sdk.Result, erro
 	if core == nil || !core.Handles(contract.ActionAppOpen) {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "the apps module is not running")
 	}
-	return core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(contract.AppStart{ID: m.opts.Menu})})
+	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppOpen, Args: sdk.MustJSON(contract.AppStart{ID: m.opts.Menu})})
+	if sdk.CodeOf(err) == sdk.CodeNotFound {
+		// A screen machine set up without the menu (hostd-setup --no-menu).
+		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "this machine has no menu: hostd-setup add shell puts it on")
+	}
+	return res, err
 }
 
 // frontWindow returns the focused window and its instance ("" for a window

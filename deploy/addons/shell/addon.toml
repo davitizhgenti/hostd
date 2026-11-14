@@ -1,0 +1,12 @@
+# hostd's on-screen UI: the menu (Super, or a controller's Guide button), the
+# notices, the volume display and the background (hostd-shell, Qt Quick). A
+# normal install has it; `hostd-setup install --no-menu` leaves it out, and
+# `hostd-setup remove shell` takes it off a machine: a screen with Sway and
+# apps and no UI of its own. hostd, hostctl and the API work the same.
+# Its packages (Qt for Python, the layer shell, the typeface) come with the
+# machine's setup (hostd-admin prepare); its files, its unit and the menu's
+# token are installed by hostd-setup itself (builtin).
+description = "hostd's on-screen menu, notices and background (on by default)"
+builtin = "shell"
+root = false
+keeps = "your settings (~/.config/hostd/ui.toml, menu.toml) and the menu's token stay; the Qt packages stay installed"

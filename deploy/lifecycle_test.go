@@ -57,7 +57,7 @@ func TestAddonEngine(t *testing.T) {
 
 	// The install that follows runs them: Flathub, the app, the device rules.
 	m.missing = map[string]bool{"flatpak": true}
-	in := &installer{Setup: s, o: Options{Adding: []string{"dolphin"}}, user: screen}
+	in := &installer{Setup: s, o: Options{Adding: []string{"dolphin"}, Update: &UpdateOptions{}}, user: screen} // as hostd-setup add runs it
 	if err := in.addons(ctx); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}

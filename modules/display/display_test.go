@@ -235,6 +235,7 @@ func (f *fakeBackend) closeWin(id int64) {
 }
 
 type displayRig struct {
+	noMenuApp    bool // app.open of the menu says there is no such app
 	allowConnect func()
 	e            *core.Engine
 	m            *Module
@@ -309,6 +310,9 @@ func newDisplayRig(t *testing.T, connectable bool) *displayRig {
 		var args struct{ ID string }
 		_ = a.DecodeArgs(&args)
 		if a.Type == "app.open" {
+			if r.noMenuApp && args.ID == "hostd-menu" {
+				return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app %q", args.ID)
+			}
 			r.started <- a
 			return sdk.Result{}, nil
 		}

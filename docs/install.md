@@ -19,11 +19,13 @@ sudo ./hostd-main/deploy/install.sh admin prepare --user screen
 ./hostd-main/deploy/install.sh        # or, as the same user: hostd-setup
 ```
 
-It is safe to run again; it changes only what is missing. It puts in the user's home:
+It is safe to run again (`--no-menu` leaves the menu out, below); it changes only what is missing. It puts in the user's home:
 
 - **hostd**, from the newest signed build, running as a user service that starts at boot;
 - **hostctl** and **hostd-setup** in `~/.local/bin` (put it on your `PATH`), hostctl already logged in;
 - the update timer (see below).
+
+**The menu is an add-on** (`shell`): hostd's on-screen menu, notices, volume display and background, on by default, and what the Qt packages are for. For a screen machine with Sway and apps but no UI of its own, `sudo hostd-admin prepare --no-menu` leaves its packages out and `hostd-setup --no-menu` leaves it out of the install; `hostd-setup add shell` puts it on later and `hostd-setup remove shell` takes it off (your settings, `ui.toml` and `menu.toml`, stay). A machine without it answers Super and the Guide button with "this machine has no menu". hostd, hostctl and the API are the same either way.
 
 Add-ons that need no root come next (`hostd-setup add steam chromium`); the ones that do (`hostd-setup addons` marks them `[root]`) are the admin's: `sudo hostd-admin add NAME`.
 

@@ -18,7 +18,7 @@ seat * hide_cursor 2000
 # user services, which need those variables: hostd's notices and OSD
 # (drawn above fullscreen apps), and VNC.
 exec_always dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
-exec dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart hostd-shell.service wayvnc.service
+exec dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart wayvnc.service && { ! systemctl --user cat hostd-shell.service >/dev/null 2>&1 || systemctl --user restart hostd-shell.service; }
 
 # Keys are hostd's: it installs its bindings at runtime and runs an action
 # for each (Super: menu, Super+Tab / Super+Shift+Tab: next / previous
