@@ -316,7 +316,18 @@ func newWiiHarness(t *testing.T) *wiiHarness {
 
 func (h *wiiHarness) feed(b []byte) { h.remote.Handle(b); h.now = h.now.Add(10 * time.Millisecond) }
 
-func (h *wiiHarness) take() []InputEvent { ev := h.events; h.events = nil; return ev }
+// take is what the remote did, without its coming and going (takeAll).
+func (h *wiiHarness) take() []InputEvent {
+	var out []InputEvent
+	for _, e := range h.takeAll() {
+		if e.Presence == "" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func (h *wiiHarness) takeAll() []InputEvent { ev := h.events; h.events = nil; return ev }
 
 func TestARemoteIsSetUpWhenHeardFrom(t *testing.T) {
 	h := newWiiHarness(t)
@@ -665,5 +676,49 @@ func TestCalibrationCanBeCancelledAndNeedsTheBar(t *testing.T) {
 	h.remote.Gone()
 	if ev = h.take(); len(ev) == 0 || ev[0].Calibrate == nil || ev[0].Calibrate.State != "cancelled" {
 		t.Fatalf("gone: %+v", ev)
+	}
+}
+
+// The DolphinBar sends an idle report for a slot with no remote: that is not
+// a remote. One that sends anything else is there, once; it is gone when it
+// has said so and falls silent.
+func TestAnEmptySlotIsNotARemote(t *testing.T) {
+	h := newWiiHarness(t)
+	for i := 0; i < 5; i++ {
+		if alive := h.remote.Handle([]byte{wiiInButtons, 0, 0}); alive {
+			t.Fatal("an idle report shows a remote")
+		}
+	}
+	if ev := h.takeAll(); len(ev) != 0 || h.slots != 0 {
+		t.Fatalf("an empty slot connected: %+v, %d slots", ev, h.slots)
+	}
+	h.remote.Gone() // its timer never ran: nothing to say
+	if ev := h.takeAll(); len(ev) != 0 {
+		t.Fatalf("gone with nobody there: %+v", ev)
+	}
+	// A remote: it comes once, and goes once.
+	for range 2 {
+		if !h.remote.Handle(report37(0, noDots, nil)) {
+			t.Fatal("a camera report shows a remote")
+		}
+	}
+	here := 0
+	for _, e := range h.takeAll() {
+		if e.Presence == "here" {
+			here++
+		}
+	}
+	if here != 1 || h.slots != 1 {
+		t.Fatalf("arrived %d times, %d slots", here, h.slots)
+	}
+	h.remote.Gone()
+	ev := h.takeAll()
+	if len(ev) == 0 || ev[len(ev)-1].Presence != "gone" {
+		t.Fatalf("it should say it went: %+v", ev)
+	}
+	// A button press is a remote too, even before it is set up.
+	h2 := newWiiHarness(t)
+	if !h2.remote.Handle([]byte{wiiInButtons, 0, byte(wiiA)}) {
+		t.Fatal("a pressed button shows a remote")
 	}
 }

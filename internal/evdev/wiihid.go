@@ -55,6 +55,7 @@ type wiiRemote struct {
 	tracker    pointerTracker
 	ptr        Pointer
 	ptrAt      time.Time
+	here       bool               // a remote has answered: one is there, not an empty slot
 	calib      *calibration       // a calibration is going on
 	saved      func(*Calibration) // keeps a new calibration (nil: it is cleared)
 }
@@ -73,7 +74,8 @@ func (w *wiiRemote) send(reports ...[]byte) {
 // or out of range of the DolphinBar), and will need setting up again.
 func (w *wiiRemote) Gone() {
 	w.mu.Lock()
-	was := w.configured
+	was := w.here
+	w.here = false
 	w.configured, w.irReady, w.extPlugged, w.nunchuk, w.classic = false, false, false, false, false
 	w.clHeld, w.clAxes = nil, nil
 	w.core, w.c, w.z, w.sx, w.sy = 0, false, false, 0, 0
@@ -96,12 +98,15 @@ func (w *wiiRemote) Gone() {
 	w.emit(InputEvent{Presence: "gone"})
 }
 
-// Handle takes one report as read from hidraw.
-func (w *wiiRemote) Handle(b []byte) {
+// Handle takes one report as read from hidraw. It tells whether the report
+// shows a remote is there: the DolphinBar sends an idle "no buttons" report
+// now and then for a slot with no remote, which shows nothing.
+func (w *wiiRemote) Handle(b []byte) (alive bool) {
 	r, ok := parseWiiReport(b)
 	if !ok {
-		return
+		return false
 	}
+	alive = r.ID != wiiInButtons || r.Core != 0
 	now := w.now()
 	w.mu.Lock()
 	first := !w.configured
@@ -114,9 +119,13 @@ func (w *wiiRemote) Handle(b []byte) {
 		w.lastAsk = now
 		w.irReady, w.extPlugged, w.nunchuk, w.classic = false, false, false, false
 	}
+	arrived := alive && !w.here
+	if arrived {
+		w.here = true
+	}
 	w.mu.Unlock()
-	if first {
-		w.slot() // connected: it has a player slot now
+	if arrived {
+		w.slot() // it answered: it has a player slot now
 		w.emit(InputEvent{Presence: "here"})
 	}
 	if first || reset {
@@ -146,6 +155,7 @@ func (w *wiiRemote) Handle(b []byte) {
 	if len(ev.Buttons)+len(ev.Released)+len(ev.Nav) > 0 || ev.Pointer != nil || ev.Calibrate != nil {
 		w.emit(ev)
 	}
+	return alive
 }
 
 // configure is the reply to a status request, and what a remote sends when
@@ -475,11 +485,12 @@ func (e *Evdev) readWii(ctx context.Context, f *os.File, id string, prof *Profil
 	for {
 		n, err := f.Read(buf)
 		if n > 0 {
-			if lost == nil {
-				lost = time.AfterFunc(wiiSilent, remote.Gone)
+			if remote.Handle(buf[:n]) { // a remote is there (an empty slot's idle report is not it)
+				if lost == nil {
+					lost = time.AfterFunc(wiiSilent, remote.Gone)
+				}
+				lost.Reset(wiiSilent)
 			}
-			lost.Reset(wiiSilent)
-			remote.Handle(buf[:n])
 		}
 		if err != nil {
 			return
