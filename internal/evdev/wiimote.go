@@ -1,9 +1,6 @@
 package evdev
 
-import (
-	"math"
-	"time"
-)
+import ()
 
 // A Wii Remote's HID protocol, as far as the menu needs it: the buttons,
 // the IR camera (for the pointer) and a Nunchuk. A Mayflash DolphinBar in
@@ -269,56 +266,4 @@ func nunchukState(b []byte) (x, y int32, c, z bool) {
 		return max(-100, min(100, n))
 	}
 	return axis(b[0]), -axis(b[1]), b[5]&0x02 == 0, b[5]&0x01 == 0
-}
-
-// --- the pointer ---
-
-// A pointerTracker turns the IR dots into a smoothed position on the
-// screen as shares (0..1), mirrored: the camera sees the bar move left
-// as the remote turns right.
-type pointerTracker struct {
-	x, y float64
-	seen time.Time // the last time two dots were seen
-	have bool
-}
-
-const (
-	pointerSmooth = 0.4                    // share of the way to the new position per report
-	pointerDead   = 0.002                  // moves smaller than this are noise
-	pointerLost   = 300 * time.Millisecond // without two dots this long, the remote points away
-)
-
-// Update takes a report's dots at time now and returns where the pointer
-// is and whether it is on the screen. With one dot the position is held
-// (one dot of the bar would be off by half its width); with none, after
-// pointerLost, it is not shown.
-func (t *pointerTracker) Update(dots [4]irDot, now time.Time) (x, y float64, shown bool) {
-	var vx, vy float64
-	n := 0
-	for _, d := range dots {
-		if d.Valid {
-			vx += float64(d.X)
-			vy += float64(d.Y)
-			n++
-		}
-	}
-	if n >= 2 {
-		// Two points are the bar's ends (more are stray light: the two
-		// outermost of them would do, but the mean of all is steadier).
-		tx := 1 - vx/float64(n)/irWidth
-		ty := vy / float64(n) / irHeight
-		tx, ty = math.Min(1, math.Max(0, tx)), math.Min(1, math.Max(0, ty))
-		if !t.have {
-			t.x, t.y, t.have = tx, ty, true
-		} else if math.Abs(tx-t.x) > pointerDead || math.Abs(ty-t.y) > pointerDead {
-			t.x += (tx - t.x) * pointerSmooth
-			t.y += (ty - t.y) * pointerSmooth
-		}
-		t.seen = now
-	}
-	shown = t.have && now.Sub(t.seen) < pointerLost
-	if !shown {
-		t.have = false
-	}
-	return t.x, t.y, shown
 }

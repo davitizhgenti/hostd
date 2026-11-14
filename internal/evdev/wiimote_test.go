@@ -121,27 +121,145 @@ func TestPointerTracker(t *testing.T) {
 	}
 	// The bar seen further left (the remote turned right): the pointer moves right, smoothly.
 	x2, _, _ := tr.Update(bar(300), t0.Add(10*time.Millisecond))
-	if x2 <= x || x2 >= 1-300/irWidth {
-		t.Errorf("mirrored and smoothed: %v then %v", x, x2)
+	want := 0.5 + (212.0/200)/defaultScreenW
+	if x2 <= x || x2 >= want {
+		t.Errorf("mirrored and smoothed: %v then %v (target %v)", x, x2, want)
 	}
-	for i := 0; i < 40; i++ {
-		x2, _, _ = tr.Update(bar(300), t0.Add(time.Duration(20+i)*time.Millisecond))
+	for i := 0; i < 400; i++ {
+		x2, _, _ = tr.Update(bar(300), t0.Add(time.Duration(20+i*10)*time.Millisecond))
 	}
-	if math.Abs(x2-(1-300/irWidth)) > 0.01 {
-		t.Errorf("it settles on the target: %v", x2)
+	if math.Abs(x2-want) > 0.01 {
+		t.Errorf("it settles on the target: %v, want %v", x2, want)
 	}
 	// One dot: the position is held. None for a while: it is gone.
 	one := [4]irDot{{100, 100, true}}
-	if x3, _, shown := tr.Update(one, t0.Add(100*time.Millisecond)); !shown || x3 != x2 {
+	at := t0.Add(4100 * time.Millisecond)
+	if x3, _, shown := tr.Update(one, at); !shown || x3 != x2 {
 		t.Errorf("one dot holds: %v %v", x3, shown)
 	}
-	if _, _, shown := tr.Update([4]irDot{}, t0.Add(time.Second)); shown {
+	if _, _, shown := tr.Update([4]irDot{}, at.Add(time.Second)); shown {
 		t.Error("lost after a while")
 	}
 	// Back again: it starts where it points, not from where it was.
-	x4, _, shown := tr.Update(bar(900), t0.Add(2*time.Second))
-	if !shown || math.Abs(x4-(1-900/irWidth)) > 0.01 {
+	x4, _, shown := tr.Update(bar(700), at.Add(2*time.Second))
+	if !shown || math.Abs(x4-(0.5-(188.5/200)/defaultScreenW)) > 0.01 {
 		t.Errorf("back: %v %v", x4, shown)
+	}
+}
+
+// Stray light does not move the pointer, a tilted remote does not either,
+// and the pointer is the same however far the bar is.
+func TestPointerTrackerIgnoresStrayLightRollAndDistance(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	settle := func(dots [4]irDot) (float64, float64) {
+		var tr pointerTracker
+		var x, y float64
+		for i := 0; i < 300; i++ {
+			x, y, _ = tr.Update(dots, t0.Add(time.Duration(i*10)*time.Millisecond))
+		}
+		return x, y
+	}
+	bx, by := settle([4]irDot{{400, 384, true}, {600, 384, true}})
+	// A stray dot beside the bar, once the bar is being followed.
+	var tr pointerTracker
+	var x, y float64
+	for i := 0; i < 300; i++ {
+		dots := [4]irDot{{400, 384, true}, {600, 384, true}}
+		if i > 5 {
+			dots[2] = irDot{880, 300, true}
+		}
+		x, y, _ = tr.Update(dots, t0.Add(time.Duration(i*10)*time.Millisecond))
+	}
+	if math.Abs(x-bx) > 0.005 || math.Abs(y-by) > 0.005 {
+		t.Errorf("stray light moved it: %v,%v from %v,%v", x, y, bx, by)
+	}
+	// Far away: the bar half as wide and its middle half as far from the centre.
+	ox, oy := 56.0, 0.0 // bar at (512+ox... ) offset of the middle from the camera centre
+	_ = oy
+	near, _ := settle([4]irDot{{int(512 + ox - 100), 384, true}, {int(512 + ox + 100), 384, true}})
+	far, _ := settle([4]irDot{{int(512 + ox/2 - 50), 384, true}, {int(512 + ox/2 + 50), 384, true}})
+	if math.Abs(near-far) > 0.01 {
+		t.Errorf("distance moved it: %v vs %v", near, far)
+	}
+	// Rolled 20 degrees about the camera's centre: the same place.
+	rolled := func(a float64) [4]irDot {
+		c, s := math.Cos(a), math.Sin(a)
+		rot := func(px, py float64) irDot {
+			return irDot{int(math.Round(511.5 + px*c - py*s)), int(math.Round(383.5 + px*s + py*c)), true}
+		}
+		return [4]irDot{rot(-100+56, 0), rot(100+56, 0)}
+	}
+	flat, _ := settle(rolled(0))
+	tilted, _ := settle(rolled(20 * math.Pi / 180))
+	if math.Abs(flat-tilted) > 0.01 {
+		t.Errorf("roll moved it: %v vs %v", flat, tilted)
+	}
+}
+
+// The filter takes the shake out of a held pointer and still follows a
+// real move without lag.
+func TestPointerFilterSteadyAndQuick(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	rng := uint32(1)
+	noise := func(n float64) int { // a repeatable +-n
+		rng = rng*1664525 + 1013904223
+		return int(float64(rng>>16&0xffff)/65535*2*n - n)
+	}
+	var tr pointerTracker
+	var raw, out []float64
+	for i := 0; i < 500; i++ {
+		jx, jy := noise(3), noise(3)
+		d := [4]irDot{{412 + jx, 384 + jy, true}, {612 + jx, 384 - jy, true}}
+		x, _, _ := tr.Update(d, t0.Add(time.Duration(i*10)*time.Millisecond))
+		if i > 100 {
+			raw = append(raw, 0.5-(float64(512+jx)-irWidth/2)/200/defaultScreenW)
+			out = append(out, x)
+		}
+	}
+	sd := func(v []float64) float64 {
+		m := 0.0
+		for _, a := range v {
+			m += a
+		}
+		m /= float64(len(v))
+		s := 0.0
+		for _, a := range v {
+			s += (a - m) * (a - m)
+		}
+		return math.Sqrt(s / float64(len(v)))
+	}
+	if sd(out)*4 > sd(raw) {
+		t.Errorf("shake %v is not at least 4x smaller than %v", sd(out), sd(raw))
+	}
+	// A step across the screen is mostly there within 100 ms.
+	for i := 0; i < 10; i++ {
+		tr.Update([4]irDot{{412, 384, true}, {612, 384, true}}, t0.Add(time.Duration(10000+i*10)*time.Millisecond))
+	}
+	var x float64
+	before, _, _ := tr.Update([4]irDot{{412, 384, true}, {612, 384, true}}, t0.Add(10100*time.Millisecond))
+	for i := 1; i <= 10; i++ {
+		x, _, _ = tr.Update([4]irDot{{312, 384, true}, {512, 384, true}}, t0.Add(time.Duration(10100+i*10)*time.Millisecond))
+	}
+	target := before + 100.0/200/defaultScreenW
+	if x < before+(target-before)*0.7 {
+		t.Errorf("lags: %v of the way to %v from %v", x, target, before)
+	}
+}
+
+func TestFitCalibration(t *testing.T) {
+	// A screen 4 bar widths across and 2.5 down, centred at (0.3, -0.2).
+	c, ok := FitCalibration([2]float64{2.3, -1.45}, [2]float64{-1.7, -1.45}, [2]float64{2.3, 1.05}, [2]float64{-1.7, 1.05})
+	if !ok || math.Abs(c.W-4) > 1e-9 || math.Abs(c.H-2.5) > 1e-9 || math.Abs(c.CX-0.3) > 1e-9 || math.Abs(c.CY+0.2) > 1e-9 {
+		t.Errorf("fit: %+v %v", c, ok)
+	}
+	if _, ok := FitCalibration([2]float64{0, 0}, [2]float64{0, 0}, [2]float64{0, 0}, [2]float64{0, 0}); ok {
+		t.Error("four equal points are not a screen")
+	}
+	if _, ok := FitCalibration([2]float64{-2, 0}, [2]float64{2, 0}, [2]float64{-2, 1}, [2]float64{2, 1}); ok {
+		t.Error("turned about is not a screen")
+	}
+	if got := (Calibration{}).Or(); got.W != defaultScreenW || got.H != defaultScreenH {
+		t.Errorf("defaults: %+v", got)
 	}
 }
 
