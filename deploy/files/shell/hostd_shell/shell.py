@@ -11,6 +11,7 @@ all of the behaviour is tested here without a screen.
 import datetime
 import json
 import os
+import time
 
 from PySide6.QtCore import Property, QFileSystemWatcher, QObject, QTimer, Signal, Slot
 
@@ -31,6 +32,7 @@ REFRESH_ON = {
 OSD_MS = 1600
 SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
 POINTER_MS = 3000  # a mouse's pointer fades after this long without moving
+MOUSE_MS = 8  # a mouse's moves are applied at most this often (a gaming mouse sends a thousand a second)
 MOUSE = "mouse"  # the mouse's pointer; each Wii Remote's is its device's ID
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
@@ -85,6 +87,8 @@ class Shell(QObject):
     menuClosed = Signal()  # the menu was hidden: its launcher can end
     noticeClosed = Signal(int, int)  # id, reason (the spec's)
     pointerChanged = Signal()
+    hoversChanged = Signal()  # the rows with a pointer over them, or their colours
+    stripChanged = Signal()  # the devices strip
     pointerIdsChanged = Signal()  # a device's pointer came to exist
     pointerPressed = Signal(str)  # a Wii Remote's button went down: click where it points
     devicesChanged = Signal()
@@ -142,6 +146,11 @@ class Shell(QObject):
         # shows while it points at the screen.
         self._pointers = {}
         self._last_pointer = MOUSE
+        self.mouse_ms = MOUSE_MS  # 0: every move is applied at once (the tests)
+        self._mouse_at = 0.0  # when a move was last applied
+        self._mouse_next = None  # the latest move waiting for its turn
+        self.mouse_timer = QTimer(self, singleShot=True, timeout=self._apply_mouse)
+        self._hovers, self._strip = [], []  # what the screen was last told
         self._calibrating = {}  # a remote's calibration going on: who, which corner
         self.pointer_timer = QTimer(self, singleShot=True, interval=POINTER_MS, timeout=self.hide_pointer)
         self.events = None
@@ -623,7 +632,20 @@ class Shell(QObject):
         # was, and a hover with no movement is not the mouse moving.
         if last is None or abs(x - last[0]) + abs(y - last[1]) < 2:
             return
-        self._set_pointer(MOUSE, x=x / width, y=y / height, visible=True, source="mouse")
+        self._mouse_next = (x / width, y / height)
+        wait = self.mouse_ms / 1000 - (time.monotonic() - self._mouse_at)
+        if wait <= 0:
+            self._apply_mouse()
+        elif not self.mouse_timer.isActive():
+            self.mouse_timer.start(max(1, int(wait * 1000)))
+
+    def _apply_mouse(self):
+        """The latest mouse position, once for all the moves since the last."""
+        if self._mouse_next is None:
+            return
+        (x, y), self._mouse_next = self._mouse_next, None
+        self._mouse_at = time.monotonic()
+        self._set_pointer(MOUSE, x=x, y=y, visible=True, source="mouse")
         self.pointer_timer.start()
 
     def pointer_at(self, x, y, visible, down, source="wii", device="wii", name="", colour=""):
@@ -668,6 +690,19 @@ class Shell(QObject):
             if new["visible"] and (old is None or not old["visible"] or kv.get("x") is not None):
                 self._last_pointer = device
             self.pointerChanged.emit()
+            self._tell_lists()
+
+    def _tell_lists(self):
+        """The hover underlines and the strip change rarely, though pointers
+        move all the time: they say so only when they did."""
+        hovers = self.hovers_list()
+        if hovers != self._hovers:
+            self._hovers = hovers
+            self.hoversChanged.emit()
+        strip = self.strip_list()
+        if strip != self._strip:
+            self._strip = strip
+            self.stripChanged.emit()
 
     def _identity(self, device, name, colour):
         """A pointer's name and colour: the device's, when hostd listed it."""
@@ -707,6 +742,7 @@ class Shell(QObject):
                 self._pointers[k] = {**p, "name": name, "colour": colour}
             self.devicesChanged.emit()
             self.pointerChanged.emit()
+            self._tell_lists()
 
     @Slot(str)
     def mouseButton(self, button):  # noqa: N802 - called from QML
@@ -878,9 +914,9 @@ class Shell(QObject):
     pointer = Property("QVariantMap", lambda s: s.last_pointer(), notify=pointerChanged)
     pointers = Property("QVariantList", lambda s: [s._shown(p) for p in s._pointers.values()], notify=pointerChanged)
     calibrating = Property("QVariantMap", lambda s: dict(s._calibrating), notify=calibrationChanged)
-    strip = Property("QVariantList", lambda s: s.strip_list(), notify=pointerChanged)
+    strip = Property("QVariantList", lambda s: s.strip_list(), notify=stripChanged)
     pointerIds = Property("QVariantList", lambda s: list(s._pointers), notify=pointerIdsChanged)
-    hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=pointerChanged)
+    hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=hoversChanged)
     deviceList = Property("QVariantList", lambda s: list(s.devices), notify=devicesChanged)
     category = Property(int, lambda s: s.index(), notify=changed)
     view = Property(str, lambda s: s.cat().view, notify=changed)

@@ -23,6 +23,7 @@ def shell(menu=None):
             f.write(menu)
     s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW,
               look_path=os.path.join(tempfile.mkdtemp(), "ui.toml"), menu_path=menu_path)
+    s.mouse_ms = 0  # the tests' moves are applied at once
     for c in s.cats:
         s.refresh(c.key)
     return s
@@ -678,6 +679,33 @@ class Mouse(unittest.TestCase):
         self.assertTrue(s.pointer_timer.isActive())
         s.pointer_timer.timeout.emit()  # three seconds without moving
         self.assertFalse(s.property("pointer")["visible"])
+
+    def test_a_flood_of_moves_is_applied_once_per_frame_and_the_last_one_wins(self):
+        s = self.s
+        s.mouse_ms = 50
+        s.mouseAt(0, 0, 1000, 1000)  # the first sample is where it already was
+        s.mouseAt(100, 100, 1000, 1000)  # applied at once
+        self.assertEqual(s.property("pointer")["x"], 0.1)
+        for x in range(110, 200, 10):  # a thousand a second: the rest wait their turn
+            s.mouseAt(x, 100, 1000, 1000)
+        self.assertEqual(s.property("pointer")["x"], 0.1)
+        self.assertTrue(s.mouse_timer.isActive())
+        s.mouse_timer.timeout.emit()
+        self.assertEqual(s.property("pointer")["x"], 0.19)  # where it ended up, not where it was
+
+    def test_moving_changes_neither_the_hover_lists_nor_the_strip(self):
+        s = self.s
+        told = []
+        s.hoversChanged.connect(lambda: told.append("hovers"))
+        s.stripChanged.connect(lambda: told.append("strip"))
+        s.mouseAt(0, 0, 1000, 1000)
+        for x in range(100, 140, 10):
+            s.mouseAt(x, 100, 1000, 1000)
+        self.assertEqual(told, [])  # nothing under it, no devices: rows and strip are not rebuilt
+        s.hover(1)
+        self.assertEqual(told, ["hovers"])
+        s.mouseAt(500, 100, 1000, 1000)
+        self.assertEqual(told, ["hovers"])  # moved over the same row
 
     def test_keys_and_pads_put_it_away_and_a_wii_remote_does_not(self):
         s = self.s

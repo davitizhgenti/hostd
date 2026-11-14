@@ -54,6 +54,7 @@ class Screen:
         self.api = fixtures.FakeAPI(reads)
         self.shell = Shell(self.api, TOKENS, now=lambda: fixtures.NOW, look_path=look_path, menu_path=menu_path)
         self.shell.fullscreen = False
+        self.shell.mouse_ms = 0  # the tests' moves are applied at once
         self.warnings = []
         self.engine = shellapp.engine_for(APP, self.shell)
         self.engine.warnings.connect(lambda ws: self.warnings.extend(w.toString() for w in ws))

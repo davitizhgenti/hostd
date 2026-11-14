@@ -41,6 +41,9 @@ Item {
     }
 
     function sync() {
+        const ids = hits.shell.pointerIds
+        if (ids.length === 0 || (ids.length === 1 && ids[0] === "mouse"))  // the mouse alone: Qt finds what it is over
+            return
         const all = hits.shell.pointers
         for (let i = 0; i < all.length; ++i) {
             const p = all[i]
