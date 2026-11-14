@@ -269,6 +269,7 @@ func (in *installer) addons(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		in.addonsSkipped = max(0, len(installed)-len(order))
 		return in.runAddons(ctx, order)
 	}
 	order, err := addonOrder(installed)
