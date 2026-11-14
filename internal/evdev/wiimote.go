@@ -211,6 +211,52 @@ func isNunchuk(id []byte) bool {
 	return len(id) >= 6 && id[2] == 0xa4 && id[3] == 0x20 && id[4] == 0x00 && id[5] == 0x00
 }
 
+// isClassic reports whether an extension id is a Classic Controller's (the
+// original; the Pro has another id and is not read).
+func isClassic(id []byte) bool {
+	return len(id) >= 6 && id[2] == 0xa4 && id[3] == 0x20 && id[4] == 0x01 && id[5] == 0x01
+}
+
+// A Classic Controller's buttons, by the byte and bit of the extension's
+// report where they are (0 = held), as the evdev codes the profile names
+// (controllers/wii-classic.toml).
+var classicButtons = []struct {
+	byteN, bit int
+	code       uint16
+}{
+	{4, 7, 0x223}, {4, 6, 0x221}, {4, 5, 0x136}, {4, 4, 0x13a}, {4, 3, 0x13c}, {4, 2, 0x13b}, {4, 1, 0x137},
+	{5, 7, 0x138}, {5, 6, 0x131}, {5, 5, 0x134}, {5, 4, 0x130}, {5, 3, 0x133}, {5, 2, 0x139}, {5, 1, 0x222}, {5, 0, 0x220},
+}
+
+// The Classic Controller's axes as evdev codes (ABS_HAT1X ...): the left
+// and right stick and the analog triggers, as hid-wiimote names them.
+const (
+	classicLX, classicLY = 0x12, 0x13
+	classicRX, classicRY = 0x14, 0x15
+	classicLT, classicRT = 0x16, 0x17
+)
+
+// classicState decodes a Classic Controller's 6 bytes: the buttons held (by
+// evdev code) and its axes centred as the profile ranges them: the left
+// stick -32..32, the right -16..16, the triggers 0..31.
+func classicState(b []byte) (held map[uint16]bool, axes map[uint16]int32) {
+	if len(b) < 6 {
+		return nil, nil
+	}
+	held = map[uint16]bool{}
+	for _, c := range classicButtons {
+		held[c.code] = b[c.byteN]>>c.bit&1 == 0
+	}
+	lx, ly := int32(b[0]&0x3f), int32(b[1]&0x3f)
+	rx := int32(b[0]>>6&3)<<3 | int32(b[1]>>6&3)<<1 | int32(b[2]>>7&1)
+	ry := int32(b[2] & 0x1f)
+	lt := int32(b[2]>>5&3)<<3 | int32(b[3]>>5&7)
+	rt := int32(b[3] & 0x1f)
+	return held, map[uint16]int32{
+		classicLX: lx - 32, classicLY: 32 - ly, classicRX: rx - 16, classicRY: 16 - ry, classicLT: lt, classicRT: rt,
+	}
+}
+
 // nunchukState decodes a Nunchuk's 6 bytes: the stick as -100..100 (up and
 // right positive on the device; the axes are screen-like, so Y is flipped)
 // and whether C and Z are held (0 means pressed on the wire).

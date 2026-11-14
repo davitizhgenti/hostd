@@ -33,7 +33,23 @@ KEY_LEFT = "left"
 KEY_RIGHT = "right"
 BTN_C = "lb"             # Nunchuk
 BTN_Z = "rb"
+BTN_X = "north"          # Classic Controller (as wii-classic.toml); its A, B, Start,
+BTN_Y = "west"           # Select, Home and d-pad are the remote's names above
+BTN_TL = "lb"
+BTN_TR = "rb"
+BTN_TL2 = "lt"           # ZL
+BTN_TR2 = "rt"           # ZR
+BTN_DPAD_UP = "up"
+BTN_DPAD_DOWN = "down"
+BTN_DPAD_LEFT = "left"
+BTN_DPAD_RIGHT = "right"
 
 [pad.axes]
 ABS_X = { as = "lx", min = -100, max = 100 }
 ABS_Y = { as = "ly", min = -100, max = 100 }
+ABS_HAT1X = { as = "lx", min = -32, max = 32 }   # Classic Controller's sticks and triggers
+ABS_HAT1Y = { as = "ly", min = -32, max = 32 }
+ABS_HAT2X = { as = "rx", min = -16, max = 16 }
+ABS_HAT2Y = { as = "ry", min = -16, max = 16 }
+ABS_HAT3X = { as = "lt", min = 0, max = 31 }
+ABS_HAT3Y = { as = "rt", min = 0, max = 31 }

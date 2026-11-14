@@ -345,3 +345,60 @@ func TestProcBusyFindsARunningProcessByName(t *testing.T) {
 		t.Error("a process that does not exist is found")
 	}
 }
+
+// classicBytes builds a Classic Controller's 6 bytes: sticks and triggers as
+// raw values, and the buttons held as a list of evdev codes.
+func classicBytes(lx, ly, rx, ry, lt, rt int, held ...uint16) []byte {
+	b := []byte{byte(lx&0x3f) | byte(rx>>3&3)<<6, byte(ly&0x3f) | byte(rx>>1&3)<<6,
+		byte(rx&1)<<7 | byte(lt>>3&3)<<5 | byte(ry&0x1f), byte(lt&7)<<5 | byte(rt&0x1f), 0xff, 0xff}
+	for _, c := range classicButtons {
+		for _, h := range held {
+			if h == c.code {
+				b[c.byteN] &^= 1 << c.bit
+			}
+		}
+	}
+	return b
+}
+
+func TestClassicState(t *testing.T) {
+	if !isClassic([]byte{0, 0, 0xa4, 0x20, 0x01, 0x01}) || isClassic([]byte{0, 0, 0xa4, 0x20, 0x00, 0x00}) {
+		t.Error("ids")
+	}
+	held, axes := classicState(classicBytes(63, 0, 31, 31, 31, 0, 0x130, 0x13b))
+	if !held[0x130] || !held[0x13b] || held[0x131] {
+		t.Errorf("held: %v", held)
+	}
+	if axes[classicLX] != 31 || axes[classicLY] != 32 || axes[classicRX] != 15 || axes[classicRY] != -15 ||
+		axes[classicLT] != 31 || axes[classicRT] != 0 {
+		t.Errorf("axes: %v", axes)
+	}
+	if held, axes := classicState(nil); held != nil || axes != nil {
+		t.Error("nothing")
+	}
+}
+
+func TestAClassicControllerMovesTheMenu(t *testing.T) {
+	h := newWiiHarness(t)
+	h.feed([]byte{wiiInButtons, 0, 0})
+	h.feed([]byte{wiiInStatus, 0, 0, 0x02, 0, 0, 0x60})
+	id := []byte{0x00, 0x00, 0xa4, 0x20, 0x01, 0x01}
+	h.feed(append([]byte{wiiInRead, 0, 0, 0x50, 0xa4, 0xfa}, append(id, make([]byte, 10)...)...))
+	h.take()
+	idle := classicBytes(32, 32, 16, 16, 0, 0)
+	h.feed(report37(0, noDots, idle))
+	h.take()
+	h.feed(report37(0, noDots, classicBytes(32, 32, 16, 16, 0, 0, 0x130))) // A: choose
+	ev := h.take()
+	if len(ev) != 1 || !reflect.DeepEqual(ev[0].Nav, []string{VerbChoose}) || !reflect.DeepEqual(ev[0].Buttons, []string{"east"}) {
+		t.Fatalf("A: %+v", ev)
+	}
+	h.feed(report37(0, noDots, classicBytes(32, 32, 16, 16, 0, 0, 0x221))) // d-pad down
+	if ev = h.take(); len(ev) != 1 || !reflect.DeepEqual(ev[0].Nav, []string{VerbDown}) || !reflect.DeepEqual(ev[0].Released, []string{"east"}) {
+		t.Fatalf("down: %+v", ev)
+	}
+	h.feed(report37(0, noDots, classicBytes(32, 63, 16, 16, 0, 0))) // the left stick pushed up (63 is up, as 255 is a Nunchuk's)
+	if ev = h.take(); len(ev) != 1 || !reflect.DeepEqual(ev[0].Nav, []string{VerbUp}) {
+		t.Fatalf("stick: %+v", ev)
+	}
+}

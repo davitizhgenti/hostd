@@ -45,6 +45,9 @@ type wiiRemote struct {
 	irReady    bool
 	extPlugged bool
 	nunchuk    bool // an extension is plugged in and is a Nunchuk
+	classic    bool // ... or a Classic Controller
+	clHeld     map[uint16]bool
+	clAxes     map[uint16]int32
 	c, z       bool
 	sx, sy     int32
 	tracker    pointerTracker
@@ -67,7 +70,8 @@ func (w *wiiRemote) send(reports ...[]byte) {
 func (w *wiiRemote) Gone() {
 	w.mu.Lock()
 	was := w.configured
-	w.configured, w.irReady, w.extPlugged, w.nunchuk = false, false, false, false
+	w.configured, w.irReady, w.extPlugged, w.nunchuk, w.classic = false, false, false, false, false
+	w.clHeld, w.clAxes = nil, nil
 	w.core, w.c, w.z, w.sx, w.sy = 0, false, false, 0, 0
 	w.tracker = pointerTracker{}
 	hadPointer := w.ptr.Visible
@@ -103,6 +107,7 @@ func (w *wiiRemote) Handle(b []byte) {
 	case wiiInRead:
 		w.mu.Lock()
 		w.nunchuk = w.extPlugged && isNunchuk(r.Data)
+		w.classic = w.extPlugged && isClassic(r.Data)
 		w.mu.Unlock()
 	}
 	w.buttons(r.Core, &ev)
@@ -122,7 +127,7 @@ func (w *wiiRemote) configure(extension bool) {
 	irReady, plugged := w.irReady, w.extPlugged
 	w.irReady, w.extPlugged = true, extension
 	if !extension {
-		w.nunchuk = false
+		w.nunchuk, w.classic = false, false
 	}
 	w.mu.Unlock()
 	w.send(wiiLEDReport(w.slot()))
@@ -168,9 +173,13 @@ func (w *wiiRemote) key(code uint16, down bool, ev *InputEvent) {
 // extension reads a Nunchuk's stick and buttons, if one is plugged in.
 func (w *wiiRemote) extension(b []byte, ev *InputEvent) {
 	w.mu.Lock()
-	on := w.nunchuk
+	on, classic := w.nunchuk, w.classic
 	prevC, prevZ, prevX, prevY := w.c, w.z, w.sx, w.sy
 	w.mu.Unlock()
+	if classic {
+		w.classicExtension(b, ev)
+		return
+	}
 	if !on {
 		return
 	}
@@ -190,6 +199,28 @@ func (w *wiiRemote) extension(b []byte, ev *InputEvent) {
 	w.mu.Lock()
 	w.c, w.z, w.sx, w.sy = c, z, x, y
 	w.mu.Unlock()
+}
+
+// classicExtension reads a Classic Controller's buttons and sticks.
+func (w *wiiRemote) classicExtension(b []byte, ev *InputEvent) {
+	held, axes := classicState(b)
+	if held == nil {
+		return
+	}
+	w.mu.Lock()
+	prevHeld, prevAxes := w.clHeld, w.clAxes
+	w.clHeld, w.clAxes = held, axes
+	w.mu.Unlock()
+	for _, c := range classicButtons {
+		if held[c.code] != prevHeld[c.code] {
+			w.key(c.code, held[c.code], ev)
+		}
+	}
+	for _, code := range []uint16{classicLX, classicLY, classicRX, classicRY, classicLT, classicRT} {
+		if v, ok := axes[code]; ok && (prevAxes == nil || v != prevAxes[code]) {
+			ev.Nav = append(ev.Nav, w.nav.Abs(code, v)...)
+		}
+	}
 }
 
 // pointer follows the IR camera. A pointer event is sent when it appears,
