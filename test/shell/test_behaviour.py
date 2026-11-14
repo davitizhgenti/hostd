@@ -573,6 +573,16 @@ class DevicesShown(unittest.TestCase):
         self.assertEqual([d["label"] for d in s.property("strip")], ["Mouse", "Wii Remote 1", "Mia"])  # not the keyboard
         self.assertEqual([d["colour"] for d in s.property("strip")], ["blue", "orange", "violet"])
 
+    def test_hostd_being_unreachable_keeps_what_was_known(self):
+        s = shell()
+        s.devices = fixtures.DEVICES
+
+        def down(path):
+            raise ConnectionRefusedError(path)
+        s.api.get = down
+        s._load_devices()  # at start, or on an event while hostd restarts: no crash
+        self.assertEqual(len(s.property("deviceList")), 4)
+
     def test_the_one_in_use_is_marked(self):
         s = shell()
         s.showMenu()

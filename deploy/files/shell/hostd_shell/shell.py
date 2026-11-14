@@ -697,6 +697,8 @@ class Shell(QObject):
             devices = self.api.get("/v1/devices")
         except hapi.APIError:
             devices = []  # an older hostd: no strip
+        except Exception:  # noqa: BLE001 - hostd is not reachable: keep what was known
+            return
         devices = [d for d in devices or [] if isinstance(d, dict)]
         if devices != self.devices:
             self.devices = devices
