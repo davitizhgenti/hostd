@@ -133,7 +133,8 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	var newUpdater func(*store.Store) api.Updater
 	if lib, err := update.FromExecutable(); err == nil && os.Getenv("INVOCATION_ID") != "" {
 		newUpdater = func(st *store.Store) api.Updater {
-			return &updater{lib: lib, store: st, configPath: *configPath, restart: func() error {
+			home, _ := os.UserHomeDir()
+			return &updater{lib: lib, store: st, configPath: *configPath, setup: filepath.Join(home, ".local", "bin", "hostd-setup"), restart: func() error {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				return h.Systemd.RestartUnit(ctx, "hostd.service")

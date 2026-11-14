@@ -262,6 +262,21 @@ func (c *Client) Update(ctx context.Context, binary io.Reader) (UpdateResult, er
 	return r, json.Unmarshal(b, &r)
 }
 
+// UpdateRelease starts the machine's own update to the newest signed
+// release (what hostd-setup update does) and returns at once.
+func (c *Client) UpdateRelease(ctx context.Context) error {
+	return c.Do(ctx, http.MethodPost, "/v1/update/release", nil, nil)
+}
+
+// ReleaseRunning says whether that update is running.
+func (c *Client) ReleaseRunning(ctx context.Context) (bool, error) {
+	var st struct {
+		Running bool `json:"running"`
+	}
+	err := c.Do(ctx, http.MethodGet, "/v1/update/release", nil, &st)
+	return st.Running, err
+}
+
 func (c *Client) Version(ctx context.Context) (Version, error) {
 	var v Version
 	return v, c.Do(ctx, http.MethodGet, "/v1/version", nil, &v)

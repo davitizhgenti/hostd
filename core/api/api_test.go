@@ -733,6 +733,38 @@ type fakeUpdater struct {
 	installed []byte
 	restarted chan struct{}
 	fail      error
+	releasing bool
+}
+
+func TestUpdateReleaseEndpoint(t *testing.T) {
+	up := &fakeUpdater{restarted: make(chan struct{})}
+	e := setup(t, Options{Updater: up})
+	phone := e.token(t, "phone", sdk.SourceManual, "read", "lamp")
+	if r := e.do(t, "POST", "/v1/update/release", phone, ""); r.status != 403 {
+		t.Fatalf("non-admin: %d", r.status)
+	}
+	var st map[string]any
+	e.do(t, "GET", "/v1/update/release", e.admin, "").json(t, &st)
+	if st["running"] != false {
+		t.Fatalf("before: %v", st)
+	}
+	if r := e.do(t, "POST", "/v1/update/release", e.admin, ""); r.status != 202 || !bytes.Contains(r.body, []byte(`"started":true`)) {
+		t.Fatalf("start: %d %s", r.status, r.body)
+	}
+	e.do(t, "GET", "/v1/update/release", e.admin, "").json(t, &st)
+	if st["running"] != true {
+		t.Fatalf("after: %v", st)
+	}
+	if r := e.do(t, "POST", "/v1/update/release", e.admin, ""); r.status != 412 || r.errCode(t) != sdk.CodePreconditionFailed {
+		t.Fatalf("while running: %d %s", r.status, r.body)
+	}
+	none := setup(t, Options{})
+	if r := none.do(t, "POST", "/v1/update/release", none.admin, ""); r.status != 503 {
+		t.Fatalf("no updater: %d %s", r.status, r.body)
+	}
+	if r := none.do(t, "GET", "/v1/update/release", none.admin, ""); r.status != 503 {
+		t.Fatalf("no updater (state): %d %s", r.status, r.body)
+	}
 }
 
 func (f *fakeUpdater) Install(_ context.Context, r io.Reader) (string, string, error) {
@@ -744,6 +776,20 @@ func (f *fakeUpdater) Install(_ context.Context, r io.Reader) (string, string, e
 	f.installed = b
 	f.mu.Unlock()
 	return "v2", "versions/v1", nil
+}
+func (f *fakeUpdater) UpdateRelease(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.releasing {
+		return sdk.Errorf(sdk.CodePreconditionFailed, "an update is running")
+	}
+	f.releasing = true
+	return nil
+}
+func (f *fakeUpdater) ReleaseRunning(context.Context) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.releasing
 }
 func (f *fakeUpdater) Restart() error       { close(f.restarted); return nil }
 func (f *fakeUpdater) Info() map[string]any { return map[string]any{"previous": "v1"} }

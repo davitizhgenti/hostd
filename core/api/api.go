@@ -72,6 +72,11 @@ type Updater interface {
 	Restart() error
 	// Info describes the installation for GET /v1/version.
 	Info() map[string]any
+	// UpdateRelease starts the installer's update to the newest signed
+	// build, and returns at once: it outlives the restart it causes.
+	// ReleaseRunning says whether one is running now.
+	UpdateRelease(ctx context.Context) error
+	ReleaseRunning(ctx context.Context) bool
 }
 
 // Server is the HTTP API.
@@ -112,6 +117,8 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		{"POST /v1/actions", "", srv.postAction}, // scope depends on the action
 		{"GET /v1/events", sdk.ScopeRead, srv.getEvents},
 		{"POST /v1/update", sdk.ScopeAdmin, srv.postUpdate},
+		{"POST /v1/update/release", sdk.ScopeAdmin, srv.postUpdateRelease},
+		{"GET /v1/update/release", sdk.ScopeAdmin, srv.getUpdateRelease},
 	}
 	for _, r := range routes {
 		if err := srv.handle(r.pattern, r.scope, r.h); err != nil {
@@ -531,6 +538,27 @@ func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request, _ store.Toke
 			s.log.Error("restarting after the update", "err", err)
 		}
 	}()
+	return nil
+}
+
+// postUpdateRelease starts the installer's update to the newest release.
+func (s *Server) postUpdateRelease(w http.ResponseWriter, r *http.Request, _ store.Token) error {
+	if s.opts.Updater == nil {
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "updates are not available: this hostd was not installed by the installer")
+	}
+	if err := s.opts.Updater.UpdateRelease(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
+	return nil
+}
+
+// getUpdateRelease says whether that update is running.
+func (s *Server) getUpdateRelease(w http.ResponseWriter, r *http.Request, _ store.Token) error {
+	if s.opts.Updater == nil {
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "updates are not available: this hostd was not installed by the installer")
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"running": s.opts.Updater.ReleaseRunning(r.Context())})
 	return nil
 }
 

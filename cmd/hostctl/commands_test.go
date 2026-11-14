@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io"
@@ -28,6 +29,9 @@ type fakeHostd struct {
 	answers  map[string]string
 	versions []string
 	uploaded []byte
+	released int  // POST /v1/update/release
+	running  int  // polls that still say it runs
+	refuse   bool // answer it with module_unavailable
 }
 
 func newFakeHostd(t *testing.T) *fakeHostd {
@@ -70,6 +74,27 @@ func newFakeHostd(t *testing.T) *fakeHostd {
 		f.uploaded = b
 		f.mu.Unlock()
 		_, _ = w.Write([]byte(`{"version":"v2","previous":"v1","restarting":true}`))
+	})
+	mux.HandleFunc("POST /v1/update/release", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.refuse {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"code":"module_unavailable","message":"this machine updates with root: sudo hostd-setup update"}}`))
+			return
+		}
+		f.released++
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"started":true}`))
+	})
+	mux.HandleFunc("GET /v1/update/release", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		running := f.running > 0
+		if running {
+			f.running--
+		}
+		_, _ = fmt.Fprintf(w, `{"running":%v}`, running)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -222,6 +247,28 @@ func TestInstallerCommands(t *testing.T) {
 	f.answers["quiet.wait"] = `{"error":{"code":"precondition_failed","message":"still busy after 5m0s: someone is using the screen"}}`
 	if _, errs, code := hostctl(t, "wait-quiet", "--idle", "--max", "5m"); code != exitPrecondition || !strings.Contains(errs, "still busy") {
 		t.Fatalf("busy: %d %s", code, errs)
+	}
+}
+
+func TestUpdateToTheNewestRelease(t *testing.T) {
+	f := newFakeHostd(t)
+	f.versions = []string{`{"version":"v1"}`, `{"version":"v2"}`}
+	f.running = 1
+	out, errs, code := hostctl(t, "update")
+	if code != 0 || f.released != 1 || !strings.Contains(out, "updated hostd v1 -> v2") {
+		t.Fatalf("update: %d %d %q %q", code, f.released, out, errs)
+	}
+	f.versions = []string{`{"version":"v2"}`, `{"version":"v2"}`}
+	if out, _, code := hostctl(t, "update"); code != 0 || !strings.Contains(out, "hostd v2 is up to date") {
+		t.Fatalf("up to date: %d %q", code, out)
+	}
+	f.versions = []string{`{"version":"v2"}`, `{"version":"v1","rolled_back_from":"v3"}`}
+	if _, errs, code := hostctl(t, "update"); code == 0 || !strings.Contains(errs, "did not start; systemd rolled back to v1") {
+		t.Fatalf("rollback: %d %q", code, errs)
+	}
+	f.refuse = true
+	if _, errs, code := hostctl(t, "update"); code == 0 || !strings.Contains(errs, "sudo hostd-setup update") {
+		t.Fatalf("refused: %d %q", code, errs)
 	}
 }
 

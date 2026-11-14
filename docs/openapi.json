@@ -5874,6 +5874,61 @@
         ]
       }
     },
+    "/v1/update/release": {
+      "get": {
+        "operationId": "core.update.release.state",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "{running: bool}"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "summary": "Whether that update is running",
+        "tags": [
+          "core"
+        ]
+      },
+      "post": {
+        "operationId": "core.update.release",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "started"
+          }
+        },
+        "summary": "Update to the newest signed release, as hostd-setup update does: started at once, it outlives the restart",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/v1/version": {
       "get": {
         "operationId": "core.version",

@@ -3,8 +3,10 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/davitizhgenti/hostd/core/store"
@@ -14,6 +16,46 @@ import (
 
 func fakeHostd(version string) []byte {
 	return []byte("#!/bin/sh\necho \"hostd " + version + "\" >&2\n")
+}
+
+func TestUpdaterRelease(t *testing.T) {
+	ctx := context.Background()
+	setup := filepath.Join(t.TempDir(), "hostd-setup")
+	_ = os.WriteFile(setup, []byte("#!/bin/sh\n"), 0o755)
+	var ran [][]string
+	active := false
+	u := &updater{setup: setup, run: func(_ context.Context, name string, args ...string) error {
+		ran = append(ran, append([]string{name}, args...))
+		if name == "systemctl" {
+			if active {
+				return nil
+			}
+			return errors.New("inactive")
+		}
+		active = true
+		return nil
+	}}
+	if err := u.UpdateRelease(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"systemd-run", "--user", "--collect", "--quiet", "--unit", "hostd-update-now", setup, "update"}
+	if got := ran[len(ran)-1]; !reflect.DeepEqual(got, want) {
+		t.Errorf("ran %q, want %q", got, want)
+	}
+	if !u.ReleaseRunning(ctx) {
+		t.Error("not running after starting")
+	}
+	if err := u.UpdateRelease(ctx); sdk.CodeOf(err) != sdk.CodePreconditionFailed {
+		t.Errorf("twice: %v", err)
+	}
+	// A machine whose installer is not the user's: says what to do instead.
+	root := &updater{setup: filepath.Join(t.TempDir(), "none")}
+	if err := root.UpdateRelease(ctx); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
+		t.Errorf("no installer: %v", err)
+	}
+	if err := (&updater{}).UpdateRelease(ctx); sdk.CodeOf(err) != sdk.CodeModuleUnavailable {
+		t.Errorf("no setup path: %v", err)
+	}
 }
 
 func TestUpdaterInstall(t *testing.T) {

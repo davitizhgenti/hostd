@@ -21,6 +21,42 @@ type updater struct {
 	store      *store.Store
 	configPath string
 	restart    func() error
+	// setup is the installer (~/.local/bin/hostd-setup); run runs a command
+	// (exec outside tests).
+	setup string
+	run   func(ctx context.Context, name string, args ...string) error
+}
+
+// releaseUnit is the transient unit the release update runs as: it is not
+// hostd's child, so it goes on through hostd's own restart.
+const releaseUnit = "hostd-update-now"
+
+func (u *updater) exec(ctx context.Context, name string, args ...string) error {
+	if u.run != nil {
+		return u.run(ctx, name, args...)
+	}
+	return exec.CommandContext(ctx, name, args...).Run()
+}
+
+// UpdateRelease starts `hostd-setup update` (the newest signed build, as the
+// timer does, but now) and returns at once. Only where the installer runs
+// as this user: a system install's needs root.
+func (u *updater) UpdateRelease(ctx context.Context) error {
+	if _, err := os.Stat(u.setup); err != nil || u.setup == "" {
+		return sdk.Errorf(sdk.CodeModuleUnavailable, "this machine updates with root: sudo hostd-setup update")
+	}
+	if u.ReleaseRunning(ctx) {
+		return sdk.Errorf(sdk.CodePreconditionFailed, "an update is already running (hostctl update waits for it)")
+	}
+	if err := u.exec(ctx, "systemd-run", "--user", "--collect", "--quiet", "--unit", releaseUnit, u.setup, "update"); err != nil {
+		return sdk.Errorf(sdk.CodeInternal, "starting the update: %v", err)
+	}
+	return nil
+}
+
+// ReleaseRunning reports whether that update is running.
+func (u *updater) ReleaseRunning(ctx context.Context) bool {
+	return u.exec(ctx, "systemctl", "--user", "is-active", "--quiet", releaseUnit+".service") == nil
 }
 
 // Install backs up the state database and config next to the running

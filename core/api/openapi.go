@@ -265,6 +265,9 @@ func coreRoutes() []coreRoute {
 	update := op("core.update", "Upload a new hostd binary: staged, switched to, rolled back if it does not start",
 		json200("The staged update", obj{"type": "object"}))
 	update["requestBody"] = obj{"required": true, "content": obj{"application/octet-stream": obj{"schema": obj{"type": "string", "format": "binary"}}}}
+	release := op("core.update.release", "Update to the newest signed release, as hostd-setup update does: started at once, it outlives the restart",
+		obj{"202": obj{"description": "started", "content": obj{"application/json": obj{"schema": obj{"type": "object"}}}}})
+	releaseState := op("core.update.release.state", "Whether that update is running", json200("{running: bool}", obj{"type": "object"}))
 	return []coreRoute{
 		{"GET", "/v1/version", op("core.version", "hostd's version", json200("Version", obj{"type": "object"}))},
 		{"GET", "/v1/manifests", op("core.manifests", "Every module's manifest: its actions, events, reads and scopes", json200("Manifests", obj{"type": "array"}))},
@@ -273,6 +276,8 @@ func coreRoutes() []coreRoute {
 		{"POST", "/v1/actions", actions},
 		{"GET", "/v1/events", events},
 		{"POST", "/v1/update", update},
+		{"POST", "/v1/update/release", release},
+		{"GET", "/v1/update/release", releaseState},
 		{"GET", "/v1/tls/ca.pem", public(op("core.tls.ca", "The machine's certificate authority, PEM (no token)",
 			obj{"200": obj{"description": "the CA", "content": obj{"application/x-pem-file": obj{"schema": obj{"type": "string"}}}}}))},
 	}

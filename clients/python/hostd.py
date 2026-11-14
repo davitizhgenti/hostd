@@ -231,6 +231,16 @@ class Hostd:
         state."""
         return self.action("instance.restart", id=instance)
 
+    def update(self):
+        """Start the machine's own update to the newest signed release (admin
+        scope), as `hostctl update` does. Returns at once; hostd restarts when
+        it is installed. update_running() says whether it is still going."""
+        self.request("POST", "/v1/update/release")
+
+    def update_running(self):
+        """Whether that update is running (admin scope)."""
+        return bool(self.request("GET", "/v1/update/release").get("running"))
+
     def define(self, app, toml):
         """Add or replace an app file (scope run): TOML, as written by hand."""
         return self.apply("apps", app, toml)

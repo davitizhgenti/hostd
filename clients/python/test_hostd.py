@@ -30,6 +30,9 @@ class FakeAPI(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        if self.path == "/v1/update/release":
+            FakeAPI.sent.append(("POST", self.path, None, self.headers.get("Authorization")))
+            return self.answer(202, {"started": True})
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeAPI.sent.append(("POST", self.path, body, self.headers.get("Authorization")))
         if body["type"] == "app.run" and body["args"]["command"][0] == "forbidden":
@@ -50,6 +53,11 @@ class FakeAPI(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path == "/v1/update/release":
+            return self.answer(200, {"running": FakeAPI.polls > 0})
+        return self.do_GET_rest()
+
+    def do_GET_rest(self):
         FakeAPI.sent.append(("GET", self.path, None, self.headers.get("Authorization")))
         if self.path == "/v1/instances/run-tests":
             FakeAPI.polls += 1
@@ -135,6 +143,15 @@ class ClientTest(unittest.TestCase):
             {"type": "instance.stop", "args": {"id": "show#2"}},
             {"type": "instance.restart", "args": {"id": "show"}},
         ])
+
+    def test_update_to_the_newest_release(self):
+        FakeAPI.polls = 0
+        self.core.update()
+        self.assertEqual(FakeAPI.sent[-1][:2], ("POST", "/v1/update/release"))
+        self.assertFalse(self.core.update_running())
+        FakeAPI.polls = 1
+        self.assertTrue(self.core.update_running())
+        FakeAPI.polls = 0
 
     def test_apps_are_the_specs_of_the_resources(self):
         # What the list holds that is not usable (a rejected file) is left out.

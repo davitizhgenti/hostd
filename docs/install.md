@@ -152,6 +152,7 @@ APPLY=auto      # auto | notify (a notice on the screen) | manual
 With `auto`, the update starts once no deploy or scene is in progress and nobody is using the screen. If the machine is busy, the next check tries again. Updates restart hostd and the menu, but never the apps.
 
 ```sh
+hostctl update                           # the same from another device (an admin login), waits for it to finish
 hostd-setup update                       # the newest signed build, now; prints only what changed
 hostd-setup update --verbose             # ...every step, changed or not
 hostd-setup update steam                 # ...and run that add-on again now

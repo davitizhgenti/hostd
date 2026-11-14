@@ -148,11 +148,17 @@ with: hostctl login https://<machine>:PORT --name NAME
 
 ## hostctl update
 
-Update hostd on the machine
+Update hostd on the machine to the newest release
 
 ```
 hostctl update
 ```
+
+Update hostd on the machine to the newest signed release, as hostd-setup
+update does there (including the menu and the add-ons when the build changed
+them), and wait for it to finish. The machine restarts hostd and the menu,
+never the apps. Needs an admin login; a machine whose installer needs root
+says so (sudo hostd-setup update). "update push" installs a build of your own.
 
 ## hostctl update push
 

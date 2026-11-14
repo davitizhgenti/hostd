@@ -19,7 +19,23 @@ import (
 // --- update -------------------------------------------------------------------
 
 func (a *app) updateCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "update", Short: "Update hostd on the machine", Args: cobra.ArbitraryArgs, RunE: groupRun}
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update hostd on the machine to the newest release",
+		Long: `Update hostd on the machine to the newest signed release, as hostd-setup
+update does there (including the menu and the add-ons when the build changed
+them), and wait for it to finish. The machine restarts hostd and the menu,
+never the apps. Needs an admin login; a machine whose installer needs root
+says so (sudo hostd-setup update). "update push" installs a build of your own.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := a.client()
+			if err != nil {
+				return err
+			}
+			return a.updateRelease(cmd.Context(), c)
+		},
+	}
 	var sshTarget string
 	push := &cobra.Command{
 		Use:   "push [binary]",
@@ -65,6 +81,41 @@ when the running hostd is too broken to take an upload.`,
 	push.Flags().StringVar(&sshTarget, "ssh", "", "install over SSH instead of the API, e.g. screen@192.168.1.20")
 	cmd.AddCommand(push)
 	return cmd
+}
+
+// updateRelease asks the machine to update itself and waits until it has,
+// through the restart that causes.
+func (a *app) updateRelease(ctx context.Context, c *client.Client) error {
+	before, err := c.Version(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.UpdateRelease(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintf(a.stdout, "updating hostd %s...\n", before.Version)
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		time.Sleep(2 * time.Second)
+		running, err := c.ReleaseRunning(ctx)
+		if err != nil || running {
+			continue // restarting, or still going
+		}
+		v, err := c.Version(ctx)
+		if err != nil {
+			continue
+		}
+		if v.RolledBackFrom != "" && v.RolledBackFrom != before.RolledBackFrom {
+			return &client.Error{Err: sdk.Errorf(sdk.CodeInternal, "hostd %s did not start; systemd rolled back to %s", v.RolledBackFrom, v.Version)}
+		}
+		if v.Version == before.Version {
+			fmt.Fprintf(a.stdout, "hostd %s is up to date\n", v.Version)
+		} else {
+			fmt.Fprintf(a.stdout, "updated hostd %s -> %s\n", before.Version, v.Version)
+		}
+		return nil
+	}
+	return &client.Error{Err: sdk.Errorf(sdk.CodeTimeout, "the update did not finish within 10 minutes (the machine may still be updating)")}
 }
 
 // buildHostd builds hostd for linux/<arch> from the checkout in the
