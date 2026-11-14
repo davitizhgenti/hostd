@@ -41,6 +41,7 @@ type wiiRemote struct {
 
 	mu         sync.Mutex
 	configured bool
+	lastAsk    time.Time // when the remote was last asked its status, to set it up
 	core       uint16
 	irReady    bool
 	extPlugged bool
@@ -92,12 +93,23 @@ func (w *wiiRemote) Handle(b []byte) {
 	if !ok {
 		return
 	}
+	now := w.now()
 	w.mu.Lock()
 	first := !w.configured
 	w.configured = true
+	// A remote that reports in a mode other than the one asked for has been
+	// reset (switched off and on, or out of range and back: the DolphinBar
+	// keeps the channel): it is set up again, at most once a second.
+	reset := !first && r.ID >= wiiInButtons && r.ID != wiiInIRExt && now.Sub(w.lastAsk) >= time.Second
+	if first || reset {
+		w.lastAsk = now
+		w.irReady, w.extPlugged, w.nunchuk, w.classic = false, false, false, false
+	}
 	w.mu.Unlock()
 	if first {
 		w.slot() // connected: it has a player slot now
+	}
+	if first || reset {
 		w.send(wiiStatusRequest())
 	}
 	var ev InputEvent

@@ -402,3 +402,34 @@ func TestAClassicControllerMovesTheMenu(t *testing.T) {
 		t.Fatalf("stick: %+v", ev)
 	}
 }
+
+func TestAResetRemoteIsSetUpAgain(t *testing.T) {
+	h := newWiiHarness(t)
+	h.feed([]byte{wiiInButtons, 0, 0})
+	h.feed([]byte{wiiInStatus, 0, 0, 0x00, 0, 0, 0x60})
+	h.feed(report37(0, noDots, nil)) // set up: it reports in the mode asked for
+	n := len(h.ch.sent())
+	h.feed(report37(0, noDots, nil))
+	if len(h.ch.sent()) != n {
+		t.Fatal("a remote in the right mode was written to")
+	}
+	// It is switched off and on: it reports buttons only again.
+	h.now = h.now.Add(2 * time.Second)
+	h.feed([]byte{wiiInButtons, 0, 0})
+	got := h.ch.sent()[n:]
+	if len(got) != 1 || !bytes.Equal(got[0], wiiStatusRequest()) {
+		t.Fatalf("not asked again: %x", got)
+	}
+	// Not again in the same second, however many reports come.
+	for i := 0; i < 5; i++ {
+		h.feed([]byte{wiiInButtons, 0, 0})
+	}
+	if len(h.ch.sent()) != n+1 {
+		t.Errorf("asked %d times in a second", len(h.ch.sent())-n)
+	}
+	// Its answer sets it up, the camera included.
+	h.feed([]byte{wiiInStatus, 0, 0, 0x00, 0, 0, 0x60})
+	if got := h.ch.sent()[n+1:]; len(got) != 1+7+1 {
+		t.Errorf("setup after the reset: %x", got)
+	}
+}
