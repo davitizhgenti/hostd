@@ -162,8 +162,11 @@ class MenuLayout(Contract):
                 s.settle()
                 r = s.rect("pointer")
                 self.assertTrue(s.shown("pointer"), size_name)
-                self.near(cx(r), w * 0.3, f"{size_name}: pointer x")
-                self.near(cy(r), h * 0.7, f"{size_name}: pointer y")
+                # Where the shell says it is (the offscreen window's own hover may
+                # have moved it a moment before: the drawing follows the shell).
+                p = s.shell.property("pointer")
+                self.near(cx(r), w * p["x"], f"{size_name}: pointer x")
+                self.near(cy(r), h * p["y"], f"{size_name}: pointer y")
                 self.assertGreater(r[2], 4, size_name)
                 # Every row drawn has a hit area as big as the row.
                 for i, row in self.rows(s):
