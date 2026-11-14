@@ -15,6 +15,7 @@ Dialog 1.0 Dialog.qml
 Clock 1.0 Clock.qml
 Pointer 1.0 Pointer.qml
 Pointers 1.0 Pointers.qml
+DeviceStrip 1.0 DeviceStrip.qml
 PointerHits 1.0 PointerHits.qml
 Hints 1.0 Hints.qml
 Notice 1.0 Notice.qml

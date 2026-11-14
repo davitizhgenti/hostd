@@ -561,6 +561,49 @@ class SeveralPointers(unittest.TestCase):
         self.assertEqual(s.property("deviceList"), [])
 
 
+class DevicesShown(unittest.TestCase):
+    """The strip of connected devices, and the Devices group of Status."""
+
+    def test_the_strip_lists_pointing_and_playing_devices_from_two_up(self):
+        s = shell()
+        self.assertEqual(s.property("strip"), [])  # no devices
+        s.devices = fixtures.DEVICES[:1]
+        self.assertEqual(s.property("strip"), [])  # one needs no telling apart
+        s.devices = fixtures.DEVICES
+        self.assertEqual([d["label"] for d in s.property("strip")], ["Mouse", "Wii Remote 1", "Mia"])  # not the keyboard
+        self.assertEqual([d["colour"] for d in s.property("strip")], ["blue", "orange", "violet"])
+
+    def test_the_one_in_use_is_marked(self):
+        s = shell()
+        s.showMenu()
+        s.setMenuActive(True)
+        s.devices = fixtures.DEVICES
+        s.mouseAt(10, 10, 100, 100)
+        s.mouseAt(20, 20, 100, 100)
+        point(s, WII2, 0.5, 0.5)
+        self.assertEqual({d["label"]: d["active"] for d in s.property("strip")},
+                         {"Mouse": True, "Wii Remote 1": False, "Mia": True})
+        s.pointer_timer.timeout.emit()
+        point(s, WII2, 0, 0, visible=False)
+        self.assertEqual([d["active"] for d in s.property("strip")], [False, False, False])
+
+    def test_status_lists_the_devices_and_offers_their_colours(self):
+        s = shell()
+        s.api.reads["/v1/devices"] = fixtures.DEVICES
+        s.refresh(STATUS)
+        rows = {r.title: r for r in s.all_rows[STATUS]}
+        self.assertIn("Devices", rows)
+        self.assertNotIn("Keyboard", rows)
+        mia = rows["Mia"]
+        self.assertEqual((mia.subtitle, mia.value), ("Wii Remote  ·  player 2  ·  calibrated", "violet"))
+        orange = next(r for r in mia.sheet if r.title == "Orange")
+        self.assertEqual(orange.call.body, {"type": "device.colour", "args": {"id": WII2, "colour": "orange"}})
+        self.assertEqual(next(r for r in mia.sheet if r.value == "now").title, "Violet")
+        del s.api.reads["/v1/devices"]  # an older hostd: no group
+        s.refresh(STATUS)
+        self.assertNotIn("Devices", [r.title for r in s.all_rows[STATUS]])
+
+
 class Mouse(unittest.TestCase):
     """The mouse has a pointer: hovering never moves the selection, a click
     opens the row clicked, the wheel moves the selection."""

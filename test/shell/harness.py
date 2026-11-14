@@ -107,6 +107,12 @@ class Screen:
 
     # --- driving it ---
 
+    def mute_hover(self):
+        """The offscreen platform reports a mouse of its own at (8, 8) now and
+        then: the window ignores it, so the tests drive the pointer alone."""
+        from PySide6.QtCore import QObject
+        self.window.findChild(QObject, "pointerTracker").setProperty("enabled", False)
+
     def verb(self, *verbs):
         for v in verbs:
             self.shell.handle(v)

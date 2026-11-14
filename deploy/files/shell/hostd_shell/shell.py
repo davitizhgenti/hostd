@@ -26,7 +26,7 @@ REFRESH_ON = {
     "apps": ("instance.", "app.", "hostd.", "bus."),
     "users": ("seat.", "hostd."),
     "settings": ("audio.", "display.output", "display.mode", "display.power", "hostd."),
-    "status": ("hostd.", "action."),
+    "status": ("hostd.", "action.", "device.", "controller."),
 }
 OSD_MS = 1600
 SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
@@ -57,7 +57,12 @@ def fetch(api, category, look, tokens, path=(), tabs=()):
         except hapi.APIError:
             audio = None
         return views.settings_page(audio, api.get("/v1/display"), look, tokens), ""
-    return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12")), ""
+    try:
+        devices = api.get("/v1/devices")
+    except hapi.APIError:
+        devices = []  # an older hostd
+    return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12"),
+                             devices), ""
 
 
 class NoticesModel(RowsModel):
@@ -277,7 +282,6 @@ class Shell(QObject):
             return
         if kind.startswith(("device.", "controller.")):
             self._load_devices()
-            return
         osd = notices.osd_for(ev)
         if osd is not None:
             self.show_osd(*osd)
@@ -815,6 +819,18 @@ class Shell(QObject):
         return self._shown(p) if p else {"id": MOUSE, "x": 0.5, "y": 0.5, "visible": False, "down": False, "source": "",
                                   "name": "", "colour": "", "hover": -1}
 
+    def strip_list(self):
+        """The devices the strip at the top of the menu shows: those that
+        point or play, each with its colour and whether it is in use now
+        (its pointer shows). Only when there are two or more: one needs no
+        telling apart."""
+        devs = [d for d in self.devices if d.get("kind") in ("pointer", "gamepad")]
+        if len(devs) < 2:
+            return []
+        return [{"id": d.get("id", ""), "label": d.get("label") or d.get("name", ""), "colour": d.get("colour", ""),
+                 "active": bool(self._pointers.get(MOUSE if d.get("kind") == "pointer" else d.get("id"), {}).get("visible"))}
+                for d in devs]
+
     def hovers_list(self):
         """The rows with a pointer over them: {row, colour} for each."""
         return [{"row": p["hover"], "colour": self._shown(p)["colour"]} for p in self._pointers.values()
@@ -838,6 +854,7 @@ class Shell(QObject):
 
     pointer = Property("QVariantMap", lambda s: s.last_pointer(), notify=pointerChanged)
     pointers = Property("QVariantList", lambda s: [s._shown(p) for p in s._pointers.values()], notify=pointerChanged)
+    strip = Property("QVariantList", lambda s: s.strip_list(), notify=pointerChanged)
     pointerIds = Property("QVariantList", lambda s: list(s._pointers), notify=pointerIdsChanged)
     hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=pointerChanged)
     deviceList = Property("QVariantList", lambda s: list(s.devices), notify=devicesChanged)

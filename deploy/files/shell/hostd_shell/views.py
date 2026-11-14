@@ -437,7 +437,28 @@ def gib(n):
     return f"{n / (1 << 30):.1f} GB"
 
 
-def status_page(version, display, log):
+def device_rows(devices):
+    """The input devices that point or play: each by its name, with its
+    colour; choosing one offers its colours."""
+    rows = []
+    for d in devices or []:
+        if d.get("kind") not in ("pointer", "gamepad"):
+            continue
+        kind = "Wii Remote" if d.get("pointer") and d.get("kind") == "gamepad" else d.get("kind", "").capitalize()
+        bits = [kind if kind != "Pointer" else "Mouse"]
+        if d.get("player"):
+            bits.append(f"player {d['player']}")
+        if d.get("calibrated"):
+            bits.append("calibrated")
+        sheet = [Row(c.capitalize(), icon="palette", value="now" if c == d.get("colour") else "",
+                     call=action("device.colour", id=d["id"], colour=c))
+                 for c in ("blue", "orange", "green", "pink", "yellow", "teal", "red", "violet")]
+        rows.append(Row(d.get("label") or d.get("name", ""), icon="gamepad-2" if d["kind"] == "gamepad" else "mouse-pointer-2",
+                        subtitle="  ·  ".join(bits), value=d.get("colour", ""), sheet=sheet))
+    return [Row("Devices", HEADER)] + rows if rows else []
+
+
+def status_page(version, display, log, devices=None):
     rows = [Row("hostd", HEADER)]
     v = version or {}
     rows.append(Row("Version", value=v.get("version", "unknown"), icon="info",
@@ -447,6 +468,7 @@ def status_page(version, display, log):
         used = gpu.get("used", 0) / gpu["total"]
         rows.append(Row("Video memory", value=f"{gib(gpu.get('used', 0))} of {gib(gpu['total'])}", icon="memory-stick",
                         badge="nearly full" if used > 0.9 else "", tone="warning"))
+    rows += device_rows(devices)
     rows.append(Row("Recent", HEADER))
     for e in (log or [])[:12]:
         status = e.get("status", "")

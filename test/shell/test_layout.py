@@ -161,6 +161,7 @@ class MenuLayout(Contract):
                     {"id": "w1", "kind": "gamepad", "label": "Wii Remote 1", "colour": "orange", "pointer": True}]
                 s.shell.showMenu()
                 s.shell.setMenuActive(True)
+                s.mute_hover()
                 s.settle(12)
 
                 def over(i):
@@ -193,7 +194,7 @@ class MenuLayout(Contract):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
                 w, h = size
-                s.settle(12)  # the window's own first hover has landed
+                s.mute_hover()
                 s.shell.hide_pointer()
                 self.assertFalse(s.shell.property("pointer")["visible"], size_name)
                 s.shell.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
@@ -201,11 +202,8 @@ class MenuLayout(Contract):
                 s.settle()
                 r = s.rect("pointer")
                 self.assertTrue(s.shown("pointer"), size_name)
-                # Where the shell says it is (the offscreen window's own hover may
-                # have moved it a moment before: the drawing follows the shell).
-                p = s.shell.property("pointer")
-                self.near(cx(r), w * p["x"], f"{size_name}: pointer x")
-                self.near(cy(r), h * p["y"], f"{size_name}: pointer y")
+                self.near(cx(r), w * 0.3, f"{size_name}: pointer x")
+                self.near(cy(r), h * 0.7, f"{size_name}: pointer y")
                 self.assertGreater(r[2], 4, size_name)
                 # Every row drawn has a hit area as big as the row.
                 for i, row in self.rows(s):

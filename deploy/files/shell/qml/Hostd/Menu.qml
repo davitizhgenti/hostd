@@ -34,6 +34,12 @@ Window {
             anchors.fill: parent
         }
 
+        DeviceStrip {
+            shell: menu.shell
+            x: Theme.layoutSafeMargin
+            y: Theme.layoutSafeMargin
+        }
+
         // Typing on Apps filters it.
         Row {
             objectName: "filter"
@@ -110,7 +116,8 @@ Window {
         HoverHandler {
             objectName: "pointerTracker"
             cursorShape: Qt.BlankCursor
-            onPointChanged: menu.shell.mouseAt(point.position.x, point.position.y, menu.width, menu.height)
+            // Only a mouse that is over the window: with none, Qt still reports (0, 0).
+            onPointChanged: if (hovered) menu.shell.mouseAt(point.position.x, point.position.y, menu.width, menu.height)
         }
         WheelHandler {
             onWheel: (event) => menu.shell.wheel(event.angleDelta.x, event.angleDelta.y)

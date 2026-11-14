@@ -45,6 +45,18 @@ APPS = [
 MENU = ('[[tab]]\nfolder = "Games"\nicon = "gamepad-2"\nview = "tiles"\n\n'
         '[[tab]]\nfolder = "Services"\nicon = "server"\n')
 
+# The input devices of a screen with a mouse and two Wii Remotes (GET /v1/devices).
+DEVICES = [
+    {"id": "046d:c077-usb-1", "device": "/dev/input/event4", "name": "USB Optical Mouse", "kind": "pointer",
+     "vendor": "046d", "product": "c077", "label": "Mouse", "colour": "blue", "pointer": True},
+    {"id": "057e:0306-hidraw3", "device": "", "name": "Wii Remote", "kind": "gamepad", "vendor": "057e",
+     "product": "0306", "player": 1, "label": "Wii Remote 1", "colour": "orange", "pointer": True},
+    {"id": "057e:0306-hidraw4", "device": "", "name": "Wii Remote", "kind": "gamepad", "vendor": "057e",
+     "product": "0306", "player": 2, "label": "Mia", "colour": "violet", "pointer": True, "calibrated": True},
+    {"id": "046d:c31c-kb", "device": "/dev/input/event0", "name": "Keyboard", "kind": "keyboard", "vendor": "046d",
+     "product": "c31c", "label": "Keyboard", "colour": "green"},
+]
+
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]
 AUDIO = {"available": True, "percent": 70, "muted": False, "outputs": [
     {"name": "hdmi", "description": "GP107GL HDMI", "default": True},

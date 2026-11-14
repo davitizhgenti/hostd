@@ -7,10 +7,12 @@ for review on this machine: open test/shell/out/index.html. To accept the
 new look: HOSTD_GOLDEN=update (make shell-golden), then review the change
 to the golden images in git."""
 
+import copy
 import html
 import os
 import unittest
 
+import fixtures
 import numpy as np
 from harness import HERE, Screen
 from PySide6.QtGui import QImage
@@ -40,6 +42,11 @@ STATES = [
     ("12-osd", "OsdLayer", "osd", "The OSD"),
     ("13-gallery", "Gallery", [], "The component sheet"),
     ("03b-pointer", "Menu", [("pointer", 0.42, 0.575, 1)], "The pointer over a row (underlined); the selection stays"),
+    ("03c-devices", "Menu+devices", [("wii", "057e:0306-hidraw3", 0.35, 0.656), ("wii", "057e:0306-hidraw4", 0.6, 0.55),
+                                      ("pointer", 0.42, 0.575, 1)],
+     "Three devices: the strip at the top left, each pointer and underline in its device's color"),
+    ("10b-status-devices", "Menu+devices", ["right"] * 3 + ["down", "down"], "Status lists the devices, each with its color"),
+    ("10c-device-colours", "Menu+devices", ["right"] * 3 + ["down", "down", "actions"], "A device's options: its colour"),
     ("14-tabs", "Menu+tabs", ["right"], "The Games tab (tiles): a launcher heads its group"),
     ("14b-tiles-game", "Menu+tabs", ["right", "down"], "A game: its tile, and on the right its banner and details"),
     ("14c-tiles-other", "Menu+tabs", ["right"] + ["down"] * 4, "A game with no banner, in the Steam group"),
@@ -49,8 +56,15 @@ STATES = [
 
 
 def render(size, surface, steps):
-    surface, _, tabs = surface.partition("+")
-    with Screen(size, surface, tabs=bool(tabs)) as s:
+    surface, _, extra = surface.partition("+")
+    reads = None
+    if extra == "devices":
+        reads = copy.deepcopy(fixtures.READS)
+        reads["/v1/devices"] = fixtures.DEVICES
+    with Screen(size, surface, reads=reads, tabs=extra == "tabs") as s:
+        if extra == "devices":
+            s.shell._load_devices()
+            s.shell.refresh("status")
         if steps == "notices":
             s.shell.notify("Steam", "Download finished", "Dota 2 is ready to play", 0, 1, -1)
             s.shell.notify("hostd", "Video memory nearly full", "3.9 GB of 4 GB in use", 0, 2, -1)
@@ -61,9 +75,16 @@ def render(size, surface, steps):
                 if isinstance(step, tuple) and step[0] == "pointer":
                     _, px, py, row = step  # the pointer at px, py (shares of the screen), over row `row`
                     w, h = s.size
+                    s.mute_hover()
                     s.shell.mouseAt(w * px - 30, h * py, w, h)
                     s.shell.mouseAt(w * px, h * py, w, h)
                     s.shell.hover(row)
+                elif isinstance(step, tuple) and step[0] == "wii":
+                    _, device, px, py = step  # a Wii Remote's pointer, over what is there
+                    s.shell.setMenuActive(True)
+                    s.shell.on_event({"type": "display.pointer", "data": {
+                        "x": px, "y": py, "visible": True, "down": False, "family": "wii", "device": device}})
+                    s.settle()
                 elif isinstance(step, tuple):
                     s.key(*step)
                 else:
