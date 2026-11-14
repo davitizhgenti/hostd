@@ -164,11 +164,8 @@ class MenuLayout(Contract):
                 s.mute_hover()
                 s.settle(12)
 
-                def over(i):
-                    r = s.rect(f"itemHit/{i}")
-                    return (r[0] + r[2] / 2) / w, (r[1] + r[3] / 2) / h
-
-                x, y = over(1)
+                r = s.rect("itemHit/1")  # the middle of row 1, as shares of the screen
+                x, y = (r[0] + r[2] / 2) / w, (r[1] + r[3] / 2) / h
                 s.shell.on_event({"type": "display.pointer", "data": {
                     "x": x, "y": y, "visible": True, "down": False, "family": "wii", "device": "w1"}})
                 s.settle()
