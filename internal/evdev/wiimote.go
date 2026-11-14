@@ -1,7 +1,5 @@
 package evdev
 
-import ()
-
 // A Wii Remote's HID protocol, as far as the menu needs it: the buttons,
 // the IR camera (for the pointer) and a Nunchuk. A Mayflash DolphinBar in
 // its Dolphin mode hands each paired remote to the host as a raw HID
