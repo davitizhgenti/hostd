@@ -24,17 +24,18 @@ import (
 
 // Events the module emits.
 const (
-	EventOpened  = "window.opened"
-	EventFocused = "window.focused"
-	EventClosed  = "window.closed"
-	EventActive  = "display.active"  // someone started using the screen
-	EventIdle    = "display.idle"    // no input for IdleAfter
-	EventNotice  = "display.notice"  // a notice shown on the screen
-	EventNav     = "display.nav"     // controller navigation for the menu in front
-	EventPointer = "display.pointer" // a Wii Remote's pointer for the menu in front
-	EventGPUFull = "display.gpu.full"
-	EventGPUOK   = "display.gpu.ok"
-	EventOutputs = "display.output.changed"
+	EventOpened    = "window.opened"
+	EventFocused   = "window.focused"
+	EventClosed    = "window.closed"
+	EventActive    = "display.active"    // someone started using the screen
+	EventIdle      = "display.idle"      // no input for IdleAfter
+	EventNotice    = "display.notice"    // a notice shown on the screen
+	EventNav       = "display.nav"       // controller navigation for the menu in front
+	EventPointer   = "display.pointer"   // a Wii Remote's pointer for the menu in front
+	EventCalibrate = "display.calibrate" // how a pointer's calibration goes, for the menu to show
+	EventGPUFull   = "display.gpu.full"
+	EventGPUOK     = "display.gpu.ok"
+	EventOutputs   = "display.output.changed"
 
 	EventDeviceConnected        = "device.connected"
 	EventDeviceDisconnected     = "device.disconnected"
@@ -236,6 +237,10 @@ var (
 		"id":{"type":"string","description":"the device's ID (hostctl devices)"},
 		"colour":{"type":"string","enum":["blue","orange","green","pink","yellow","teal","red","violet"],"description":"the colour of its pointer and mark"}},
 		"required":["id","colour"],"additionalProperties":false}`)
+	calibrateArg = json.RawMessage(`{"type":"object","properties":{
+		"id":{"type":"string","description":"the Wii Remote's ID (hostctl devices)"},
+		"reset":{"type":"boolean","description":"clear what was measured instead of measuring"}},
+		"required":["id"],"additionalProperties":false}`)
 	noticeArg = json.RawMessage(`{"type":"object","properties":{
 		"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}`)
 	powerArg = json.RawMessage(`{"type":"object","properties":{
@@ -312,6 +317,9 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: "device.colour", Description: "Give an input device a colour: its pointer on the menu and its mark are drawn in it",
 				Schema: colourArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/colour"}},
+			{Type: "device.calibrate", Description: "Measure a Wii Remote's pointer: point it at the screen's four corners, pressing A at each (the menu shows where); it is kept for that remote",
+				Schema: calibrateArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
+				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/calibrate"}},
 			{Type: "display.notice", Description: "Show a short notice on the screen, above any app",
 				Schema: noticeArg, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
 				Route: &sdk.Route{Method: "POST", Path: "/v1/display/notice"}},
@@ -342,6 +350,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Type: EventOutputs, Description: "Screens were turned on or off, enabled, disabled or changed mode"},
 			{Type: EventDeviceConnected, Description: "A keyboard, mouse or controller was plugged in (see GET /v1/devices)"},
 			{Type: EventDeviceDisconnected, Description: "An input device was unplugged"},
+			{Type: EventCalibrate, Description: "How a pointer's calibration goes: device, state (aim, done, failed, cancelled, reset), step (0-3) and corner to aim at, name and colour of the device"},
 			{Type: EventDeviceChanged, Description: "An input device was named or given a colour"},
 			{Type: EventDeviceAssigned, Description: "A controller was given another player slot"},
 			{Type: EventControllerConnected, Description: "A game controller was plugged in (see GET /v1/controllers)"},

@@ -106,10 +106,12 @@ Window {
             anchors.margins: Theme.layoutSafeMargin
         }
 
+        Calibrate { shell: menu.shell; anchors.fill: parent }
+
         // The pointers: the mouse's, and one for each Wii Remote (hostd's
         // display.pointer); a remote's finds the row it is over and clicks it.
         PointerHits { shell: menu.shell; scene: scene }
-        Pointers { shell: menu.shell; anchors.fill: parent }
+        Pointers { shell: menu.shell; anchors.fill: parent; z: 1000 }
 
         // The mouse, over everything but taking nothing: where it is, the wheel,
         // and the buttons that are on no row (the rows have their own).

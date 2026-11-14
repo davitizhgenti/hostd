@@ -6,6 +6,7 @@ package seat
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -100,6 +101,14 @@ func (g *Gate) Grab(device string, on bool) error {
 		return gr.Grab(device, on)
 	}
 	return nil
+}
+
+// Calibrate passes through, when Inner can.
+func (g *Gate) Calibrate(id string, reset bool) error {
+	if c, ok := g.Inner.(evdev.Calibrator); ok {
+		return c.Calibrate(id, reset)
+	}
+	return fmt.Errorf("this machine's input cannot calibrate a pointer")
 }
 
 // Devices passes through, when Inner can.

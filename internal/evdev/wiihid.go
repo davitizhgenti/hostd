@@ -2,6 +2,7 @@ package evdev
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -54,6 +55,8 @@ type wiiRemote struct {
 	tracker    pointerTracker
 	ptr        Pointer
 	ptrAt      time.Time
+	calib      *calibration       // a calibration is going on
+	saved      func(*Calibration) // keeps a new calibration (nil: it is cleared)
 }
 
 // send writes output reports one after another.
@@ -77,7 +80,12 @@ func (w *wiiRemote) Gone() {
 	w.tracker = pointerTracker{Cal: w.tracker.Cal}
 	hadPointer := w.ptr.Visible
 	w.ptr = Pointer{}
+	calibrating := w.calib != nil
+	w.calib = nil
 	w.mu.Unlock()
+	if calibrating {
+		w.emit(InputEvent{Calibrate: &CalibrateEvent{State: "cancelled", Reason: "the remote went away"}})
+	}
 	if !was {
 		return
 	}
@@ -124,12 +132,18 @@ func (w *wiiRemote) Handle(b []byte) {
 		w.classic = w.extPlugged && isClassic(r.Data)
 		w.mu.Unlock()
 	}
+	w.mu.Lock()
+	prevCore, calibrating := w.core, w.calib != nil
+	w.mu.Unlock()
 	w.buttons(r.Core, &ev)
 	if r.ID == wiiInIRExt {
 		w.extension(r.Ext, &ev)
 		w.pointer(r, &ev)
 	}
-	if len(ev.Buttons)+len(ev.Released)+len(ev.Nav) > 0 || ev.Pointer != nil {
+	if calibrating {
+		w.calibrate(r, prevCore, &ev)
+	}
+	if len(ev.Buttons)+len(ev.Released)+len(ev.Nav) > 0 || ev.Pointer != nil || ev.Calibrate != nil {
 		w.emit(ev)
 	}
 }
@@ -263,6 +277,67 @@ func (w *wiiRemote) pointer(r wiiReport, ev *InputEvent) {
 	ev.Pointer = &next
 }
 
+// StartCalibration begins asking for the screen's corners.
+func (w *wiiRemote) StartCalibration() {
+	w.mu.Lock()
+	w.calib = &calibration{}
+	w.mu.Unlock()
+	w.emit(InputEvent{Calibrate: &CalibrateEvent{State: "aim", Step: 0}})
+}
+
+// SetCalibration uses a calibration from now on (the zero one: the default).
+func (w *wiiRemote) SetCalibration(c Calibration) {
+	w.mu.Lock()
+	w.tracker.Cal = c
+	w.mu.Unlock()
+}
+
+// calibrate takes the report of a remote being calibrated: A, with the bar in
+// sight, keeps where it points as the next corner; B gives up. While it goes
+// on the remote's buttons are the calibration's alone, and a click is no click.
+func (w *wiiRemote) calibrate(r wiiReport, prevCore uint16, ev *InputEvent) {
+	ev.Nav, ev.Buttons, ev.Released = nil, nil, nil
+	if ev.Pointer != nil {
+		ev.Pointer.Down = false
+	}
+	pressed := func(b uint16) bool { return r.Core&b != 0 && prevCore&b == 0 }
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.ptr.Down = false
+	c := w.calib
+	if c == nil {
+		return
+	}
+	switch {
+	case pressed(wiiB):
+		w.calib = nil
+		ev.Calibrate = &CalibrateEvent{State: "cancelled"}
+	case pressed(wiiA):
+		u, v, ok := w.tracker.Raw(w.now())
+		if !ok {
+			ev.Calibrate = &CalibrateEvent{State: "aim", Step: c.n, Reason: "the remote does not see the sensor bar"}
+			return
+		}
+		c.at[c.n] = [2]float64{u, v}
+		c.n++
+		if c.n < len(c.at) {
+			ev.Calibrate = &CalibrateEvent{State: "aim", Step: c.n}
+			return
+		}
+		w.calib = nil
+		fit, ok := FitCalibration(c.at[0], c.at[1], c.at[2], c.at[3])
+		if !ok {
+			ev.Calibrate = &CalibrateEvent{State: "failed", Reason: "those four points are not a screen: aim at the corners"}
+			return
+		}
+		w.tracker.Cal = fit
+		if w.saved != nil {
+			w.saved(&fit)
+		}
+		ev.Calibrate = &CalibrateEvent{State: "done", Fit: &fit}
+	}
+}
+
 // --- finding remotes ---
 
 // Busy tells whether an app that reads a raw device itself runs.
@@ -372,6 +447,17 @@ func (e *Evdev) readWii(ctx context.Context, f *os.File, id string, prof *Profil
 	nav := NewNavigator(prof, e.Nav, func(verbs []string) { emit(InputEvent{Nav: verbs}) })
 	remote = &wiiRemote{rw: f, nav: nav, codes: prof.codes, slot: slot, emit: emit, now: time.Now, pause: time.Sleep}
 	remote.tracker.Cal = e.Identities.Calibration(id)
+	remote.saved = func(c *Calibration) {
+		if e.Identities != nil {
+			e.Identities.SetCalibration(id, c)
+		}
+	}
+	e.mu.Lock()
+	if e.remotes == nil {
+		e.remotes = map[string]*wiiRemote{}
+	}
+	e.remotes[id] = remote
+	e.mu.Unlock()
 	var lost *time.Timer
 	defer func() {
 		if lost != nil {
@@ -379,6 +465,7 @@ func (e *Evdev) readWii(ctx context.Context, f *os.File, id string, prof *Profil
 		}
 		remote.Gone()
 		e.mu.Lock()
+		delete(e.remotes, id)
 		e.players().Disconnect(id)
 		e.mu.Unlock()
 	}()
@@ -398,4 +485,23 @@ func (e *Evdev) readWii(ctx context.Context, f *os.File, id string, prof *Profil
 			return
 		}
 	}
+}
+
+// Calibrate starts a Wii Remote's calibration, or with reset clears it
+// (Calibrator).
+func (e *Evdev) Calibrate(id string, reset bool) error {
+	e.mu.Lock()
+	remote := e.remotes[id]
+	e.mu.Unlock()
+	if remote == nil {
+		return fmt.Errorf("no Wii Remote %q is heard from now", id)
+	}
+	if reset {
+		remote.SetCalibration(Calibration{})
+		remote.saved(nil)
+		remote.emit(InputEvent{Calibrate: &CalibrateEvent{State: "reset"}})
+		return nil
+	}
+	remote.StartCalibration()
+	return nil
 }

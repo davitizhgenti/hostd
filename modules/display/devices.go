@@ -139,6 +139,55 @@ func (m *Module) deviceByID(id string) *DeviceView {
 	return nil
 }
 
+// handleCalibrate starts a pointer's calibration, or clears it.
+func (m *Module) handleCalibrate(a sdk.Action) (sdk.Result, error) {
+	var args struct {
+		ID    string
+		Reset bool
+	}
+	if err := a.DecodeArgs(&args); err != nil {
+		return sdk.Result{}, err
+	}
+	d := m.deviceByID(args.ID)
+	if d == nil {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no input device %q (hostctl devices)", args.ID)
+	}
+	c, ok := m.opts.Input.(evdev.Calibrator)
+	if !ok || !d.Pointer || d.Kind != evdev.KindGamepad {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s has no pointer to calibrate (only a Wii Remote's camera needs it)", d.Label)
+	}
+	if err := c.Calibrate(args.ID, args.Reset); err != nil {
+		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "%v", err)
+	}
+	return sdk.Result{Data: sdk.MustJSON(m.deviceByID(args.ID))}, nil
+}
+
+// calibration tells the menu how a calibration goes.
+func (m *Module) calibration(ev evdev.InputEvent) {
+	m.mu.Lock()
+	core := m.core
+	m.mu.Unlock()
+	c := ev.Calibrate
+	if core == nil {
+		return
+	}
+	name, colour := m.pointerLabel(ev.Device, ev.Family, ev.Player)
+	data := map[string]any{"device": ev.Device, "state": c.State, "step": c.Step, "name": name, "colour": colour}
+	if c.State == "aim" && c.Step >= 0 && c.Step < len(evdev.Corners) {
+		data["corner"] = evdev.Corners[c.Step]
+	}
+	if c.Reason != "" {
+		data["reason"] = c.Reason
+	}
+	if c.Fit != nil {
+		data["calibration"] = c.Fit
+	}
+	core.Emit(sdk.Event{Type: EventCalibrate, Data: sdk.MustJSON(data), Source: &sdk.Source{Kind: sdk.SourceLocal, Name: "controller"}})
+	if c.State == "done" || c.State == "reset" {
+		core.Emit(sdk.Event{Type: EventDeviceChanged, Data: sdk.MustJSON(m.deviceByID(ev.Device))})
+	}
+}
+
 // hear notes that a device with no input node is here or gone, and says so.
 func (m *Module) hear(ev evdev.InputEvent) {
 	m.mu.Lock()

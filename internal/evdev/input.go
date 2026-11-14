@@ -28,6 +28,14 @@ type Input interface {
 	Watch(ctx context.Context, fn func(InputEvent)) error
 }
 
+// A Calibrator can measure a pointing device: the user points it at the
+// screen's four corners, pressing its button at each (see Calibration).
+type Calibrator interface {
+	// Calibrate starts it for the device with this ID, or with reset clears
+	// what was measured. It fails if hostd does not hear from the device.
+	Calibrate(id string, reset bool) error
+}
+
 // A Grabber can take the game controllers from everyone else and give
 // them back. While hostd's menu is in front, apps that read controllers
 // themselves (Steam does) must not act on its navigation: hostd takes
@@ -63,6 +71,8 @@ type InputEvent struct {
 	// (a Wii Remote on a DolphinBar) is heard from, "gone" when it falls
 	// silent: those are not found by scanning /dev/input.
 	Presence string
+	// Calibrate says how a pointer's calibration goes (see CalibrateEvent).
+	Calibrate *CalibrateEvent
 }
 
 // The d-pad as hat axes, for presence.
@@ -133,8 +143,9 @@ type Evdev struct {
 	Busy func(app string) bool
 
 	mu      sync.Mutex
-	pads    map[string]*pad // open controllers, by path
-	grabbed map[string]bool // taken: by ID, "" for all of them
+	pads    map[string]*pad       // open controllers, by path
+	grabbed map[string]bool       // taken: by ID, "" for all of them
+	remotes map[string]*wiiRemote // the Wii Remotes heard from now, by ID
 	// Players are the controllers' slots (default: one set of its own).
 	Players *Players
 	// Identities are the devices' names, colours and calibrations; the

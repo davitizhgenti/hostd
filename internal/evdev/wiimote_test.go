@@ -551,3 +551,119 @@ func TestAResetRemoteIsSetUpAgain(t *testing.T) {
 		t.Errorf("setup after the reset: %x", got)
 	}
 }
+
+// A calibration: aim at the four corners and press A at each; the remote's
+// buttons are the calibration's alone meanwhile, and the result is kept and
+// used at once.
+func TestCalibratingARemote(t *testing.T) {
+	h := newWiiHarness(t)
+	var saved *Calibration
+	h.remote.saved = func(c *Calibration) { saved = c }
+	h.feed([]byte{wiiInButtons, 0, 0})
+	h.take()
+	// Where the bar is on the camera when the remote points at a corner (its
+	// middle, 200 wide): the screen is 4 bar widths across and 2.5 down, so
+	// the corners are +-400 across and +-250 down from the camera's centre,
+	// mirrored across.
+	at := func(core uint16, cornerX, cornerY int) []byte {
+		cx, cy := 512-cornerX, 384+cornerY
+		return report37(core, [4][2]int{{cx - 100, cy}, {cx + 100, cy}, {1023, 1023}, {1023, 1023}}, nil)
+	}
+	h.remote.StartCalibration()
+	if ev := h.take(); len(ev) != 1 || ev[0].Calibrate == nil || ev[0].Calibrate.State != "aim" || ev[0].Calibrate.Step != 0 {
+		t.Fatalf("started: %+v", ev)
+	}
+	corners := [4][2]int{{-400, -250}, {400, -250}, {-400, 250}, {400, 250}}
+	for i, c := range corners {
+		for j := 0; j < 30; j++ { // aiming settles
+			h.feed(at(0, c[0], c[1]))
+		}
+		h.take()
+		h.feed(at(wiiA|wiiUp, c[0], c[1])) // A (and up: it is not navigation now)
+		ev := h.take()
+		var got *CalibrateEvent
+		for _, e := range ev {
+			if len(e.Nav)+len(e.Buttons) > 0 || (e.Pointer != nil && e.Pointer.Down) {
+				t.Fatalf("corner %d: the buttons act while calibrating: %+v", i, e)
+			}
+			if e.Calibrate != nil {
+				got = e.Calibrate
+			}
+		}
+		if i < 3 && (got == nil || got.State != "aim" || got.Step != i+1) {
+			t.Fatalf("corner %d: %+v", i, got)
+		}
+		if i == 3 && (got == nil || got.State != "done" || got.Fit == nil) {
+			t.Fatalf("last corner: %+v", got)
+		}
+		h.feed(at(0, c[0], c[1])) // let go
+		h.take()
+	}
+	fit := saved
+	if fit == nil || math.Abs(fit.W-4) > 0.1 || math.Abs(fit.H-2.5) > 0.1 || math.Abs(fit.CX) > 0.05 || math.Abs(fit.CY) > 0.05 {
+		t.Fatalf("kept: %+v", fit)
+	}
+	if h.remote.tracker.Cal != *fit {
+		t.Error("the new calibration is not in use")
+	}
+	// Pointing at a corner now is that corner of the screen.
+	var x, y float64
+	for j := 0; j < 60; j++ {
+		x, y, _ = h.remote.tracker.Update([4]irDot{{512 + 400 - 100, 384 + 250, true}, {512 + 400 + 100, 384 + 250, true}}, h.now.Add(time.Duration(j)*10*time.Millisecond))
+	}
+	if x > 0.03 || y < 0.97 {
+		t.Errorf("bottom left corner reads %v, %v", x, y)
+	}
+	// Buttons are buttons again.
+	h.feed(report37(wiiUp, noDots, nil))
+	if ev := h.take(); len(ev) == 0 || len(ev[0].Nav) == 0 {
+		t.Errorf("after: %+v", ev)
+	}
+}
+
+func TestCalibrationCanBeCancelledAndNeedsTheBar(t *testing.T) {
+	h := newWiiHarness(t)
+	h.feed([]byte{wiiInButtons, 0, 0})
+	h.take()
+	h.remote.StartCalibration()
+	h.take()
+	h.feed(report37(wiiA, noDots, nil)) // A with no bar in sight
+	ev := h.take()
+	if len(ev) != 1 || ev[0].Calibrate == nil || ev[0].Calibrate.Step != 0 || ev[0].Calibrate.Reason == "" {
+		t.Fatalf("no bar: %+v", ev)
+	}
+	h.feed(report37(0, noDots, nil))
+	h.take()
+	h.feed(report37(wiiB, noDots, nil))
+	if ev = h.take(); len(ev) != 1 || ev[0].Calibrate == nil || ev[0].Calibrate.State != "cancelled" {
+		t.Fatalf("B gives up: %+v", ev)
+	}
+	// Four points that are no screen fail, and nothing is kept.
+	var saved *Calibration
+	h.remote.saved = func(c *Calibration) { saved = c }
+	h.remote.StartCalibration()
+	h.take()
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 5; j++ {
+			h.feed(report37(0, [4][2]int{{412, 384}, {612, 384}, {1023, 1023}, {1023, 1023}}, nil))
+		}
+		h.feed(report37(wiiA, [4][2]int{{412, 384}, {612, 384}, {1023, 1023}, {1023, 1023}}, nil))
+		h.feed(report37(0, [4][2]int{{412, 384}, {612, 384}, {1023, 1023}, {1023, 1023}}, nil))
+	}
+	var last *CalibrateEvent
+	for _, e := range h.take() {
+		if e.Calibrate != nil {
+			last = e.Calibrate
+		}
+	}
+	if last == nil || last.State != "failed" || saved != nil {
+		t.Fatalf("four equal points: %+v saved %+v", last, saved)
+	}
+	// The remote going away while calibrating cancels it.
+	h.remote.StartCalibration()
+	h.take()
+	h.remote.Gone()
+	if ev = h.take(); len(ev) == 0 || ev[0].Calibrate == nil || ev[0].Calibrate.State != "cancelled" {
+		t.Fatalf("gone: %+v", ev)
+	}
+}

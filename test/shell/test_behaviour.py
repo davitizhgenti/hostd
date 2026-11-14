@@ -604,6 +604,50 @@ class DevicesShown(unittest.TestCase):
         self.assertNotIn("Devices", [r.title for r in s.all_rows[STATUS]])
 
 
+class Calibrating(unittest.TestCase):
+    """A Wii Remote's calibration: the corner to aim at, and how it ended."""
+
+    def setUp(self):
+        self.s = shell()
+        self.s.devices = fixtures.DEVICES
+
+    def event(self, **data):
+        self.s.on_event({"type": "display.calibrate", "data": {"device": WII2, "name": "Mia", "colour": "violet", **data}})
+
+    def test_the_corner_to_aim_at_shows_until_it_is_done(self):
+        s = self.s
+        self.assertEqual(s.property("calibrating"), {})
+        self.event(state="aim", step=2, corner="bottom left")
+        c = s.property("calibrating")
+        self.assertEqual((c["name"], c["step"], c["corner"], c["colour"]), ("Mia", 2, "bottom left", "violet"))
+        self.event(state="aim", step=2, corner="bottom left", reason="the remote does not see the sensor bar")
+        self.assertIn("sensor bar", s.property("calibrating")["reason"])
+        self.event(state="done", calibration={"W": 4})
+        self.assertEqual(s.property("calibrating"), {})
+        self.assertEqual((s.property("message"), s.property("messageError")), ("Mia is calibrated", False))
+
+    def test_cancelled_failed_and_reset(self):
+        s = self.s
+        self.event(state="aim", step=0, corner="top left")
+        self.event(state="cancelled")
+        self.assertEqual(s.property("calibrating"), {})
+        self.event(state="failed", reason="those four points are not a screen")
+        self.assertEqual((s.property("message"), s.property("messageError")), ("those four points are not a screen", True))
+        self.event(state="reset")
+        self.assertEqual(s.property("message"), "Mia's calibration is cleared")
+
+    def test_status_offers_calibrating_a_remote_and_not_a_mouse(self):
+        s = self.s
+        s.api.reads["/v1/devices"] = fixtures.DEVICES
+        s.refresh(STATUS)
+        rows = {r.title: r for r in s.all_rows[STATUS]}
+        self.assertEqual([r.title for r in rows["Mia"].sheet][:2], ["Calibrate", "Reset calibration"])
+        self.assertEqual(rows["Mia"].sheet[0].call.body, {"type": "device.calibrate", "args": {"id": WII2}})
+        self.assertEqual(rows["Mia"].sheet[1].call.body["args"], {"id": WII2, "reset": True})
+        self.assertEqual([r.title for r in rows["Wii Remote 1"].sheet][:1], ["Calibrate"])  # not measured yet: no reset
+        self.assertNotIn("Calibrate", [r.title for r in rows["Mouse"].sheet])
+
+
 class Mouse(unittest.TestCase):
     """The mouse has a pointer: hovering never moves the selection, a click
     opens the row clicked, the wheel moves the selection."""

@@ -20,10 +20,11 @@ import (
 
 // fakeInput lets a test press keys: press() calls the module's callback.
 type fakeInput struct {
-	mu       sync.Mutex
-	fn       func(evdev.InputEvent)
-	grabs    []bool   // Grab calls
-	grabDevs []string // whose
+	mu         sync.Mutex
+	fn         func(evdev.InputEvent)
+	grabs      []bool   // Grab calls
+	grabDevs   []string // whose
+	calibrated []string // Calibrate calls
 }
 
 func (f *fakeInput) Grab(device string, on bool) error {
@@ -31,6 +32,14 @@ func (f *fakeInput) Grab(device string, on bool) error {
 	defer f.mu.Unlock()
 	f.grabs = append(f.grabs, on)
 	f.grabDevs = append(f.grabDevs, device)
+	return nil
+}
+
+// Calibrate records the calibrations asked for (evdev.Calibrator).
+func (f *fakeInput) Calibrate(id string, reset bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calibrated = append(f.calibrated, fmt.Sprintf("%s reset=%v", id, reset))
 	return nil
 }
 

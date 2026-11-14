@@ -450,7 +450,11 @@ def device_rows(devices):
             bits.append(f"player {d['player']}")
         if d.get("calibrated"):
             bits.append("calibrated")
-        sheet = [Row(c.capitalize(), icon="palette", value="now" if c == d.get("colour") else "",
+        remote = d.get("pointer") and d.get("kind") == "gamepad"
+        sheet = [Row("Calibrate", icon="crosshair", call=action("device.calibrate", id=d["id"]))] if remote else []
+        if remote and d.get("calibrated"):
+            sheet.append(Row("Reset calibration", icon="rotate-ccw", call=action("device.calibrate", id=d["id"], reset=True)))
+        sheet += [Row(c.capitalize(), icon="palette", value="now" if c == d.get("colour") else "",
                      call=action("device.colour", id=d["id"], colour=c))
                  for c in ("blue", "orange", "green", "pink", "yellow", "teal", "red", "violet")]
         rows.append(Row(d.get("label") or d.get("name", ""), icon="gamepad-2" if d["kind"] == "gamepad" else "mouse-pointer-2",

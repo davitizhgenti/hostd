@@ -88,6 +88,7 @@ class Shell(QObject):
     pointerIdsChanged = Signal()  # a device's pointer came to exist
     pointerPressed = Signal(str)  # a Wii Remote's button went down: click where it points
     devicesChanged = Signal()
+    calibrationChanged = Signal()
     _posted = Signal(object)
 
     def __init__(self, api, tokens, now=datetime.datetime.now, look_path=None, has_icon=None, menu_path=None,
@@ -141,6 +142,7 @@ class Shell(QObject):
         # shows while it points at the screen.
         self._pointers = {}
         self._last_pointer = MOUSE
+        self._calibrating = {}  # a remote's calibration going on: who, which corner
         self.pointer_timer = QTimer(self, singleShot=True, interval=POINTER_MS, timeout=self.hide_pointer)
         self.events = None
         self._load_menu()
@@ -279,6 +281,9 @@ class Shell(QObject):
                 elif verb == inp.ACTIVATE and self._pointers.get(device or "wii", {}).get("visible"):
                     return  # its A button clicks where it points (pointerPressed), not the highlighted row
                 self.handle(verb)
+            return
+        if kind == "display.calibrate":  # how a Wii Remote's calibration goes
+            self._calibration_event(ev.get("data") or {})
             return
         if kind.startswith(("device.", "controller.")):
             self._load_devices()
@@ -671,6 +676,22 @@ class Shell(QObject):
                 return name or d.get("label", ""), colour or d.get("colour", "")
         return name or ("Mouse" if device == MOUSE else "Wii Remote"), colour or "blue"
 
+    def _calibration_event(self, data):
+        """A remote's calibration: the corner to aim at, or how it ended."""
+        state = data.get("state")
+        name = data.get("name") if isinstance(data.get("name"), str) else "The remote"
+        if state == "aim":
+            step = data.get("step") if isinstance(data.get("step"), int) else 0
+            self._calibrating = {"device": str(data.get("device", "")), "name": name, "colour": str(data.get("colour", "")),
+                                 "step": step, "corner": str(data.get("corner", "")), "reason": str(data.get("reason", ""))}
+        else:
+            self._calibrating = {}
+            text = {"done": f"{name} is calibrated", "reset": f"{name}'s calibration is cleared",
+                    "failed": str(data.get("reason") or "The calibration failed")}.get(state, "")
+            if text:
+                self.say(text, error=state == "failed")
+        self.calibrationChanged.emit()
+
     def _load_devices(self):
         try:
             devices = self.api.get("/v1/devices")
@@ -854,6 +875,7 @@ class Shell(QObject):
 
     pointer = Property("QVariantMap", lambda s: s.last_pointer(), notify=pointerChanged)
     pointers = Property("QVariantList", lambda s: [s._shown(p) for p in s._pointers.values()], notify=pointerChanged)
+    calibrating = Property("QVariantMap", lambda s: dict(s._calibrating), notify=calibrationChanged)
     strip = Property("QVariantList", lambda s: s.strip_list(), notify=pointerChanged)
     pointerIds = Property("QVariantList", lambda s: list(s._pointers), notify=pointerIdsChanged)
     hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=pointerChanged)

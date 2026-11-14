@@ -2111,6 +2111,96 @@
         "x-hostd-scope": "display"
       }
     },
+    "/v1/devices/{id}/calibrate": {
+      "post": {
+        "description": "Measure a Wii Remote's pointer: point it at the screen's four corners, pressing A at each (the menu shows where); it is kept for that remote",
+        "operationId": "device.calibrate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "refuse with precondition_failed if the resource changed since this version",
+            "in": "query",
+            "name": "expect_version",
+            "required": false,
+            "schema": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "reset": {
+                    "description": "clear what was measured instead of measuring",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Result"
+                }
+              }
+            },
+            "description": "applied, or skipped (a higher-priority hold; not an error)"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/Timeout"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Measure a Wii Remote's pointer: point it at the screen's four corners, pressing A at each (the menu shows where); it is kept for that remote",
+        "tags": [
+          "display"
+        ],
+        "x-hostd-action": "device.calibrate",
+        "x-hostd-scope": "display"
+      }
+    },
     "/v1/devices/{id}/colour": {
       "post": {
         "description": "Give an input device a colour: its pointer on the menu and its mark are drawn in it",

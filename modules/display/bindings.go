@@ -124,6 +124,9 @@ func (m *Module) onInput(ev evdev.InputEvent) {
 		return
 	}
 	m.presence.Touch()
+	if ev.Calibrate != nil {
+		m.calibration(ev)
+	}
 	if ev.Device != "" {
 		m.mu.Lock()
 		m.lastBy[ev.Device] = m.opts.Clock.Now()

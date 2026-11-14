@@ -118,7 +118,7 @@ type pointerTracker struct {
 	mx, my     float64 // the bar's middle on the camera, as last followed
 	sep        float64 // and its width
 	x, y       float64
-	rawU, rawV float64
+	rawU, rawV float64 // the bar's place in bar widths, as followed (for the calibration)
 }
 
 const (
@@ -126,9 +126,11 @@ const (
 	minSep      = 12.0                   // closer than this, two dots are one lamp's glare
 )
 
-// Raw is the last bar-width position seen, before calibration, for the
-// calibration to read.
-func (t *pointerTracker) Raw() (u, v float64) { return t.rawU, t.rawV }
+// Raw is where the bar is in bar widths, before calibration and a little
+// smoothed, for the calibration to read; false while the bar is not seen.
+func (t *pointerTracker) Raw(now time.Time) (u, v float64, ok bool) {
+	return t.rawU, t.rawV, t.have && now.Sub(t.seen) < pointerLost
+}
 
 // pick chooses the bar's two lamps from the dots seen: with a pair being
 // followed, the pair nearest it that is about as wide (stray light is
@@ -184,10 +186,15 @@ func (t *pointerTracker) Update(dots [4]irDot, now time.Time) (x, y float64, sho
 		c, s := dx/sep, dy/sep
 		u := (ox*c + oy*s) / sep
 		v := (-ox*s + oy*c) / sep
-		t.rawU, t.rawV = u, v
+		if !t.have || now.Sub(t.seen) >= pointerLost {
+			t.rawU, t.rawV = u, v
+		} else {
+			t.rawU += (u - t.rawU) * 0.3
+			t.rawV += (v - t.rawV) * 0.3
+		}
 		cal := t.Cal.Or()
-		tx := 0.5 - (t.rawU-cal.CX)/cal.W // mirrored: turning right moves the bar left on the camera
-		ty := 0.5 + (t.rawV-cal.CY)/cal.H
+		tx := 0.5 - (u-cal.CX)/cal.W // mirrored: turning right moves the bar left on the camera
+		ty := 0.5 + (v-cal.CY)/cal.H
 		tx, ty = math.Min(1, math.Max(0, tx)), math.Min(1, math.Max(0, ty))
 		if !t.have || now.Sub(t.seen) >= pointerLost {
 			t.fx, t.fy = oneEuro{}, oneEuro{}
@@ -202,4 +209,24 @@ func (t *pointerTracker) Update(dots [4]irDot, now time.Time) (x, y float64, sho
 		t.have = false
 	}
 	return t.x, t.y, shown
+}
+
+// A CalibrateEvent says how a calibration goes: State is "aim" (Step 0..3 is
+// the corner to point at and press A: top left, top right, bottom left,
+// bottom right), "done" (Fit is the result), "failed", "cancelled" or
+// "reset".
+type CalibrateEvent struct {
+	State  string
+	Step   int
+	Fit    *Calibration
+	Reason string
+}
+
+// Corners are the calibration's, in the order they are asked.
+var Corners = [4]string{"top left", "top right", "bottom left", "bottom right"}
+
+// A calibration is the corners found so far.
+type calibration struct {
+	at [4][2]float64
+	n  int
 }

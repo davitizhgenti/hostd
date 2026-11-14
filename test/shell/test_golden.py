@@ -47,6 +47,9 @@ STATES = [
      "Three devices: the strip at the top left, each pointer and underline in its device's color"),
     ("10b-status-devices", "Menu+devices", ["right"] * 3 + ["down", "down"], "Status lists the devices, each with its color"),
     ("10c-device-colours", "Menu+devices", ["right"] * 3 + ["down", "down", "actions"], "A device's options: its colour"),
+    ("03d-calibrate", "Menu+devices", [("wii", "057e:0306-hidraw4", 0.3, 0.4),
+                                       ("calibrate", "057e:0306-hidraw4", "Mia", "violet", 1, "top right")],
+     "Calibrating a Wii Remote: the corner to point at, in the remote's colour"),
     ("14-tabs", "Menu+tabs", ["right"], "The Games tab (tiles): a launcher heads its group"),
     ("14b-tiles-game", "Menu+tabs", ["right", "down"], "A game: its tile, and on the right its banner and details"),
     ("14c-tiles-other", "Menu+tabs", ["right"] + ["down"] * 4, "A game with no banner, in the Steam group"),
@@ -79,6 +82,11 @@ def render(size, surface, steps):
                     s.shell.mouseAt(w * px - 30, h * py, w, h)
                     s.shell.mouseAt(w * px, h * py, w, h)
                     s.shell.hover(row)
+                elif isinstance(step, tuple) and step[0] == "calibrate":
+                    _, device, name, colour, n, corner = step
+                    s.shell.on_event({"type": "display.calibrate", "data": {
+                        "device": device, "name": name, "colour": colour, "state": "aim", "step": n, "corner": corner}})
+                    s.settle()
                 elif isinstance(step, tuple) and step[0] == "wii":
                     _, device, px, py = step  # a Wii Remote's pointer, over what is there
                     s.shell.setMenuActive(True)

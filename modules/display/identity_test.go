@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/evdev"
+	"github.com/davitizhgenti/hostd/internal/evdev/evdevtest"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -103,5 +104,57 @@ func TestEveryPointerReachesTheMenu(t *testing.T) {
 	}
 	if first["device"] != a || second["device"] != b || first["colour"] == second["colour"] || first["name"] != "Wii Remote 1" || second["down"] != true {
 		t.Fatalf("pointers: %v %v", first, second)
+	}
+}
+
+// Calibrating asks the input, and its progress reaches the menu with the
+// corner to aim at, the remote's name and its colour.
+func TestCalibratingARemote(t *testing.T) {
+	r := newDisplayRig(t, true)
+	events := r.e.Subscribe(t.Context(), EventCalibrate)
+	const wii = "057e:0306-hidraw3"
+	r.input.send(t, evdev.InputEvent{Device: wii, Player: 1, Family: "wii", Presence: "here"})
+	do := func(args map[string]any) error {
+		_, err := r.m.Handle(context.Background(), sdk.Action{ID: "act_1", Type: "device.calibrate", Args: sdk.MustJSON(args)})
+		return err
+	}
+	if err := do(map[string]any{"id": wii}); err != nil {
+		t.Fatal(err)
+	}
+	if err := do(map[string]any{"id": wii, "reset": true}); err != nil {
+		t.Fatal(err)
+	}
+	r.input.mu.Lock()
+	asked := append([]string(nil), r.input.calibrated...)
+	r.input.mu.Unlock()
+	if len(asked) != 2 || asked[0] != wii+" reset=false" || asked[1] != wii+" reset=true" {
+		t.Fatalf("asked: %v", asked)
+	}
+	if err := do(map[string]any{"id": "nothing"}); sdk.CodeOf(err) != sdk.CodeNotFound {
+		t.Fatalf("unknown: %v", err)
+	}
+	evdevtest.AddInput(t, r.sys, "event0", "Keyboard A", "046d", "c31c", keyboardKeys)
+	for i := 0; i < 400 && r.m.deviceByID(evdev.DeviceID(evdev.DeviceInfoFor("046d", "c31c"), "/dev/input/event0")) == nil; i++ {
+		r.clock.Advance(300 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := do(map[string]any{"id": evdev.DeviceID(evdev.DeviceInfoFor("046d", "c31c"), "/dev/input/event0")}); sdk.CodeOf(err) != sdk.CodeInvalidArgs {
+		t.Fatalf("a keyboard has no pointer: %v", err)
+	}
+
+	r.input.send(t, evdev.InputEvent{Device: wii, Player: 1, Family: "wii", Calibrate: &evdev.CalibrateEvent{State: "aim", Step: 1}})
+	r.input.send(t, evdev.InputEvent{Device: wii, Player: 1, Family: "wii",
+		Calibrate: &evdev.CalibrateEvent{State: "done", Fit: &evdev.Calibration{W: 4, H: 2.5}}})
+	var got [2]map[string]any
+	for i := range got {
+		select {
+		case ev := <-events:
+			_ = json.Unmarshal(ev.Data, &got[i])
+		case <-time.After(5 * time.Second):
+			t.Fatal("no display.calibrate")
+		}
+	}
+	if got[0]["corner"] != "top right" || got[0]["name"] != "Wii Remote 1" || got[0]["colour"] == "" || got[1]["state"] != "done" || got[1]["calibration"] == nil {
+		t.Fatalf("events: %v", got)
 	}
 }
