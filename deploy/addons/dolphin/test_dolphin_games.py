@@ -42,6 +42,9 @@ def image(ext, game_id, title, wii=True, size=4096):
 class DolphinGames(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fetched = []
+        dg.fetch = lambda url: self.fetched.append(url)  # no network: nothing found
         self.home = self.tmp.name
         self.games = os.path.join(self.home, "Games")
         self.apps = os.path.join(self.home, ".config/hostd/apps")
@@ -131,6 +134,44 @@ class DolphinGames(unittest.TestCase):
         open(png, "wb").close()
         dg.sync(self.home, self.apps)
         self.assertIn(f'banner = "{png}"', open(os.path.join(self.apps, "dolphin-a.toml")).read())
+
+    def test_names_are_the_files_when_the_disc_runs_the_words_together(self):
+        self.assertEqual(dg.file_title("/g/Mario Kart Wii (USA) (En,Fr,Es).wbfs"), "Mario Kart Wii")
+        run_together = ("RMCE01", "MarioKartWii", "Wii")
+        self.assertEqual(dg.title_of("/g/Mario Kart Wii (USA) (En,Fr,Es).wbfs", run_together), "Mario Kart Wii")
+        self.assertEqual(dg.title_of("/g/x.iso", ("GZLE01", "Zelda: Wind Waker", "GameCube")), "Zelda: Wind Waker")
+        self.assertEqual(dg.id_part("Mario Kart Wii (USA) (En,Fr,Es)"), "mario-kart-wii-usa-en-fr-es")
+
+    def test_a_missing_cover_is_fetched_once_kept_where_dolphin_keeps_it_and_becomes_the_banner(self):
+        self.put("A.iso", image(".iso", "RMCE01", "Mario Kart Wii"))
+        png = b"\x89PNG\r\n" + b"x" * 20
+        dg.fetch = lambda url: self.fetched.append(url) or png
+        dg.sync(self.home, self.apps)
+        self.assertEqual(self.fetched, ["https://art.gametdb.com/wii/cover/US/RMCE01.png"])
+        kept = os.path.join(self.home, ".var/app/org.DolphinEmu.dolphin-emu/cache/dolphin-emu/GameCovers/RMCE01.png")
+        self.assertEqual(open(kept, "rb").read(), png)
+        self.assertIn(f'banner = "{kept}"', open(os.path.join(self.apps, "dolphin-a.toml")).read())
+        dg.sync(self.home, self.apps)
+        self.assertEqual(len(self.fetched), 1)  # not again
+
+    def test_a_cover_that_is_not_there_is_not_asked_for_again_for_a_week(self):
+        self.put("A.iso", image(".iso", "RMCP01", "Mario Kart Wii"))
+        dg.sync(self.home, self.apps)
+        self.assertEqual(self.fetched[0], "https://art.gametdb.com/wii/cover/EN/RMCP01.png")  # a PAL game: English first
+        asked = len(self.fetched)
+        self.assertGreaterEqual(asked, 1)
+        dg.sync(self.home, self.apps)
+        self.assertEqual(len(self.fetched), asked)
+        missing = os.path.join(self.home, ".var/app/org.DolphinEmu.dolphin-emu/cache/dolphin-emu/GameCovers/RMCP01.missing")
+        old = os.path.getmtime(missing) - 8 * 24 * 3600
+        os.utime(missing, (old, old))
+        dg.sync(self.home, self.apps)
+        self.assertGreater(len(self.fetched), asked)  # a week on, it looks again
+
+    def test_nothing_is_fetched_when_asked_not_to(self):
+        self.put("A.iso", image(".iso", "RMCE01", "Mario Kart Wii"))
+        dg.sync(self.home, self.apps, covers=False)
+        self.assertEqual(self.fetched, [])
 
     def test_remove_deletes_what_it_made(self):
         self.put("A.iso", image(".iso", "AAAAAA", "A"))

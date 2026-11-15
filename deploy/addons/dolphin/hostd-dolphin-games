@@ -11,6 +11,11 @@ from the disc's header (inside the image, whatever its format), its
 platform and size are the details, and the cover Dolphin downloaded for it
 (Config > General > Download Game Covers), if any, is its banner.
 
+The covers come from GameTDB (art.gametdb.com), as Dolphin's own "Download
+Game Covers" does, and are kept where Dolphin keeps them (so it uses them
+too); one that cannot be fetched is tried again after a week. --no-covers,
+or HOSTD_DOLPHIN_COVERS=0, fetches nothing.
+
 Files it made carry a marker line; it removes those whose game is gone, and
 never touches other files. Run it again any time; --remove deletes
 everything it made.
@@ -20,6 +25,9 @@ import os
 import re
 import struct
 import sys
+import time
+import urllib.error
+import urllib.request
 
 MARKER = "# Made by hostd-dolphin-games from the game files; changes are overwritten."
 DOLPHIN_ID = "org.DolphinEmu.dolphin-emu"
@@ -84,8 +92,9 @@ def header(path):
 
 
 def id_part(s):
-    """A name as hostd makes it into an ID (catalog.sanitizeID)."""
-    out = re.sub(r"[^a-z0-9._-]", "-", s.lower()).lstrip(".-_")
+    """A file name as an app ID: lower case, runs of other characters one
+    "-" ("Mario Kart Wii (USA)" is "mario-kart-wii-usa")."""
+    out = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
     return out or "game"
 
 
@@ -118,10 +127,67 @@ def cover(home, game_id):
     return ""
 
 
+# Where GameTDB keeps a cover, by the region letter in the game ID's fourth
+# place (Dolphin asks for the same).
+REGIONS = {"E": ["US", "EN"], "J": ["JA"], "K": ["KO"], "W": ["ZH", "EN"]}
+RETRY_AFTER = 7 * 24 * 3600
+COVER_URL = "https://art.gametdb.com/wii/cover/{region}/{game_id}.png"
+
+
+def fetch(url):
+    """The bytes at url, None when there are none (or no network)."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "hostd-dolphin-games"})
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return res.read(5_000_000)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def download_cover(home, game_id):
+    """Fetches the game's cover into Dolphin's cover folder; its path, or ""."""
+    if not re.fullmatch(r"[A-Z0-9]{4,6}", game_id):
+        return ""
+    folder = os.path.join(data_dir(home), "cache", "dolphin-emu", "GameCovers")
+    target, missing = os.path.join(folder, game_id + ".png"), os.path.join(folder, game_id + ".missing")
+    try:
+        if time.time() - os.path.getmtime(missing) < RETRY_AFTER:
+            return ""  # not there when last looked
+    except OSError:
+        pass
+    for region in REGIONS.get(game_id[3], ["EN", "US"]):
+        data = fetch(COVER_URL.format(region=region, game_id=game_id))
+        if data and data.startswith(b"\x89PNG"):
+            os.makedirs(folder, exist_ok=True)
+            with open(target + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(target + ".tmp", target)
+            return target
+    os.makedirs(folder, exist_ok=True)
+    with open(missing, "w"):
+        pass
+    return ""
+
+
+def file_title(path):
+    """The file's name without its tags: "Mario Kart Wii (USA) (En,Fr,Es).wbfs"
+    is "Mario Kart Wii"."""
+    name = os.path.splitext(os.path.basename(path))[0]
+    name = re.sub(r"\s*[(\[][^)\]]*[)\]]", "", name)
+    return re.sub(r"[_.]+", " ", name).strip() or "Game"
+
+
+def squash(s):
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
 def title_of(path, info):
+    """The disc's title; but where the file is named the same with spaces
+    ("MarioKartWii" on the disc), the file's, which reads better."""
+    named = file_title(path)
     if info and info[1]:
-        return info[1]
-    return re.sub(r"[_.]+", " ", os.path.splitext(os.path.basename(path))[0]).strip() or "Game"
+        return named if squash(named) == squash(info[1]) else info[1]
+    return named
 
 
 def details(path, info):
@@ -166,7 +232,7 @@ def ours(path):
         return False
 
 
-def sync(home, apps_dir, remove_all=False):
+def sync(home, apps_dir, remove_all=False, covers=True):
     """Writes the game apps and removes stale ones. Returns (written, removed)."""
     os.makedirs(apps_dir, exist_ok=True)
     wanted = {} if remove_all else find_games(dolphin_folders(home))
@@ -176,7 +242,8 @@ def sync(home, apps_dir, remove_all=False):
         if os.path.exists(target) and not ours(target):
             continue  # the person's own file for this game wins
         info = header(path)
-        body = app_file(path, info, cover(home, info[0]) if info else "")
+        art = (cover(home, info[0]) or (download_cover(home, info[0]) if covers else "")) if info else ""
+        body = app_file(path, info, art)
         try:
             with open(target, encoding="utf-8") as f:
                 if f.read() == body:
@@ -201,7 +268,8 @@ def main(argv):
     config = os.environ.get("XDG_CONFIG_HOME", os.path.join(home, ".config"))
     if "--remove" not in argv:
         os.makedirs(os.path.join(home, "Games"), exist_ok=True)  # where games go
-    written, removed = sync(home, os.path.join(config, "hostd", "apps"), remove_all="--remove" in argv)
+    covers = "--no-covers" not in argv and os.environ.get("HOSTD_DOLPHIN_COVERS") != "0"
+    written, removed = sync(home, os.path.join(config, "hostd", "apps"), remove_all="--remove" in argv, covers=covers)
     print(f"hostd-dolphin-games: {written} written, {removed} removed")
     return 0
 
