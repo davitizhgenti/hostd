@@ -60,6 +60,7 @@ def action(kind, **args):
 
 # Row kinds: how a row is drawn and what left/right do on it.
 HEADER, ITEM, SLIDER, TOGGLE, FOLDER = "header", "item", "slider", "toggle", "folder"
+FACT = "fact"  # a line of a service's page: its value shows on every row, not only the current
 LAUNCHER = "launcher"  # a tiles tab's group heading that is an app: choosing it opens it
 
 
@@ -323,9 +324,35 @@ def service_row(app, running, last):
     else:
         state = "failed" if last and last.get("state") == "failed" else "stopped"
         sheet = [Row("Start", call=open_call(app["id"]), icon="play")]
+    # A service that says what it is doing opens its page when chosen (its
+    # Stop, Restart and Start stay in its options).
+    says = (app.get("status") or {}).get("url")
+    page = local("page", {"app": app["id"], "title": app.get("name") or app["id"]}) if says else None
     return Row(app.get("name") or app["id"], app=app["id"], badge=state, tone=TONES.get(state, ""),
-               icon="server", app_icon=app.get("icon") or "", sheet=sheet,
+               icon="server", app_icon=app.get("icon") or "", sheet=sheet, call=page,
                tile=app.get("tile") or "", banner=app.get("banner") or "", details=app.get("details") or "")
+
+
+def page_rows(answer):
+    """The rows of a service's page, from hostd's answer to a status read
+    ({ok, document: {title, updated, sections}} or {ok: false, error}):
+    each section a heading, each row a line as in any list. And the line
+    for the top of the screen."""
+    answer = answer if isinstance(answer, dict) else {}
+    doc = answer.get("document") if answer.get("ok") else None
+    if not isinstance(doc, dict):
+        why = answer.get("error") or "no answer"
+        return [Row("Not answering", icon="info", tone="warning", subtitle=str(why))], ""
+    rows = []
+    for sec in doc.get("sections") or []:
+        if sec.get("title"):
+            rows.append(Row(sec["title"], HEADER))
+        for r in sec.get("rows") or []:
+            rows.append(Row(r.get("title", ""), FACT, subtitle=r.get("subtitle", ""), value=r.get("value", ""),
+                            badge=r.get("badge", ""), tone=r.get("tone", ""), icon="activity"))
+    if not rows:
+        rows = [Row("Nothing to report", icon="info")]
+    return rows, doc.get("title", "") or ""
 
 
 def switch_call(instance):

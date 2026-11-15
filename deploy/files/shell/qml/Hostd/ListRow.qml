@@ -171,7 +171,7 @@ Item {
 
         Txt {
             anchors.verticalCenter: parent.verticalCenter
-            visible: row.value !== "" && (row.big || row.compact)
+            visible: row.value !== "" && (row.big || row.compact || row.kind === "fact")
             muted: true
             text: row.value
         }

@@ -34,6 +34,7 @@ SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
 POINTER_MS = 3000  # a mouse's pointer fades after this long without moving
 MOUSE_MS = 8  # a mouse's moves are applied at most this often (a gaming mouse sends a thousand a second)
 MOUSE = "mouse"  # the mouse's pointer; each Wii Remote's is its device's ID
+PAGE_MS = 3000  # a service's page asks again this often while it is open
 BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 
 
@@ -110,6 +111,8 @@ class Shell(QObject):
         self.menu_time = None
         self.tabs, self.cats = [], views.categories()
         self.pages, self.all_rows, self.summaries, self.currents, self.paths = {}, {}, {}, {}, {}
+        self.svc_page = {}  # a service's page open in a category: {key: {"app", "title"}}
+        self.page_timer = QTimer(self, interval=PAGE_MS, timeout=self._refresh_page)
         self._sync_categories()
         self.options_model = RowsModel(self)
         self.notices_model = NoticesModel(self)
@@ -190,6 +193,7 @@ class Shell(QObject):
         for k in [k for k in self.pages if k not in keys]:
             for d in (self.pages, self.all_rows, self.summaries, self.currents, self.paths):
                 del d[k]
+            self.svc_page.pop(k, None)
 
     def _load_menu(self):
         """Reads the menu file if it changed: whether the tabs did."""
@@ -238,8 +242,11 @@ class Shell(QObject):
         if c not in self.pages:
             return
         try:
-            rows, summary = fetch(self.api, self.cat(c), self.look, self.tokens, self.paths[c],
-                                  [t.folder for t in self.tabs])
+            if self.svc_page.get(c):
+                rows, summary = views.page_rows(self.api.get(f"/v1/catalog/{self.svc_page[c]['app']}/status"))
+            else:
+                rows, summary = fetch(self.api, self.cat(c), self.look, self.tokens, self.paths[c],
+                                      [t.folder for t in self.tabs])
         except Exception as e:  # noqa: BLE001 - shown on the screen
             self.say(f"Cannot reach hostd: {e}", error=True)
             return
@@ -324,7 +331,7 @@ class Shell(QObject):
     def section(self):
         """In an app tab, the folder open below the tab's own; elsewhere the
         title of the header the current item is under; ""."""
-        if self.apps_tab():
+        if self.apps_tab() and not self.in_page():
             path = self.paths[self._category]
             return "" if self._filter or len(path) <= len(self.cat().root) else " / ".join(path)
         model, i = self.page(), self.currents[self._category]
@@ -357,6 +364,8 @@ class Shell(QObject):
         if self._filter:
             self._filter = ""
             self._show_rows(old, keep=False)
+        if self.svc_page.get(old):
+            self._close_page(old, came_from=False)  # leaving a tab closes its service page
         if self.paths[old] != self.cat(old).root:
             self.paths[old] = self.cat(old).root  # leaving a tab closes its folders
             self.refresh(old, keep=False)
@@ -371,6 +380,8 @@ class Shell(QObject):
         if self._filter:
             self._filter = ""
             self._show_rows(self._category, keep=False)
+        for k in list(self.svc_page):
+            self._close_page(k, came_from=False)
         for c in self.cats:
             if self.paths[c.key] != c.root:
                 self.paths[c.key] = c.root
@@ -430,6 +441,8 @@ class Shell(QObject):
         """A change on this screen alone: the background, or a folder."""
         if call.path == "folder":
             self._open_folder(tuple(call.body or ()))
+        elif call.path == "page":
+            self._open_page(call.body or {})
         elif call.path == "background":
             try:
                 background.save(call.body, self.look_path)
@@ -446,6 +459,38 @@ class Shell(QObject):
             self.backgroundChanged.emit()
             self.refresh(SETTINGS)
         self.reload_menu()
+
+    def _open_page(self, page):
+        """Opens a service's page in place of the list, asking again every few
+        seconds while it is open."""
+        c = self._category
+        self.svc_page[c] = {"app": str(page.get("app", "")), "title": str(page.get("title", ""))}
+        self.refresh(c, keep=False)
+        self.currents[c] = self.pages[c].first()
+        self.page_timer.start()
+        self.changed.emit()
+
+    def _close_page(self, c, came_from=True):
+        """Back to the list the page was opened from, on the service."""
+        page = self.svc_page.pop(c, None)
+        if not any(self.svc_page.values()):
+            self.page_timer.stop()
+        if page is None:
+            return
+        self.refresh(c, keep=False)
+        model = self.pages[c]
+        i = next((j for j, r in enumerate(model.rows) if r.app == page["app"]), -1) if came_from else -1
+        self.currents[c] = i if i >= 0 else model.first()
+        self.changed.emit()
+
+    def in_page(self):
+        """Whether a service's page is open."""
+        return bool(self.svc_page.get(self._category))
+
+    def _refresh_page(self):
+        c = self._category
+        if self.svc_page.get(c) and not (self._panel or self._question) and self._menu_visible:
+            self.refresh(c)
 
     def _open_folder(self, path):
         """Opens a folder in the app tab (its root the top), with its first
@@ -470,7 +515,9 @@ class Shell(QObject):
         return self.apps_tab() and len(self.paths[self._category]) > len(self.cat().root)
 
     def back(self):
-        if self.apps_tab() and self._filter:
+        if self.in_page():
+            self._close_page(self._category)
+        elif self.apps_tab() and self._filter:
             self.set_filter("")
         elif self.in_folder():
             self._open_folder(self.paths[self._category][:-1])
@@ -858,7 +905,7 @@ class Shell(QObject):
                 pairs.append((inp.ACTIVATE, "options"))
             if row is not None and row.instance:
                 pairs.append((inp.CLOSE, "close"))
-            if self._filter or self.in_folder():
+            if self._filter or self.in_folder() or self.in_page():
                 pairs.append((inp.BACK, "back"))
         return [{"button": b, "what": w} for b, w in inp.hint_pairs(pairs, self._device, self._family)]
 
@@ -919,7 +966,7 @@ class Shell(QObject):
     hovers = Property("QVariantList", lambda s: s.hovers_list(), notify=hoversChanged)
     deviceList = Property("QVariantList", lambda s: list(s.devices), notify=devicesChanged)
     category = Property(int, lambda s: s.index(), notify=changed)
-    view = Property(str, lambda s: s.cat().view, notify=changed)
+    view = Property(str, lambda s: "list" if s.in_page() else s.cat().view, notify=changed)
     focus = Property("QVariantMap", lambda s: s.focus_info(), notify=changed)
     section = Property(str, section, notify=changed)
     headersBefore = Property(int, lambda s: s.offset()[0], notify=changed)

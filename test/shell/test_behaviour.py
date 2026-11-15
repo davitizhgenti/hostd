@@ -33,6 +33,95 @@ def titles(s):
     return [r.title for r in s.page().rows]
 
 
+def with_status_service():
+    """A shell with tabs where Home Assistant says what it is doing, on its tab."""
+    s = shell(fixtures.MENU)
+    for a in s.api.reads["/v1/apps"]:
+        if a["spec"]["id"] == "homeassistant":
+            a["spec"]["status"] = {"url": "http://127.0.0.1:8481/status"}
+    s.api.reads["/v1/catalog/homeassistant/status"] = fixtures.STATUS
+    s.refresh("tab:Services")
+    s.handle("right")
+    s.handle("right")  # the Services tab
+    while s.current_row().title != "Home Assistant":
+        s.handle("down")
+    return s
+
+
+class ServicePage(unittest.TestCase):
+    """A service that says what it is doing opens a page of it when chosen."""
+
+    def test_choosing_it_opens_the_page_and_back_returns_to_the_list(self):
+        s = with_status_service()
+        self.assertEqual(s.state()["category"], "tab:Services")
+        s.handle("activate")
+        self.assertTrue(s.in_page())
+        self.assertEqual(titles(s), ["Running now", "Fetching eurodesk", "Processing", "Next runs", "Process", "SIROP search",
+                                     "Train", "Counts", "Items stored", "New today", "Sources with errors"])
+        self.assertEqual(s.property("summary"), "Opportunities")
+        self.assertEqual(s.property("view"), "list")
+        self.assertEqual({r.kind for r in s.page().rows}, {"header", "fact"})  # a fact shows its value on every row
+        fetching = s.page().rows[1]
+        self.assertEqual((fetching.subtitle, fetching.badge, fetching.tone), ("started 2 min ago", "running", "positive"))
+        self.assertEqual(s.page().rows[5].tone, "danger")  # the failed source
+        self.assertIn(("Esc", "back"), [(h["button"], h["what"]) for h in s.property("hints")])
+        s.handle("back")
+        self.assertFalse(s.in_page())
+        self.assertEqual((s.current_row().title, s.state()["category"]), ("Home Assistant", "tab:Services"))
+        self.assertIn("Syncthing", titles(s))
+
+    def test_its_options_are_still_there(self):
+        s = with_status_service()
+        s.handle("actions")
+        self.assertEqual(s.state()["panel"], "options")
+        self.assertEqual([r.title for r in s.options_model.rows], ["Stop", "Restart"])
+
+    def test_the_page_asks_again_while_it_is_open(self):
+        s = with_status_service()
+        s.handle("activate")
+        self.assertTrue(s.page_timer.isActive())
+        s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": True, "document": {"title": "Opportunities", "sections": [
+            {"title": "Running now", "rows": [{"title": "Idle"}]}]}}
+        s._menu_visible = True
+        s._refresh_page()
+        self.assertEqual(titles(s), ["Running now", "Idle"])
+        s.handle("back")
+        self.assertFalse(s.page_timer.isActive())
+
+    def test_a_service_that_does_not_answer_is_said_so(self):
+        s = with_status_service()
+        s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": False, "error": "does not answer"}
+        s.handle("activate")
+        row = s.page().rows[0]
+        self.assertEqual((row.title, row.subtitle, row.tone), ("Not answering", "does not answer", "warning"))
+        s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": True, "document": {"sections": []}}
+        s._menu_visible = True
+        s._refresh_page()
+        self.assertEqual(titles(s), ["Nothing to report"])
+
+    def test_leaving_the_tab_or_going_home_closes_it(self):
+        s = with_status_service()
+        s.handle("activate")
+        s.handle("right")
+        self.assertFalse(s.in_page())
+        s.handle("left")
+        self.assertEqual((s.state()["category"], s.in_page(), "Syncthing" in titles(s)), ("tab:Services", False, True))
+        while s.current_row().title != "Home Assistant":
+            s.handle("down")
+        s.handle("activate")
+        self.assertTrue(s.in_page())
+        s.handle("home")
+        self.assertFalse(s.in_page())
+        self.assertEqual(s.state()["category"], APPS)
+
+    def test_a_service_with_no_status_opens_its_options_as_before(self):
+        s = with_status_service()
+        s.handle("down")  # Syncthing: says nothing
+        self.assertEqual(s.current_row().title, "Syncthing")
+        s.handle("activate")
+        self.assertEqual((s.in_page(), s.state()["panel"]), (False, "options"))
+
+
 class Moving(unittest.TestCase):
     def test_starts_on_the_first_item(self):
         s = shell()

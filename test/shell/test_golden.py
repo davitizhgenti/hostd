@@ -50,6 +50,8 @@ STATES = [
     ("03d-calibrate", "Menu+devices", [("wii", "057e:0306-hidraw4", 0.3, 0.4),
                                        ("calibrate", "057e:0306-hidraw4", "Mia", "violet", 1, "top right")],
      "Calibrating a Wii Remote: the corner to point at, in the remote's colour"),
+    ("17-service-page", "Menu+page", ["right", "right", "activate"],
+     "A service that says what it is doing: its page, in the menu's own list"),
     ("14-tabs", "Menu+tabs", ["right"], "The Games tab (tiles): a launcher heads its group"),
     ("14b-tiles-game", "Menu+tabs", ["right", "down"], "A game: its tile, and on the right its banner and details"),
     ("14c-tiles-other", "Menu+tabs", ["right"] + ["down"] * 4, "A game with no banner, in the Steam group"),
@@ -61,10 +63,16 @@ STATES = [
 def render(size, surface, steps):
     surface, _, extra = surface.partition("+")
     reads = None
+    if extra == "page":
+        reads = copy.deepcopy(fixtures.READS)
+        for a in reads["/v1/apps"]:
+            if a["spec"]["id"] == "homeassistant":
+                a["spec"]["status"] = {"url": "http://127.0.0.1:8481/status"}
+        reads["/v1/catalog/homeassistant/status"] = fixtures.STATUS
     if extra == "devices":
         reads = copy.deepcopy(fixtures.READS)
         reads["/v1/devices"] = fixtures.DEVICES
-    with Screen(size, surface, reads=reads, tabs=extra == "tabs") as s:
+    with Screen(size, surface, reads=reads, tabs=extra in ("tabs", "page")) as s:
         if extra == "devices":
             s.shell._load_devices()
             s.shell.refresh("status")

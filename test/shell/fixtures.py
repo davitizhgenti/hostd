@@ -57,6 +57,20 @@ DEVICES = [
      "product": "c31c", "label": "Keyboard", "colour": "green"},
 ]
 
+# What a service that says what it is doing answers (hostd's read of its status).
+STATUS = {"ok": True, "document": {"title": "Opportunities", "updated": "2026-02-14T13:30:00Z", "sections": [
+    {"title": "Running now", "rows": [
+        {"title": "Fetching eurodesk", "subtitle": "started 2 min ago", "badge": "running", "tone": "positive"},
+        {"title": "Processing", "subtitle": "started 40 s ago", "badge": "running", "tone": "positive"}]},
+    {"title": "Next runs", "rows": [
+        {"title": "Process", "subtitle": "last 13:15, 12 new", "value": "in 11 min"},
+        {"title": "SIROP search", "subtitle": "failed: the solver did not answer", "badge": "failed", "tone": "danger",
+         "value": "in 4 min"},
+        {"title": "Train", "subtitle": "last Sunday 03:00", "value": "Sunday"}]},
+    {"title": "Counts", "rows": [
+        {"title": "Items stored", "value": "4 812"}, {"title": "New today", "value": "37"},
+        {"title": "Sources with errors", "value": "1", "tone": "warning"}]}]}}
+
 SEATS = [{"user": "serve", "vt": 7, "holds": True}, {"user": "guest", "vt": 8, "holds": False}]
 AUDIO = {"available": True, "percent": 70, "muted": False, "outputs": [
     {"name": "hdmi", "description": "GP107GL HDMI", "default": True},
