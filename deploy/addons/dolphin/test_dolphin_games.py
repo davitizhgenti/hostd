@@ -114,6 +114,17 @@ class DolphinGames(unittest.TestCase):
         self.assertEqual(dg.sync(self.home, self.apps), (2, 0))
         self.assertEqual(sorted(os.listdir(self.apps)), ["dolphin-game-2.toml", "dolphin-game.toml"])
 
+    def test_one_folder_seen_under_two_names_is_not_two_games(self):
+        self.put("Wii/Mario Kart Wii.rvz", image(".rvz", "RMCE01", "Mario Kart Wii"))
+        view = os.path.join(self.home, "portal-view")  # the same folder, as Dolphin's sandbox names it
+        os.symlink(self.games, view)
+        ini = os.path.join(self.home, ".var/app/org.DolphinEmu.dolphin-emu/config/dolphin-emu/Dolphin.ini")
+        os.makedirs(os.path.dirname(ini))
+        with open(ini, "w") as f:
+            f.write(f"ISOPaths = 2\nISOPath0 = {os.path.join(self.games, 'Wii')}\nISOPath1 = {view}\n")
+        self.assertEqual(dg.sync(self.home, self.apps), (1, 0))
+        self.assertEqual(os.listdir(self.apps), ["dolphin-mario-kart-wii.toml"])
+
     def test_the_folders_dolphin_looks_in_are_searched_too(self):
         other = os.path.join(self.home, "drive")
         os.makedirs(other)

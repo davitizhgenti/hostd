@@ -99,13 +99,24 @@ def id_part(s):
 
 
 def find_games(folders):
-    """{app ID: path}, one for each disc image, in sorted order."""
-    found = {}
+    """{app ID: path}, one for each disc image, in sorted order. A file seen
+    twice (Dolphin's Flatpak names ~/Games as /run/user/1000/doc/ID/Games, a
+    view of the same folder; or two folders that overlap) is one game, the
+    first path found: the folders come in the order of preference."""
+    found, seen = {}, set()
     for folder in folders:
         for root, dirs, files in os.walk(folder):
             dirs[:] = sorted(d for d in dirs if not d.startswith("."))
             for name in sorted(files):
                 if os.path.splitext(name)[1].lower() in EXTENSIONS and not name.startswith("."):
+                    try:  # the same file: the same name, size and first bytes
+                        with open(os.path.join(root, name), "rb") as f:
+                            key = (name, os.fstat(f.fileno()).st_size, f.read(0x400))
+                    except OSError:
+                        continue
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     ident = "dolphin-" + id_part(os.path.splitext(name)[0])
                     n = 2
                     while ident in found and found[ident] != os.path.join(root, name):
