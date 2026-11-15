@@ -31,6 +31,7 @@ type AppFile struct {
 	Requires  []string          `toml:"requires"`
 	Hidden    *bool             `toml:"hidden"`
 	Under     *string           `toml:"under"`
+	Launcher  *bool             `toml:"launcher"`
 	Folder    *string           `toml:"folder"`
 	Tile      *string           `toml:"tile"`
 	Banner    *string           `toml:"banner"`
@@ -83,6 +84,9 @@ func (f AppFile) applyTo(a *spec.App) {
 	}
 	if f.Under != nil {
 		a.Under = *f.Under
+	}
+	if f.Launcher != nil {
+		a.Launcher = *f.Launcher
 	}
 	if f.Tile != nil {
 		a.Tile = *f.Tile

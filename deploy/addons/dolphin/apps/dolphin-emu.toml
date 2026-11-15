@@ -14,3 +14,4 @@
 extends = "dolphin-emu"
 name = "Dolphin"
 folder = "Games/Dolphin"
+launcher = true # heads its own group in a tiles tab, with its games under it

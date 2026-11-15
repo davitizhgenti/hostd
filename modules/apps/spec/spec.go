@@ -58,6 +58,9 @@ type App struct {
 	// Under is the app this one is listed under rather than on its own: a
 	// Steam game under Steam. Menus show it with that app's actions.
 	Under string `json:"under,omitempty"`
+	// Launcher: the app starts other apps (Steam, Dolphin): a tiles tab
+	// heads a group with it even while no app is listed under it.
+	Launcher bool `json:"launcher,omitempty"`
 	// Folder is where menus list the app: a "/"-separated path such as
 	// "Games/Dolphin/Wii". Empty: at the top.
 	Folder string `json:"folder,omitempty"`

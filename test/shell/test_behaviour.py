@@ -334,6 +334,18 @@ class Tabs(unittest.TestCase):
         s.handle("back")  # at the tab's top: back to Apps, as from any category
         self.assertEqual(s.state()["category"], APPS)
 
+    def test_a_launcher_with_no_games_yet_still_heads_its_group(self):
+        s = shell(fixtures.MENU)
+        s.api.reads["/v1/apps"].append({"spec": {"id": "ppsspp", "name": "PPSSPP", "surface": "window",
+                                                 "folder": "Games/PPSSPP", "launcher": True}})
+        s.api.reads["/v1/apps"].append({"spec": {"id": "plain", "name": "Plain Game", "surface": "window", "folder": "Games"}})
+        s.refresh("tab:Games")
+        s.handle("right")
+        rows = s.page().rows
+        self.assertEqual([(r.title, r.kind, r.value) for r in rows if r.title in ("PPSSPP", "Plain Game")],
+                         [("PPSSPP", "launcher", "0 games"), ("Plain Game", "item", "")])
+        self.assertLess(titles(s).index("PPSSPP"), titles(s).index("Other games"))  # a group, not among the others
+
     def test_moving_through_groups_and_opening_a_launcher(self):
         s = shell(fixtures.MENU)
         s.handle("right")

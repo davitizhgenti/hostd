@@ -5,6 +5,7 @@
 extends = "steam"
 name = "Steam"
 folder = "Games/Steam"
+launcher = true # heads its own group in a tiles tab, with its games under it
 # Flatpak runs Steam outside hostd's unit; the handoff follows Steam's own
 # processes, so closing Steam in hostd ends Steam, and starting it while
 # it runs brings it forward. Closing Big Picture's window leaves Steam

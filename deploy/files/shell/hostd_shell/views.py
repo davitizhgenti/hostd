@@ -251,6 +251,8 @@ def tiles_rows(members, by_id, live, ended, children, root):
         lid = launcher_of(a, by_id)
         if lid:
             groups.setdefault(lid, []).append(a)
+        if a.get("launcher"):  # heads a group of its own, with games or without
+            groups.setdefault(a["id"], [])
     launchers = set(groups)
     loose = [a for a in members if not launcher_of(a, by_id) and a["id"] not in launchers]
     noun = root[-1].lower().rstrip("s") if root else "app"  # Games: "3 games"

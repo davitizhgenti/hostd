@@ -362,6 +362,18 @@ func TestUnder(t *testing.T) {
 	}
 }
 
+func TestLauncher(t *testing.T) {
+	c := Build(nil, []AppFile{
+		mustParse(t, "/x/dolphin.toml", "name = \"Dolphin\"\nlauncher = true\nrunner = { type = \"exec\", command = [\"x\"] }"),
+		mustParse(t, "/x/other.toml", "name = \"Other\"\nrunner = { type = \"exec\", command = [\"x\"] }"),
+	}, nil)
+	l, _ := c.Get("dolphin")
+	o, _ := c.Get("other")
+	if !l.Launcher || o.Launcher {
+		t.Fatalf("launcher: dolphin %v, other %v", l.Launcher, o.Launcher)
+	}
+}
+
 func TestFlatpakEntries(t *testing.T) {
 	dir := t.TempDir()
 	apps := filepath.Join(dir, "applications")
