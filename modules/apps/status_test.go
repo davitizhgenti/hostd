@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,9 +65,16 @@ func mustAppFile(t *testing.T, path, text string) catalog.AppFile {
 // A service's page is what it says, kept to the shape and sizes menus show;
 // when it cannot be had, that is an answer too.
 func TestReadingAServicesStatus(t *testing.T) {
-	var serve http.HandlerFunc
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serve(w, r) }))
+	var mu sync.Mutex
+	var current http.HandlerFunc
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		h := current
+		mu.Unlock()
+		h(w, r)
+	}))
 	defer srv.Close()
+	serve := func(h http.HandlerFunc) { mu.Lock(); current = h; mu.Unlock() }
 	appsDir := t.TempDir()
 	write := func(name, url string) {
 		text := "name = \"" + name + "\"\nsurface = \"background\"\nrunner = { type = \"exec\", command = [\"x\"] }\n"
@@ -84,9 +93,10 @@ func TestReadingAServicesStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Stop(ctx)
+	forget := func() { m.status.mu.Lock(); m.status.seen = nil; m.status.mu.Unlock() }
 	read := func() StatusAnswer {
 		t.Helper()
-		m.status = statusCache{} // not the moment before's answer
+		forget() // not the moment before's answer
 		v, err := m.Read(ctx, "status", map[string]string{"id": "svc"})
 		if err != nil {
 			t.Fatal(err)
@@ -94,11 +104,11 @@ func TestReadingAServicesStatus(t *testing.T) {
 		return v.(StatusAnswer)
 	}
 
-	serve = func(w http.ResponseWriter, _ *http.Request) {
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"title":"Svc","updated":"now","extra":1,"sections":[
 			{"title":"Running now","rows":[{"title":"Fetching\n   eurodesk","badge":"running","tone":"POSITIVE","secret":"x"},
 			{"title":"b","tone":"purple","value":"` + strings.Repeat("v", 500) + `"}]}]}`))
-	}
+	}))
 	a := read()
 	if !a.OK || a.Document == nil || a.Document.Title != "Svc" || len(a.Document.Sections) != 1 {
 		t.Fatalf("answer %+v", a)
@@ -108,32 +118,32 @@ func TestReadingAServicesStatus(t *testing.T) {
 		t.Fatalf("rows %+v", rows)
 	}
 
-	serve = func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`not json`)) }
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`not json`)) }))
 	if a := read(); a.OK || !strings.Contains(a.Error, "not the status document") {
 		t.Fatalf("bad json: %+v", a)
 	}
-	serve = func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"title":"no sections"}`)) }
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"title":"no sections"}`)) }))
 	if a := read(); a.OK || !strings.Contains(a.Error, "no sections") {
 		t.Fatalf("no sections: %+v", a)
 	}
-	serve = func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) }
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusInternalServerError) }))
 	if a := read(); a.OK || !strings.Contains(a.Error, "500") {
 		t.Fatalf("500: %+v", a)
 	}
-	serve = func(w http.ResponseWriter, r *http.Request) {
+	serve(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://example.com/", http.StatusFound)
-	}
+	}))
 	if a := read(); a.OK {
 		t.Fatalf("a redirect is followed: %+v", a)
 	}
-	serve = func(w http.ResponseWriter, _ *http.Request) {
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"sections":[{"rows":[{"title":"` + strings.Repeat("x", statusMaxBytes) + `"}]}]}`))
-	}
+	}))
 	if a := read(); a.OK || !strings.Contains(a.Error, "too large") {
 		t.Fatalf("too large: %+v", a)
 	}
 	// Bounded: more sections and rows than menus show are cut.
-	serve = func(w http.ResponseWriter, _ *http.Request) {
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		var b strings.Builder
 		b.WriteString(`{"sections":[`)
 		for i := 0; i < 30; i++ {
@@ -151,30 +161,30 @@ func TestReadingAServicesStatus(t *testing.T) {
 		}
 		b.WriteString(`]}`)
 		_, _ = w.Write([]byte(b.String()))
-	}
+	}))
 	if a := read(); !a.OK || len(a.Document.Sections) != statusSections || len(a.Document.Sections[0].Rows) != statusRows {
 		t.Fatalf("not bounded: %+v", a)
 	}
 	// A service that is slow is not waited for.
-	serve = func(w http.ResponseWriter, _ *http.Request) {
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(statusTimeout + time.Second)
 		_, _ = w.Write([]byte(`{}`))
-	}
+	}))
 	start := time.Now()
 	if a := read(); a.OK || time.Since(start) > statusTimeout+time.Second {
 		t.Fatalf("slow: %+v after %v", a, time.Since(start))
 	}
 	// Asked again at once, the answer is the same one (one fetch).
-	hits := 0
-	serve = func(w http.ResponseWriter, _ *http.Request) { hits++; _, _ = w.Write([]byte(`{"sections":[]}`)) }
-	m.status = statusCache{}
+	var hits atomic.Int32
+	serve(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); _, _ = w.Write([]byte(`{"sections":[]}`)) }))
+	forget()
 	for range 3 {
 		if _, err := m.Read(ctx, "status", map[string]string{"id": "svc"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if hits != 1 {
-		t.Fatalf("%d fetches for three reads", hits)
+	if hits.Load() != 1 {
+		t.Fatalf("%d fetches for three reads", hits.Load())
 	}
 	// An app with no status, and none at all.
 	if _, err := m.Read(ctx, "status", map[string]string{"id": "plain"}); sdk.CodeOf(err) != sdk.CodeNotFound {
