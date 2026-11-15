@@ -16,9 +16,10 @@ seat * hide_cursor 2000
 # Xwayland (DISPLAY: X11 apps such as Steam need it). On every reload too,
 # so an update applies it without a new login. Then start the session's
 # user services, which need those variables: hostd's notices and OSD
-# (drawn above fullscreen apps), and VNC.
+# (drawn above fullscreen apps), and VNC. One does not wait for the other: a
+# failing step (VNC) must not leave the screen without its menu.
 exec_always dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE
-exec dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE && systemctl --user restart wayvnc.service && { ! systemctl --user cat hostd-shell.service >/dev/null 2>&1 || systemctl --user restart hostd-shell.service; }
+exec sh -c 'dbus-update-activation-environment --systemd DISPLAY WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE; systemctl --user restart wayvnc.service; ! systemctl --user cat hostd-shell.service >/dev/null 2>&1 || systemctl --user restart hostd-shell.service'
 
 # Keys are hostd's: it installs its bindings at runtime and runs an action
 # for each (Super: menu, Super+Tab / Super+Shift+Tab: next / previous
