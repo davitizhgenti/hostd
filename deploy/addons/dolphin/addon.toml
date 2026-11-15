@@ -1,10 +1,22 @@
 # Dolphin, the GameCube and Wii emulator (Flatpak). With the controllers
 # add-on it can use real Wii Remotes through a Mayflash DolphinBar (in its
 # mode 4) and the GameCube controller adapter. Set up controllers in Dolphin
-# itself (Controllers > Wii Remote: "Real Wii Remote").
+# itself (Controllers > Wii Remote: "Real Wii Remote"). Its games are listed
+# under it like Steam's: hostd-dolphin-games writes an app file for each disc
+# image in ~/Games (and the folders Dolphin looks in), kept current by a user
+# path unit and a timer.
 description = "Dolphin (Flatpak): GameCube and Wii games, real Wii Remotes through a DolphinBar"
 needs = ["flatpak", "controllers"]
+root = false # everything in the user's home
 flatpaks = ["org.DolphinEmu.dolphin-emu"]
 resources = ["apps/dolphin-emu.toml"]
+files = [
+  { src = "hostd-dolphin-games", dest = "~/.local/lib/hostd/addons/hostd-dolphin-games", owner = "screen", mode = "755" },
+  { src = "hostd-dolphin-games.service", dest = "~/.config/systemd/user/hostd-dolphin-games.service", owner = "screen" },
+  { src = "hostd-dolphin-games.path", dest = "~/.config/systemd/user/hostd-dolphin-games.path", owner = "screen" },
+  { src = "hostd-dolphin-games.timer", dest = "~/.config/systemd/user/hostd-dolphin-games.timer", owner = "screen" },
+]
+user_units = ["hostd-dolphin-games.path", "hostd-dolphin-games.timer"]
+user_start = ["hostd-dolphin-games.service"]
 rescan = true
-keeps = "Dolphin's own data (settings, saves) stays in ~/.var/app/org.DolphinEmu.dolphin-emu"
+keeps = "Dolphin's own data (settings, saves) stays in ~/.var/app/org.DolphinEmu.dolphin-emu; your games in ~/Games stay"

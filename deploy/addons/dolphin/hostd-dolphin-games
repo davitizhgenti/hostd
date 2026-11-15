@@ -1,0 +1,210 @@
+#!/usr/bin/python3
+"""Makes a hostd app for each GameCube and Wii game on the machine (hostd's
+dolphin add-on).
+
+Looks for disc images (.iso .gcm .rvz .wia .wbfs .ciso .gcz) in ~/Games and
+in the folders Dolphin itself is set to look in (Config > Paths), and writes
+~/.config/hostd/apps/dolphin-<file name>.toml for each: starts Dolphin
+straight into the game (-b -e FILE), listed under the Dolphin app
+(under = "dolphin-emu") like Steam's games under Steam. The title is read
+from the disc's header (inside the image, whatever its format), its
+platform and size are the details, and the cover Dolphin downloaded for it
+(Config > General > Download Game Covers), if any, is its banner.
+
+Files it made carry a marker line; it removes those whose game is gone, and
+never touches other files. Run it again any time; --remove deletes
+everything it made.
+"""
+
+import os
+import re
+import struct
+import sys
+
+MARKER = "# Made by hostd-dolphin-games from the game files; changes are overwritten."
+DOLPHIN_ID = "org.DolphinEmu.dolphin-emu"
+EXTENSIONS = {".iso", ".gcm", ".rvz", ".wia", ".wbfs", ".ciso", ".gcz"}
+WII_MAGIC, GC_MAGIC = 0x5D1C9EA3, 0xC2339F3D
+# Where, in each format, the disc's own first 0x80 bytes (game ID, magic,
+# title) are to be read: the disc image itself, a WIA/RVZ file's copy of it,
+# a WBFS file's.
+HEADER_AT = {".iso": 0, ".gcm": 0, ".rvz": 0x58, ".wia": 0x58, ".wbfs": 0x200}
+
+
+def data_dir(home):
+    return os.path.join(home, ".var", "app", DOLPHIN_ID)
+
+
+def dolphin_folders(home):
+    """The folders Dolphin looks for games in (ISOPath0, ISOPath1... in its
+    Dolphin.ini), and ~/Games."""
+    folders = [os.path.join(home, "Games")]
+    ini = os.path.join(data_dir(home), "config", "dolphin-emu", "Dolphin.ini")
+    try:
+        with open(ini, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        text = ""
+    for m in re.finditer(r"^ISOPath\d+\s*=\s*(.+?)\s*$", text, re.M):
+        folders.append(m.group(1))
+    seen, out = set(), []
+    for d in folders:
+        real = os.path.realpath(d)
+        if real not in seen and os.path.isdir(real):
+            seen.add(real)
+            out.append(real)
+    return out
+
+
+def header(path):
+    """(game ID, title, platform) from a disc image, or None for a file that
+    is not one hostd can read (it is then named by its file)."""
+    ext = os.path.splitext(path)[1].lower()
+    at = HEADER_AT.get(ext)
+    if at is None:
+        return None
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(4)
+            f.seek(at)
+            head = f.read(0x60)
+    except OSError:
+        return None
+    if (ext == ".wbfs" and magic != b"WBFS") or (ext in (".rvz", ".wia") and magic[:3] not in (b"RVZ", b"WIA")):
+        return None
+    if len(head) < 0x60:
+        return None
+    wii, gc = struct.unpack(">II", head[0x18:0x20])
+    platform = "Wii" if wii == WII_MAGIC else "GameCube" if gc == GC_MAGIC else ""
+    if not platform:
+        return None
+    game_id = head[:6].decode("ascii", "replace")
+    title = head[0x20:0x60].split(b"\0", 1)[0].decode("utf-8", "replace").strip()
+    return game_id, title, platform
+
+
+def id_part(s):
+    """A name as hostd makes it into an ID (catalog.sanitizeID)."""
+    out = re.sub(r"[^a-z0-9._-]", "-", s.lower()).lstrip(".-_")
+    return out or "game"
+
+
+def find_games(folders):
+    """{app ID: path}, one for each disc image, in sorted order."""
+    found = {}
+    for folder in folders:
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            for name in sorted(files):
+                if os.path.splitext(name)[1].lower() in EXTENSIONS and not name.startswith("."):
+                    ident = "dolphin-" + id_part(os.path.splitext(name)[0])
+                    n = 2
+                    while ident in found and found[ident] != os.path.join(root, name):
+                        ident = f"dolphin-{id_part(os.path.splitext(name)[0])}-{n}"
+                        n += 1
+                    found[ident] = os.path.join(root, name)
+    return found
+
+
+def cover(home, game_id):
+    """The cover Dolphin downloaded for the game, "" if it has none."""
+    base = data_dir(home)
+    for sub in ("cache/dolphin-emu/GameCovers", ".local/share/dolphin-emu/Cache/GameCovers",
+                "data/dolphin-emu/Cache/GameCovers"):
+        for ext in (".png", ".jpg"):
+            p = os.path.join(base, sub, game_id + ext)
+            if os.path.isfile(p):
+                return p
+    return ""
+
+
+def title_of(path, info):
+    if info and info[1]:
+        return info[1]
+    return re.sub(r"[_.]+", " ", os.path.splitext(os.path.basename(path))[0]).strip() or "Game"
+
+
+def details(path, info):
+    """"Wii · RVZ · 4.2 GB"."""
+    bits = []
+    if info:
+        bits.append(info[2])
+    bits.append(os.path.splitext(path)[1][1:].upper())
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
+    if size > 0:
+        bits.append(f"{size / 1e9:.1f} GB")
+    return " · ".join(b for b in bits if b)
+
+
+def toml_string(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def app_file(path, info, banner):
+    folder = "Games/Dolphin/" + (info[2] if info else "Wii")
+    more = "".join(f"{k} = {toml_string(v)}\n" for k, v in (("banner", banner), ("details", details(path, info))) if v)
+    command = f'["flatpak", "run", "{DOLPHIN_ID}", "-b", "-e", {toml_string(path)}]'
+    return f"""{MARKER}
+{more}name = {toml_string(title_of(path, info))}
+under = "dolphin-emu"
+folder = {toml_string(folder)}
+runner = {{ type = "exec", command = {command} }}
+
+[window]
+fullscreen = true
+"""
+
+
+def ours(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.readline().rstrip("\n") == MARKER
+    except OSError:
+        return False
+
+
+def sync(home, apps_dir, remove_all=False):
+    """Writes the game apps and removes stale ones. Returns (written, removed)."""
+    os.makedirs(apps_dir, exist_ok=True)
+    wanted = {} if remove_all else find_games(dolphin_folders(home))
+    written = removed = 0
+    for ident, path in wanted.items():
+        target = os.path.join(apps_dir, ident + ".toml")
+        if os.path.exists(target) and not ours(target):
+            continue  # the person's own file for this game wins
+        info = header(path)
+        body = app_file(path, info, cover(home, info[0]) if info else "")
+        try:
+            with open(target, encoding="utf-8") as f:
+                if f.read() == body:
+                    continue
+        except OSError:
+            pass
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.replace(tmp, target)
+        written += 1
+    for name in os.listdir(apps_dir):
+        target = os.path.join(apps_dir, name)
+        if name.startswith("dolphin-") and name.endswith(".toml") and name[:-5] not in wanted and ours(target):
+            os.remove(target)
+            removed += 1
+    return written, removed
+
+
+def main(argv):
+    home = os.path.expanduser("~")
+    config = os.environ.get("XDG_CONFIG_HOME", os.path.join(home, ".config"))
+    if "--remove" not in argv:
+        os.makedirs(os.path.join(home, "Games"), exist_ok=True)  # where games go
+    written, removed = sync(home, os.path.join(config, "hostd", "apps"), remove_all="--remove" in argv)
+    print(f"hostd-dolphin-games: {written} written, {removed} removed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

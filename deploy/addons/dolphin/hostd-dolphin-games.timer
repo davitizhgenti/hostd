@@ -1,0 +1,11 @@
+# Managed by hostd's dolphin add-on: games in folders inside ~/Games, or in
+# the folders Dolphin looks in, are not watched; look every hour as well.
+[Unit]
+Description=hostd: list the Dolphin games every hour
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target

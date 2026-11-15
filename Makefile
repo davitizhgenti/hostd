@@ -103,14 +103,16 @@ SCRIPTS := test/e2e/run.sh deploy/install.sh deploy/check.sh deploy/files/rollba
 lint-scripts:
 	shellcheck -S warning $(SCRIPTS)
 	python3 -m py_compile deploy/files/shell/hostd-shell deploy/files/shell/hostd_shell/*.py
-	python3 -m py_compile deploy/addons/steam/hostd-steam-games examples/python-module/lights.py clients/python/hostd.py \
+	python3 -m py_compile deploy/addons/steam/hostd-steam-games deploy/addons/dolphin/hostd-dolphin-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
 	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/shell/hostd-shell \
 		deploy/files/shell/hostd_shell deploy/files/shell/test_shell.py test/shell/*.py \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
+		deploy/addons/dolphin/hostd-dolphin-games deploy/addons/dolphin/test_dolphin_games.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
 		clients/python/hostd.py clients/python/test_hostd.py
 	python3 -m unittest discover -s deploy/addons/steam -p "test_*.py"
+	python3 -m unittest discover -s deploy/addons/dolphin -p "test_*.py"
 	python3 -m unittest discover -s deploy/addons/seats -p "test_*.py"
 	python3 -m unittest discover -s clients/python -p "test_*.py"
 	python3 -m unittest discover -s deploy/files/shell -p "test_*.py"

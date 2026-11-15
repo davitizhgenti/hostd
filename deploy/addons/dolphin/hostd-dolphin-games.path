@@ -1,0 +1,11 @@
+# Managed by hostd's dolphin add-on: list the games again when one is
+# added to or removed from ~/Games (its top level; the timer looks deeper).
+[Unit]
+Description=hostd: follow the games folder
+
+[Path]
+PathModified=%h/Games
+Unit=hostd-dolphin-games.service
+
+[Install]
+WantedBy=default.target

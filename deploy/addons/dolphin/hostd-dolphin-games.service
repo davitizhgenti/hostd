@@ -1,0 +1,12 @@
+# Managed by hostd's dolphin add-on.
+[Unit]
+Description=hostd: an app for each GameCube and Wii game
+# Copying a game in changes the folder many times; each change triggers the
+# path unit. No start limit, so the path unit never gives up, and a pause
+# first, so a copy is one run.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 5
+ExecStart=%h/.local/lib/hostd/addons/hostd-dolphin-games
