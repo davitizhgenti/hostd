@@ -56,8 +56,9 @@ type Options struct {
 
 // Module is the apps module.
 type Module struct {
-	opts Options
-	log  *slog.Logger
+	opts   Options
+	status statusCache // what services said they are doing, kept a moment
+	log    *slog.Logger
 
 	mu    sync.Mutex
 	core  sdk.Core
@@ -125,6 +126,8 @@ func (m *Module) Manifest() sdk.Manifest {
 		Reads: append([]sdk.ReadSpec{
 			{Name: "apps", Description: "The app catalog as modules and scripts read it (hostctl get apps is the same, as resources)", Path: "/v1/catalog"},
 			{Name: "app", Description: "One app of the catalog, by ID or alias", Path: "/v1/catalog/{id}"},
+			{Name: "status", Description: "What a service says it is doing: the document at the status URL of its app file (sections of rows), or why there is none",
+				Path: "/v1/catalog/{id}/status"},
 			{Name: "secrets", Description: "The secrets' names (never their values)", Path: "/v1/secrets"},
 		}, instanceReads()...),
 	}
@@ -375,6 +378,8 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 		return m.readInstance(params["id"])
 	case "logs":
 		return m.readLogs(ctx, params)
+	case "status":
+		return m.readStatus(ctx, params["id"])
 	case "secrets":
 		return m.readSecrets()
 	}

@@ -82,6 +82,7 @@ type App struct {
 	// by name, with the kind of value each takes (ArgURL, ArgPath, ArgText).
 	Args   map[string]string `json:"args,omitempty"`
 	Health Health            `json:"health,omitzero"`
+	Status Status            `json:"status,omitzero"`
 	// Actions are extra ways to start the app ("New private window"):
 	// from its desktop entry, and from app files.
 	Actions []AppAction `json:"actions,omitempty"`
@@ -166,6 +167,13 @@ type Health struct {
 	TCP   string `json:"tcp,omitempty" toml:"tcp"`     // host:port that accepts connections
 	Start string `json:"start,omitempty" toml:"start"` // how long the first pass may take (default 60s)
 	Every string `json:"every,omitempty" toml:"every"` // between checks afterwards (default 10s)
+}
+
+// Status says where a service tells what it is doing: a URL on this machine
+// or the home network that answers with a JSON document of titled sections
+// of rows (see docs/apps.md). Menus show it as the service's page.
+type Status struct {
+	URL string `json:"url,omitempty" toml:"url"`
 }
 
 // Set reports whether the app has a health check.

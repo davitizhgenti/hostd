@@ -48,6 +48,7 @@ http = "http://127.0.0.1:8096/health"
 | `[instance]` | `policy = "single"` (default) or `"multiple"`; `if_running = "focus"` (default), `"new"` or `"restart"` |
 | `[window]` | `fullscreen` (true for installed desktop apps; set it in an app file); `wrap = "gamescope"`; `shown_by = "<app>"` for an app drawn in another's window |
 | `[audio]` | `volume`: its own volume (0-150) when it starts |
+| `[status]` | `url`: where the service says what it is doing (below); an `http(s)` address on this machine or the home network |
 | `[health]` | Background apps: `http` (a URL answering 2xx) or `tcp` (`host:port`), `start` (default 60s), `every` (default 10s) |
 | `[match]` | Find its windows when they are not in its own processes: `class`, `app_id`, `title` (globs), `env` (`KEY=value`) |
 | `[[actions]]` | Extra ways to start it: `id`, `name`, `command` (a new instance each time); `replace_actions = true` drops the desktop entry's |
@@ -67,6 +68,17 @@ http = "http://127.0.0.1:8096/health"
 Each instance runs in its own systemd unit or container. Stopping hostd never stops an app, and after a restart hostd finds its apps again.
 
 **Handoff.** Some commands pass the app to another program and exit, such as `steam steam://rungameid/620`. `runner.handoff = "KEY=value"` makes the instance last as long as processes with that variable exist. A single-instance Flatpak app does this by default (`FLATPAK_ID`). The same variable finds the app when hostd did not start it: a game started from Steam's own menu has its app file's `SteamAppId`, so it becomes that app's instance, listed in the menu, in front on a workspace of its own, closed like any other, and ended with its processes. (An app that just ended is not looked for again for 30 seconds, while its processes finish.)
+
+**Status.** A service that says what it is doing gets a page in the menu: choosing it in Services opens the page (its Stop, Restart and Start stay in its options), drawn with the menu's own list, so it looks like everything else and works with the mouse, a Wii Remote and a controller. `status = { url = "http://127.0.0.1:8481/status" }` names a page that answers `GET` with JSON, and the service decides what to say:
+
+```json
+{"title": "Opportunities", "updated": "2026-11-16T10:00:00Z",
+ "sections": [{"title": "Running now",
+               "rows": [{"title": "Fetching eurodesk", "subtitle": "started 2 min ago",
+                         "value": "", "badge": "running", "tone": "positive"}]}]}
+```
+
+Only `sections` is needed; a row has a `title`, and optionally a `subtitle` (second line), a `value` (on the right), a `badge` (a short word) and a `tone` (`positive`, `warning` or `danger`: the menu's colors). Nothing else is used, so the service knows nothing of the menu, and anything else can show the same document. hostd fetches it (read `status` of the apps module, `GET /v1/catalog/{id}/status`), at most every two seconds however many ask, waits 3 seconds, follows no redirect, accepts at most 256 KB, 20 sections and 100 rows each, and shortens long texts. It answers `{"ok": true, "document": ...}`, or `{"ok": false, "error": "does not answer"}`, which the page says in a line. The address must be an IP on this machine or a private network, or `localhost`: hostd does not fetch for the internet.
 
 **Quitting.** Some apps keep running when their window closes (Steam goes to the background). `runner.quit = ["command", ...]` is how such an app quits cleanly: closing the instance (the menu's Close, Super+Q, `hostctl close`) runs it and waits up to 20 seconds for the app to end, before closing its windows and, if it still runs, stopping it. The steam add-on's Steam uses `quit = ["flatpak", "run", "com.valvesoftware.Steam", "-shutdown"]`.
 

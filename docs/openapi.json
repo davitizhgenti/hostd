@@ -1450,6 +1450,56 @@
         "x-hostd-scope": "read"
       }
     },
+    "/v1/catalog/{id}/status": {
+      "get": {
+        "operationId": "apps.status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The module's answer"
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidArgs"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "What a service says it is doing: the document at the status URL of its app file (sections of rows), or why there is none",
+        "tags": [
+          "apps"
+        ],
+        "x-hostd-scope": "read"
+      }
+    },
     "/v1/config/follow": {
       "get": {
         "operationId": "deploy.config_follow",

@@ -42,6 +42,7 @@ type AppFile struct {
 	Env       map[string]string `toml:"env"`
 	Args      map[string]string `toml:"args"`
 	Health    *spec.Health      `toml:"health"`
+	Status    *spec.Status      `toml:"status"`
 	// Actions add to the app's actions; one with the ID of an existing one
 	// replaces it.
 	Actions []spec.AppAction `toml:"actions"`
@@ -146,6 +147,9 @@ func (f AppFile) applyTo(a *spec.App) {
 	}
 	if f.Health != nil {
 		a.Health = *f.Health
+	}
+	if f.Status != nil {
+		a.Status = *f.Status
 	}
 	if f.Source != nil {
 		d := *f.Source

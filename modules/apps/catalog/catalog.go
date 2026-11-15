@@ -7,6 +7,8 @@ package catalog
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -200,6 +202,9 @@ func validate(a *spec.App) error {
 	}
 	if h := a.Health; h.HTTP != "" && !strings.HasPrefix(h.HTTP, "http://") && !strings.HasPrefix(h.HTTP, "https://") {
 		bad("health.http %q: an http:// or https:// URL", h.HTTP)
+	}
+	if u := a.Status.URL; u != "" && !LocalStatusURL(u) {
+		bad("status.url %q: an http:// or https:// URL on this machine or the home network (an IP address such as 127.0.0.1 or 192.168.1.5, or localhost)", u)
 	}
 	if h := a.Health; h.TCP != "" {
 		if _, port, err := net.SplitHostPort(h.TCP); err != nil || port == "" {
@@ -482,4 +487,21 @@ func CleanFolder(p string) string {
 		}
 	}
 	return strings.Join(names, "/")
+}
+
+// LocalStatusURL reports whether u is an http(s) URL whose host is
+// "localhost" or an IP address on this machine or a private network: hostd
+// fetches a service's status page for the menu, and must not fetch for the
+// internet.
+func LocalStatusURL(u string) bool {
+	parsed, err := url.Parse(u)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && (addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast())
 }
