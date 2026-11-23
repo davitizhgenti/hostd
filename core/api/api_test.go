@@ -879,7 +879,7 @@ func TestOpenAPI(t *testing.T) {
 		t.Fatalf("openapi %q", doc.OpenAPI)
 	}
 	// Every route the server has is described.
-	for _, m := range e.srv.engine.Registry().Manifests() {
+	for _, m := range e.srv.engine.Manifests() {
 		for _, a := range m.Actions {
 			if a.Route == nil {
 				continue

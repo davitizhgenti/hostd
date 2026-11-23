@@ -7,6 +7,7 @@ import (
 
 	"pgregory.net/rapid"
 
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -29,7 +30,7 @@ func TestPropertyHoldsAndVersions(t *testing.T) {
 		if err := reg.Add(res); err != nil {
 			rt.Fatal(err)
 		}
-		e := New(reg, Options{Clock: fc, Audit: NewMemoryAudit(10)})
+		e := New(reg, Options{Clock: fc, Audit: audit.NewMemory(10)})
 		if err := e.Start(context.Background()); err != nil {
 			rt.Fatal(err)
 		}

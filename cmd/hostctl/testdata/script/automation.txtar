@@ -10,9 +10,9 @@ exec hostctl login unix://$XDG_RUNTIME_DIR/hostd.sock --token-file $XDG_RUNTIME_
 exec hostctl scenes
 stdout '^quiet +Quiet +apps +-$'
 
-# Nothing to stop: reached already, no steps.
+# Nothing to stop: reached already, no steps. (v1 is the scene file itself.)
 exec hostctl scene apply quiet
-stdout 'applied \(v1\) \{"scene":"quiet","steps":\[\]\}'
+stdout 'applied \(v2\) \{"scene":"quiet","steps":\[\]\}'
 exits 4 hostctl scene apply nope
 
 exec hostctl rules

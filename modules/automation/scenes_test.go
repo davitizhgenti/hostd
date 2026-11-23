@@ -13,6 +13,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -181,7 +182,7 @@ func (w *world) takeSent() []string {
 }
 
 type rig struct {
-	audit *core.MemoryAudit
+	audit *audit.Memory
 	e     *core.Engine
 	m     *Module
 	w     *world
@@ -201,7 +202,7 @@ func newRig(t *testing.T, w *world) *rig {
 			t.Fatal(err)
 		}
 	}
-	audit := core.NewMemoryAudit(1000)
+	audit := audit.NewMemory(1000)
 	e := core.New(reg, core.Options{Clock: clk, Audit: audit})
 	if err := e.Start(context.Background()); err != nil {
 		t.Fatal(err)

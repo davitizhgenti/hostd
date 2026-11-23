@@ -14,6 +14,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -219,8 +220,8 @@ func TestEnsureAdminTokenOnlyOnce(t *testing.T) {
 	}
 }
 
-func entry(i int, typ, status string) core.AuditEntry {
-	return core.AuditEntry{
+func entry(i int, typ, status string) audit.Entry {
+	return audit.Entry{
 		Time: t0.Add(time.Duration(i) * time.Second), Action: fmt.Sprintf("act_%04d", i), Type: typ,
 		Source: sdk.Source{Kind: sdk.SourceManual, Name: "phone"}, Status: status,
 	}
@@ -321,7 +322,7 @@ func TestAuditWrittenOnClose(t *testing.T) {
 }
 
 func TestStoreIsAnAuditor(t *testing.T) {
-	var _ core.Auditor = (*Store)(nil)
+	var _ audit.Auditor = (*Store)(nil)
 }
 
 func TestEngineWritesAuditToStore(t *testing.T) {

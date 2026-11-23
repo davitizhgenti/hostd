@@ -50,7 +50,7 @@ type Options struct {
 
 // Store holds the resources of every kind.
 type Store struct {
-	e    *core.Engine
+	e    Engine
 	opts Options
 	log  *slog.Logger
 
@@ -90,8 +90,18 @@ type Item struct {
 	Error string `json:"error,omitempty"`
 }
 
+// Engine is what the store needs of the core (a *core.Engine): the kinds
+// and their owners, and the way to hand them a resource.
+type Engine interface {
+	Kinds() []core.KindOwner
+	Reconciler(kind string) (sdk.Reconciler, bool)
+	Reconcile(ctx context.Context, res sdk.Resource) (sdk.ResourceStatus, error)
+	Unreconcile(ctx context.Context, kind, name string) error
+	Announce(typ string, data any)
+}
+
 // New returns a store over the engine's modules. Call Start once they run.
-func New(e *core.Engine, o Options) *Store {
+func New(e Engine, o Options) *Store {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
@@ -105,7 +115,7 @@ func key(kind, name string) string { return kind + "/" + name }
 
 func (s *Store) kinds() map[string]core.KindOwner {
 	out := map[string]core.KindOwner{}
-	for _, k := range s.e.Registry().Kinds() {
+	for _, k := range s.e.Kinds() {
 		out[k.Kind] = k
 	}
 	return out
@@ -128,7 +138,7 @@ func (s *Store) path(k core.KindOwner, name string) string {
 // Start reads every folder, applies what it finds, and follows the folders
 // until ctx ends. The modules must be running.
 func (s *Store) Start(ctx context.Context) error {
-	for _, k := range s.e.Registry().Kinds() {
+	for _, k := range s.e.Kinds() {
 		s.scan(ctx, k)
 	}
 	w, err := fsnotify.NewWatcher()
@@ -142,7 +152,7 @@ func (s *Store) Start(ctx context.Context) error {
 	watch := func() {
 		_ = os.MkdirAll(s.opts.Root, 0o755)
 		_ = w.Add(s.opts.Root)
-		for _, k := range s.e.Registry().Kinds() {
+		for _, k := range s.e.Kinds() {
 			d := s.dir(k)
 			byDir[d] = k
 			if fi, err := os.Stat(d); err == nil && fi.IsDir() {
@@ -314,11 +324,10 @@ func (s *Store) load(ctx context.Context, k core.KindOwner, name, file string, r
 }
 
 func (s *Store) apply(ctx context.Context, k core.KindOwner, res sdk.Resource) (sdk.ResourceStatus, error) {
-	rc, ok := s.e.Registry().Reconciler(k.Kind)
-	if !ok {
+	if _, ok := s.e.Reconciler(k.Kind); !ok {
 		return sdk.ResourceStatus{}, fmt.Errorf("the %s module is not running", k.Module)
 	}
-	return rc.Apply(ctx, res)
+	return s.e.Reconcile(ctx, res)
 }
 
 // reject records a file that is not in use and why. The version in use
@@ -348,10 +357,8 @@ func (s *Store) remove(ctx context.Context, k core.KindOwner, name string) {
 	delete(s.entries, key(k.Kind, name))
 	s.mu.Unlock()
 	if inUse {
-		if rc, ok := s.e.Registry().Reconciler(k.Kind); ok {
-			if err := rc.Delete(ctx, k.Kind, name); err != nil {
-				s.log.Warn("a module could not remove a resource", "kind", k.Kind, "name", name, "err", err)
-			}
+		if err := s.e.Unreconcile(ctx, k.Kind, name); err != nil {
+			s.log.Warn("a module could not remove a resource", "kind", k.Kind, "name", name, "err", err)
 		}
 	}
 	s.e.Announce(sdk.EventResourceDeleted, map[string]any{"kind": k.Kind, "name": name})
@@ -363,7 +370,7 @@ func (s *Store) item(ctx context.Context, e *entry) Item {
 	s.mu.Lock()
 	it := Item{Kind: e.kind, Name: e.name, File: e.file, Spec: e.res.Spec, Status: e.status, Generation: e.gen, Error: e.problem}
 	s.mu.Unlock()
-	if rc, ok := s.e.Registry().Reconciler(e.kind); ok && it.Spec != nil {
+	if rc, ok := s.e.Reconciler(e.kind); ok && it.Spec != nil {
 		if sr, ok := rc.(sdk.StatusReporter); ok {
 			if st, ok := sr.StatusOf(ctx, e.kind, e.name); ok {
 				it.Status = st
@@ -390,7 +397,7 @@ func (s *Store) listed(l sdk.Listed, kind string) Item {
 
 // lister is the owner's Lister, if it has one.
 func (s *Store) lister(kind string) sdk.Lister {
-	if rc, ok := s.e.Registry().Reconciler(kind); ok {
+	if rc, ok := s.e.Reconciler(kind); ok {
 		if l, ok := rc.(sdk.Lister); ok {
 			return l
 		}
@@ -487,7 +494,7 @@ func (s *Store) Put(ctx context.Context, kind, name string, body []byte, check b
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
 	if check {
-		if rc, ok := s.e.Registry().Reconciler(k.Kind); ok {
+		if rc, ok := s.e.Reconciler(k.Kind); ok {
 			if ch, ok := rc.(sdk.Checker); ok {
 				if err := ch.Check(ctx, res); err != nil {
 					return Item{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s %q: %v", kind, name, err)

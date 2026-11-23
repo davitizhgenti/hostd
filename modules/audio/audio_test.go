@@ -14,6 +14,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -186,12 +187,12 @@ type rig struct {
 	f      *fakeAudio
 	clock  *clock.Fake
 	events <-chan sdk.Event
-	audit  *core.MemoryAudit
+	audit  *audit.Memory
 }
 
 func newRig(t *testing.T, up bool) *rig {
 	t.Helper()
-	r := &rig{f: newFakeAudio(up), clock: clock.NewFake(time.Date(2026, 10, 8, 21, 0, 0, 0, time.UTC)), audit: core.NewMemoryAudit(100)}
+	r := &rig{f: newFakeAudio(up), clock: clock.NewFake(time.Date(2026, 10, 8, 21, 0, 0, 0, time.UTC)), audit: audit.NewMemory(100)}
 	r.m = New(Options{Backend: r.f, Clock: r.clock})
 	reg := core.NewRegistry()
 	if err := reg.Add(r.m); err != nil {

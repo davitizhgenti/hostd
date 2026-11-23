@@ -15,7 +15,7 @@ import (
 
 	_ "modernc.org/sqlite" // database/sql driver "sqlite"
 
-	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 )
 
@@ -64,7 +64,7 @@ type Store struct {
 	log   *slog.Logger
 
 	auditMax int
-	queue    chan core.AuditEntry
+	queue    chan audit.Entry
 	flushReq chan chan struct{}
 	stop     chan struct{}
 	stopped  chan struct{}
@@ -101,7 +101,7 @@ func Open(ctx context.Context, path string, opts Options) (*Store, error) {
 	}
 	s := &Store{
 		db: db, clock: opts.Clock, log: opts.Logger, auditMax: opts.AuditMax,
-		queue:    make(chan core.AuditEntry, 1024),
+		queue:    make(chan audit.Entry, 1024),
 		flushReq: make(chan chan struct{}),
 		stop:     make(chan struct{}),
 		stopped:  make(chan struct{}),

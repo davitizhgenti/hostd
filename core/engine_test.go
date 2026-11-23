@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -78,13 +79,13 @@ func (m *resModule) value(key string) int {
 type harness struct {
 	e     *Engine
 	clock *clock.Fake
-	audit *MemoryAudit
+	audit *audit.Memory
 	res   *resModule
 }
 
 func newHarness(t *testing.T, opts Options, extra ...sdk.Module) *harness {
 	t.Helper()
-	h := &harness{clock: clock.NewFake(t0), audit: NewMemoryAudit(1000), res: newResModule()}
+	h := &harness{clock: clock.NewFake(t0), audit: audit.NewMemory(1000), res: newResModule()}
 	opts.Clock, opts.Audit = h.clock, h.audit
 	reg := NewRegistry()
 	if err := reg.Add(h.res); err != nil {
@@ -201,7 +202,7 @@ func TestEarlyRefusals(t *testing.T) {
 	// Every refusal is in the audit trail.
 	failed := 0
 	for _, e := range h.audit.Entries() {
-		if e.Status == StatusFailed {
+		if e.Status == audit.StatusFailed {
 			failed++
 		}
 	}
@@ -454,7 +455,7 @@ func TestExternalChangesNeverHold(t *testing.T) {
 	if err != nil || res.Status != sdk.StatusApplied {
 		t.Fatalf("automation after an outside change: %+v %v", res, err)
 	}
-	var observed *AuditEntry
+	var observed *audit.Entry
 	for _, e := range h.audit.Entries() {
 		if e.Status == "observed" {
 			observed = &e
@@ -731,7 +732,7 @@ func TestTimeoutThenCancelsStuckHandler(t *testing.T) {
 	h.clock.Advance(time.Second)
 	<-cancelled
 	waitFor(t, "key release", func() bool { return h.e.locks.size() == 0 })
-	if entries := h.audit.Entries(); entries[len(entries)-1].Status != StatusFailed {
+	if entries := h.audit.Entries(); entries[len(entries)-1].Status != audit.StatusFailed {
 		t.Fatalf("stuck action should end as failed: %+v", entries[len(entries)-1])
 	}
 }

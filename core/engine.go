@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/ids"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -34,7 +35,7 @@ const (
 type Options struct {
 	Clock  clock.Clock
 	IDs    *ids.Generator
-	Audit  Auditor
+	Audit  audit.Auditor
 	Logger *slog.Logger
 
 	// HoldWindow is how long an applied action holds its resources at its
@@ -125,7 +126,7 @@ func New(reg *Registry, opts Options) *Engine {
 		opts.IDs = ids.NewGenerator(opts.Clock)
 	}
 	if opts.Audit == nil {
-		opts.Audit = NewMemoryAudit(defaultAuditEntries)
+		opts.Audit = audit.NewMemory(defaultAuditEntries)
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -212,6 +213,15 @@ func (e *Engine) Limiter() *RuleLimiter { return e.limiter }
 
 // Registry returns the module registry.
 func (e *Engine) Registry() *Registry { return e.reg }
+
+// Kinds are the kinds of resource the modules declare.
+func (e *Engine) Kinds() []KindOwner { return e.reg.Kinds() }
+
+// Reconciler is the module that owns a kind, if it runs.
+func (e *Engine) Reconciler(kind string) (sdk.Reconciler, bool) { return e.reg.Reconciler(kind) }
+
+// Manifests are the modules' manifests, in registration order.
+func (e *Engine) Manifests() []sdk.Manifest { return e.reg.Manifests() }
 
 // Version returns a resource key's current version.
 func (e *Engine) Version(key string) uint64 {
@@ -557,7 +567,7 @@ func (e *Engine) emit(moduleName string, ev sdk.Event) {
 	e.mu.Unlock()
 
 	if observed {
-		e.opts.Audit.Record(AuditEntry{
+		e.opts.Audit.Record(audit.Entry{
 			Time: ev.Time, Event: ev.ID, Type: ev.Type, Args: ev.Data, Source: *ev.Source,
 			Status: string(sdk.StatusObserved), Resource: ev.Resource, Version: ev.Version,
 		})
@@ -603,14 +613,14 @@ func (e *Engine) fail(a sdk.Action, start time.Time, err error) error {
 }
 
 func (e *Engine) record(a sdk.Action, start time.Time, res sdk.Result, err *sdk.Error, resource string) {
-	entry := AuditEntry{
+	entry := audit.Entry{
 		Time: start, Action: a.ID, Type: a.Type, Args: e.redact(a), Source: a.Source,
 		Cause: a.Cause, Parent: a.Parent, Status: string(res.Status), Reason: res.Reason,
 		HeldBy: res.HeldBy, Until: res.Until, Resource: resource, Version: res.Version,
 		Duration: e.opts.Clock.Since(start),
 	}
 	if err != nil {
-		entry.Status, entry.Code, entry.Reason = StatusFailed, err.Code, err.Message
+		entry.Status, entry.Code, entry.Reason = audit.StatusFailed, err.Code, err.Message
 	}
 	e.opts.Audit.Record(entry)
 }

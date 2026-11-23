@@ -81,9 +81,9 @@ type Updater interface {
 
 // Server is the HTTP API.
 type Server struct {
-	engine *core.Engine
+	engine Engine
 	res    Resources
-	store  *store.Store
+	tokens Tokens
 	log    *slog.Logger
 	opts   Options
 	mux    *http.ServeMux
@@ -92,16 +92,31 @@ type Server struct {
 	adminFileOnce sync.Once
 }
 
+// Engine is what the API asks of the core (a *core.Engine).
+type Engine interface {
+	Manifests() []sdk.Manifest
+	Submit(ctx context.Context, a sdk.Action, auth core.Auth) (sdk.Result, error)
+	Subscribe(ctx context.Context, filter string) <-chan sdk.Event
+	ModuleRead(ctx context.Context, module, read string, params map[string]string) (any, error)
+	ModuleState(ctx context.Context, module string) (any, error)
+	ModuleHook(ctx context.Context, module, hook string, req sdk.HookRequest) (any, error)
+}
+
+// Tokens checks the API's tokens (a *store.Store).
+type Tokens interface {
+	VerifyToken(ctx context.Context, secret string) (store.Token, error)
+}
+
 // New builds the server and its routes, including one route per action
 // that declares one in its module's manifest.
-func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
+func New(e Engine, tokens Tokens, opts Options) (*Server, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
 	if opts.ReplayEvents == 0 {
 		opts.ReplayEvents = 1000
 	}
-	srv := &Server{engine: e, res: opts.Resources, store: s, log: opts.Logger, opts: opts, mux: http.NewServeMux(), ring: newRing(opts.ReplayEvents)}
+	srv := &Server{engine: e, res: opts.Resources, tokens: tokens, log: opts.Logger, opts: opts, mux: http.NewServeMux(), ring: newRing(opts.ReplayEvents)}
 
 	routes := []struct {
 		pattern string
@@ -125,7 +140,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 			return nil, err
 		}
 	}
-	for _, m := range e.Registry().Manifests() {
+	for _, m := range e.Manifests() {
 		for _, spec := range m.Actions {
 			if spec.Route == nil {
 				continue
@@ -136,7 +151,7 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 			}
 		}
 	}
-	for _, m := range e.Registry().Manifests() {
+	for _, m := range e.Manifests() {
 		for _, rd := range m.Reads {
 			scope := rd.Scope
 			if scope == "" {
@@ -154,13 +169,15 @@ func New(e *core.Engine, s *store.Store, opts Options) (*Server, error) {
 		}
 	}
 	if srv.res != nil {
-		for _, k := range e.Registry().Kinds() {
-			if err := srv.kindRoutes(k); err != nil {
-				return nil, fmt.Errorf("module %q: %w", k.Module, err)
+		for _, m := range e.Manifests() {
+			for _, k := range m.Kinds {
+				if err := srv.kindRoutes(core.KindOwner{KindSpec: k, Module: m.Name}); err != nil {
+					return nil, fmt.Errorf("module %q: %w", m.Name, err)
+				}
 			}
 		}
 	}
-	for _, m := range e.Registry().Manifests() {
+	for _, m := range e.Manifests() {
 		for _, hk := range m.Hooks {
 			if err := srv.handleHook(m.Name, hk); err != nil {
 				return nil, fmt.Errorf("module %q, hook %q: %w", m.Name, hk.Name, err)
@@ -331,7 +348,7 @@ func (s *Server) authenticated(scope string, h func(http.ResponseWriter, *http.R
 			writeError(w, r, http.StatusUnauthorized, sdk.CodeUnauthorized, "a token is required")
 			return
 		}
-		tok, err := s.store.VerifyToken(r.Context(), secret)
+		tok, err := s.tokens.VerifyToken(r.Context(), secret)
 		if err != nil {
 			if errors.Is(err, store.ErrInvalidToken) {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="hostd", error="invalid_token"`)
@@ -563,7 +580,7 @@ func (s *Server) getUpdateRelease(w http.ResponseWriter, r *http.Request, _ stor
 }
 
 func (s *Server) getManifests(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
-	writeJSON(w, http.StatusOK, s.engine.Registry().Manifests())
+	writeJSON(w, http.StatusOK, s.engine.Manifests())
 	return nil
 }
 

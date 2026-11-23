@@ -1,4 +1,5 @@
-package core
+// Package audit is the audit trail's entries and where they are recorded.
+package audit
 
 import (
 	"encoding/json"
@@ -8,9 +9,9 @@ import (
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
-// AuditEntry is one line of the audit trail: an action and what became of
+// Entry is one line of the audit trail: an action and what became of
 // it, or a change observed outside hostd.
-type AuditEntry struct {
+type Entry struct {
 	Time     time.Time       `json:"time"`
 	Action   string          `json:"action,omitempty"` // action ID; empty for observed changes
 	Event    string          `json:"event,omitempty"`  // event ID for observed changes
@@ -35,20 +36,20 @@ const StatusFailed = "failed"
 // Auditor stores audit entries. The SQLite store implements it; Record must
 // not block for long, since it runs on the action path.
 type Auditor interface {
-	Record(e AuditEntry)
+	Record(e Entry)
 }
 
-// MemoryAudit keeps the most recent entries in memory.
-type MemoryAudit struct {
+// Memory keeps the most recent entries in memory.
+type Memory struct {
 	mu      sync.Mutex
 	max     int
-	entries []AuditEntry
+	entries []Entry
 }
 
-// NewMemoryAudit keeps up to max entries.
-func NewMemoryAudit(max int) *MemoryAudit { return &MemoryAudit{max: max} }
+// NewMemory keeps up to max entries.
+func NewMemory(max int) *Memory { return &Memory{max: max} }
 
-func (m *MemoryAudit) Record(e AuditEntry) {
+func (m *Memory) Record(e Entry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.entries = append(m.entries, e)
@@ -58,8 +59,8 @@ func (m *MemoryAudit) Record(e AuditEntry) {
 }
 
 // Entries returns the stored entries, oldest first.
-func (m *MemoryAudit) Entries() []AuditEntry {
+func (m *Memory) Entries() []Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]AuditEntry(nil), m.entries...)
+	return append([]Entry(nil), m.entries...)
 }

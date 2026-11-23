@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 )
 
 // AuditRecord is a stored audit entry with its sequence number, which
 // pages through the trail.
 type AuditRecord struct {
 	Seq int64 `json:"seq"`
-	core.AuditEntry
+	audit.Entry
 }
 
 // AuditQuery selects audit records, newest first.
@@ -26,7 +26,7 @@ type AuditQuery struct {
 // Record queues an audit entry for writing. It never blocks the action
 // path: if the writer falls more than 1,024 entries behind, the entry is
 // logged and dropped.
-func (s *Store) Record(e core.AuditEntry) {
+func (s *Store) Record(e audit.Entry) {
 	select {
 	case s.queue <- e:
 	default:
@@ -54,7 +54,7 @@ func (s *Store) Flush(ctx context.Context) error {
 // trims the table to auditMax.
 func (s *Store) auditWriter() {
 	defer close(s.stopped)
-	var batch []core.AuditEntry
+	var batch []audit.Entry
 	write := func() {
 		if len(batch) == 0 {
 			return
@@ -93,7 +93,7 @@ func (s *Store) auditWriter() {
 	}
 }
 
-func (s *Store) writeAudit(entries []core.AuditEntry) error {
+func (s *Store) writeAudit(entries []audit.Entry) error {
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -162,7 +162,7 @@ func (s *Store) QueryAudit(ctx context.Context, q AuditQuery) ([]AuditRecord, er
 		if err := rows.Scan(&r.Seq, &body); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(body), &r.AuditEntry); err != nil {
+		if err := json.Unmarshal([]byte(body), &r.Entry); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

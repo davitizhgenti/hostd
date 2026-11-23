@@ -282,7 +282,7 @@ func public(o obj) obj {
 }
 
 func (s *Server) getOpenAPI(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
-	writeJSON(w, http.StatusOK, OpenAPI(s.engine.Registry().Manifests(), version.Version))
+	writeJSON(w, http.StatusOK, OpenAPI(s.engine.Manifests(), version.Version))
 	return nil
 }
 

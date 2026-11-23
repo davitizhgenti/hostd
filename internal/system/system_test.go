@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 
 	"github.com/davitizhgenti/hostd/core"
@@ -93,7 +94,7 @@ func TestTokens(t *testing.T) {
 func TestLog(t *testing.T) {
 	ctx := context.Background()
 	m, st := newModule(t, Options{})
-	st.Record(core.AuditEntry{Time: time.Now(), Action: "act_1", Type: "lamp.set", Args: json.RawMessage(`{"lamp":"desk","brightness":40}`), Status: "applied"})
+	st.Record(audit.Entry{Time: time.Now(), Action: "act_1", Type: "lamp.set", Args: json.RawMessage(`{"lamp":"desk","brightness":40}`), Status: "applied"})
 	got, err := m.Read(ctx, "log", map[string]string{"limit": "5", "type": "lamp.*"})
 	if err != nil {
 		t.Fatal(err)

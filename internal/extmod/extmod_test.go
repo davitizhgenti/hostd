@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/core/audit"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -35,7 +36,7 @@ func example(t *testing.T) []string {
 type rig struct {
 	e     *core.Engine
 	m     *Module
-	audit *core.MemoryAudit
+	audit *audit.Memory
 	apps  *testutil.Module
 }
 
@@ -56,7 +57,7 @@ func newRigWith(t *testing.T, transport string) *rig {
 			t.Fatal(err)
 		}
 	}
-	audit := core.NewMemoryAudit(1000)
+	audit := audit.NewMemory(1000)
 	e := core.New(reg, core.Options{Audit: audit})
 	if err := e.Start(context.Background()); err != nil {
 		t.Fatal(err)
