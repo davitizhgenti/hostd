@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -470,23 +471,14 @@ func checkApps(desired json.RawMessage) error {
 	}
 	_ = json.Unmarshal(desired, &a)
 	for _, id := range a.Running {
-		if contains(a.Stop, id) {
+		if slices.Contains(a.Stop, id) {
 			return fmt.Errorf("%q is both in stop and in running", id)
 		}
 	}
-	if a.Focus != "" && contains(a.Stop, a.Focus) {
+	if a.Focus != "" && slices.Contains(a.Stop, a.Focus) {
 		return fmt.Errorf("focus %q is in stop", a.Focus)
 	}
 	return nil
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func (w *world) liveIDs(app string) []string {
@@ -514,7 +506,7 @@ func (w *world) planApps(desired json.RawMessage) ([]sdk.PlannedAction, error) {
 		}
 	}
 	need := append([]string(nil), a.Running...)
-	if a.Focus != "" && !contains(need, a.Focus) {
+	if a.Focus != "" && !slices.Contains(need, a.Focus) {
 		need = append(need, a.Focus)
 	}
 	for _, app := range need {

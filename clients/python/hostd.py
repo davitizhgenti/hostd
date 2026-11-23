@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-__all__ = ["Hostd", "HostdError", "Finished"]
+__all__ = ["Finished", "Hostd", "HostdError"]
 
 
 class HostdError(Exception):

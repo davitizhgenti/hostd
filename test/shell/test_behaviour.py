@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 import fixtures
-import harness  # noqa: F401 - the Qt application the shell's timers need
+import harness  # the Qt application the shell's timers need
 from hostd_shell import background, views
 from hostd_shell.shell import APPS, SETTINGS, STATUS, USERS, Shell
 
@@ -931,7 +931,7 @@ class Readability(unittest.TestCase):
 
     def test_a_light_color_is_darkened(self):
         self.check({"mode": "color", "color": "#ffffff", "image": ""}, fixtures.NOW, "white")
-        h, light, s = colorsys.rgb_to_hls(*background.rgb(
+        _h, light, _s = colorsys.rgb_to_hls(*background.rgb(
             background.colors({"mode": "color", "color": "#ffffff", "image": ""}, fixtures.NOW, harness.TOKENS)[0]))
         self.assertLessEqual(light, background.MAX_LIGHT + 0.01)
 

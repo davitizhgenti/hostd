@@ -12,7 +12,7 @@ import (
 var builtins = map[string]bool{
 	"login": true, "version": true, "events": true,
 	"action": true, "update": true, "git-shell": true,
-	"help": true, "completion": true, "context": true, "new": true,
+	"help": true, "completion": true, "context": true, "systems": true, "new": true,
 }
 
 func (a *app) rootCommand() *cobra.Command {

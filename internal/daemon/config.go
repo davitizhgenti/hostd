@@ -188,15 +188,6 @@ func (c APIConfig) check(path string) error {
 	return nil
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 // holdWindows converts the config's per-prefix windows for the core.
 func (c Config) holdWindows() map[string]time.Duration {
 	if len(c.HoldWindows) == 0 {

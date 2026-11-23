@@ -9,6 +9,7 @@
   launcher goes away without asking (killed), the menu is hidden too.
 """
 
+import contextlib
 import sys
 
 from gi.repository import Gio, GLib
@@ -149,10 +150,8 @@ def launch_menu():
                        Gio.DBusCallFlags.NO_AUTO_START, timeout_ms, None)
 
     def stop():
-        try:
+        with contextlib.suppress(GLib.Error):
             call("HideMenu", 2000)
-        except GLib.Error:
-            pass
         loop.quit()
         return False
 

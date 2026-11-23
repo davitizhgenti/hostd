@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -74,7 +75,7 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	if !flagSet["listen"] && cfg.Listen != nil {
 		*listen = *cfg.Listen
 	}
-	if *withDemo && !contains(cfg.Modules, "demo") {
+	if *withDemo && !slices.Contains(cfg.Modules, "demo") {
 		cfg.Modules = append(cfg.Modules, "demo")
 	}
 	if *runtimeDir == "" {

@@ -1,11 +1,11 @@
 """Tests of hostd-shell's parts that need no screen: run with
-python3 -m unittest discover -s deploy/files/ui -p "test_*.py"."""
+python3 -m unittest discover -s deploy/files/shell -p "test_*.py"."""
 
 import datetime
-import re
 import http.server
 import json
 import os
+import re
 import socket
 import socketserver
 import sys
@@ -15,7 +15,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hostd_shell import api, background, input as inp, menu, notices, views  # noqa: E402
+from hostd_shell import api, background, menu, notices, views
+from hostd_shell import input as inp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -321,7 +322,7 @@ class SettingsPage(unittest.TestCase):
         self.assertEqual(bg.sheet[0].badge, "now")
         self.assertEqual(bg.sheet[0].call, views.local("background", {"mode": "month", "color": "", "image": "/pics/sea.jpg"}))
         self.assertEqual(bg.sheet[-1].title, "Image: sea.jpg")
-        gold = [r for r in bg.sheet if r.title == "Gold"][0]
+        gold = next(r for r in bg.sheet if r.title == "Gold")
         self.assertEqual(gold.call.body["mode"], "color")
         # A chosen color is named, and marked.
         look = dict(gold.call.body)

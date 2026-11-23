@@ -1,0 +1,14 @@
+# Python in this repo: the shell, the add-on helpers, the client, the tests.
+line-length = 130
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP", "SIM", "RUF"]
+# %-formatting is used on purpose; tests open files they close themselves;
+# symbols like × and – in strings are meant; list + list reads fine.
+ignore = ["UP031", "SIM115", "RUF001", "RUF005"]
+# noqa comments for rules ruff is not asked to check (they explain why).
+external = ["BLE", "N"]
+
+[lint.isort]
+known-first-party = ["hostd_shell", "hostd", "harness", "fixtures"]

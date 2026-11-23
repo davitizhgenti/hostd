@@ -12,10 +12,11 @@ import html
 import os
 import unittest
 
-import fixtures
 import numpy as np
-from harness import HERE, Screen
 from PySide6.QtGui import QImage
+
+import fixtures
+from harness import HERE, Screen
 
 GOLDEN = os.path.join(HERE, "golden")
 OUT = os.path.join(HERE, "out")

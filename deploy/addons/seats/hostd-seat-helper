@@ -110,7 +110,7 @@ def serve():
         with conn:
             try:
                 conn.settimeout(15)
-                pid, uid, gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
+                _, uid, _ = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
                 try:
                     caller = pwd.getpwuid(uid).pw_name
                 except KeyError:

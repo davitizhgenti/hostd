@@ -45,7 +45,7 @@ An error without `data.code` counts as `internal`.
 
 | Method | Params | Result | When |
 | --- | --- | --- | --- |
-| `hostd.handshake` | `{"protocol": 1, "core_version": 1, "name": "lights"}` | `{"protocol": 1}` | First, right after the module connects. A module that cannot speak protocol 1 answers an error. |
+| `hostd.handshake` | `{"protocol": 1, "core_version": 3, "name": "lights"}` | `{"protocol": 1}` | First, right after the module connects. A module that cannot speak protocol 1 answers an error. |
 | `manifest` | `{}` | A manifest (as `GET /v1/manifests` shows one) | After the handshake |
 | `start` | `{}` | `{}` | Once the modules it requires have started. Subscribe here. |
 | `validate` | `{"action": Action}` | `{}`, or an error such as `not_found` | When an action reaches the front of its queue, with its keys held. Optional: answer `{}`. |
@@ -62,14 +62,15 @@ An Action is `{"id", "type", "args", "source", "parent", "cause"}`. A Result is 
 | Method | Params | Result |
 | --- | --- | --- |
 | `emit` | `{"event": {"type", "data", "action", "resource"}}` | `{}` |
-| `do` | `{"action": {"type", "args"}, "within": "<action id>"}` | A Result, or an error |
+| `do` | `{"action": {"type", "args"}, "within": "<action id>", "timeout_ms": 5000}` | A Result, or an error |
 | `subscribe` | `{"filter": "instance.*"}` | `{"subscription": "s1"}` |
 | `unsubscribe` | `{"subscription": "s1"}` | `{}` |
-| `read` | `{"module": "apps", "read": "instances", "params": {}}` | Any JSON |
+| `read` | `{"module": "apps", "read": "instances", "params": {}, "timeout_ms": 5000}` | Any JSON |
 | `handles` | `{"type": "window.focus"}` | `{"handles": true}` |
 
 - `emit`: the type must be in a namespace the module owns and declared in its manifest. To tie an event to the action being handled, set `action` to that action's ID. Set `resource` for a change that happened outside hostd, such as a light switched by hand: hostd bumps that resource's version and records the change in the audit trail.
 - `do`: sends an action through the full pipeline. Set `within` to the ID of the action being handled to make the new action its child. A child may reuse the keys its parent holds, and keeps the parent's source and priority. Without `within`, the action's source is `automation` with the module's name.
+- `do` and `read`: `timeout_ms` (optional) is how long the module will wait; hostd gives up after it with a `timeout` error. Without it the call is bounded only by the module's life (and, with `within`, by the parent action).
 - `subscribe`: events then arrive as notifications, `{"jsonrpc":"2.0","method":"event","params":{"subscription":"s1","event":{...}}}`. An event of type `bus.lagged` means some events were lost; read the state again.
 
 ## Lifetime

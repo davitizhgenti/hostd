@@ -3,6 +3,7 @@ package extmod
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/davitizhgenti/hostd/internal/tomlx"
@@ -32,7 +33,7 @@ func ParseFile(name string, raw []byte, reserved []string) (File, error) {
 	switch {
 	case !sdk.ValidModuleName(name):
 		return f, fmt.Errorf("the name %q: use lowercase letters, digits and - (up to 32)", name)
-	case contains(reserved, name):
+	case slices.Contains(reserved, name):
 		return f, fmt.Errorf("%q is the name of a built-in module", name)
 	case len(f.Command) == 0 || strings.TrimSpace(f.Command[0]) == "":
 		return f, errors.New("needs a command")
@@ -40,13 +41,4 @@ func ParseFile(name string, raw []byte, reserved []string) (File, error) {
 		return f, fmt.Errorf("transport %q: use %q or %q", f.Transport, TransportSocket, TransportStdio)
 	}
 	return f, nil
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

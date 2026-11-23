@@ -343,9 +343,3 @@ func TestScriptTokensAreRevokedWithTheRun(t *testing.T) {
 		t.Fatal("the token works after the run")
 	}
 }
-
-func TestContains(t *testing.T) {
-	if !contains([]string{"a", "demo"}, "demo") || contains([]string{"a"}, "demo") || contains(nil, "x") {
-		t.Fatal("contains is wrong")
-	}
-}

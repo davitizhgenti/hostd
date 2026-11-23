@@ -5,8 +5,8 @@ VERSION  ?= $(if $(GIT_DESC),$(GIT_DESC)-dev,dev)
 LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 
-.PHONY: all build dist deb docs-site release test test-integration test-e2e fuzz lint lint-scripts test-shell shell-golden shell-test-image cover tidy clean \
-	check-server test-install test-install-user e2e-bins docs-stub run run-env
+.PHONY: all build dist deb docs-site release test test-e2e fuzz lint lint-scripts test-shell shell-golden shell-test-image cover tidy clean \
+	check-server test-install test-install-user e2e-bins docs-stub run run-env generate check-generated
 
 all: lint test build
 
@@ -55,13 +55,6 @@ release: deb docs-site
 test:
 	$(GO) test -race -shuffle=on ./...
 
-# Integration tests run against real Sway, PipeWire, Podman and systemd in
-# containers (test/integration, build tag "integration").
-test-integration:
-	@if [ -d test/integration ]; then \
-		$(GO) test -race -tags integration ./test/integration/...; \
-	else echo "no integration tests yet"; fi
-
 # The end-to-end test boots a real Debian 13 machine in a VM (QEMU with KVM
 # in a container; nothing is installed on this machine) and runs the system
 # through install, reboots, updates and a rollback (test/e2e/run.sh). The
@@ -105,7 +98,7 @@ lint-scripts:
 	python3 -m py_compile deploy/files/shell/hostd-shell deploy/files/shell/hostd_shell/*.py
 	python3 -m py_compile deploy/addons/steam/hostd-steam-games deploy/addons/dolphin/hostd-dolphin-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
-	ruff check --no-cache --select E,F,W,B --line-length 130 deploy/files/shell/hostd-shell \
+	ruff check --no-cache deploy/files/shell/hostd-shell \
 		deploy/files/shell/hostd_shell deploy/files/shell/test_shell.py test/shell/*.py \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
 		deploy/addons/dolphin/hostd-dolphin-games deploy/addons/dolphin/test_dolphin_games.py \
@@ -138,6 +131,19 @@ shell-golden: shell-test-image
 cover:
 	$(GO) test -coverpkg=./... -coverprofile=coverage.out ./...
 	$(GO) run ./scripts/coverfloor coverage.out scripts/coverage-floors.txt
+
+# Everything generated from a source in the repo, in one place: the design
+# tokens (Theme.qml, tokens.css/json, the Sway colours), the OpenAPI
+# description and the CLI reference. The golden images are not here: they
+# are reviewed by eye (make shell-golden).
+generate:
+	$(GO) generate ./...
+	$(GO) test ./internal/daemon -run OpenAPI -update
+	$(GO) test ./cmd/hostctl -run CLIDoc -update
+
+# Fails when a generated file is not what its source makes (CI runs it).
+check-generated: generate
+	@git diff --exit-code --stat || { echo "generated files are out of date: run make generate and commit"; exit 1; }
 
 tidy:
 	$(GO) mod tidy

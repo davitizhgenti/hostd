@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -37,7 +38,7 @@ func (s *Setup) Update(ctx context.Context, a UpdateArgs, run Exec) error {
 	}
 	installed := s.installedAddons()
 	for _, n := range a.Update.Addons {
-		if !contains(installed, n) {
+		if !slices.Contains(installed, n) {
 			return fmt.Errorf("add-on %q is not installed (see: hostd-setup addons)", n)
 		}
 	}
@@ -160,13 +161,4 @@ func (s *Setup) screenRunner(ctx context.Context, user string) func(context.Cont
 	uid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
 	in := &installer{Setup: s, user: screenUser{name: user, home: home, uid: uid}}
 	return in.asScreen
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

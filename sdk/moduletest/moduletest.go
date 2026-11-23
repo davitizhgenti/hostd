@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -102,7 +103,7 @@ func (c *Core) Emitted(types ...string) []sdk.Event {
 	defer c.mu.Unlock()
 	var out []sdk.Event
 	for _, ev := range c.emitted {
-		if len(types) == 0 || contains(types, ev.Type) {
+		if len(types) == 0 || slices.Contains(types, ev.Type) {
 			out = append(out, ev)
 		}
 	}
@@ -116,20 +117,11 @@ func (c *Core) Did(types ...string) []sdk.Action {
 	defer c.mu.Unlock()
 	var out []sdk.Action
 	for _, a := range c.did {
-		if len(types) == 0 || contains(types, a.Type) {
+		if len(types) == 0 || slices.Contains(types, a.Type) {
 			out = append(out, a)
 		}
 	}
 	return out
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 // Emit implements sdk.Core. It fills the ID, as the real core does, so

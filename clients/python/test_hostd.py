@@ -8,6 +8,7 @@ import ssl
 import subprocess
 import tempfile
 import threading
+import typing
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -15,7 +16,7 @@ from hostd import Hostd, HostdError
 
 
 class FakeAPI(BaseHTTPRequestHandler):
-    sent = []  # (method, path, body, token)
+    sent: typing.ClassVar[list] = []  # (method, path, body, token)
     polls = 0
 
     def log_message(self, *args):

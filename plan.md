@@ -28,7 +28,7 @@ Sunshine/Moonlight, UxPlay, scrcpy, lan-mouse and RDP were all tried on core. Ev
 
 - `config.follow` is in `deploy`; it belongs in the core as `resources.follow`.
 - Instance lifecycle: one state machine with timeouts on every edge; split `modules/apps/instances.go` and display's large `Module`; runners as plug-ins.
-- Protocol: manifest `Hooks` to `Webhooks`; external modules' `do`/`read` carry no caller deadline.
+- Protocol: manifest `Hooks` to `Webhooks`.
 - Devices: per-seat presence; no `input` module split out of display.
 - Add-ons: Steam's game list is a Python script with systemd path/timer units (should be an external module); `hostd-admin user add` still runs the whole install from root; Jupyter and Pterodactyl were removed (git history).
 

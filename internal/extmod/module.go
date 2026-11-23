@@ -451,8 +451,9 @@ func (m *Module) serve(method string, params json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	case "do":
 		var p struct {
-			Action sdk.Action `json:"action"`
-			Within string     `json:"within"`
+			Action  sdk.Action `json:"action"`
+			Within  string     `json:"within"`
+			Timeout int64      `json:"timeout_ms"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, bad(err)
@@ -467,6 +468,8 @@ func (m *Module) serve(method string, params json.RawMessage) (any, error) {
 			}
 			ctx = hctx
 		}
+		ctx, cancel := withTimeout(ctx, p.Timeout)
+		defer cancel()
 		a := sdk.Action{Type: p.Action.Type, Args: p.Action.Args, ExpectVersion: p.Action.ExpectVersion, Cause: p.Action.Cause}
 		return core.Do(ctx, a)
 	case "subscribe":
@@ -506,14 +509,17 @@ func (m *Module) serve(method string, params json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	case "read":
 		var p struct {
-			Module string            `json:"module"`
-			Read   string            `json:"read"`
-			Params map[string]string `json:"params"`
+			Module  string            `json:"module"`
+			Read    string            `json:"read"`
+			Params  map[string]string `json:"params"`
+			Timeout int64             `json:"timeout_ms"`
 		}
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, bad(err)
 		}
-		return core.Read(m.life, p.Module, p.Read, p.Params)
+		ctx, cancel := withTimeout(m.life, p.Timeout)
+		defer cancel()
+		return core.Read(ctx, p.Module, p.Read, p.Params)
 	case "handles":
 		var p struct {
 			Type string `json:"type"`
@@ -522,6 +528,15 @@ func (m *Module) serve(method string, params json.RawMessage) (any, error) {
 		return map[string]bool{"handles": core.Handles(p.Type)}, nil
 	}
 	return nil, sdk.Errorf(sdk.CodeNotFound, "no method %q", method)
+}
+
+// withTimeout bounds a call into the core by the deadline the module gave
+// (timeout_ms); without one the call lives as long as the module.
+func withTimeout(ctx context.Context, ms int64) (context.Context, context.CancelFunc) {
+	if ms <= 0 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
 }
 
 // stdioConn is hostd's end of a program's standard input and output. Closing

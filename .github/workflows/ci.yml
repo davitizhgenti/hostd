@@ -19,6 +19,7 @@ jobs:
             go.sum
             tools/go.sum
       - run: make lint
+      - run: make check-generated
       - name: Test
         shell: bash
         run: make test 2>&1 | tee test.log; exit ${PIPESTATUS[0]}

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -169,7 +170,7 @@ func bodySchema(schema json.RawMessage, pathArgs []string) obj {
 	if req, ok := s["required"].([]any); ok {
 		var keep []any
 		for _, r := range req {
-			if !contains(pathArgs, r) {
+			if !slices.Contains(pathArgs, asString(r)) {
 				keep = append(keep, r)
 			}
 		}
@@ -180,15 +181,6 @@ func bodySchema(schema json.RawMessage, pathArgs []string) obj {
 		}
 	}
 	return s
-}
-
-func contains(list []string, v any) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 func ref(name string) obj { return obj{"$ref": "#/components/schemas/" + name} }
@@ -293,3 +285,5 @@ func (s *Server) getOpenAPI(w http.ResponseWriter, _ *http.Request, _ store.Toke
 	writeJSON(w, http.StatusOK, OpenAPI(s.engine.Registry().Manifests(), version.Version))
 	return nil
 }
+
+func asString(v any) string { s, _ := v.(string); return s }
