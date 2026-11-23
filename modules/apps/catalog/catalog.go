@@ -122,10 +122,27 @@ func Defaults(a *spec.App) {
 	}
 }
 
+// A check reports what is wrong with one aspect of a finished app.
+type check func(a *spec.App, bad func(format string, args ...any))
+
+// checks are run in this order; every problem of every one is reported.
+var checks = []check{checkIdentity, checkRunner, checkPolicy, checkHealth, checkSource, checkPresentation}
+
 // validate checks a finished app on its own.
 func validate(a *spec.App) error {
 	var errs []string
 	bad := func(f string, args ...any) { errs = append(errs, fmt.Sprintf(f, args...)) }
+	for _, c := range checks {
+		c(a, bad)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// checkIdentity: the app's ID and its arguments.
+func checkIdentity(a *spec.App, bad func(format string, args ...any)) {
 	if !ValidID(a.ID) {
 		bad("id %q: use lowercase letters, digits, '.', '-' and '_'", a.ID)
 	}
@@ -143,6 +160,10 @@ func validate(a *spec.App) error {
 			bad("args: %s is not used: put {%s} in the runner's command or url", name, name)
 		}
 	}
+}
+
+// checkRunner: the runner and its handoff.
+func checkRunner(a *spec.App, bad func(format string, args ...any)) {
 	if _, ok := runnerTypes[a.Runner.Type]; !ok {
 		names := make([]string, 0, len(runnerTypes))
 		for n := range runnerTypes {
@@ -181,6 +202,10 @@ func validate(a *spec.App) error {
 			bad("runner.handoff applies to exec, flatpak and url apps")
 		}
 	}
+}
+
+// checkPolicy: the surface, instance policy, restart and autostart.
+func checkPolicy(a *spec.App, bad func(format string, args ...any)) {
 	if a.Surface != spec.SurfaceWindow && a.Surface != spec.SurfaceBackground {
 		bad("surface %q: use window or background", a.Surface)
 	}
@@ -200,6 +225,10 @@ func validate(a *spec.App) error {
 	if a.Autostart && a.Surface != spec.SurfaceBackground {
 		bad("autostart is for background apps (a window waits for someone to open it)")
 	}
+}
+
+// checkHealth: the health checks and the status address.
+func checkHealth(a *spec.App, bad func(format string, args ...any)) {
 	if h := a.Health; h.HTTP != "" && !strings.HasPrefix(h.HTTP, "http://") && !strings.HasPrefix(h.HTTP, "https://") {
 		bad("health.http %q: an http:// or https:// URL", h.HTTP)
 	}
@@ -218,6 +247,10 @@ func validate(a *spec.App) error {
 			}
 		}
 	}
+}
+
+// checkSource: the [source]: where deploys come from.
+func checkSource(a *spec.App, bad func(format string, args ...any)) {
 	if d := a.Deploy; d != nil {
 		if strings.HasPrefix(d.URL, "-") {
 			bad("source.url %q: a git repository", d.URL)
@@ -277,6 +310,10 @@ func validate(a *spec.App) error {
 			}
 		}
 	}
+}
+
+// checkPresentation: how the app is listed and shown: folder, pictures, window, actions, volume.
+func checkPresentation(a *spec.App, bad func(format string, args ...any)) {
 	if u := a.Under; u != "" && (!ValidID(u) || u == a.ID) {
 		bad("under %q: another app's id", u)
 	}
@@ -315,10 +352,6 @@ func validate(a *spec.App) error {
 	if v := a.Audio.Volume; v != nil && (*v < 0 || *v > 150) {
 		bad("audio.volume %d: use 0-150", *v)
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("%s", strings.Join(errs, "; "))
-	}
-	return nil
 }
 
 // Catalog is a built, immutable set of apps.
