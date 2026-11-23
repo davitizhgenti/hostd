@@ -19,6 +19,8 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/execx"
+	"github.com/davitizhgenti/hostd/internal/proc"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
 
@@ -75,8 +77,8 @@ type ExecRunner struct {
 	Kill       func(pid int, sig syscall.Signal) error
 	// RunCommand runs a handoff command outside a unit, when the unit is
 	// still busy hosting the program it handed off to before (Steam
-	// started by the first launch). Tests replace it.
-	RunCommand func(ctx context.Context, argv, env []string, dir string) error
+	// started by the first launch). Default execx.OS.
+	Exec execx.Runner
 
 	mu       sync.Mutex
 	handoffs map[string]*handoff // by instance ID
@@ -338,7 +340,7 @@ func (r *ExecRunner) Adopt(ctx context.Context) ([]Instance, error) {
 		inst := Instance{ID: m[1], App: m[2], Runner: spec.RunnerExec, Unit: u.Name, PID: u.MainPID, State: StateRunning, Started: u.Since}
 		ended, code, _ := endedState(u)
 		if kv := m[3]; kv != "" {
-			alive := len(pidsWithEnv(r.procRoot(), kv)) > 0
+			alive := len(proc.WithEnv(r.procRoot(), kv)) > 0
 			switch {
 			case alive:
 				r.trackHandoff(inst.ID, kv, ended)

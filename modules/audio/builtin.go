@@ -10,7 +10,7 @@ var Builtin = host.Builtin{
 	Name:    "audio",
 	Default: true,
 	New: func(h *host.Host, _ any) (sdk.Module, error) {
-		return New(Options{Backend: &WirePlumber{}, Logger: h.Log,
-			Media: &DBusMedia{RuntimeDir: h.RuntimeDir}}), nil
+		return New(Options{Backend: &WirePlumber{Exec: h.Exec}, Logger: h.Log,
+			Media: &DBusMedia{Bus: h.Session}}), nil
 	},
 }

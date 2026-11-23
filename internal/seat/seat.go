@@ -7,45 +7,10 @@ package seat
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/evdev"
 )
-
-// Active reports whether user's primary session is the active one of its
-// seat. When logind cannot say (no session, no logind, a remote session
-// that has no seat) the answer is yes: nothing then takes the seat away.
-func Active(ctx context.Context, user string) bool {
-	display := loginctl(ctx, "show-user", user, "-p", "Display", "--value")
-	if display == "" {
-		return true
-	}
-	switch loginctl(ctx, "show-session", display, "-p", "Active", "--value") {
-	case "no":
-		return false
-	default:
-		return true
-	}
-}
-
-func loginctl(ctx context.Context, args ...string) string {
-	out, err := exec.CommandContext(ctx, "loginctl", args...).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// Holder is the user whose session is active on seat0, "" if none is.
-func Holder(ctx context.Context) string {
-	id := loginctl(ctx, "show-seat", "seat0", "-p", "ActiveSession", "--value")
-	if id == "" {
-		return ""
-	}
-	return loginctl(ctx, "show-session", id, "-p", "Name", "--value")
-}
 
 // A Gate lets an Input read only while the user holds the seat. Devices and
 // Grab pass through to Inner (a grab is kept until the devices are read again).

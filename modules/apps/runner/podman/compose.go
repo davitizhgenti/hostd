@@ -1,15 +1,16 @@
 package podman
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -27,8 +28,8 @@ type ComposeRunner struct {
 	Socket string // the engine socket (DOCKER_HOST for the compose tool)
 	// Command runs compose: default podman compose, else docker compose.
 	Command []string
-	// Run runs the compose tool (tests replace it).
-	Run func(ctx context.Context, argv, env []string) error
+	// Exec runs the compose tool (default execx.OS).
+	Exec execx.Runner
 }
 
 // projectName is reversible: '#' → "__", '.' → "_d", '_' → "_u"
@@ -78,25 +79,12 @@ func (r *ComposeRunner) command() []string {
 }
 
 func (r *ComposeRunner) run(ctx context.Context, argv, env []string) error {
-	if r.Run != nil {
-		return r.Run(ctx, argv, env)
+	run := r.Exec
+	if run == nil {
+		run = execx.OS{}
 	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = env
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w\n%s", strings.Join(argv, " "), err, lastLines(out.String(), 20))
-	}
-	return nil
-}
-
-func lastLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n")
+	_, err := run.Run(ctx, execx.Cmd{Argv: argv, Environ: env, Stdout: io.Discard, Tail: 20})
+	return err
 }
 
 func (r *ComposeRunner) Start(ctx context.Context, inst Instance, app *App) (Instance, error) {

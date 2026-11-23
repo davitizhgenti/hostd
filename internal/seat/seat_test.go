@@ -2,12 +2,18 @@ package seat
 
 import (
 	"context"
+	"os/user"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/dbusx"
+	"github.com/davitizhgenti/hostd/internal/dbusx/dbusxtest"
 	"github.com/davitizhgenti/hostd/internal/evdev"
+
+	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 )
 
 type fakeInput struct {
@@ -81,11 +87,83 @@ type nilInput struct{}
 func (nilInput) Watch(context.Context, func(evdev.InputEvent)) error { return nil }
 
 func TestActiveAndHolderWithoutLogind(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // no loginctl
-	if !Active(context.Background(), "nobody") {
+	l := &Logind{Bus: &dbusx.Bus{Address: func() (string, error) { return "unix:path=/nonexistent/bus", nil }}}
+	if !l.Active(context.Background(), "root") {
 		t.Error("unknown must be active")
 	}
-	if Holder(context.Background()) != "" {
+	if l.Holder(context.Background()) != "" {
 		t.Error("no holder without logind")
+	}
+	if !l.Active(context.Background(), "hostd-no-such-user") {
+		t.Error("a user that does not exist must be active")
+	}
+}
+
+// fakeLogind serves the few objects Logind reads: the manager, seat0, one
+// user, and the sessions.
+type fakeLogind struct{ userPath dbus.ObjectPath }
+
+func (f *fakeLogind) GetUser(uid uint32) (dbus.ObjectPath, *dbus.Error) { return f.userPath, nil }
+
+func serveLogind(t *testing.T, conn *dbus.Conn, uid string, display, active sessionRef, activeOn bool) {
+	t.Helper()
+	if _, err := conn.RequestName(login1, dbus.NameFlagDoNotQueue); err != nil {
+		t.Fatal(err)
+	}
+	userPath := dbus.ObjectPath("/org/freedesktop/login1/user/_" + uid)
+	if err := conn.Export(&fakeLogind{userPath: userPath}, login1Path, "org.freedesktop.login1.Manager"); err != nil {
+		t.Fatal(err)
+	}
+	export := func(path dbus.ObjectPath, iface string, props map[string]any) {
+		p := prop.Map{iface: {}}
+		for k, v := range props {
+			p[iface][k] = &prop.Prop{Value: v}
+		}
+		if _, err := prop.Export(conn, path, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	export(userPath, ifaceUser, map[string]any{"Display": display})
+	export(seat0Path, ifaceSeat, map[string]any{"ActiveSession": active})
+	export("/org/freedesktop/login1/session/_31", ifaceSession, map[string]any{"Active": activeOn, "Name": "serve"})
+	export("/org/freedesktop/login1/session/_32", ifaceSession, map[string]any{"Active": !activeOn, "Name": "guest"})
+}
+
+func TestLogind(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	ctx := context.Background()
+	s1 := sessionRef{"1", "/org/freedesktop/login1/session/_31"}
+	s2 := sessionRef{"2", "/org/freedesktop/login1/session/_32"}
+	for name, c := range map[string]struct {
+		display, active sessionRef
+		on              bool
+		wantActive      bool
+		wantHolder      string
+	}{
+		"holds the seat":  {s1, s1, true, true, "serve"},
+		"another holds":   {s1, s2, false, false, "guest"},
+		"no display":      {sessionRef{"", "/"}, s1, true, true, "serve"},
+		"nobody holds it": {s1, sessionRef{"", "/"}, false, false, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			addr := dbusxtest.Private(t)
+			server, err := dbus.Connect(addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			serveLogind(t, server, me.Uid, c.display, c.active, c.on)
+			l := &Logind{Bus: &dbusx.Bus{Address: func() (string, error) { return addr, nil }}}
+			defer l.Bus.Close()
+			if got := l.Active(ctx, me.Username); got != c.wantActive {
+				t.Errorf("active %v", got)
+			}
+			if got := l.Holder(ctx); got != c.wantHolder {
+				t.Errorf("holder %q", got)
+			}
+		})
 	}
 }

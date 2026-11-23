@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -24,17 +25,18 @@ func TestUpdaterRelease(t *testing.T) {
 	_ = os.WriteFile(setup, []byte("#!/bin/sh\n"), 0o755)
 	var ran [][]string
 	active := false
-	u := &updater{setup: setup, run: func(_ context.Context, name string, args ...string) error {
-		ran = append(ran, append([]string{name}, args...))
+	u := &updater{setup: setup, run: execx.Func(func(_ context.Context, c execx.Cmd) ([]byte, error) {
+		ran = append(ran, c.Argv)
+		name := c.Argv[0]
 		if name == "systemctl" {
 			if active {
-				return nil
+				return nil, nil
 			}
-			return errors.New("inactive")
+			return nil, errors.New("inactive")
 		}
 		active = true
-		return nil
-	}}
+		return nil, nil
+	})}
 	if err := u.UpdateRelease(ctx); err != nil {
 		t.Fatal(err)
 	}

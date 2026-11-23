@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/core/store"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/update"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -21,10 +22,10 @@ type updater struct {
 	store      *store.Store
 	configPath string
 	restart    func() error
-	// setup is the installer (~/.local/bin/hostd-setup); run runs a command
-	// (exec outside tests).
+	// setup is the installer (~/.local/bin/hostd-setup); run runs commands
+	// (default execx.OS).
 	setup string
-	run   func(ctx context.Context, name string, args ...string) error
+	run   execx.Runner
 }
 
 // releaseUnit is the transient unit the release update runs as: it is not
@@ -32,10 +33,12 @@ type updater struct {
 const releaseUnit = "hostd-update-now"
 
 func (u *updater) exec(ctx context.Context, name string, args ...string) error {
-	if u.run != nil {
-		return u.run(ctx, name, args...)
+	run := u.run
+	if run == nil {
+		run = execx.OS{}
 	}
-	return exec.CommandContext(ctx, name, args...).Run()
+	_, err := run.Run(ctx, execx.Cmd{Argv: append([]string{name}, args...)})
+	return err
 }
 
 // UpdateRelease starts `hostd-setup update` (the newest signed build, as the
@@ -183,9 +186,7 @@ func installFromFile(path, libDir, stateDir, configPath string, noRestart bool, 
 	// for systemd to give up: at most a few start attempts.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "systemctl", "--user", "restart", "hostd.service")
-	cmd.Stdout, cmd.Stderr = stderr, stderr
-	if err := cmd.Run(); err != nil {
+	if _, err := (execx.OS{Out: stderr}).Run(ctx, execx.Cmd{Argv: []string{"systemctl", "--user", "restart", "hostd.service"}, Stream: true}); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			fmt.Fprintln(stderr, "hostd did not start; systemd rolls back to the previous version")

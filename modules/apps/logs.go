@@ -1,14 +1,13 @@
 package apps
 
 import (
-	"bytes"
 	"context"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -28,10 +27,9 @@ type JournalQuery struct {
 }
 
 // journal reads a user unit's last lines from the journal.
-func journal(ctx context.Context, q JournalQuery) ([]string, error) {
+func journal(ctx context.Context, run execx.Runner, q JournalQuery) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	var stderr bytes.Buffer
 	args := []string{"--user", "-n", strconv.Itoa(q.Lines), "--no-pager"}
 	if q.Plain {
 		// The messages of the app's own processes, not systemd's about
@@ -45,11 +43,9 @@ func journal(ctx context.Context, q JournalQuery) ([]string, error) {
 		// before, logged in the same unit.
 		args = append(args, "--since", q.Since.UTC().Format("2006-01-02 15:04:05.000000")+" UTC")
 	}
-	cmd := exec.CommandContext(ctx, "journalctl", args...)
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := run.Run(ctx, execx.Cmd{Argv: append([]string{"journalctl"}, args...)})
 	if err != nil {
-		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "journalctl: %v: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "%v", err)
 	}
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	if len(lines) == 1 && (lines[0] == "" || lines[0] == "-- No entries --") {
@@ -80,7 +76,7 @@ func (m *Module) readLogs(ctx context.Context, params map[string]string) (any, e
 	}
 	read := m.opts.Journal
 	if read == nil {
-		read = journal
+		read = func(ctx context.Context, q JournalQuery) ([]string, error) { return journal(ctx, m.opts.Exec, q) }
 	}
 	plain := params["plain"] == "true" || params["plain"] == "1"
 	lines, err := read(ctx, JournalQuery{Unit: unit, Lines: n, Since: in.Started, Plain: plain})

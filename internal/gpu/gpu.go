@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/execx"
 )
 
 // Reader reports the graphics card's memory use, in bytes.
@@ -39,7 +41,7 @@ func (g System) Memory(ctx context.Context) (int64, int64, error) {
 	if path := smi; path != "" && path != "-" {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, path, "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits").Output()
+		out, err := (execx.OS{}).Run(ctx, execx.Cmd{Argv: []string{path, "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"}})
 		if err != nil {
 			return 0, 0, err
 		}

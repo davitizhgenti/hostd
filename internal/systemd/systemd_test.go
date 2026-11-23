@@ -2,11 +2,13 @@ package systemd
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/davitizhgenti/hostd/internal/dbusx"
 )
 
 func TestSubStateChange(t *testing.T) {
@@ -48,7 +50,7 @@ func TestNeverAutolaunchesABus(t *testing.T) {
 	s := &UserSystemd{RuntimeDir: t.TempDir()}
 	start := time.Now()
 	_, err := s.List(context.Background(), "hostd-*.service")
-	if err == nil || !strings.Contains(err.Error(), "no user bus") {
+	if err == nil || !errors.Is(err, dbusx.ErrNoBus) {
 		t.Fatalf("err = %v", err)
 	}
 	if time.Since(start) > time.Second {

@@ -441,30 +441,6 @@ func TestEnsurePackagesRetries(t *testing.T) {
 	}
 }
 
-func TestExecRunner(t *testing.T) {
-	var streamed bytes.Buffer
-	r := ExecRunner{Out: &streamed}
-	ctx := context.Background()
-	out, err := r.Run(ctx, Cmd{Argv: []string{"sh", "-c", "echo out; echo err >&2"}, Env: []string{"X=1"}})
-	if err != nil || string(out) != "out\n" {
-		t.Fatalf("captured %q %v", out, err)
-	}
-	if _, err := r.Run(ctx, Cmd{Argv: []string{"sh", "-c", "echo $X", ""}, Env: []string{"X=streamed"}, Stream: true}); err != nil || streamed.String() != "streamed\n" {
-		t.Fatalf("streamed %q %v", streamed.String(), err)
-	}
-	var w bytes.Buffer
-	if _, err := r.Run(ctx, Cmd{Argv: []string{"sh", "-c", "echo to-w; echo also >&2"}, Stdout: &w}); err != nil || w.String() != "to-w\nalso\n" {
-		t.Fatalf("to a writer %q %v", w.String(), err)
-	}
-	_, err = r.Run(ctx, Cmd{Argv: []string{"sh", "-c", "echo first >&2; echo why it failed >&2; exit 3"}})
-	if err == nil || !strings.Contains(err.Error(), "exit status 3: why it failed") {
-		t.Fatalf("error %v", err)
-	}
-	if _, err := r.Run(ctx, Cmd{}); err == nil {
-		t.Fatal("ran nothing")
-	}
-}
-
 func TestBadReleaseKeysAndDocs(t *testing.T) {
 	if _, err := parseKey([]byte("not a key")); err == nil || !strings.Contains(err.Error(), "not a PEM public key") {
 		t.Fatalf("%v", err)

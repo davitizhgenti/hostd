@@ -50,12 +50,8 @@ func HasEnv(procRoot string, pid int, kv string) bool {
 	if pid <= 0 {
 		return false
 	}
-	env, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "environ"))
-	if err != nil {
-		return false
-	}
-	for _, v := range strings.Split(string(env), "\x00") {
-		if v == kv {
+	for _, v := range environ(procRoot, pid) {
+		if string(v) == kv {
 			return true
 		}
 	}

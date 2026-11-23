@@ -7,9 +7,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/proc"
 )
 
 // Pointer is where a pointing device (a Wii Remote's IR camera) points on
@@ -350,20 +351,8 @@ func (w *wiiRemote) calibrate(r wiiReport, prevCore uint16, ev *InputEvent) {
 
 // --- finding remotes ---
 
-// Busy tells whether an app that reads a raw device itself runs.
-func procBusy(app string) bool {
-	ents, _ := os.ReadDir("/proc")
-	for _, e := range ents {
-		if e.Name() == "" || e.Name()[0] < '0' || e.Name()[0] > '9' {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join("/proc", e.Name(), "comm"))
-		if err == nil && strings.TrimSpace(string(b)) == app {
-			return true
-		}
-	}
-	return false
-}
+// procBusy tells whether an app that reads a raw device itself runs.
+func procBusy(app string) bool { return proc.Named("", app) }
 
 // watchWii reads the Wii Remotes of raw devices whose profile has a
 // reader of its own (the DolphinBar's four channels), while the app that

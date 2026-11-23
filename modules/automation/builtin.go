@@ -11,6 +11,6 @@ var Builtin = host.Builtin{
 	Name:    "automation",
 	Default: true,
 	New: func(h *host.Host, _ any) (sdk.Module, error) {
-		return New(Options{Logger: h.Log, URL: "unix://" + h.Socket}), nil
+		return New(Options{Logger: h.Log, URL: "unix://" + h.Socket, Exec: h.Exec}), nil
 	},
 }

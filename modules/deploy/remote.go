@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
+	"github.com/davitizhgenti/hostd/internal/execx"
 
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -34,9 +34,8 @@ func (m *Module) makeKey(ctx context.Context, app string) (string, error) {
 			return "", err
 		}
 		host, _ := os.Hostname()
-		cmd := exec.CommandContext(ctx, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "hostd deploy key: "+app+"@"+host, "-f", path)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("ssh-keygen: %w: %s", err, strings.TrimSpace(string(out)))
+		if _, err := execx.Run(ctx, m.opts.Exec, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "hostd deploy key: "+app+"@"+host, "-f", path); err != nil {
+			return "", err
 		}
 	} else if err != nil {
 		return "", err

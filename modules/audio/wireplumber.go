@@ -1,7 +1,6 @@
 package audio
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -42,6 +42,8 @@ type WirePlumber struct {
 	// Env is added to the commands' environment (XDG_RUNTIME_DIR, so they
 	// find the user's PipeWire).
 	Env []string
+	// Exec runs wpctl, pw-dump and pw-metadata (nil: execx.OS).
+	Exec execx.Runner
 
 	graph graphCache // the outputs and streams, kept up to date by Watch
 }
@@ -50,30 +52,25 @@ const defaultSink = "@DEFAULT_AUDIO_SINK@"
 
 // wpctl runs wpctl with args.
 func (w *WirePlumber) wpctl(ctx context.Context, args ...string) ([]byte, error) {
-	const name = "wpctl"
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(cmd.Environ(), w.Env...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		var ee *exec.Error
-		if errors.As(err, &ee) {
-			return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "%s is not installed", name)
-		}
-		msg := strings.TrimSpace(lastLine(stderr.String()))
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "%s %s: %s", name, strings.Join(args, " "), msg)
-	}
-	return out, nil
+	return w.run(ctx, append([]string{"wpctl"}, args...)...)
 }
 
-// lastLine skips wpctl's warnings (e.g. RTKit) and keeps the actual error.
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return lines[len(lines)-1]
+// run runs one of PipeWire's tools; any failure means audio is not there
+// to use. The error keeps the tool's last line, which skips its warnings
+// (e.g. RTKit) and keeps the actual reason.
+func (w *WirePlumber) run(ctx context.Context, argv ...string) ([]byte, error) {
+	r := w.Exec
+	if r == nil {
+		r = execx.OS{}
+	}
+	out, err := r.Run(ctx, execx.Cmd{Argv: argv, Env: w.Env})
+	if execx.NotFound(err) {
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "%s is not installed", argv[0])
+	}
+	if err != nil {
+		return nil, sdk.Errorf(sdk.CodeModuleUnavailable, "%v", err)
+	}
+	return out, nil
 }
 
 func (w *WirePlumber) Master(ctx context.Context) (Master, error) {

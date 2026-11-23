@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/tomlx"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -123,24 +122,13 @@ func (m *Module) script(ctx context.Context, name, label, rule string, event jso
 
 	run, cancel := context.WithTimeout(ctx, set.timeout)
 	defer cancel()
-	var cmd *exec.Cmd
-	if len(set.Command) > 0 {
-		cmd = exec.CommandContext(run, set.Command[0], set.Command[1:]...)
-	} else {
-		cmd = exec.CommandContext(run, "sh", "-c", set.Run)
+	argv := set.Command
+	if len(argv) == 0 {
+		argv = []string{"sh", "-c", set.Run}
 	}
-	cmd.Dir = m.opts.ScriptsDir
-	cmd.Env = append(os.Environ(), "HOSTD_URL="+m.opts.URL, "HOSTD_TOKEN="+secret,
-		"HOSTD_EVENT="+string(event), "HOSTD_RULE="+rule)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) } // the whole group
-	cmd.WaitDelay = 5 * time.Second
 	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err = cmd.Run()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // anything it left behind
-	}
+	_, err = m.opts.Exec.Run(run, execx.Cmd{Argv: argv, Dir: m.opts.ScriptsDir, Group: true, Stdout: &out,
+		Env: []string{"HOSTD_URL=" + m.opts.URL, "HOSTD_TOKEN=" + secret, "HOSTD_EVENT=" + string(event), "HOSTD_RULE=" + rule}})
 	time.Sleep(100 * time.Millisecond) // the last action's events are on their way
 	stopWatch()
 	<-done
@@ -165,14 +153,7 @@ func (m *Module) script(ctx context.Context, name, label, rule string, event jso
 	}
 	m.log.Info("a script ran", "script", name, "rule", rule, "exit", code, "actions", sent, "output", tail)
 	if code != 0 {
-		return "", fmt.Errorf("exit status %d (%d action(s) sent): %s", code, len(sent), lastLine(tail))
+		return "", fmt.Errorf("exit status %d (%d action(s) sent): %s", code, len(sent), execx.LastLines(tail, 1))
 	}
 	return fmt.Sprintf("ran: exit 0, %d action(s) sent", len(sent)), nil
-}
-
-func lastLine(s string) string {
-	if i := strings.LastIndex(s, "\n"); i >= 0 {
-		return s[i+1:]
-	}
-	return s
 }

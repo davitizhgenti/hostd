@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +13,8 @@ import (
 
 	sdbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/godbus/dbus/v5"
+
+	"github.com/davitizhgenti/hostd/internal/dbusx"
 )
 
 // UserSystemd is the systemd user manager over D-Bus. It connects on first
@@ -32,14 +32,11 @@ type UserSystemd struct {
 // without an address that library runs dbus-launch, which starts a stray
 // bus with no systemd on it, and hostd would wait on it for a timeout.
 func (s *UserSystemd) address() (string, error) {
-	if a := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); a != "" {
-		return a, nil
+	a, err := dbusx.SessionAddress(s.RuntimeDir)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errNoManager, err)
 	}
-	path := filepath.Join(s.RuntimeDir, "bus")
-	if fi, err := os.Stat(path); err != nil || fi.Mode()&os.ModeSocket == 0 {
-		return "", fmt.Errorf("%w: no user bus at %s", errNoManager, path)
-	}
-	return "unix:path=" + path, nil
+	return a, nil
 }
 
 func (s *UserSystemd) connect(ctx context.Context) (*sdbus.Conn, error) {

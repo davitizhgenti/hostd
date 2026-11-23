@@ -1,11 +1,9 @@
 package audio
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +13,8 @@ import (
 	"github.com/godbus/dbus/v5/prop"
 
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/internal/dbusx"
+	"github.com/davitizhgenti/hostd/internal/dbusx/dbusxtest"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -105,27 +105,6 @@ func TestMediaKeysAndChanges(t *testing.T) {
 }
 
 // privateBus starts a session bus of its own for the test.
-func privateBus(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath("dbus-daemon"); err != nil {
-		t.Skip("no dbus-daemon")
-	}
-	cmd := exec.Command("dbus-daemon", "--session", "--nofork", "--print-address=1")
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Skipf("dbus-daemon: %v", err)
-	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	addr, err := bufio.NewReader(out).ReadString('\n')
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.TrimSpace(addr)
-}
-
 type testPlayer struct {
 	mu     sync.Mutex
 	pauses int
@@ -134,7 +113,7 @@ type testPlayer struct {
 func (p *testPlayer) PlayPause() *dbus.Error { p.mu.Lock(); p.pauses++; p.mu.Unlock(); return nil }
 
 func TestDBusMedia(t *testing.T) {
-	addr := privateBus(t)
+	addr := dbusxtest.Private(t)
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", addr)
 	conn, err := dbus.Connect(addr)
 	if err != nil {
@@ -158,7 +137,8 @@ func TestDBusMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := &DBusMedia{}
+	d := &DBusMedia{Bus: dbusx.Session(t.TempDir())}
+	defer d.Bus.Close()
 	ctx := context.Background()
 	ps, err := d.Players(ctx)
 	if err != nil || len(ps) != 1 {

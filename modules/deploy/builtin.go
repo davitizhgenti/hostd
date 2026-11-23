@@ -12,6 +12,6 @@ var Builtin = host.Builtin{
 	Name:    "deploy",
 	Default: true,
 	New: func(h *host.Host, _ any) (sdk.Module, error) {
-		return New(Options{Logger: h.Log, SecretsDir: h.Secrets.Dir, AppsDir: filepath.Join(h.ConfigDir, "apps")}), nil
+		return New(Options{Logger: h.Log, Exec: h.Exec, SecretsDir: h.Secrets.Dir, AppsDir: filepath.Join(h.ConfigDir, "apps")}), nil
 	},
 }

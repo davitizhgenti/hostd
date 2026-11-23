@@ -1,13 +1,13 @@
 package deploy
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/davitizhgenti/hostd/internal/execx"
 )
 
 // repo is a service's bare repository, the target of git push.
@@ -21,15 +21,8 @@ func (m *Module) git(ctx context.Context, args ...string) (string, error) {
 
 // gitWith runs git with env (nil: hostd's own).
 func (m *Module) gitWith(ctx context.Context, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = env
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return strings.TrimSpace(string(out)), nil
+	out, err := m.opts.Exec.Run(ctx, execx.Cmd{Argv: append([]string{"git"}, args...), Environ: env, Tail: 5})
+	return strings.TrimSpace(string(out)), err
 }
 
 // hook deploys a push to the service's branch: hostctl deploy run, whose
@@ -90,37 +83,10 @@ func (m *Module) build(ctx context.Context, dir string, argv []string) error {
 		return err
 	}
 	defer log.Close()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = dir
-	var tail bytes.Buffer
-	cmd.Stdout = &teeTail{w: log, tail: &tail}
-	cmd.Stderr = cmd.Stdout
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("build (%s) failed: %w\n%s", strings.Join(argv, " "), err, lastLines(tail.String(), 20))
+	if _, err := m.opts.Exec.Run(ctx, execx.Cmd{Argv: argv, Dir: dir, Stdout: log, Tail: 20}); err != nil {
+		return fmt.Errorf("build failed: %w", err)
 	}
 	return nil
-}
-
-// teeTail writes to w and keeps the output for the error message.
-type teeTail struct {
-	w    *os.File
-	tail *bytes.Buffer
-}
-
-func (t *teeTail) Write(p []byte) (int, error) {
-	t.tail.Write(p)
-	if t.tail.Len() > 64<<10 {
-		t.tail.Next(t.tail.Len() - 64<<10)
-	}
-	return t.w.Write(p)
-}
-
-func lastLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n")
 }
 
 // exportTree writes commit sha's tree into dir.
@@ -128,30 +94,12 @@ func (m *Module) exportTree(ctx context.Context, repo, sha, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	// git archive | tar -x, through an OS pipe both processes hold.
-	pr, pw, err := os.Pipe()
-	if err != nil {
+	// git archive to a file next to the tree, then tar -x from it.
+	tarball := dir + ".tar"
+	defer os.Remove(tarball)
+	if _, err := m.git(ctx, "--git-dir", repo, "archive", "--format=tar", "-o", tarball, sha); err != nil {
 		return err
 	}
-	archive := exec.CommandContext(ctx, "git", "--git-dir", repo, "archive", "--format=tar", sha)
-	untar := exec.CommandContext(ctx, "tar", "-x", "-C", dir)
-	var archiveErr, untarErr bytes.Buffer
-	archive.Stdout, archive.Stderr = pw, &archiveErr
-	untar.Stdin, untar.Stderr = pr, &untarErr
-	if err := untar.Start(); err != nil {
-		pr.Close()
-		pw.Close()
-		return err
-	}
-	pr.Close() // tar has it
-	aerr := archive.Run()
-	pw.Close() // tar sees the end
-	uerr := untar.Wait()
-	if aerr != nil {
-		return fmt.Errorf("git archive: %w: %s", aerr, strings.TrimSpace(archiveErr.String()))
-	}
-	if uerr != nil {
-		return fmt.Errorf("tar: %w: %s", uerr, strings.TrimSpace(untarErr.String()))
-	}
-	return nil
+	_, err := m.opts.Exec.Run(ctx, execx.Cmd{Argv: []string{"tar", "-x", "-C", dir, "-f", tarball}})
+	return err
 }

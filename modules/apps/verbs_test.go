@@ -10,6 +10,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/testutil"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/units/unitstest"
@@ -220,11 +221,12 @@ func TestCloseRunsTheQuitCommand(t *testing.T) {
 	r.m.loadFiles()
 	waitUntil(t, func() bool { return sd.Watching() == 1 })
 	ran := make(chan []string, 1)
-	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(_ context.Context, argv, _ []string, _ string) error {
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).Exec = execx.Func(func(_ context.Context, c execx.Cmd) ([]byte, error) {
+		argv := c.Argv
 		ran <- argv
 		sd.Exit(contract.UnitName("steam"), 0, 0) // Steam shuts down
-		return nil
-	}
+		return nil, nil
+	})
 	r.start(t, "steam")
 	data, err := r.verb(t, contract.ActionInstanceClose, map[string]any{"id": "steam"})
 	if err != nil || data["quit"] != true {
@@ -245,9 +247,9 @@ func TestCloseFallsBackWhenTheQuitCommandFails(t *testing.T) {
 	r := newRigWith(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t), nil, rigApps, w.module())
 	writeApps(t, r.m.opts.AppsDir, quitApps)
 	r.m.loadFiles()
-	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(context.Context, []string, []string, string) error {
-		return errors.New("flatpak: no such app")
-	}
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).Exec = execx.Func(func(_ context.Context, c execx.Cmd) ([]byte, error) {
+		return nil, errors.New("flatpak: no such app")
+	})
 	r.start(t, "steam")
 	if _, err := r.verb(t, contract.ActionInstanceClose, map[string]any{"id": "steam"}); err != nil {
 		t.Fatal(err)

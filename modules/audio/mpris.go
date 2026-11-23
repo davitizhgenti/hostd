@@ -6,14 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/davitizhgenti/hostd/internal/dbusx"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -46,37 +44,11 @@ const mprisPrefix = "org.mpris.MediaPlayer2."
 
 // DBusMedia talks MPRIS on the user's session bus.
 type DBusMedia struct {
-	RuntimeDir string // where the user bus is: <RuntimeDir>/bus
-
-	mu   sync.Mutex
-	conn *dbus.Conn
-}
-
-func (d *DBusMedia) connect(ctx context.Context) (*dbus.Conn, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.conn != nil && d.conn.Connected() {
-		return d.conn, nil
-	}
-	// Never let the library autolaunch a bus: only the session's own will do.
-	addr := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
-	if addr == "" {
-		path := filepath.Join(d.RuntimeDir, "bus")
-		if fi, err := os.Stat(path); err != nil || fi.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("no user bus at %s", path)
-		}
-		addr = "unix:path=" + path
-	}
-	conn, err := dbus.Connect(addr, dbus.WithContext(ctx))
-	if err != nil {
-		return nil, err
-	}
-	d.conn = conn
-	return conn, nil
+	Bus *dbusx.Bus // the session bus, shared
 }
 
 func (d *DBusMedia) Players(ctx context.Context) ([]Player, error) {
-	conn, err := d.connect(ctx)
+	conn, err := d.Bus.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +84,7 @@ func (d *DBusMedia) Players(ctx context.Context) ([]Player, error) {
 }
 
 func (d *DBusMedia) Command(ctx context.Context, name, method string) error {
-	conn, err := d.connect(ctx)
+	conn, err := d.Bus.Conn(ctx)
 	if err != nil {
 		return err
 	}
@@ -121,7 +93,7 @@ func (d *DBusMedia) Command(ctx context.Context, name, method string) error {
 }
 
 func (d *DBusMedia) Watch(ctx context.Context, fn func()) error {
-	conn, err := d.connect(ctx)
+	conn, err := d.Bus.Conn(ctx)
 	if err != nil {
 		return err
 	}

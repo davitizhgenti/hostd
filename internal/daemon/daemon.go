@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/dbusx"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/paths"
 
 	"github.com/davitizhgenti/hostd/core"
@@ -98,8 +100,9 @@ func Run(ctx context.Context, args []string, stderr io.Writer) int {
 	home, _ := os.UserHomeDir()
 	h := &host.Host{RuntimeDir: *runtimeDir, StateDir: *stateDir, ConfigDir: filepath.Dir(*configPath), Socket: *socket,
 		Home: home, Log: log, Clock: clock.Real(), Secrets: secrets.Store{Dir: paths.Config("secrets")},
-		Systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}}
+		Systemd: &systemd.UserSystemd{RuntimeDir: *runtimeDir}, Exec: execx.OS{}, Session: dbusx.Session(*runtimeDir)}
 	defer h.Systemd.Close()
+	defer h.Session.Close()
 	var mods []sdk.Module
 	for _, name := range cfg.Modules {
 		m, err := builtinNamed(name).New(h, confs[name])

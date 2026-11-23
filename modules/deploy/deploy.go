@@ -25,6 +25,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
 )
 
@@ -64,6 +65,8 @@ type Options struct {
 	// PollTick is how often remote sources are checked for being due
 	// (default 10s; each has its own poll interval).
 	PollTick time.Duration
+	// Exec runs git, tar, ssh-keygen and build commands (default execx.OS).
+	Exec execx.Runner
 }
 
 // Module is the deploy module.
@@ -89,6 +92,9 @@ func New(opts Options) *Module {
 	if opts.Root == "" {
 		home, _ := os.UserHomeDir()
 		opts.Root = filepath.Join(home, "hostd")
+	}
+	if opts.Exec == nil {
+		opts.Exec = execx.OS{}
 	}
 	if opts.Clock == nil {
 		opts.Clock = clock.Real()

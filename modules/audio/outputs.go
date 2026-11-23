@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -37,11 +36,9 @@ func (w *WirePlumber) Graph(ctx context.Context) (Graph, error) {
 	if g, ok := w.graph.read(); ok {
 		return g, nil
 	}
-	cmd := exec.CommandContext(ctx, "pw-dump", "--no-colors")
-	cmd.Env = append(cmd.Environ(), w.Env...)
-	out, err := cmd.Output()
+	out, err := w.run(ctx, "pw-dump", "--no-colors")
 	if err != nil {
-		return Graph{}, sdk.Errorf(sdk.CodeModuleUnavailable, "pw-dump: %v", err)
+		return Graph{}, err
 	}
 	return parseGraph(out)
 }
@@ -52,12 +49,8 @@ func (w *WirePlumber) SetDefault(ctx context.Context, id int) error {
 }
 
 func (w *WirePlumber) MoveStream(ctx context.Context, stream int, node string) error {
-	cmd := exec.CommandContext(ctx, "pw-metadata", "-n", "default", fmt.Sprint(stream), "target.object", node)
-	cmd.Env = append(cmd.Environ(), w.Env...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return sdk.Errorf(sdk.CodeModuleUnavailable, "pw-metadata: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	_, err := w.run(ctx, "pw-metadata", "-n", "default", fmt.Sprint(stream), "target.object", node)
+	return err
 }
 
 func (w *WirePlumber) SetNodeVolume(ctx context.Context, id, percent int) error {

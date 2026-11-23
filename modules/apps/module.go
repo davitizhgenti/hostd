@@ -22,6 +22,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
 
 	"github.com/davitizhgenti/hostd/modules/apps/catalog"
@@ -50,6 +51,8 @@ type Options struct {
 	Logger   *slog.Logger
 	Debounce time.Duration // wait after the last file change before rescanning (default 500ms)
 	NoWatch  bool          // do not watch the directories (tests)
+	// Exec runs the programs the module uses (journalctl; default execx.OS).
+	Exec execx.Runner
 	// Journal reads a unit's last lines (default: journalctl --user).
 	Journal func(ctx context.Context, q JournalQuery) ([]string, error)
 }
@@ -89,6 +92,9 @@ type Module struct {
 func New(opts Options) *Module {
 	if opts.Clock == nil {
 		opts.Clock = clock.Real()
+	}
+	if opts.Exec == nil {
+		opts.Exec = execx.OS{}
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()

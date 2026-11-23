@@ -20,12 +20,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/davitizhgenti/hostd/internal/execx"
 )
 
 // Keep is how many versions stay installed (current and previous always
@@ -123,9 +124,7 @@ func versionOf(ctx context.Context, binary string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, binary, "-version")
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
+	if _, err := (execx.OS{}).Run(ctx, execx.Cmd{Argv: []string{binary, "-version"}, Stdout: &out}); err != nil {
 		return "", fmt.Errorf("the new binary does not run on this machine: %w", err)
 	}
 	m := reVersion.FindStringSubmatch(strings.TrimSpace(out.String()))

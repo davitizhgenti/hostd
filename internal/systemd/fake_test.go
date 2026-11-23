@@ -3,13 +3,14 @@ package systemd
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/davitizhgenti/hostd/internal/dbusx/dbusxtest"
 )
 
 // The real D-Bus code, against a fake systemd user manager on a bus of the
@@ -38,35 +39,10 @@ type fakeManager struct {
 	restarts []string
 }
 
-// privateBus starts a session bus of the test's own and points
-// DBUS_SESSION_BUS_ADDRESS at it.
-func privateBus(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath("dbus-daemon"); err != nil {
-		t.Skip("no dbus-daemon")
-	}
-	cmd := exec.Command("dbus-daemon", "--session", "--nofork", "--print-address=1")
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Skipf("dbus-daemon: %v", err)
-	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	buf := make([]byte, 512)
-	n, err := out.Read(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := strings.TrimSpace(string(buf[:n]))
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", addr)
-	return addr
-}
-
 func newFakeManager(t *testing.T) *fakeManager {
 	t.Helper()
-	addr := privateBus(t)
+	addr := dbusxtest.Private(t)
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", addr) // the code under test finds it there
 	conn, err := dbus.Connect(addr)
 	if err != nil {
 		t.Fatal(err)

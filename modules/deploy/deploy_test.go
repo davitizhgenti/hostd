@@ -1,7 +1,6 @@
 package deploy
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -827,29 +826,6 @@ func TestDeployRefusals(t *testing.T) {
 	// Unfollowing what is not followed changes nothing.
 	if _, err := do("config.unfollow", `{}`); err != nil && sdk.CodeOf(err) != sdk.CodeNotFound {
 		t.Fatalf("unfollow: %v", err)
-	}
-}
-
-func TestTeeTail(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	var tail bytes.Buffer
-	w := &teeTail{w: f, tail: &tail}
-	big := strings.Repeat("x", 70<<10)
-	if _, err := w.Write([]byte(big + "\nend\n")); err != nil {
-		t.Fatal(err)
-	}
-	if tail.Len() != 64<<10 || !strings.HasSuffix(tail.String(), "end\n") {
-		t.Fatalf("kept %d bytes", tail.Len())
-	}
-	if fi, _ := f.Stat(); fi.Size() != int64(len(big)+5) {
-		t.Fatalf("the log has %d bytes", fi.Size())
-	}
-	if got := lastLines("a\nb\nc\n", 2); got != "b\nc" {
-		t.Fatalf("lastLines %q", got)
 	}
 }
 

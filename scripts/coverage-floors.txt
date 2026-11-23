@@ -14,3 +14,4 @@ cmd/hostd    0   # main() only: daemon.Run, which internal/daemon tests
 cmd/hostd-admin 75   # the root commands run in deploy's tests (Prepare, AdminAddAddons); here only the arguments, as non-root
 internal/fsx 55   # five of its branches are errors of Chmod, Sync, Write and Close on a file just made
 modules/apps/spec/conformance 75   # the suite's failure branches run only when a runner is wrong
+internal/dbusx/dbusxtest 70   # the skip and fatal branches run only on a machine without dbus-daemon

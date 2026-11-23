@@ -1,16 +1,13 @@
 package units
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
+	"github.com/davitizhgenti/hostd/internal/proc"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 )
 
@@ -27,12 +24,7 @@ type handoff struct {
 	unitDone bool      // the handing-off command has exited
 }
 
-func (r *ExecRunner) procRoot() string {
-	if r.ProcRoot == "" {
-		return "/proc"
-	}
-	return r.ProcRoot
-}
+func (r *ExecRunner) procRoot() string { return proc.Root(r.ProcRoot) }
 
 // trackHandoff starts following a handed-off instance.
 func (r *ExecRunner) trackHandoff(id, kv string, unitDone bool) {
@@ -70,24 +62,17 @@ func (r *ExecRunner) handoffOf(id string, u systemd.UnitInfo) string {
 }
 
 func (r *ExecRunner) runCommand(ctx context.Context, argv, env []string) error {
-	run := r.RunCommand
+	run := r.Exec
 	if run == nil {
-		run = func(ctx context.Context, argv, env []string, dir string) error {
-			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-			cmd.Env, cmd.Dir = append(os.Environ(), env...), dir
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
-			}
-			return nil
-		}
+		run = execx.OS{}
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 	}
-	return run(ctx, argv, env, r.HomeDir)
+	_, err := run.Run(ctx, execx.Cmd{Argv: argv, Env: env, Dir: r.HomeDir})
+	return err
 }
 
 func (r *ExecRunner) handoffDefaults() {
@@ -129,7 +114,7 @@ func (r *ExecRunner) pollHandoffs(ctx context.Context, fn func(Ended)) {
 		var ended []done
 		r.mu.Lock()
 		for id, h := range r.handoffs {
-			alive := len(pidsWithEnv(r.procRoot(), h.kv)) > 0
+			alive := len(proc.WithEnv(r.procRoot(), h.kv)) > 0
 			switch {
 			case alive:
 				h.seen = true
@@ -160,19 +145,19 @@ func (r *ExecRunner) stopHandoff(ctx context.Context, kv string) error {
 	r.handoffDefaults()
 	kill, wait := r.Kill, r.StopWait
 	r.mu.Unlock()
-	for _, p := range pidsWithEnv(r.procRoot(), kv) {
+	for _, p := range proc.WithEnv(r.procRoot(), kv) {
 		_ = kill(p, syscall.SIGTERM)
 	}
 	deadline := r.clock().NewTimer(wait)
 	defer deadline.Stop()
 	tick := r.clock().NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
-	for len(pidsWithEnv(r.procRoot(), kv)) > 0 {
+	for len(proc.WithEnv(r.procRoot(), kv)) > 0 {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C():
-			for _, p := range pidsWithEnv(r.procRoot(), kv) {
+			for _, p := range proc.WithEnv(r.procRoot(), kv) {
 				_ = kill(p, syscall.SIGKILL)
 			}
 			return nil
@@ -186,33 +171,7 @@ func (r *ExecRunner) stopHandoff(ctx context.Context, kv string) error {
 // have: apps that run though hostd did not start them (a game started
 // from Steam's own menu). One pass over the processes for all of them.
 func (r *ExecRunner) HandoffsRunning(kvs []string) map[string]bool {
-	found := map[string]bool{}
-	want := map[string]bool{}
-	for _, kv := range kvs {
-		want[kv] = true
-	}
-	entries, err := os.ReadDir(r.procRoot())
-	if err != nil {
-		return found
-	}
-	for _, e := range entries {
-		if _, err := strconv.Atoi(e.Name()); err != nil {
-			continue
-		}
-		env, err := os.ReadFile(filepath.Join(r.procRoot(), e.Name(), "environ"))
-		if err != nil {
-			continue
-		}
-		for _, v := range bytes.Split(env, []byte{0}) {
-			if want[string(v)] {
-				found[string(v)] = true
-			}
-		}
-		if len(found) == len(want) {
-			break
-		}
-	}
-	return found
+	return proc.EnvsRunning(r.procRoot(), kvs)
 }
 
 // FollowHandoff follows an instance hostd did not start by its handoff
@@ -222,32 +181,4 @@ func (r *ExecRunner) FollowHandoff(id, kv string) {
 	defer r.mu.Unlock()
 	r.handoffDefaults()
 	r.handoffs[id] = &handoff{kv: kv, since: r.clock().Now(), seen: true, unitDone: true}
-}
-
-// pidsWithEnv lists the processes whose environment has kv. Only the
-// user's own processes are readable, which are the only ones of interest.
-func pidsWithEnv(procRoot, kv string) []int {
-	entries, err := os.ReadDir(procRoot)
-	if err != nil {
-		return nil
-	}
-	want := []byte(kv)
-	var out []int
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		env, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "environ"))
-		if err != nil {
-			continue
-		}
-		for _, v := range bytes.Split(env, []byte{0}) {
-			if bytes.Equal(v, want) {
-				out = append(out, pid)
-				break
-			}
-		}
-	}
-	return out
 }

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/paths"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
@@ -38,6 +39,8 @@ type Options struct {
 	// tokens; set here only by tests, the core offers both.
 	Limiter Limiter
 	Tokens  Tokens
+	// Exec runs the scripts (default execx.OS).
+	Exec execx.Runner
 }
 
 // Module is the automation module.
@@ -59,6 +62,9 @@ type Module struct {
 
 // New returns the automation module.
 func New(opts Options) *Module {
+	if opts.Exec == nil {
+		opts.Exec = execx.OS{}
+	}
 	if opts.ScriptsDir == "" {
 		opts.ScriptsDir = paths.Config("scripts")
 	}

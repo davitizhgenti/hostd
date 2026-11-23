@@ -8,6 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/dbusx"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/secrets"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/sdk"
@@ -29,6 +31,11 @@ type Host struct {
 	Secrets secrets.Store
 	// Systemd is the user's systemd, shared; the daemon closes it.
 	Systemd *systemd.UserSystemd
+	// Session is the user's message bus, shared (notifications, media
+	// players); the daemon closes it.
+	Session *dbusx.Bus
+	// Exec runs the programs a module uses (git, wpctl, journalctl...).
+	Exec execx.Runner
 }
 
 // Builtin describes a module compiled into hostd.

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/podman/podmantest"
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
@@ -211,7 +212,8 @@ func TestComposeRunner(t *testing.T) {
 	var ran [][]string
 	var envs [][]string
 	r := &podman.ComposeRunner{Docker: d, Socket: "/run/user/1000/podman/podman.sock", Command: []string{"podman", "compose"},
-		Run: func(ctx context.Context, argv, env []string) error { // brings up two containers
+		Exec: execx.Func(func(ctx context.Context, c execx.Cmd) ([]byte, error) { // brings up two containers
+			argv, env := c.Argv, c.Environ
 			mu.Lock()
 			ran, envs = append(ran, argv), append(envs, env)
 			mu.Unlock()
@@ -220,8 +222,8 @@ func TestComposeRunner(t *testing.T) {
 				id, _ := d.Create(ctx, project+"-"+svc+"-1", podman.ContainerSpec{Labels: map[string]string{podman.LabelProject: project}})
 				_ = d.Start(ctx, id)
 			}
-			return nil
-		}}
+			return nil, nil
+		})}
 	app := &spec.App{ID: "media", Runner: spec.Runner{Type: spec.RunnerCompose, File: file}, Env: map[string]string{"TZ": "Europe/Tbilisi"}}
 	ctx := context.Background()
 	inst, err := r.Start(ctx, spec.Instance{ID: "media#2", App: "media", Env: map[string]string{"PORT": "41000"}}, app)

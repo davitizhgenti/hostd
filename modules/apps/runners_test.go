@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/execx"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core"
@@ -265,10 +266,11 @@ func TestHandoffActionGoesToRunningApp(t *testing.T) {
 	sd := unitstest.NewFakeSystemd()
 	r := newRig(t, sd, podmantest.NewFakeEngine(), unitstest.FakeSession(t))
 	ran := make(chan []string, 2)
-	r.m.opts.Backends[RunnerExec].(*ExecRunner).RunCommand = func(_ context.Context, argv, _ []string, _ string) error {
+	r.m.opts.Backends[RunnerExec].(*ExecRunner).Exec = execx.Func(func(_ context.Context, c execx.Cmd) ([]byte, error) {
+		argv := c.Argv
 		ran <- argv
-		return nil
-	}
+		return nil, nil
+	})
 	writeApps(t, r.m.opts.AppsDir, `
 -- steam.toml --
 runner = { type = "exec", command = ["flatpak", "run", "com.valvesoftware.Steam"], handoff = "FLATPAK_ID=com.valvesoftware.Steam" }

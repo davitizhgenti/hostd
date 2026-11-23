@@ -15,6 +15,7 @@ import (
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
+	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/internal/systemd"
 	"github.com/davitizhgenti/hostd/modules/apps/runner/units/unitstest"
 	"github.com/davitizhgenti/hostd/modules/apps/spec"
@@ -123,10 +124,11 @@ func newHandoffRig(t *testing.T) *handoffRig {
 		clock: clock.NewFake(time.Date(2026, 10, 8, 20, 0, 0, 0, time.UTC)), ended: make(chan Ended, 4), ran: make(chan []string, 4)}
 	h.r = &ExecRunner{Systemd: h.sd, RuntimeDir: unitstest.FakeSession(t), ProcRoot: h.procs.root, Clock: h.clock,
 		Kill: h.procs.kill(map[int]bool{502: true}),
-		RunCommand: func(_ context.Context, argv, _ []string, _ string) error {
+		Exec: execx.Func(func(_ context.Context, c execx.Cmd) ([]byte, error) {
+			argv := c.Argv
 			h.ran <- argv
-			return nil
-		}}
+			return nil, nil
+		})}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); _ = h.r.Watch(ctx, func(e Ended) { h.ended <- e }) }()
