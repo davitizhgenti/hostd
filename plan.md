@@ -24,6 +24,14 @@ Sunshine/Moonlight, UxPlay, scrcpy, lan-mouse and RDP were all tried on core. Ev
 - **Two controllers on core:** hold Guide on each to confirm only that pad is grabbed.
 - `make test-e2e` (the VM test, about 10 minutes) and `mkdocs build --strict` after these changes.
 
+## Decoupling (2026-11-24, not pushed)
+
+Done: one exec runner (`internal/execx`) and one connection per message bus (`internal/dbusx`); the seat from logind over D-Bus; every module's actions in a typed `kit.Actions` table (schemas from Go types); `sdk.ReadRef` for reads between modules; `Manifest.Uses`, enforced; `contract` is names and types only; `api` and `resources` take interfaces; resource files are locked, versioned and audited like actions.
+
+Next, in order: external modules with kinds and facets over the protocol; `config.follow` into the core; an `input` module out of display (and holoplot/go-evdev); split `apps/instances.go`, runners as plug-ins, a `gateway` module for deploy's proxy and webhooks; a public Go client generated from `docs/openapi.json` (oapi-codegen) and one Python `hostd` package (client, events, `hostd.module` for external modules); the shell's `Shell` split, updated by events, the app tree from a daemon read.
+
+Left as they are, on purpose: the app runner and resource store's retry and watch loops (each is short and different; a shared helper would add indirection, not remove duplication); `sdk.SchemaOf` (its tags are the SDK's); `apps/names.go`; `contract.InstanceFromUnit`'s add-on unit names (going away needs the add-on units renamed on core, best done with Steam's list as an external module).
+
 ## Code not done
 
 - `config.follow` is in `deploy`; it belongs in the core as `resources.follow`.
