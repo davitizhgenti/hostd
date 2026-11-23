@@ -1,6 +1,6 @@
 # hostd module protocol, version 1
 
-An external module is a separate program that hostd starts and talks to over a unix socket, or over the program's standard input and output. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 3. Versions 2 and 3 added Go-only calls, `Tokens`, `Limiter`, `Introspect`, `Facets`, `CheckFacet` and `Plan`, which built-in modules use (for scripts, rule limits, hostd's own module and the sections of scenes); external modules do not get them over the protocol, so the wire methods below are the same as in version 1.
+An external module is a separate program that hostd starts and talks to over a unix socket, or over the program's standard input and output. It can be written in any language. To hostd it is a module like the built-in ones: it owns namespaces, declares actions, events, reads and scopes in a manifest, and every change still goes through the core's action pipeline, with its locks, priority holds, permissions and audit trail. The calls are the Go `sdk.Module` and `sdk.Core` interfaces, at `sdk.CoreVersion` 3. Versions 2 and 3 added Go-only calls, `Tokens`, `Limiter`, `Introspect`, `Facets`, `CheckFacet` and `Plan`, which built-in modules use (for scripts, rule limits, hostd's own module and the sections of scenes); external modules do not get them over the protocol, so the wire methods below are the same as in version 1, plus (still protocol 1: a module that declares no `kinds` or `facets` is never asked) `apply`, `delete`, `check`, `plan` and `check_facet`.
 
 `examples/python-module` is a complete module that uses only Python's standard library.
 
@@ -53,6 +53,11 @@ An error without `data.code` counts as `internal`.
 | `read` | `{"name": "lights", "params": {"id": "porch"}}` | Any JSON | For a read declared in the manifest |
 | `state` | `{}` | Any JSON | For `GET /v1/state/<module>` |
 | `hook` | `{"name": "...", "params": {...}, "header": {...}, "body": "<base64>"}` | Any JSON | For a hook declared in the manifest. The module authenticates the request itself. |
+| `apply` | `{"resource": {"kind", "name", "spec", ...}}` | A status `{"conditions": [...]}`, or an error | For a kind declared in the manifest (`kinds`): a file appeared or changed. An error rejects it and the previous version stays. |
+| `delete` | `{"kind": "look", "name": "evening"}` | `{}` | A file of a kind is gone. |
+| `check` | `{"resource": {...}}` | `{}`, or an error | Whether `apply` would accept it (`hostctl apply --check`). Optional: without it the schema's word stands. |
+| `plan` | `{"facet": "lights", "desired": {...}}` | `{"actions": [{"step", "action", "args", "order"}]}` | For a facet declared in the manifest (`facets`): a scene has that section. Answer the actions still needed, none when it is reached. `order` sorts the steps of all facets together (50 if you have no opinion). |
+| `check_facet` | `{"facet": "lights", "desired": {...}}` | `{}`, or an error | Rules of a facet a schema cannot say, asked when a scene file is applied. Optional. |
 | `stop` | `{}` | `{}` | At shutdown. After the answer, or 10 seconds, hostd ends the process. |
 
 An Action is `{"id", "type", "args", "source", "parent", "cause"}`. A Result is `{"status": "applied", "data": ...}`; `status` may be left out, and `data` is optional.

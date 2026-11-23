@@ -59,6 +59,13 @@ MANIFEST = {
         },
     ],
     "events": [{"type": "lights.changed", "description": "A light's brightness changed"}],
+    # A kind of resource: a file in ~/.config/hostd/looks/ (hostctl get looks).
+    "kinds": [{"kind": "look", "plural": "looks", "description": "A saved set of brightnesses",
+               "schema": {"type": "object", "properties": {"levels": {"type": "object", "additionalProperties": {
+                   "type": "integer", "minimum": 0, "maximum": 100}}}, "required": ["levels"], "additionalProperties": False}}],
+    # A part of a scene: [lights] in a scene file, planned by this module.
+    "facets": [{"name": "lights", "description": "Brightness of lights",
+                "schema": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 100}}}],
     # "cli" is optional: it only tells hostctl how to print the read as a table
     # (hostctl get lights lights); without it hostctl prints the JSON.
     "reads": [{"name": "lights", "description": "Every light and its brightness", "path": "/v1/lights",
@@ -152,6 +159,7 @@ class Connection:
 class Lights:
     def __init__(self):
         self.lights = {"porch": 0, "living-room": 0}
+        self.looks = {}
         self.started_apps = 0
         self.lock = threading.Lock()
         self.conn = None
@@ -183,6 +191,29 @@ class Lights:
         if method == "state":
             with self.lock:
                 return {"lights": dict(self.lights), "apps_started": self.started_apps}
+        if method == "apply":  # a file of the kind "look"
+            res = params["resource"]
+            unknown = [n for n in res["spec"]["levels"] if n not in self.lights]
+            if unknown:
+                raise HostdError("invalid_args", "no light %s" % ", ".join(sorted(unknown)))
+            with self.lock:
+                self.looks[res["name"]] = res["spec"]["levels"]
+            return {"conditions": [{"type": "Ready", "status": "True"}]}
+        if method == "delete":
+            with self.lock:
+                self.looks.pop(params["name"], None)
+            return {}
+        if method == "plan":  # the steps that reach [lights] of a scene
+            with self.lock:
+                steps = [{"step": light, "action": "lights.set", "order": 50,
+                          "args": {"id": light, "brightness": level}}
+                         for light, level in sorted(params["desired"].items()) if self.lights.get(light) != level]
+            return {"actions": steps}
+        if method == "check_facet":
+            unknown = [n for n in params["desired"] if n not in self.lights]
+            if unknown:
+                raise HostdError("invalid_args", "no light %s" % ", ".join(sorted(unknown)))
+            return {}
         if method == "stop":
             return {}
         raise HostdError("not_found", "no method %r" % method)
