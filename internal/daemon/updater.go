@@ -130,13 +130,13 @@ func installVersion(ctx context.Context, lib update.Lib, binary io.Reader, backu
 
 func (u *updater) Restart() error { return u.restart() }
 
-func (u *updater) Info() map[string]any {
-	out := map[string]any{"installed": u.lib.Versions()}
+func (u *updater) Info() sdk.Install {
+	out := sdk.Install{Installed: u.lib.Versions()}
 	if p := u.lib.Previous(); p != "" {
-		out["previous"] = filepath.Base(p)
+		out.Previous = filepath.Base(p)
 	}
 	if r := u.lib.RolledBackFrom(); r != "" {
-		out["rolled_back_from"] = filepath.Base(r)
+		out.RolledBackFrom = filepath.Base(r)
 	}
 	return out
 }

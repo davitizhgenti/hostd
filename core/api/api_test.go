@@ -791,8 +791,8 @@ func (f *fakeUpdater) ReleaseRunning(context.Context) bool {
 	defer f.mu.Unlock()
 	return f.releasing
 }
-func (f *fakeUpdater) Restart() error       { close(f.restarted); return nil }
-func (f *fakeUpdater) Info() map[string]any { return map[string]any{"previous": "v1"} }
+func (f *fakeUpdater) Restart() error    { close(f.restarted); return nil }
+func (f *fakeUpdater) Info() sdk.Install { return sdk.Install{Previous: "v1"} }
 
 func TestUpdateEndpoint(t *testing.T) {
 	up := &fakeUpdater{restarted: make(chan struct{})}

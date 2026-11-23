@@ -93,7 +93,7 @@ func TestUpdaterInstall(t *testing.T) {
 	if cur, _ := lib.Current(); cur != "versions/v2" {
 		t.Fatalf("current = %q", cur)
 	}
-	if info := u.Info(); info["previous"] != "v1" {
+	if info := u.Info(); info.Previous != "v1" {
 		t.Fatalf("Info = %v", info)
 	}
 	// Installing the running version again is refused.

@@ -71,7 +71,7 @@ type Updater interface {
 	// Restart asks systemd to restart hostd; it returns at once.
 	Restart() error
 	// Info describes the installation for GET /v1/version.
-	Info() map[string]any
+	Info() sdk.Install
 	// UpdateRelease starts the installer's update to the newest signed
 	// build, and returns at once: it outlives the restart it causes.
 	// ReleaseRunning says whether one is running now.
@@ -520,14 +520,9 @@ func (s *Server) read(module string, rd sdk.ReadSpec) func(http.ResponseWriter, 
 }
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request, _ store.Token) error {
-	v := map[string]any{
-		"version": version.Version, "dev": version.IsDev(),
-		"os": runtime.GOOS, "arch": runtime.GOARCH, "schema": store.SchemaVersion,
-	}
+	v := sdk.Version{Version: version.Version, Dev: version.IsDev(), OS: runtime.GOOS, Arch: runtime.GOARCH, Schema: store.SchemaVersion}
 	if s.opts.Updater != nil {
-		for k, x := range s.opts.Updater.Info() {
-			v[k] = x
-		}
+		v.Install = s.opts.Updater.Info()
 	}
 	writeJSON(w, http.StatusOK, v)
 	return nil
@@ -544,7 +539,7 @@ func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request, _ store.Toke
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"version": ver, "previous": prev, "restarting": true})
+	writeJSON(w, http.StatusOK, sdk.UpdateResult{Version: ver, Previous: prev, Restarting: true})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
@@ -566,7 +561,7 @@ func (s *Server) postUpdateRelease(w http.ResponseWriter, r *http.Request, _ sto
 	if err := s.opts.Updater.UpdateRelease(r.Context()); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"started": true})
+	writeJSON(w, http.StatusAccepted, sdk.ReleaseStarted{Started: true})
 	return nil
 }
 
@@ -575,7 +570,7 @@ func (s *Server) getUpdateRelease(w http.ResponseWriter, r *http.Request, _ stor
 	if s.opts.Updater == nil {
 		return sdk.Errorf(sdk.CodeModuleUnavailable, "updates are not available: this hostd was not installed by the installer")
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"running": s.opts.Updater.ReleaseRunning(r.Context())})
+	writeJSON(w, http.StatusOK, sdk.ReleaseRunning{Running: s.opts.Updater.ReleaseRunning(r.Context())})
 	return nil
 }
 

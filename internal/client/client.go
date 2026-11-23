@@ -214,30 +214,11 @@ func (c *Client) DeleteResource(ctx context.Context, plural, name string) error 
 	return err
 }
 
-// Version is GET /v1/version.
-type Version struct {
-	Version        string   `json:"version"`
-	Dev            bool     `json:"dev"`
-	OS             string   `json:"os"`
-	Arch           string   `json:"arch"`
-	Schema         int      `json:"schema"`
-	Previous       string   `json:"previous,omitempty"`
-	RolledBackFrom string   `json:"rolled_back_from,omitempty"`
-	Installed      []string `json:"installed,omitempty"`
-}
-
-// UpdateResult is the answer of POST /v1/update.
-type UpdateResult struct {
-	Version    string `json:"version"`
-	Previous   string `json:"previous"`
-	Restarting bool   `json:"restarting"`
-}
-
 // Update uploads a hostd binary; the server installs it and restarts.
-func (c *Client) Update(ctx context.Context, binary io.Reader) (UpdateResult, error) {
+func (c *Client) Update(ctx context.Context, binary io.Reader) (sdk.UpdateResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/update", binary)
 	if err != nil {
-		return UpdateResult{}, err
+		return sdk.UpdateResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	if c.token != "" {
@@ -245,7 +226,7 @@ func (c *Client) Update(ctx context.Context, binary io.Reader) (UpdateResult, er
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return UpdateResult{}, fmt.Errorf("cannot reach hostd: %w", err)
+		return sdk.UpdateResult{}, fmt.Errorf("cannot reach hostd: %w", err)
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
@@ -254,11 +235,11 @@ func (c *Client) Update(ctx context.Context, binary io.Reader) (UpdateResult, er
 			Error *sdk.Error `json:"error"`
 		}
 		if json.Unmarshal(b, &eb) == nil && eb.Error != nil {
-			return UpdateResult{}, &Error{Status: res.StatusCode, Err: eb.Error}
+			return sdk.UpdateResult{}, &Error{Status: res.StatusCode, Err: eb.Error}
 		}
-		return UpdateResult{}, fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+		return sdk.UpdateResult{}, fmt.Errorf("HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
 	}
-	var r UpdateResult
+	var r sdk.UpdateResult
 	return r, json.Unmarshal(b, &r)
 }
 
@@ -270,15 +251,13 @@ func (c *Client) UpdateRelease(ctx context.Context) error {
 
 // ReleaseRunning says whether that update is running.
 func (c *Client) ReleaseRunning(ctx context.Context) (bool, error) {
-	var st struct {
-		Running bool `json:"running"`
-	}
+	var st sdk.ReleaseRunning
 	err := c.Do(ctx, http.MethodGet, "/v1/update/release", nil, &st)
 	return st.Running, err
 }
 
-func (c *Client) Version(ctx context.Context) (Version, error) {
-	var v Version
+func (c *Client) Version(ctx context.Context) (sdk.Version, error) {
+	var v sdk.Version
 	return v, c.Do(ctx, http.MethodGet, "/v1/version", nil, &v)
 }
 
