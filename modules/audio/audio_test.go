@@ -67,7 +67,7 @@ func TestTarget(t *testing.T) {
 		{`"loud"`, 40, 0, true},
 		{`true`, 40, 0, true},
 	} {
-		got, err := target(json.RawMessage(tc.arg), tc.current)
+		got, err := Percent{raw: json.RawMessage(tc.arg)}.From(tc.current)
 		if (err != nil) != tc.err || got != tc.want {
 			t.Errorf("target(%s, %d) = %d, %v; want %d", tc.arg, tc.current, got, err, tc.want)
 		}
@@ -75,7 +75,7 @@ func TestTarget(t *testing.T) {
 }
 
 func TestSchemas(t *testing.T) {
-	vol, _ := sdk.CompileArgsSchema(volumeSchema)
+	vol, _ := sdk.CompileArgsSchema(sdk.SchemaOf[volumeArgs]())
 	for args, ok := range map[string]bool{
 		`{"percent":40}`: true, `{"percent":150}`: true, `{"percent":"+5"}`: true, `{"percent":"-5"}`: true,
 		`{"percent":"40"}`: true, `{"percent":151}`: false, `{"percent":-5}`: false, `{"percent":"loud"}`: false,
@@ -85,9 +85,10 @@ func TestSchemas(t *testing.T) {
 			t.Errorf("volume %s: %v", args, err)
 		}
 	}
-	mute, _ := sdk.CompileArgsSchema(muteSchema)
+	mute, _ := sdk.CompileArgsSchema(sdk.SchemaOf[muteArgs]())
 	for args, ok := range map[string]bool{
 		`{"muted":true}`: true, `{"muted":false}`: true, `{"muted":"toggle"}`: true, `{"muted":"yes"}`: false, `{"muted":1}`: false,
+		`{}`: true, `{"loud":true}`: false,
 	} {
 		if err := mute.Validate(json.RawMessage(args)); (err == nil) != ok {
 			t.Errorf("mute %s: %v", args, err)

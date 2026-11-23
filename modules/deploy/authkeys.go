@@ -2,7 +2,6 @@ package deploy
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -28,19 +27,6 @@ var pushName = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
 type PushKey struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
-}
-
-func pushKeyActions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: "deploy.authorize", Description: "Let an SSH public key git push to services, and nothing else",
-			Scope:  sdk.ScopeAdmin,
-			Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"who pushes with it, e.g. laptop"},"key":{"type":"string","description":"the public key line (ssh-ed25519 AAAA...)"}},"required":["name","key"],"additionalProperties":false}`),
-			Keys:   []sdk.KeyTemplate{"authorized_keys"}},
-		{Type: "deploy.revoke", Description: "Remove a push key",
-			Scope:  sdk.ScopeAdmin,
-			Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`),
-			Keys:   []sdk.KeyTemplate{"authorized_keys"}},
-	}
 }
 
 // parseKey returns a public key line's type and base64 body.

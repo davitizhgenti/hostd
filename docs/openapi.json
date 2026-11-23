@@ -809,6 +809,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "muted": {
                     "default": "toggle",
@@ -910,6 +911,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "percent": {
                     "description": "0-150, or a change such as \"+5\" or \"-5\"",
@@ -1004,6 +1006,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "muted": {
                     "default": "toggle",
@@ -1097,6 +1100,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "output": {
                     "description": "an output's name, as GET /v1/audio lists them (hdmi, speakers, bt-...)",
@@ -1221,6 +1225,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "percent": {
                     "description": "0-150, or a change such as \"+5\" or \"-5\"",
@@ -1698,6 +1703,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "rev": {
                     "description": "commit, tag or branch (default: the source's branch)",
@@ -1787,6 +1793,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "rev": {
                     "description": "commit, tag or branch (default: the source's branch)",
@@ -1876,6 +1883,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "rev": {
                     "description": "commit, tag or branch (default: the source's branch)",
@@ -1965,6 +1973,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "rev": {
                     "description": "commit, tag or branch (default: the source's branch)",
@@ -2504,17 +2513,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {},
-                "type": "object"
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -2678,6 +2676,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "enabled": {
                     "description": "true (default) or false",
@@ -2774,6 +2773,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "front": {
                     "description": "even while someone is using the screen (needs scope display.front)",
@@ -2865,6 +2865,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "front": {
                     "description": "even while someone is using the screen (needs scope display.front)",
@@ -3589,6 +3590,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "player": {
                     "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
@@ -3670,6 +3672,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "player": {
                     "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
@@ -3751,6 +3754,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "player": {
                     "description": "a player's name (GET /v1/media); default: the app in front's, or the one playing",
@@ -6358,17 +6362,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {},
-                "type": "object"
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -6434,17 +6427,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {},
-                "type": "object"
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -6510,17 +6492,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {},
-                "type": "object"
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -6671,6 +6642,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "front": {
                     "description": "even while someone is using the screen (needs scope display.front)",
@@ -6763,6 +6735,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "enabled": {
                     "description": "true (default) or false",
@@ -6852,6 +6825,7 @@
           "content": {
             "application/json": {
               "schema": {
+                "additionalProperties": false,
                 "properties": {
                   "beside": {
                     "description": "the instance to place it next to",

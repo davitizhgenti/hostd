@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,11 +30,13 @@ import (
 //	desc     description shown by hostctl and in the OpenAPI document
 //	min,max  numeric bounds (minLength/maxLength for strings, minItems/maxItems for lists)
 //	enum     comma-separated allowed values
+//	default  the value used when the field is left out (documentation: the module applies it)
 //	pattern  regular expression a string must match
 //	format   JSON Schema format, such as uri
 //	media    contentMediaType: hostctl reads such an argument from @file or "-"
 //
-// Objects reject unknown properties. A map[string]T is an object with
+// A type with a JSONSchema method (Schemer) gives its own schema. Objects
+// reject unknown properties. A map[string]T is an object with
 // additional properties of T; sdk.Duration is a string such as "30s";
 // json.RawMessage and any accept any value. SchemaOf panics on a type it
 // cannot describe (a channel, a function, a map with non-string keys): that
@@ -47,7 +51,16 @@ func SchemaOf[T any]() json.RawMessage {
 	return json.RawMessage(buf.Bytes())
 }
 
+// A Schemer is a type that gives its own JSON Schema: values that a
+// schema can describe but struct tags cannot, such as a number or a change
+// written as text ("+5"). A field's desc, default and other tags are added
+// to it.
+type Schemer interface {
+	JSONSchema() json.RawMessage
+}
+
 var (
+	schemerType  = reflect.TypeOf((*Schemer)(nil)).Elem()
 	durationType = reflect.TypeOf(Duration(0))
 	timeType     = reflect.TypeOf(time.Time{})
 	rawType      = reflect.TypeOf(json.RawMessage(nil))
@@ -72,6 +85,14 @@ func writeSchema(buf *bytes.Buffer, t reflect.Type, tag *reflect.StructTag, stac
 	case t == timeType:
 		kv.raw("type", `"string"`)
 		kv.raw("format", `"date-time"`)
+	case reflect.PointerTo(t).Implements(schemerType):
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(reflect.New(t).Interface().(Schemer).JSONSchema(), &members); err != nil {
+			return fmt.Errorf("%s.JSONSchema: %w", t, err)
+		}
+		for _, k := range slices.Sorted(maps.Keys(members)) {
+			kv.raw(k, string(members[k]))
+		}
 	case t == rawType || t.Kind() == reflect.Interface:
 		// any value
 	default:
@@ -213,28 +234,24 @@ func tagConstraints(kv *keys, t reflect.Type, tag reflect.StructTag) error {
 		kv.raw("pattern", string(b))
 	}
 	if e := tag.Get("enum"); e != "" {
-		vals := strings.Split(e, ",")
 		var items []any
-		for _, v := range vals {
-			switch t.Kind() {
-			case reflect.String:
-				items = append(items, v)
-			case reflect.Bool:
-				b, err := strconv.ParseBool(v)
-				if err != nil {
-					return fmt.Errorf("enum %q: %w", v, err)
-				}
-				items = append(items, b)
-			default:
-				n, err := strconv.ParseFloat(v, 64)
-				if err != nil {
-					return fmt.Errorf("enum %q: %w", v, err)
-				}
-				items = append(items, n)
+		for _, v := range strings.Split(e, ",") {
+			x, err := tagValue(t, v)
+			if err != nil {
+				return fmt.Errorf("enum %q: %w", v, err)
 			}
+			items = append(items, x)
 		}
 		b, _ := json.Marshal(items)
 		kv.raw("enum", string(b))
+	}
+	if d, ok := tag.Lookup("default"); ok {
+		x, err := tagValue(t, d)
+		if err != nil {
+			return fmt.Errorf("default %q: %w", d, err)
+		}
+		b, _ := json.Marshal(x)
+		kv.raw("default", string(b))
 	}
 	lo, hi := "minimum", "maximum"
 	switch t.Kind() {
@@ -254,6 +271,18 @@ func tagConstraints(kv *keys, t reflect.Type, tag reflect.StructTag) error {
 		kv.raw(c.key, v)
 	}
 	return nil
+}
+
+// tagValue is a value written in a tag (enum, default) as the field's type.
+func tagValue(t reflect.Type, v string) (any, error) {
+	switch t.Kind() {
+	case reflect.String:
+		return v, nil
+	case reflect.Bool:
+		return strconv.ParseBool(v)
+	default:
+		return strconv.ParseFloat(v, 64)
+	}
 }
 
 // keys writes a JSON object's members in the order they are added, so a

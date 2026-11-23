@@ -304,25 +304,22 @@ func (m *Module) pause(rule string, until time.Time, why string) {
 	}
 }
 
-func (m *Module) handleRule(a sdk.Action) (sdk.Result, error) {
-	var args struct{ Name string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+// pauseRule pauses a rule until it is resumed, or resumes it.
+func (m *Module) pauseRule(name string, pause bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	run := m.runs[args.Name]
+	run := m.runs[name]
 	found := false
 	for _, r := range m.rules {
-		found = found || r.Name == args.Name
+		found = found || r.Name == name
 	}
 	if !found || run == nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no rule %q (hostctl get rules)", args.Name)
+		return sdk.Errorf(sdk.CodeNotFound, "no rule %q (hostctl get rules)", name)
 	}
-	if a.Type == "rule.pause" {
+	if pause {
 		run.pausedUntil, run.pausedWhy = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC), "paused by hand"
 	} else {
 		run.pausedUntil, run.pausedWhy = time.Time{}, ""
 	}
-	return sdk.Result{}, nil
+	return nil
 }

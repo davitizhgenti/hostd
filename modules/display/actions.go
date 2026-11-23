@@ -61,31 +61,23 @@ func (m *Module) windowsOf(ctx context.Context, instance string) (Backend, []Win
 	return b, out, nil
 }
 
-func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
-	switch a.Type {
-	case "display.notice":
-		return nil // shown or not, it targets nothing
-	case "device.assign", "device.rename", "device.colour", "device.calibrate":
-		return nil // they name a device, not a window; the handler says if there is none
-	case "display.power", "display.mode", "display.output.enable":
-		_, _, err := m.outputArgs(ctx, a)
-		return err
-	case "window.place":
-		_, _, _, err := m.placeArgs(ctx, a)
-		return err
-	case "window.back", "window.next", "window.prev", "display.menu":
-		return m.attached()
-	case "window.close":
-		var args instanceArgs
-		if err := a.DecodeArgs(&args); err != nil {
-			return err
-		}
-		if args.Instance == "" {
-			_, _, err := m.frontWindow(ctx)
-			return err
-		}
-	}
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error { return m.actions.Validate(ctx, a) }
+
+func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	return m.actions.Handle(ctx, a)
+}
+
+// validateWindow checks that a window action's instance has a window, or
+// is about to (window.focus, window.close, window.fullscreen).
+func (m *Module) validateWindow(ctx context.Context, a sdk.Action) error {
 	var args instanceArgs
+	if err := a.DecodeArgs(&args); err != nil {
+		return err
+	}
+	if a.Type == "window.close" && args.Instance == "" {
+		_, _, err := m.frontWindow(ctx)
+		return err
+	}
 	if err := a.DecodeArgs(&args); err != nil {
 		return err
 	}
@@ -105,43 +97,14 @@ func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
 	return err
 }
 
-func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	switch a.Type {
-	case "device.assign":
-		return m.handleAssign(a)
-	case "device.calibrate":
-		return m.handleCalibrate(a)
-	case "device.rename", "device.colour":
-		return m.handleIdentity(a)
-	case "display.notice":
-		var args struct{ Text string }
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		m.notice("", args.Text)
-		return sdk.Result{}, nil
-	case "display.power", "display.mode", "display.output.enable":
-		return m.handleOutput(ctx, a)
-	case "window.place":
-		return m.handlePlace(ctx, a)
-	case "window.back":
-		return m.handleBack(ctx, a)
-	case "window.next", "window.prev":
-		return m.handleCycle(ctx, a)
-	case "display.menu":
-		return m.handleMenu(ctx, a)
-	case "window.close":
-		var args instanceArgs
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		if args.Instance == "" {
-			return m.closeFront(ctx)
-		}
-	}
+// handleWindow focuses, closes or makes fullscreen an instance's windows.
+func (m *Module) handleWindow(ctx context.Context, a sdk.Action) (sdk.Result, error) {
 	var args instanceArgs
 	if err := a.DecodeArgs(&args); err != nil {
 		return sdk.Result{}, err
+	}
+	if a.Type == "window.close" && args.Instance == "" {
+		return m.closeFront(ctx)
 	}
 	b, wins, err := m.windowsOf(ctx, args.Instance)
 	if sdk.CodeOf(err) == sdk.CodeNotFound {
@@ -343,8 +306,9 @@ func (m *Module) liveInstances(ctx context.Context) []contract.Instance {
 // --- window.place ----------------------------------------------------------------
 
 type placeArgs struct {
-	Instance string `json:"instance"`
-	Beside   string `json:"beside"`
+	Instance string `json:"instance" desc:"the instance to place"`
+	Beside   string `json:"beside" desc:"the instance to place it next to"`
+	Front    bool   `json:"front,omitempty" desc:"even while someone is using the screen (needs scope display.front)"`
 }
 
 func (m *Module) placeArgs(ctx context.Context, a sdk.Action) (Backend, Window, Window, error) {

@@ -27,6 +27,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/sdk/kit"
 )
 
 // Events.
@@ -73,6 +74,8 @@ type Options struct {
 type Module struct {
 	opts Options
 	log  *slog.Logger
+
+	actions *kit.Actions
 
 	mu      sync.Mutex
 	core    sdk.Core
@@ -126,32 +129,16 @@ func New(opts Options) *Module {
 	if opts.PollTick == 0 {
 		opts.PollTick = 10 * time.Second
 	}
-	return &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}, polling: map[string]bool{}, life: context.Background()}
+	m := &Module{opts: opts, log: opts.Logger, proxies: map[string]*proxy{}, polling: map[string]bool{}, life: context.Background()}
+	m.actions = m.declare()
+	return m
 }
 
-var appSchema = json.RawMessage(`{"type":"object","properties":{
-	"app":{"type":"string","description":"the service (an app with a [source])"},
-	"rev":{"type":"string","description":"commit, tag or branch (default: the source's branch)"}},"required":["app"]}`)
-
 func (m *Module) Manifest() sdk.Manifest {
-	keys := []sdk.KeyTemplate{"deploy:{app}"}
 	return sdk.Manifest{
 		Name: "deploy", Version: "0.1.0", Requires: []string{contract.AppsModule},
-		Owns: []string{"deploy.*", "config.*"},
-		Actions: append([]sdk.ActionSpec{
-			{Type: "deploy.init", Description: "Create the service's git repository: git push to it deploys",
-				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(30 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/init"}},
-			{Type: "deploy.run", Description: "Build a commit and switch to it with no downtime; on any failure the running release stays",
-				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(20 * time.Minute), Busy: true,
-				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/run"}},
-			{Type: "deploy.key", Description: "The service's deploy key (made once): add its public key to the repository, read-only",
-				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(30 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/key"}},
-			{Type: "deploy.rollback", Description: "Switch back to the release before the live one",
-				Schema: appSchema, Keys: keys, Scope: contract.ScopeDeploy, Timeout: sdk.Duration(10 * time.Minute), Busy: true,
-				Route: &sdk.Route{Method: "POST", Path: "/v1/deploys/{app}/rollback"}},
-		}, append(pushKeyActions(), configActions()...)...),
+		Owns:    []string{"deploy.*", "config.*"},
+		Actions: m.actions.Specs(),
 		Events: []sdk.EventSpec{
 			{Type: EventStarted, Description: "A deploy started"},
 			{Type: EventDone, Description: "A release is live"},
@@ -407,73 +394,21 @@ func (m *Module) emit(typ string, data any) {
 	}
 }
 
-func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error { return m.actions.Validate(ctx, a) }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	switch a.Type {
-	case "config.follow", "config.unfollow", "config.sync", "config.key":
-		return m.handleConfig(ctx, a)
-	case "deploy.authorize", "deploy.revoke":
-		var args struct{ Name, Key string }
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		if a.Type == "deploy.revoke" {
-			return sdk.Result{}, m.revoke(args.Name)
-		}
-		k, err := m.authorize(args.Name, args.Key)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		return sdk.Result{Data: sdk.MustJSON(k)}, nil
-	}
-	var args struct {
-		App string `json:"app"`
-		Rev string `json:"rev"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
-	s, err := m.service(ctx, args.App)
-	if err != nil {
-		return sdk.Result{}, err
-	}
-	switch a.Type {
-	case "deploy.key":
-		pub, err := m.makeKey(ctx, s.ID)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		return sdk.Result{Data: sdk.MustJSON(map[string]string{"public_key": pub, "path": m.keyPath(s.ID)})}, nil
-	case "deploy.init":
-		dir, err := m.initRepo(ctx, s.ID, branchOf(s.Deploy))
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		m.sync(ctx) // the public port opens now, before the first push
-		if s.Deploy.Type != "push" {
-			return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": branchOf(s.Deploy), "url": s.Deploy.URL})}, nil
-		}
-		host, _ := os.Hostname()
-		return sdk.Result{Data: sdk.MustJSON(map[string]string{"repo": dir, "branch": branchOf(s.Deploy),
-			"remote": "ssh://" + os.Getenv("USER") + "@" + host + dir})}, nil
-	case "deploy.run":
-		return m.run(ctx, s, args.Rev)
-	case "deploy.rollback":
-		return m.rollback(ctx, s)
-	}
-	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "deploy module has no action %q", a.Type)
+	return m.actions.Handle(ctx, a)
 }
 
 // run deploys rev: export, build, start, health, switch, stop the old.
-func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, error) {
+func (m *Module) run(ctx context.Context, s service, rev string) (Release, error) {
 	m.sync(ctx)
 	st, err := m.load(s.ID)
 	if err != nil {
-		return sdk.Result{}, err
+		return Release{}, err
 	}
 	m.emit(EventStarted, map[string]string{"app": s.ID, "rev": rev})
-	fail := func(r Release, err error) (sdk.Result, error) {
+	fail := func(r Release, err error) (Release, error) {
 		r.Result, r.Error = "failed", err.Error()
 		if r.Rev != "" {
 			st.record(r)
@@ -486,7 +421,7 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 		if ok {
 			still = "release " + live.Rev[:min(12, len(live.Rev))] + " keeps serving"
 		}
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "deploying %s failed (%s): %v", s.ID, still, err)
+		return Release{}, sdk.Errorf(sdk.CodeInternal, "deploying %s failed (%s): %v", s.ID, still, err)
 	}
 	var r Release
 	if s.Deploy.Type == "image" {
@@ -527,16 +462,16 @@ func (m *Module) run(ctx context.Context, s service, rev string) (sdk.Result, er
 	_ = m.save(st)
 	r.Result = "live"
 	m.emit(EventDone, r)
-	return sdk.Result{Data: sdk.MustJSON(r)}, nil
+	return r, nil
 }
 
 // rollback switches to the newest release before the live one that was
 // live once (stopped, not failed).
-func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
+func (m *Module) rollback(ctx context.Context, s service) (Release, error) {
 	m.sync(ctx)
 	st, err := m.load(s.ID)
 	if err != nil {
-		return sdk.Result{}, err
+		return Release{}, err
 	}
 	var prev *Release
 	for i := range st.Releases {
@@ -549,22 +484,22 @@ func (m *Module) rollback(ctx context.Context, s service) (sdk.Result, error) {
 		}
 	}
 	if prev == nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "%s has no earlier release to go back to", s.ID)
+		return Release{}, sdk.Errorf(sdk.CodeNotFound, "%s has no earlier release to go back to", s.ID)
 	}
 	inst, port, err := m.launch(ctx, s, *prev)
 	if err != nil {
 		m.stopInstance(ctx, inst)
-		return sdk.Result{}, sdk.Errorf(sdk.CodeInternal, "rolling %s back failed: %v", s.ID, err)
+		return Release{}, sdk.Errorf(sdk.CodeInternal, "rolling %s back failed: %v", s.ID, err)
 	}
 	r := *prev
 	r.Instance, r.Port, r.At = inst, port, m.opts.Clock.Now().UTC()
 	st.remove(prev.Rev, prev.At) // one entry per release: it moves to the top
 	st.record(r)
 	if err := m.switchTo(ctx, s, st, r); err != nil {
-		return sdk.Result{}, err
+		return Release{}, err
 	}
 	m.emit(EventRolledBack, r)
-	return sdk.Result{Data: sdk.MustJSON(r)}, nil
+	return r, nil
 }
 
 // revive starts the live release again (after a reboot).

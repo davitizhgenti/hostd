@@ -1,7 +1,7 @@
 package apps
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -20,19 +20,6 @@ type SecretList struct {
 	Secrets []string `json:"secrets"`
 }
 
-func secretActions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: "secret.set", Description: "Store a secret, for app environments as {secret:<name>} (the value is read from standard input)",
-			Scope:  sdk.ScopeAdmin,
-			Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"value":{"type":"string","maxLength":65536}},"required":["name","value"],"additionalProperties":false}`),
-			Secret: []string{"value"}, Keys: []sdk.KeyTemplate{"secret:{name}"}},
-		{Type: "secret.remove", Description: "Remove a secret",
-			Scope:  sdk.ScopeAdmin,
-			Schema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`),
-			Keys:   []sdk.KeyTemplate{"secret:{name}"}},
-	}
-}
-
 // secretName checks a secret's name, or says why it is not one.
 func (m *Module) secretName(name string) error {
 	if !secrets.ValidName(name) {
@@ -44,27 +31,26 @@ func (m *Module) secretName(name string) error {
 	return nil
 }
 
-func (m *Module) handleSecret(a sdk.Action) (sdk.Result, error) {
-	var args struct{ Name, Value string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) setSecret(_ context.Context, _ sdk.Action, args secretArgs) (secretName, error) {
 	if err := m.secretName(args.Name); err != nil {
-		return sdk.Result{}, err
+		return secretName{}, err
 	}
-	store := secrets.Store{Dir: m.opts.SecretsDir}
-	if a.Type == "secret.remove" {
-		if err := store.Remove(args.Name); errors.Is(err, secrets.ErrNotExist) {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no secret %q", args.Name)
-		} else if err != nil {
-			return sdk.Result{}, err
-		}
-		return sdk.Result{}, nil
+	if err := (secrets.Store{Dir: m.opts.SecretsDir}).Write(args.Name, []byte(args.Value)); err != nil {
+		return secretName{}, err
 	}
-	if err := store.Write(args.Name, []byte(args.Value)); err != nil {
-		return sdk.Result{}, err
+	return secretName{Name: args.Name}, nil
+}
+
+func (m *Module) removeSecret(_ context.Context, _ sdk.Action, args secretName) (struct{}, error) {
+	if err := m.secretName(args.Name); err != nil {
+		return struct{}{}, err
 	}
-	return sdk.Result{Data: sdk.MustJSON(map[string]string{"name": args.Name})}, nil
+	if err := (secrets.Store{Dir: m.opts.SecretsDir}).Remove(args.Name); errors.Is(err, secrets.ErrNotExist) {
+		return struct{}{}, sdk.Errorf(sdk.CodeNotFound, "no secret %q", args.Name)
+	} else if err != nil {
+		return struct{}{}, err
+	}
+	return struct{}{}, nil
 }
 
 func (m *Module) readSecrets() (SecretList, error) {

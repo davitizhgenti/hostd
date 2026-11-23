@@ -25,41 +25,6 @@ const (
 // keepEnded is how many ended instances stay visible (hostctl ps --all).
 const keepEnded = 50
 
-var (
-	startSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"app ID or alias"},
-		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"},
-		"action":{"type":"string","description":"one of the app's actions (e.g. new-private-window): always a new instance"},
-		"args":{"type":"object","additionalProperties":{"type":"string"},"description":"values for the app's arguments (its file's args, such as url); a running copy is replaced"},
-		"dir":{"type":"string","description":"run in this directory: a release (needs scope deploy)"},
-		"env":{"type":"object","additionalProperties":{"type":"string"},"description":"extra environment, e.g. PORT (needs scope deploy)"},
-		"new":{"type":"boolean","description":"always a new instance (needs scope deploy)"},
-		"image":{"type":"string","description":"a container app: run this image (needs scope deploy)"},
-		"ports":{"type":"array","items":{"type":"string"},"description":"a container app: publish these ports (needs scope deploy)"}},"required":["id"]}`)
-	instanceSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"}},"required":["id"]}`)
-)
-
-func instanceActions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: contract.ActionAppOpen, Description: "Open an app: start it, or, if it already runs, bring it forward, start a new copy or restart it, per its settings",
-			Schema: startSchema, Keys: []sdk.KeyTemplate{"app:{id}"}, Scope: contract.ScopeApps,
-			ArgScopes: map[string]string{"front": contract.ScopeFront, "dir": contract.ScopeDeploy,
-				"env": contract.ScopeDeploy, "new": contract.ScopeDeploy, "image": contract.ScopeDeploy, "ports": contract.ScopeDeploy},
-			Timeout: sdk.Duration(5 * time.Minute), // pulling a container image can take a while
-			CLI: &sdk.CLI{Alias: []string{"open", "start"}, Flags: map[string]sdk.Flag{"args": {Name: "arg"}},
-				Done: []string{"{instance} is already running if already_running", "started {instance} ({state})"}}},
-		{Type: contract.ActionInstanceStop, Description: "Stop a running instance",
-			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
-			Timeout: sdk.Duration(time.Minute),
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/stop"},
-			CLI:     &sdk.CLI{Alias: []string{"stop"}, Done: []string{"stopped {instance}"}}},
-		{Type: contract.ActionInstanceClosing, Description: "Note that an instance was asked to close: its end counts as a normal exit",
-			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
-			Timeout: sdk.Duration(10 * time.Second)},
-	}
-}
-
 func instanceEvents() []sdk.EventSpec {
 	return []sdk.EventSpec{
 		{Type: EventStarting, Description: "An instance is starting"},
@@ -97,14 +62,7 @@ func (m *Module) live(app string) []*Instance {
 	return out
 }
 
-func (m *Module) validateStart(a sdk.Action) error {
-	var args struct {
-		ID, Action string
-		Args       map[string]string
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return err
-	}
+func (m *Module) validateStart(_ context.Context, _ sdk.Action, args contract.AppStart) error {
 	app, ok := m.catalog().Get(args.ID)
 	if !ok {
 		return sdk.Errorf(sdk.CodeNotFound, "no app %q (see hostctl apps --all)", args.ID)
@@ -136,11 +94,7 @@ func actionList(app *App) string {
 	return "; it has: " + strings.Join(ids, ", ")
 }
 
-func (m *Module) validateStop(a sdk.Action) error {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return err
-	}
+func (m *Module) validateStop(_ context.Context, _ sdk.Action, args instanceArgs) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	in, ok := m.instances[args.ID]
@@ -166,11 +120,7 @@ type startResult struct {
 	AlreadyRunning bool   `json:"already_running,omitempty"`
 }
 
-func (m *Module) handleStart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args contract.AppStart
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleStart(ctx context.Context, a sdk.Action, args contract.AppStart) (sdk.Result, error) {
 	app, ok := m.catalog().Get(args.ID)
 	if !ok {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no app %q", args.ID)
@@ -525,11 +475,7 @@ func (m *Module) focusRunning(ctx context.Context, app *App, in Instance, front 
 
 // handleClosing marks an instance as asked to close: its end will count as
 // a normal exit.
-func (m *Module) handleClosing(a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleClosing(_ context.Context, _ sdk.Action, args instanceArgs) (sdk.Result, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if in, ok := m.instances[args.ID]; ok {
@@ -538,11 +484,7 @@ func (m *Module) handleClosing(a sdk.Action) (sdk.Result, error) {
 	return sdk.Result{Data: sdk.MustJSON(map[string]string{"instance": args.ID})}, nil
 }
 
-func (m *Module) handleStop(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleStop(ctx context.Context, a sdk.Action, args instanceArgs) (sdk.Result, error) {
 	m.mu.Lock()
 	in, ok := m.instances[args.ID]
 	if !ok || in.State.Ended() {

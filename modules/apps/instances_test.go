@@ -431,7 +431,7 @@ func TestStartRaceWithImmediateExit(t *testing.T) {
 	m.cat = catalog.Build(nil, []catalog.AppFile{{Path: "x.toml", ID: "blink", Runner: &Runner{Type: RunnerExec, Command: []string{"true"}}}}, nil)
 	core := &fakeCore{}
 	m.core = core
-	res, err := m.handleStart(context.Background(), sdk.Action{ID: "act_1", Args: sdk.MustJSON(map[string]string{"id": "blink"})})
+	res, err := m.Handle(context.Background(), sdk.Action{Type: contract.ActionAppOpen, ID: "act_1", Args: sdk.MustJSON(map[string]string{"id": "blink"})})
 	if err != nil || !strings.Contains(string(res.Data), `"state":"exited"`) {
 		t.Fatalf("%s %v", res.Data, err)
 	}
@@ -458,18 +458,18 @@ func TestFailedStopCanBeRetried(t *testing.T) {
 	m.cat = catalog.Build(nil, []catalog.AppFile{{Path: "x.toml", ID: "job", Runner: &Runner{Type: RunnerExec, Command: []string{"job"}}}}, nil)
 	m.core = &fakeCore{}
 	ctx := context.Background()
-	if _, err := m.handleStart(ctx, sdk.Action{ID: "a1", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
+	if _, err := m.Handle(ctx, sdk.Action{Type: contract.ActionAppOpen, ID: "a1", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
 		t.Fatal(err)
 	}
 	b.fail = true
-	if _, err := m.handleStop(ctx, sdk.Action{ID: "a2", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err == nil {
+	if _, err := m.Handle(ctx, sdk.Action{Type: contract.ActionInstanceStop, ID: "a2", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err == nil {
 		t.Fatal("stop error not reported")
 	}
 	if in, _ := m.readInstance("job"); in.State != StateRunning {
 		t.Fatalf("after a failed stop: %s, want running", in.State)
 	}
 	b.fail = false
-	if _, err := m.handleStop(ctx, sdk.Action{ID: "a3", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
+	if _, err := m.Handle(ctx, sdk.Action{Type: contract.ActionInstanceStop, ID: "a3", Args: sdk.MustJSON(map[string]string{"id": "job"})}); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 }

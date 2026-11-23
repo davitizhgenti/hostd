@@ -186,30 +186,24 @@ func pick(players []Player, name, focused string) (Player, bool) {
 	return Player{}, false
 }
 
-var mediaMethods = map[string]string{"media.play_pause": "PlayPause", "media.next": "Next", "media.previous": "Previous"}
-
-func (m *Module) handleMedia(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		Player string `json:"player"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+// sendMedia sends a media key (method) to a player: the one named, else
+// the app in front's, else the one playing.
+func (m *Module) sendMedia(ctx context.Context, player, method string) (mediaSent, error) {
 	ps, err := m.players(ctx)
 	if err != nil {
-		return sdk.Result{}, err
+		return mediaSent{}, err
 	}
-	p, ok := pick(ps, args.Player, m.focusedInstance(ctx))
+	p, ok := pick(ps, player, m.focusedInstance(ctx))
 	if !ok {
-		if args.Player != "" {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no media player %q", args.Player)
+		if player != "" {
+			return mediaSent{}, sdk.Errorf(sdk.CodeNotFound, "no media player %q", player)
 		}
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no media player is running")
+		return mediaSent{}, sdk.Errorf(sdk.CodeNotFound, "no media player is running")
 	}
-	if err := m.opts.Media.Command(ctx, p.Name, mediaMethods[a.Type]); err != nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeModuleUnavailable, "%s: %v", p.Name, err)
+	if err := m.opts.Media.Command(ctx, p.Name, method); err != nil {
+		return mediaSent{}, sdk.Errorf(sdk.CodeModuleUnavailable, "%s: %v", p.Name, err)
 	}
-	return sdk.Result{Data: sdk.MustJSON(map[string]string{"player": p.Name, "instance": p.Instance})}, nil
+	return mediaSent{Player: p.Name, Instance: p.Instance}, nil
 }
 
 // followMedia announces players starting, stopping and changing track.
@@ -253,21 +247,4 @@ func (m *Module) followMedia(ctx context.Context) {
 		case <-m.opts.Clock.After(m.opts.RetryEvery):
 		}
 	}
-}
-
-// mediaActions are the media keys.
-func mediaActions() []sdk.ActionSpec {
-	schema := json.RawMessage(`{"type":"object","properties":{
-		"player":{"type":"string","description":"a player's name (GET /v1/media); default: the app in front's, or the one playing"}}}`)
-	var out []sdk.ActionSpec
-	for _, a := range []struct{ typ, desc, path string }{
-		{"media.play_pause", "Play or pause", "/v1/media/play-pause"},
-		{"media.next", "Next track", "/v1/media/next"},
-		{"media.previous", "Previous track", "/v1/media/previous"},
-	} {
-		out = append(out, sdk.ActionSpec{Type: a.typ, Description: a.desc, Schema: schema,
-			Keys: []sdk.KeyTemplate{"media"}, Scope: "audio", Timeout: sdk.Duration(10 * time.Second),
-			Route: &sdk.Route{Method: "POST", Path: a.path}})
-	}
-	return out
 }

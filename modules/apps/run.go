@@ -2,7 +2,6 @@ package apps
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,7 +10,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/modules/apps/catalog"
@@ -31,38 +29,14 @@ const (
 	ActionRun = "app.run"
 )
 
-var (
-	runSchema = json.RawMessage(`{"type":"object","properties":{
-		"command":{"type":"array","items":{"type":"string"},"minItems":1,"description":"the program and its arguments"},
-		"name":{"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,31}$","description":"names the instance: run-<name> (default: run)"},
-		"background":{"type":"boolean","description":"no window: a service in the background (default: a window on the screen)"},
-		"fullscreen":{"type":"boolean","description":"a window: full screen (default true)"},
-		"front":{"type":"boolean","description":"open in front even while someone is using the screen (needs scope display.front)"},
-		"dir":{"type":"string","description":"the directory it runs in (default: the screen user's home)"},
-		"env":{"type":"object","additionalProperties":{"type":"string"},"description":"extra environment"}},
-		"required":["command"],"additionalProperties":false}`)
-)
-
-func runActions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: ActionRun, Description: "Run a command now, on the screen or in the background (an instance with no app file)",
-			Schema: runSchema, Keys: []sdk.KeyTemplate{"app:run"}, Scope: contract.ScopeRun,
-			ArgScopes: map[string]string{"front": contract.ScopeFront},
-			Timeout:   sdk.Duration(time.Minute),
-			Route:     &sdk.Route{Method: "POST", Path: "/v1/run"},
-			CLI: &sdk.CLI{Alias: []string{"run"}, Rest: "command", Wait: true, Flags: map[string]sdk.Flag{"background": {Short: "b"}},
-				Done: []string{"started {instance} ({state})"}}},
-	}
-}
-
 type runArgs struct {
-	Command    []string          `json:"command"`
-	Name       string            `json:"name"`
-	Background bool              `json:"background"`
-	Fullscreen *bool             `json:"fullscreen"`
-	Front      bool              `json:"front"`
-	Dir        string            `json:"dir"`
-	Env        map[string]string `json:"env"`
+	Command    []string          `json:"command" min:"1" desc:"the program and its arguments"`
+	Name       string            `json:"name,omitempty" pattern:"^[a-z0-9][a-z0-9-]{0,31}$" desc:"names the instance: run-<name> (default: run)"`
+	Background bool              `json:"background,omitempty" desc:"no window: a service in the background (default: a window on the screen)"`
+	Fullscreen *bool             `json:"fullscreen,omitempty" desc:"a window: full screen (default true)"`
+	Front      bool              `json:"front,omitempty" desc:"open in front even while someone is using the screen (needs scope display.front)"`
+	Dir        string            `json:"dir,omitempty" desc:"the directory it runs in (default: the screen user's home)"`
+	Env        map[string]string `json:"env,omitempty" desc:"extra environment"`
 }
 
 var reEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -97,11 +71,7 @@ func runApp(args runArgs) (*App, error) {
 	return a, nil
 }
 
-func (m *Module) handleRun(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args runArgs
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleRun(ctx context.Context, a sdk.Action, args runArgs) (sdk.Result, error) {
 	app, err := runApp(args)
 	if err != nil {
 		return sdk.Result{}, err

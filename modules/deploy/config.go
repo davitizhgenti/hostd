@@ -47,21 +47,6 @@ type Follow struct {
 	At       time.Time         `json:"at,omitzero"` // last change
 }
 
-func configActions() []sdk.ActionSpec {
-	keys := []sdk.KeyTemplate{"config"}
-	return []sdk.ActionSpec{
-		{Type: "config.follow", Description: "Take the app files from a git repository's apps/ folder, following its branch",
-			Scope: sdk.ScopeAdmin, Keys: keys, Timeout: sdk.Duration(5 * time.Minute),
-			Schema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"the repository"},"branch":{"type":"string","description":"default main"},"poll":{"type":"string","description":"how often to look, default 60s"}},"required":["url"],"additionalProperties":false}`)},
-		{Type: "config.unfollow", Description: "Stop following; the app files in use stay, as ordinary files",
-			Scope: sdk.ScopeAdmin, Keys: keys},
-		{Type: "config.sync", Description: "Look at the followed repository now",
-			Scope: sdk.ScopeAdmin, Keys: keys, Timeout: sdk.Duration(5 * time.Minute)},
-		{Type: "config.key", Description: "The followed repository's deploy key (made once): add its public key to the repository, read-only",
-			Scope: sdk.ScopeAdmin, Keys: keys},
-	}
-}
-
 func (m *Module) followPath() string { return filepath.Join(m.opts.Root, "config", "follow.json") }
 
 func (m *Module) loadFollow() (*Follow, error) {
@@ -94,44 +79,27 @@ func (f *Follow) pollEvery() time.Duration {
 	return 60 * time.Second
 }
 
-func (m *Module) handleConfig(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	switch a.Type {
-	case "config.follow":
-		var args struct{ URL, Branch, Poll string }
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		if args.URL == "" || strings.HasPrefix(args.URL, "-") {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "url %q: a git repository", args.URL)
-		}
-		if args.Branch == "" {
-			args.Branch = "main"
-		}
-		if args.Poll != "" {
-			if d, err := time.ParseDuration(args.Poll); err != nil || d < 10*time.Second {
-				return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "poll %q: a duration of at least 10s", args.Poll)
-			}
-		}
-		f := &Follow{URL: args.URL, Branch: args.Branch, Poll: args.Poll}
-		if old, _ := m.loadFollow(); old != nil && old.URL == f.URL && old.Branch == f.Branch {
-			f.Applied = old.Applied
-		}
-		if err := m.saveFollow(f); err != nil {
-			return sdk.Result{}, err
-		}
-		return m.configSync(ctx)
-	case "config.sync":
-		return m.configSync(ctx)
-	case "config.unfollow":
-		return sdk.Result{}, m.unfollow()
-	case "config.key":
-		pub, err := m.makeKey(ctx, configKey)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		return sdk.Result{Data: sdk.MustJSON(map[string]string{"public_key": pub, "path": m.keyPath(configKey)})}, nil
+// follow starts following a config repository.
+func (m *Module) follow(ctx context.Context, args followArgs) (*Follow, error) {
+	if args.URL == "" || strings.HasPrefix(args.URL, "-") {
+		return nil, sdk.Errorf(sdk.CodeInvalidArgs, "url %q: a git repository", args.URL)
 	}
-	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "deploy module has no action %q", a.Type)
+	if args.Branch == "" {
+		args.Branch = "main"
+	}
+	if args.Poll != "" {
+		if d, err := time.ParseDuration(args.Poll); err != nil || d < 10*time.Second {
+			return nil, sdk.Errorf(sdk.CodeInvalidArgs, "poll %q: a duration of at least 10s", args.Poll)
+		}
+	}
+	f := &Follow{URL: args.URL, Branch: args.Branch, Poll: args.Poll}
+	if old, _ := m.loadFollow(); old != nil && old.URL == f.URL && old.Branch == f.Branch {
+		f.Applied = old.Applied
+	}
+	if err := m.saveFollow(f); err != nil {
+		return nil, err
+	}
+	return m.configSync(ctx)
 }
 
 func (m *Module) configHead(ctx context.Context, f *Follow) (string, error) {
@@ -170,44 +138,44 @@ func (m *Module) pollConfig(ctx context.Context) {
 }
 
 // configSync fetches the branch, checks its apps/ folder and applies it.
-func (m *Module) configSync(ctx context.Context) (sdk.Result, error) {
+func (m *Module) configSync(ctx context.Context) (*Follow, error) {
 	f, err := m.loadFollow()
 	if err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
 	if f == nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no config is followed: hostctl config follow <repository>")
+		return nil, sdk.Errorf(sdk.CodeNotFound, "no config is followed: hostctl config follow <repository>")
 	}
 	repo := filepath.Join(m.opts.Root, "git", configKey+".git")
 	if _, err := os.Stat(filepath.Join(repo, "HEAD")); err != nil {
 		if _, err := m.git(ctx, "init", "--quiet", "--bare", repo); err != nil {
-			return sdk.Result{}, err
+			return nil, err
 		}
 	}
 	ref := "+refs/heads/" + f.Branch + ":refs/heads/" + f.Branch
 	if _, err := m.gitWith(ctx, m.gitEnv(configKey), "--git-dir", repo, "fetch", "--quiet", "--no-tags", f.URL, ref); err != nil {
-		return sdk.Result{}, fmt.Errorf("fetching %s: %w", f.URL, err)
+		return nil, fmt.Errorf("fetching %s: %w", f.URL, err)
 	}
 	sha, err := m.git(ctx, "--git-dir", repo, "rev-parse", "--verify", f.Branch+"^{commit}")
 	if err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
 	dir := filepath.Join(m.opts.Root, "config", sha[:12])
 	if sha == f.Applied {
 		if _, err := os.Stat(dir); err == nil {
-			return sdk.Result{Data: sdk.MustJSON(f)}, nil // in use already
+			return f, nil // in use already
 		}
 	}
 	_ = os.RemoveAll(dir)
 	if err := m.exportTree(ctx, repo, sha, dir); err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
-	reject := func(msg string, problems []json.RawMessage) (sdk.Result, error) {
+	reject := func(msg string, problems []json.RawMessage) (*Follow, error) {
 		_ = os.RemoveAll(dir)
 		f.Rejected, f.Error, f.Problems, f.At = sha, msg, problems, m.opts.Clock.Now().UTC()
 		_ = m.saveFollow(f)
 		m.emit(EventConfigRejected, f)
-		return sdk.Result{}, sdk.Errorf(sdk.CodePreconditionFailed, "config %s rejected, the previous config stays: %s", sha[:12], msg)
+		return nil, sdk.Errorf(sdk.CodePreconditionFailed, "config %s rejected, the previous config stays: %s", sha[:12], msg)
 	}
 	apps := filepath.Join(dir, "apps")
 	if fi, err := os.Stat(apps); err != nil || !fi.IsDir() {
@@ -218,7 +186,7 @@ func (m *Module) configSync(ctx context.Context) (sdk.Result, error) {
 	m.mu.Unlock()
 	res, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppCheck, Args: sdk.MustJSON(map[string]string{"dir": apps})})
 	if err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
 	var check struct {
 		Problems []json.RawMessage `json:"problems"`
@@ -228,18 +196,18 @@ func (m *Module) configSync(ctx context.Context) (sdk.Result, error) {
 		return reject(fmt.Sprintf("%d app file(s) have problems", len(check.Problems)), check.Problems)
 	}
 	if err := m.pointAppsAt(apps); err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
 	if _, err := core.Do(ctx, sdk.Action{Type: contract.ActionAppRescan}); err != nil {
 		m.log.Warn("reading the new config", "err", err)
 	}
 	f.Applied, f.Rejected, f.Error, f.Problems, f.At = sha, "", "", nil, m.opts.Clock.Now().UTC()
 	if err := m.saveFollow(f); err != nil {
-		return sdk.Result{}, err
+		return nil, err
 	}
 	m.pruneConfigs(sha[:12])
 	m.emit(EventConfigApplied, f)
-	return sdk.Result{Data: sdk.MustJSON(f)}, nil
+	return f, nil
 }
 
 // pointAppsAt makes the app files' path a symlink to dir, in one step. A

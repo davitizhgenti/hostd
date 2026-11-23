@@ -1,6 +1,7 @@
 package display
 
 import (
+	"context"
 	"sort"
 	"strconv"
 	"strings"
@@ -100,7 +101,7 @@ func (m *Module) readDevices() []DeviceView {
 }
 
 // handleIdentity names a device or gives it a colour.
-func (m *Module) handleIdentity(a sdk.Action) (sdk.Result, error) {
+func (m *Module) handleIdentity(_ context.Context, a sdk.Action) (sdk.Result, error) {
 	var args struct {
 		ID, Name, Colour string
 	}
@@ -140,7 +141,7 @@ func (m *Module) deviceByID(id string) *DeviceView {
 }
 
 // handleCalibrate starts a pointer's calibration, or clears it.
-func (m *Module) handleCalibrate(a sdk.Action) (sdk.Result, error) {
+func (m *Module) handleCalibrate(_ context.Context, a sdk.Action) (sdk.Result, error) {
 	var args struct {
 		ID    string
 		Reset bool
@@ -212,7 +213,7 @@ func (m *Module) hear(ev evdev.InputEvent) {
 }
 
 // handleAssign gives a controller a player slot.
-func (m *Module) handleAssign(a sdk.Action) (sdk.Result, error) {
+func (m *Module) handleAssign(_ context.Context, a sdk.Action) (sdk.Result, error) {
 	var args struct {
 		ID     string
 		Player int

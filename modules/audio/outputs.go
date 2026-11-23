@@ -4,10 +4,8 @@ package audio
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/proc"
@@ -164,18 +162,12 @@ func outputsKey(outs []Output) string {
 	return b.String()
 }
 
-// handleOutput sends sound to an output: the default from now on, and the
+// setOutput sends sound to an output: the default from now on, and the
 // streams already playing move there too.
-func (m *Module) handleOutput(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		Output string `json:"output"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) setOutput(ctx context.Context, _ sdk.Action, args outputArgs) (outputSet, error) {
 	g, _, err := m.graph(ctx)
 	if err != nil {
-		return sdk.Result{}, err
+		return outputSet{}, err
 	}
 	out, ok := g.Output(args.Output)
 	if !ok {
@@ -183,11 +175,11 @@ func (m *Module) handleOutput(ctx context.Context, a sdk.Action) (sdk.Result, er
 		for _, o := range g.Outputs {
 			names = append(names, o.Name)
 		}
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no output %q; there are: %s", args.Output, strings.Join(names, ", "))
+		return outputSet{}, sdk.Errorf(sdk.CodeNotFound, "no output %q; there are: %s", args.Output, strings.Join(names, ", "))
 	}
 	gb := m.opts.Backend.(GraphBackend)
 	if err := gb.SetDefault(ctx, out.ID); err != nil {
-		return sdk.Result{}, err
+		return outputSet{}, err
 	}
 	for _, s := range g.Streams {
 		if err := gb.MoveStream(ctx, s.ID, out.Node); err != nil {
@@ -196,53 +188,27 @@ func (m *Module) handleOutput(ctx context.Context, a sdk.Action) (sdk.Result, er
 	}
 	m.followGraph(ctx)
 	m.check()
-	return sdk.Result{Data: sdk.MustJSON(map[string]any{"output": out.Name, "moved": len(g.Streams)})}, nil
+	return outputSet{Output: out.Name, Moved: len(g.Streams)}, nil
 }
 
-// handleApp sets an app's volume or mute, on every stream it plays.
-func (m *Module) handleApp(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		Instance string          `json:"instance"`
-		Percent  json.RawMessage `json:"percent"`
-		Muted    json.RawMessage `json:"muted"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+// setApp sets an app's volume or mute (apply), on every stream it plays.
+func (m *Module) setApp(ctx context.Context, a sdk.Action, instance string, apply func(GraphBackend, []Stream, *appState) error) (appState, error) {
 	g, _, err := m.graph(ctx)
 	if err != nil {
-		return sdk.Result{}, err
+		return appState{}, err
 	}
 	var streams []Stream
 	for _, s := range g.Streams {
-		if s.Instance == args.Instance {
+		if s.Instance == instance {
 			streams = append(streams, s)
 		}
 	}
 	if len(streams) == 0 {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "%s plays no sound", args.Instance)
+		return appState{}, sdk.Errorf(sdk.CodeNotFound, "%s plays no sound", instance)
 	}
-	gb := m.opts.Backend.(GraphBackend)
-	state := map[string]any{"instance": args.Instance}
-	if a.Type == "audio.app.volume.set" {
-		p, err := target(args.Percent, streams[0].Percent)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		for _, s := range streams {
-			if err := gb.SetNodeVolume(ctx, s.ID, p); err != nil {
-				return sdk.Result{}, err
-			}
-		}
-		state["percent"] = p
-	} else {
-		muted := muteWanted(args.Muted, streams[0].Muted)
-		for _, s := range streams {
-			if err := gb.SetNodeMute(ctx, s.ID, muted); err != nil {
-				return sdk.Result{}, err
-			}
-		}
-		state["muted"] = muted
+	state := appState{Instance: instance}
+	if err := apply(m.opts.Backend.(GraphBackend), streams, &state); err != nil {
+		return appState{}, err
 	}
 	m.mu.Lock()
 	core := m.core
@@ -250,39 +216,5 @@ func (m *Module) handleApp(ctx context.Context, a sdk.Action) (sdk.Result, error
 	if core != nil {
 		core.Emit(sdk.Event{Type: EventAppVolumeChanged, Action: a.ID, Data: sdk.MustJSON(state)})
 	}
-	return sdk.Result{Data: sdk.MustJSON(state)}, nil
-}
-
-var (
-	outputSchema = json.RawMessage(`{"type":"object","properties":{
-		"output":{"type":"string","description":"an output's name, as GET /v1/audio lists them (hdmi, speakers, bt-...)"}},
-		"required":["output"]}`)
-	appVolumeSchema = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string"},
-		"percent":{"description":"0-150, or a change such as \"+5\" or \"-5\"",
-			"oneOf":[{"type":"integer","minimum":0,"maximum":150},{"type":"string","pattern":"^([+-][0-9]{1,3}|[0-9]{1,3})$"}]}},
-		"required":["instance","percent"]}`)
-	appMuteSchema = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string"},
-		"muted":{"description":"true or on, false or off, or toggle (the default)","default":"toggle",
-			"oneOf":[{"type":"boolean"},{"enum":["toggle","on","off"]}]}},
-		"required":["instance"]}`)
-)
-
-// m3Actions are the output and per-app actions.
-func m3Actions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: "audio.output.set", Description: "Send sound to an output; what plays moves there too",
-			Schema: outputSchema, Keys: []sdk.KeyTemplate{"audio.output"}, Scope: "audio",
-			Timeout: sdk.Duration(15 * time.Second),
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/output"}},
-		{Type: "audio.app.volume.set", Description: "Set an app's own volume (0-150) or change it",
-			Schema: appVolumeSchema, Keys: []sdk.KeyTemplate{"audio.app:{instance}"}, Scope: "audio",
-			Timeout: sdk.Duration(10 * time.Second),
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/apps/{instance}/volume"}},
-		{Type: "audio.app.mute.set", Description: "Mute, unmute or toggle an app",
-			Schema: appMuteSchema, Keys: []sdk.KeyTemplate{"audio.app:{instance}"}, Scope: "audio",
-			Timeout: sdk.Duration(10 * time.Second),
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/apps/{instance}/mute"}},
-	}
+	return state, nil
 }

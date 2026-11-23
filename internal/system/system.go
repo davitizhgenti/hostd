@@ -21,6 +21,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
 	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/sdk/kit"
 )
 
 // Name is the module's name.
@@ -46,6 +47,9 @@ type Options struct {
 type Module struct {
 	o Options
 
+	actions *kit.Actions
+	reads   *kit.Reads
+
 	mu    sync.Mutex
 	core  sdk.Core
 	intro sdk.Introspector // nil until Start, and in tests that set none
@@ -58,77 +62,104 @@ func New(o Options) *Module {
 	if o.Every == 0 {
 		o.Every = time.Second
 	}
-	return &Module{o: o}
+	m := &Module{o: o}
+	m.actions, m.reads = m.declare()
+	return m
 }
 
-var (
-	createSchema = json.RawMessage(`{"type":"object","properties":{
-		"name":{"type":"string","description":"what it is for: a device or a script"},
-		"scopes":{"type":"array","items":{"type":"string"},"description":"what it may do (hostctl get hostd scopes)"},
-		"kind":{"type":"string","enum":["manual","automation","local"],"default":"manual",
-			"description":"manual (a person's device), automation (scripts) or local (the on-screen menu)"},
-		"ttl":{"type":"string","description":"how long it lasts, such as 720h; default: until revoked"}},
-		"required":["name","scopes"],"additionalProperties":false}`)
-	revokeSchema = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the token's ID (tok_...) or name"}},"required":["id"],"additionalProperties":false}`)
-	quietSchema = json.RawMessage(`{"type":"object","properties":{
-		"types":{"type":"string","description":"action types that count as busy, comma-separated (default: the actions modules mark busy: deploys, scenes)"},
-		"idle":{"type":"boolean","description":"also wait until nobody is using the screen"},
-		"max":{"type":"string","description":"how long to wait at most (default 10m)"}},"additionalProperties":false}`)
+// The arguments of hostd's own actions.
+type (
+	createArgs struct {
+		Name   string         `json:"name" desc:"what it is for: a device or a script"`
+		Scopes []string       `json:"scopes" desc:"what it may do (hostctl get hostd scopes)"`
+		Kind   sdk.SourceKind `json:"kind,omitempty" enum:"manual,automation,local" default:"manual" desc:"manual (a person's device), automation (scripts) or local (the on-screen menu)"`
+		TTL    string         `json:"ttl,omitempty" desc:"how long it lasts, such as 720h; default: until revoked"`
+	}
+	revokeArgs struct {
+		ID string `json:"id" desc:"the token's ID (tok_...) or name"`
+	}
+	quietArgs struct {
+		Types string `json:"types,omitempty" desc:"action types that count as busy, comma-separated (default: the actions modules mark busy: deploys, scenes)"`
+		Idle  bool   `json:"idle,omitempty" desc:"also wait until nobody is using the screen"`
+		Max   string `json:"max,omitempty" desc:"how long to wait at most (default 10m)"`
+	}
+	// createdToken is a new token with its secret, shown only now: the
+	// audit trail keeps arguments, never results.
+	createdToken struct {
+		store.Token
+		Secret string `json:"secret"`
+	}
+	revoked struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	quiet struct {
+		Quiet bool `json:"quiet"`
+	}
+	tlsInfo struct {
+		Fingerprint string     `json:"fingerprint"`
+		Pin         string     `json:"pin"`
+		Leaf        tlsca.Leaf `json:"leaf"`
+	}
 )
 
-func (m *Module) Manifest() sdk.Manifest {
-	man := sdk.Manifest{
-		Name: Name, Version: "0.1.0",
-		Owns:  []string{"token.*", "quiet.*"},
-		Kinds: []sdk.KindSpec{moduleKind()},
-		Actions: []sdk.ActionSpec{
-			{Type: "token.create", Description: "Create an API token; its secret is shown only now",
-				Schema: createSchema, Scope: sdk.ScopeAdmin, Keys: []sdk.KeyTemplate{"token:{name}"},
-				Route: &sdk.Route{Method: "POST", Path: "/v1/tokens"},
-				CLI: &sdk.CLI{Done: []string{
-					"Created token \"{name}\" ({kind}, scopes {scopes}). Its secret, shown only now:\n\n    {secret}"}}},
-			{Type: "token.revoke", Description: "Revoke a token, by ID or name",
-				Schema: revokeSchema, Scope: sdk.ScopeAdmin, Keys: []sdk.KeyTemplate{"token:{id}"},
-				Route: &sdk.Route{Method: "DELETE", Path: "/v1/tokens/{id}"},
-				CLI:   &sdk.CLI{Done: []string{"Revoked {id}"}}},
-			{Type: "quiet.wait", Description: "Wait until no deploy or scene is in progress (and, with idle, nobody is at the screen); fails if one still is after max",
-				Schema: quietSchema, Scope: sdk.ScopeRead, Timeout: sdk.Duration(time.Hour),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/quiet"},
-				CLI:   &sdk.CLI{Alias: []string{"wait-quiet"}, Done: []string{"quiet"}}},
-		},
-		Reads: []sdk.ReadSpec{
-			{Name: "tokens", Description: "The API tokens (never their secrets)", Path: "/v1/tokens", Scope: sdk.ScopeAdmin,
-				CLI: &sdk.CLI{Alias: []string{"token list"}, Columns: []sdk.Column{{Title: "NAME", Path: "name"}, {Title: "KIND", Path: "kind"}, {Title: "SCOPES", Path: "scopes"},
-					{Title: "LAST USED", Text: []string{"{last_used:date} if last_used", "never"}},
-					{Title: "STATE", Text: []string{"revoked if revoked", "expired if expired", "expires {expires:date} if expires", "active"}},
-					{Title: "ID", Path: "id"}}}},
-			{Name: "log", Description: "The audit trail: recent actions, their sources and results, newest first (?limit, ?before, ?type, ?action)",
-				Path: "/v1/actions",
-				CLI: &sdk.CLI{Alias: []string{"log"}, Reverse: true, NoHeader: true, Gap: 3,
-					Params: []sdk.Param{{Name: "limit", Value: "N", Default: "50", Description: "how many entries"},
-						{Name: "type", Value: "pattern", Description: "only these types, e.g. 'audio.*'"},
-						{Name: "action", Value: "ID", Description: "only this action's entries"}},
-					Columns: []sdk.Column{{Title: "TIME", Path: "time", Format: "time"},
-						{Title: "ACTION", Text: []string{"{type} {summary}"}, Max: 60},
-						{Title: "SOURCE", Text: []string{"{source.kind} ({source.name}) if source.name", "{source.kind}"}},
-						{Title: "STATUS", Path: "status"},
-						{Title: "DETAIL", Text: []string{"held by {held_by} until {until:time} if until", "{reason} if status=skipped",
-							"{code}: {reason} if status=failed", "v{version} if version", " "}, Max: 100}}}},
-			{Name: "running", Description: "The actions being handled now, oldest first", Path: "/v1/actions/running",
-				CLI: &sdk.CLI{Empty: "nothing is running", Columns: []sdk.Column{{Title: "ACTION", Path: "id"}, {Title: "TYPE", Path: "type"},
-					{Title: "SOURCE", Text: []string{"{source.kind} ({source.name}) if source.name", "{source.kind}"}},
-					{Title: "SINCE", Path: "started", Format: "time"}}}},
-		},
-	}
+// declare is hostd's own actions and reads.
+func (m *Module) declare() (*kit.Actions, *kit.Reads) {
+	t := kit.NewActions(Name)
+	kit.On(t, sdk.ActionSpec{Type: "token.create", Description: "Create an API token; its secret is shown only now",
+		Scope: sdk.ScopeAdmin, Keys: []sdk.KeyTemplate{"token:{name}"},
+		Route: &sdk.Route{Method: "POST", Path: "/v1/tokens"},
+		CLI: &sdk.CLI{Done: []string{
+			"Created token \"{name}\" ({kind}, scopes {scopes}). Its secret, shown only now:\n\n    {secret}"}}}, m.createToken)
+	kit.On(t, sdk.ActionSpec{Type: "token.revoke", Description: "Revoke a token, by ID or name",
+		Scope: sdk.ScopeAdmin, Keys: []sdk.KeyTemplate{"token:{id}"},
+		Route: &sdk.Route{Method: "DELETE", Path: "/v1/tokens/{id}"},
+		CLI:   &sdk.CLI{Done: []string{"Revoked {id}"}}}, m.revokeToken)
+	kit.On(t, sdk.ActionSpec{Type: "quiet.wait", Description: "Wait until no deploy or scene is in progress (and, with idle, nobody is at the screen); fails if one still is after max",
+		Scope: sdk.ScopeRead, Timeout: sdk.Duration(time.Hour),
+		Route: &sdk.Route{Method: "POST", Path: "/v1/quiet"},
+		CLI:   &sdk.CLI{Alias: []string{"wait-quiet"}, Done: []string{"quiet"}}}, m.waitQuiet)
+
+	r := kit.NewReads(Name)
+	kit.Serve(r, sdk.ReadSpec{Name: "tokens", Description: "The API tokens (never their secrets)", Path: "/v1/tokens", Scope: sdk.ScopeAdmin,
+		CLI: &sdk.CLI{Alias: []string{"token list"}, Columns: []sdk.Column{{Title: "NAME", Path: "name"}, {Title: "KIND", Path: "kind"}, {Title: "SCOPES", Path: "scopes"},
+			{Title: "LAST USED", Text: []string{"{last_used:date} if last_used", "never"}},
+			{Title: "STATE", Text: []string{"revoked if revoked", "expired if expired", "expires {expires:date} if expires", "active"}},
+			{Title: "ID", Path: "id"}}}}, m.tokens)
+	kit.Serve(r, sdk.ReadSpec{Name: "log", Description: "The audit trail: recent actions, their sources and results, newest first (?limit, ?before, ?type, ?action)",
+		Path: "/v1/actions",
+		CLI: &sdk.CLI{Alias: []string{"log"}, Reverse: true, NoHeader: true, Gap: 3,
+			Params: []sdk.Param{{Name: "limit", Value: "N", Default: "50", Description: "how many entries"},
+				{Name: "type", Value: "pattern", Description: "only these types, e.g. 'audio.*'"},
+				{Name: "action", Value: "ID", Description: "only this action's entries"}},
+			Columns: []sdk.Column{{Title: "TIME", Path: "time", Format: "time"},
+				{Title: "ACTION", Text: []string{"{type} {summary}"}, Max: 60},
+				{Title: "SOURCE", Text: []string{"{source.kind} ({source.name}) if source.name", "{source.kind}"}},
+				{Title: "STATUS", Path: "status"},
+				{Title: "DETAIL", Text: []string{"held by {held_by} until {until:time} if until", "{reason} if status=skipped",
+					"{code}: {reason} if status=failed", "v{version} if version", " "}, Max: 100}}}}, m.audit)
+	kit.Serve(r, sdk.ReadSpec{Name: "running", Description: "The actions being handled now, oldest first", Path: "/v1/actions/running",
+		CLI: &sdk.CLI{Empty: "nothing is running", Columns: []sdk.Column{{Title: "ACTION", Path: "id"}, {Title: "TYPE", Path: "type"},
+			{Title: "SOURCE", Text: []string{"{source.kind} ({source.name}) if source.name", "{source.kind}"}},
+			{Title: "SINCE", Path: "started", Format: "time"}}}}, m.running)
 	if m.o.TLS != nil {
-		man.Reads = append(man.Reads, sdk.ReadSpec{Name: "tls", Path: "/v1/tls", Scope: sdk.ScopePublic,
+		kit.Serve(r, sdk.ReadSpec{Name: "tls", Path: "/v1/tls", Scope: sdk.ScopePublic,
 			Description: "The machine's CA (its fingerprint, which clients pin) and the certificate the API serves",
 			CLI: &sdk.CLI{Alias: []string{"tls"}, Done: []string{
 				tlsText + "\nLeft out: {leaf.skipped} (the CA was made before they were configured; to remake it, stop hostd, remove ~/.local/state/hostd/tls, start it, and log in again everywhere) if leaf.skipped",
-				tlsText}}})
+				tlsText}}}, m.tls)
 	}
-	return man
+	return t, r
+}
+
+func (m *Module) Manifest() sdk.Manifest {
+	return sdk.Manifest{
+		Name: Name, Version: "0.1.0",
+		Owns:    []string{"token.*", "quiet.*"},
+		Kinds:   []sdk.KindSpec{moduleKind()},
+		Actions: m.actions.Specs(),
+		Reads:   m.reads.Specs(),
+	}
 }
 
 // tlsText is how hostctl tls prints the CA and the certificate.
@@ -143,19 +174,12 @@ func (m *Module) Start(_ context.Context, c sdk.Core) error {
 	return nil
 }
 
-func (m *Module) Stop(context.Context) error                 { return nil }
-func (m *Module) Validate(context.Context, sdk.Action) error { return nil }
+func (m *Module) Stop(context.Context) error { return nil }
+
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error { return m.actions.Validate(ctx, a) }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	switch a.Type {
-	case "token.create":
-		return m.createToken(ctx, a)
-	case "token.revoke":
-		return m.revokeToken(ctx, a)
-	case "quiet.wait":
-		return m.waitQuiet(ctx, a)
-	}
-	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "hostd has no action %q", a.Type)
+	return m.actions.Handle(ctx, a)
 }
 
 func (m *Module) knownScopes() []string {
@@ -170,58 +194,40 @@ func (m *Module) knownScopes() []string {
 	return slices.Compact(known)
 }
 
-func (m *Module) createToken(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		Name   string         `json:"name"`
-		Scopes []string       `json:"scopes"`
-		Kind   sdk.SourceKind `json:"kind"`
-		TTL    string         `json:"ttl"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) createToken(ctx context.Context, _ sdk.Action, args createArgs) (createdToken, error) {
 	if args.Kind == "" {
 		args.Kind = sdk.SourceManual
 	}
 	known := m.knownScopes()
 	for _, sc := range args.Scopes {
 		if !slices.Contains(known, sc) {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "unknown scope %q; known scopes: %s", sc, strings.Join(known, ", "))
+			return createdToken{}, sdk.Errorf(sdk.CodeInvalidArgs, "unknown scope %q; known scopes: %s", sc, strings.Join(known, ", "))
 		}
 	}
 	var ttl time.Duration
 	if args.TTL != "" {
 		d, err := time.ParseDuration(args.TTL)
 		if err != nil || d <= 0 {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "ttl %q: a duration such as 720h", args.TTL)
+			return createdToken{}, sdk.Errorf(sdk.CodeInvalidArgs, "ttl %q: a duration such as 720h", args.TTL)
 		}
 		ttl = d
 	}
 	tok, secret, err := m.o.Store.CreateToken(ctx, args.Name, args.Kind, args.Scopes, ttl)
 	if err != nil {
 		if errors.Is(err, store.ErrNameTaken) || errors.Is(err, store.ErrBadRequest) {
-			return sdk.Result{}, &sdk.Error{Code: sdk.CodeInvalidArgs, Message: err.Error()}
+			return createdToken{}, &sdk.Error{Code: sdk.CodeInvalidArgs, Message: err.Error()}
 		}
-		return sdk.Result{}, err
+		return createdToken{}, err
 	}
-	// The secret is in the result only: the audit trail keeps arguments,
-	// never results.
-	return sdk.Result{Data: sdk.MustJSON(struct {
-		store.Token
-		Secret string `json:"secret"`
-	}{tok, secret})}, nil
+	return createdToken{Token: tok, Secret: secret}, nil
 }
 
-func (m *Module) revokeToken(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) revokeToken(ctx context.Context, _ sdk.Action, args revokeArgs) (revoked, error) {
 	id := args.ID
 	if !strings.HasPrefix(id, "tok_") { // a name: its active token
 		toks, err := m.o.Store.ListTokens(ctx)
 		if err != nil {
-			return sdk.Result{}, err
+			return revoked{}, err
 		}
 		id = ""
 		for _, t := range toks {
@@ -230,29 +236,21 @@ func (m *Module) revokeToken(ctx context.Context, a sdk.Action) (sdk.Result, err
 			}
 		}
 		if id == "" {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no active token named %q", args.ID)
+			return revoked{}, sdk.Errorf(sdk.CodeNotFound, "no active token named %q", args.ID)
 		}
 	}
 	if err := m.o.Store.RevokeToken(ctx, id); errors.Is(err, store.ErrNotFound) {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "no active token %q", args.ID)
+		return revoked{}, sdk.Errorf(sdk.CodeNotFound, "no active token %q", args.ID)
 	} else if err != nil {
-		return sdk.Result{}, err
+		return revoked{}, err
 	}
-	return sdk.Result{Data: sdk.MustJSON(map[string]string{"id": args.ID, "token": id})}, nil
+	return revoked{ID: args.ID, Token: id}, nil
 }
 
 // waitQuiet returns once no action of the given types runs (and, with
 // idle, nobody is at the screen); it fails if that has not happened by
 // max.
-func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		Types string `json:"types"`
-		Idle  bool   `json:"idle"`
-		Max   string `json:"max"`
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) waitQuiet(ctx context.Context, _ sdk.Action, args quietArgs) (quiet, error) {
 	m.mu.Lock()
 	in := m.intro
 	m.mu.Unlock()
@@ -263,7 +261,7 @@ func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error
 	if args.Max != "" {
 		d, err := time.ParseDuration(args.Max)
 		if err != nil || d < 0 {
-			return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "max %q: a duration such as 5m", args.Max)
+			return quiet{}, sdk.Errorf(sdk.CodeInvalidArgs, "max %q: a duration such as 5m", args.Max)
 		}
 		maxWait = d
 	}
@@ -271,14 +269,14 @@ func (m *Module) waitQuiet(ctx context.Context, a sdk.Action) (sdk.Result, error
 	for {
 		busy := m.busy(ctx, strings.Split(args.Types, ","), args.Idle)
 		if len(busy) == 0 {
-			return sdk.Result{Data: sdk.MustJSON(map[string]bool{"quiet": true})}, nil
+			return quiet{Quiet: true}, nil
 		}
 		if m.o.Clock.Now().After(deadline) {
-			return sdk.Result{}, sdk.Errorf(sdk.CodePreconditionFailed, "still busy after %s: %s", maxWait, strings.Join(busy, "; "))
+			return quiet{}, sdk.Errorf(sdk.CodePreconditionFailed, "still busy after %s: %s", maxWait, strings.Join(busy, "; "))
 		}
 		select {
 		case <-ctx.Done():
-			return sdk.Result{}, ctx.Err()
+			return quiet{}, ctx.Err()
 		case <-m.o.Clock.After(m.o.Every):
 		}
 	}
@@ -311,36 +309,35 @@ func (m *Module) busy(ctx context.Context, patterns []string, idle bool) []strin
 }
 
 func (m *Module) Read(ctx context.Context, name string, params map[string]string) (any, error) {
-	switch name {
-	case "tokens":
-		toks, err := m.o.Store.ListTokens(ctx)
-		if err != nil {
-			return nil, err
-		}
-		now := time.Now()
-		out := make([]tokenView, 0, len(toks))
-		for _, t := range toks {
-			out = append(out, tokenView{Token: t, Expired: t.Revoked == nil && t.Expires != nil && !t.Expires.After(now)})
-		}
-		return out, nil
-	case "log":
-		return m.audit(ctx, params)
-	case "running":
-		m.mu.Lock()
-		in := m.intro
-		m.mu.Unlock()
-		if in == nil {
-			return []sdk.RunningAction{}, nil
-		}
-		return in.Running(), nil
-	case "tls":
-		if m.o.TLS == nil {
-			return nil, sdk.Errorf(sdk.CodeNotFound, "the API is plain HTTP here ([api] tls = false)")
-		}
-		fp := m.o.TLS.Fingerprint()
-		return map[string]any{"fingerprint": fp, "pin": tlsca.Pretty(fp), "leaf": m.o.TLS.Leaf()}, nil
+	return m.reads.Read(ctx, name, params)
+}
+
+func (m *Module) tokens(ctx context.Context, _ struct{}) ([]tokenView, error) {
+	toks, err := m.o.Store.ListTokens(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil, sdk.Errorf(sdk.CodeNotFound, "hostd has no read %q", name)
+	now := time.Now()
+	out := make([]tokenView, 0, len(toks))
+	for _, t := range toks {
+		out = append(out, tokenView{Token: t, Expired: t.Revoked == nil && t.Expires != nil && !t.Expires.After(now)})
+	}
+	return out, nil
+}
+
+func (m *Module) running(context.Context, struct{}) ([]sdk.RunningAction, error) {
+	m.mu.Lock()
+	in := m.intro
+	m.mu.Unlock()
+	if in == nil {
+		return []sdk.RunningAction{}, nil
+	}
+	return in.Running(), nil
+}
+
+func (m *Module) tls(context.Context, struct{}) (tlsInfo, error) {
+	fp := m.o.TLS.Fingerprint()
+	return tlsInfo{Fingerprint: fp, Pin: tlsca.Pretty(fp), Leaf: m.o.TLS.Leaf()}, nil
 }
 
 // tokenView is a token as the tokens read shows it.

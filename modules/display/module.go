@@ -5,7 +5,6 @@ package display
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -20,6 +19,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/presence"
 	"github.com/davitizhgenti/hostd/modules/display/sway"
 	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/sdk/kit"
 )
 
 // Events the module emits.
@@ -123,8 +123,9 @@ func SwayConnector(runtimeDir string) func(context.Context) (Backend, error) {
 // calling the compositor (Backend) or the core: take what is needed under
 // the lock, release it, then call.
 type Module struct {
-	opts Options
-	log  *slog.Logger
+	opts    Options
+	log     *slog.Logger
+	actions *kit.Actions
 
 	mu            sync.Mutex
 	core          sdk.Core
@@ -211,54 +212,9 @@ func New(opts Options) *Module {
 		m.opts.SysRoot = "/"
 	}
 	m.presence = presence.New(opts.Clock, opts.IdleAfter, m.presenceChanged)
+	m.actions = m.declare()
 	return m
 }
-
-var (
-	focusArg = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
-		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance"]}`)
-	closeArg = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string","description":"instance ID; default: the window in front"}}}`)
-	noArgs   = json.RawMessage(`{"type":"object","properties":{}}`)
-	placeArg = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string","description":"the instance to place"},
-		"beside":{"type":"string","description":"the instance to place it next to"},
-		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["instance","beside"]}`)
-	assignArg = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the controller's ID (hostctl devices)"},
-		"player":{"type":"integer","minimum":1,"maximum":16,"description":"the slot"}},
-		"required":["id","player"],"additionalProperties":false}`)
-	renameArg = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the device's ID (hostctl devices)"},
-		"name":{"type":"string","maxLength":24,"description":"the name the menu shows; empty: its own name again"}},
-		"required":["id","name"],"additionalProperties":false}`)
-	colourArg = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the device's ID (hostctl devices)"},
-		"colour":{"type":"string","enum":["blue","orange","green","pink","yellow","teal","red","violet"],"description":"the colour of its pointer and mark"}},
-		"required":["id","colour"],"additionalProperties":false}`)
-	calibrateArg = json.RawMessage(`{"type":"object","properties":{
-		"id":{"type":"string","description":"the Wii Remote's ID (hostctl devices)"},
-		"reset":{"type":"boolean","description":"clear what was measured instead of measuring"}},
-		"required":["id"],"additionalProperties":false}`)
-	noticeArg = json.RawMessage(`{"type":"object","properties":{
-		"text":{"type":"string","minLength":1,"maxLength":300}},"required":["text"],"additionalProperties":false}`)
-	powerArg = json.RawMessage(`{"type":"object","properties":{
-		"on":{"type":"boolean","description":"true: screen on; false: off (power saving)"},
-		"output":{"type":"string","description":"a screen name (see GET /v1/display); default all"},
-		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["on"]}`)
-	modeArg = json.RawMessage(`{"type":"object","properties":{
-		"output":{"type":"string","description":"a screen name (see GET /v1/display)"},
-		"mode":{"type":"string","description":"WIDTHxHEIGHT or WIDTHxHEIGHT@HZ, e.g. 1920x1080@60"},
-		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["output","mode"]}`)
-	enableArg = json.RawMessage(`{"type":"object","properties":{
-		"output":{"type":"string","description":"a screen name (see GET /v1/display)"},
-		"enabled":{"type":"boolean","description":"true (default) or false"},
-		"front":{"type":"boolean","description":"even while someone is using the screen (needs scope display.front)"}},"required":["output"]}`)
-	fullscreenArg = json.RawMessage(`{"type":"object","properties":{
-		"instance":{"type":"string","description":"instance ID"},
-		"enabled":{"type":"boolean","description":"true (default) or false"}},"required":["instance"]}`)
-)
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
@@ -271,71 +227,7 @@ func (m *Module) Manifest() sdk.Manifest {
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
 		},
-		Actions: []sdk.ActionSpec{
-			{Type: "window.focus", Description: "Bring an instance's window to the front",
-				Schema: focusArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
-				ArgScopes: map[string]string{"front": contract.ScopeFront},
-				Timeout:   sdk.Duration(10 * time.Second),
-				Route:     &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/focus"},
-				CLI: &sdk.CLI{Done: []string{
-					"not switched: someone is using the screen (they got a notice; --front switches anyway) if reason=in_use",
-					"focused {instance}"}}},
-			{Type: "window.close", Description: "Close an instance's windows politely (default: the app in front); stop the app if they stay open",
-				Schema: closeArg, Keys: []sdk.KeyTemplate{"display.close"}, Scope: contract.ScopeApps,
-				Timeout: sdk.Duration(time.Minute),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/close"}},
-			{Type: "window.fullscreen", Description: "Turn fullscreen on or off for an instance's windows",
-				Schema: fullscreenArg, Keys: []sdk.KeyTemplate{"instance:{instance}"}, Scope: "display",
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/fullscreen"}},
-			{Type: "window.back", Description: "Go back to the app that was in front before",
-				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/back"}},
-			{Type: "window.next", Description: "Bring the next running app to the front",
-				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/next"}},
-			{Type: "window.prev", Description: "Bring the previous running app to the front",
-				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/windows/prev"}},
-			{Type: "display.menu", Description: "Open hostd's on-screen menu, or go back if it is in front",
-				Schema: noArgs, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: contract.ScopeApps,
-				Timeout: sdk.Duration(time.Minute),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/display/menu"}},
-			{Type: "window.place", Description: "Put an instance's window beside another's, side by side",
-				Schema: placeArg, Keys: []sdk.KeyTemplate{"display.focus"}, Scope: "display",
-				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/windows/{instance}/place"}},
-			{Type: "device.assign", Description: "Give a controller a player slot (the controller that has it gets this one's old slot)",
-				Schema: assignArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/assign"}},
-			{Type: "device.rename", Description: "Name an input device for the menu (a Wii Remote, a mouse, a controller)",
-				Schema: renameArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/rename"}},
-			{Type: "device.colour", Description: "Give an input device a colour: its pointer on the menu and its mark are drawn in it",
-				Schema: colourArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/colour"}},
-			{Type: "device.calibrate", Description: "Measure a Wii Remote's pointer: point it at the screen's four corners, pressing A at each (the menu shows where); it is kept for that remote",
-				Schema: calibrateArg, Keys: []sdk.KeyTemplate{"display.devices"}, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/devices/{id}/calibrate"}},
-			{Type: "display.notice", Description: "Show a short notice on the screen, above any app",
-				Schema: noticeArg, Scope: "display", Timeout: sdk.Duration(5 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/display/notice"}},
-			{Type: "display.power", Description: "Turn screens on or off (power saving)",
-				Schema: powerArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
-				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/display/power"}},
-			{Type: "display.mode", Description: "Set a screen's resolution and refresh rate",
-				Schema: modeArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
-				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/display/outputs/{output}/mode"}},
-			{Type: "display.output.enable", Description: "Use or stop using a screen",
-				Schema: enableArg, Keys: []sdk.KeyTemplate{"display.outputs"}, Scope: "display",
-				ArgScopes: map[string]string{"front": contract.ScopeFront}, Timeout: sdk.Duration(10 * time.Second),
-				Route: &sdk.Route{Method: "POST", Path: "/v1/display/outputs/{output}/enable"}},
-		},
+		Actions: m.actions.Specs(),
 		Events: []sdk.EventSpec{
 			{Type: EventOpened, Description: "A window opened (instance is empty for windows hostd did not start)"},
 			{Type: EventFocused, Description: "A window got the focus"},

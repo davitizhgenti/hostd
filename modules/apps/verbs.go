@@ -27,45 +27,10 @@ const closeTimeout = 90 * time.Second // the display module waits up to a minute
 // several seconds to shut down) before it is closed the usual way.
 const quitWait = 20 * time.Second
 
-var switchSchema = json.RawMessage(`{"type":"object","properties":{
-	"id":{"type":"string","description":"instance ID, e.g. firefox or firefox#2"},
-	"front":{"type":"boolean","description":"switch even while someone is using the screen (needs scope display.front)"}},
-	"required":["id"],"additionalProperties":false}`)
-
-func verbActions() []sdk.ActionSpec {
-	return []sdk.ActionSpec{
-		{Type: contract.ActionInstanceSwitch, Description: "Bring an instance's window to the front",
-			Schema: switchSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
-			ArgScopes: map[string]string{"front": contract.ScopeFront},
-			Timeout:   sdk.Duration(20 * time.Second),
-			Route:     &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/switch"},
-			CLI: &sdk.CLI{Alias: []string{"switch", "focus"}, Done: []string{
-				"not switched: someone is using the screen (they got a notice; --front switches anyway) if reason=in_use",
-				"switched to {instance}"}}},
-		{Type: contract.ActionInstanceClose, Description: "Close an instance as its window's close button would; stop it if it stays open",
-			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
-			Timeout: sdk.Duration(closeTimeout),
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/close"},
-			CLI:     &sdk.CLI{Alias: []string{"close"}, Done: []string{"stopped {instance} (it did not close) if stopped", "closed {instance}"}}},
-		{Type: contract.ActionInstanceRestart, Description: "Stop an instance and start its app again, as it was started",
-			Schema: instanceSchema, Keys: []sdk.KeyTemplate{"instance:{id}"}, Scope: contract.ScopeApps,
-			Timeout: sdk.Duration(5 * time.Minute), // the start can pull an image
-			Route:   &sdk.Route{Method: "POST", Path: "/v1/instances/{id}/restart"},
-			CLI:     &sdk.CLI{Alias: []string{"restart"}, Done: []string{"restarted {instance} ({state})"}}},
-	}
-}
-
 // handleSwitch brings an instance's window to the front. The windows are the
 // display module's: without it, or for an instance with no window, there is
 // nothing to switch to.
-func (m *Module) handleSwitch(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct {
-		ID    string
-		Front bool
-	}
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleSwitch(ctx context.Context, a sdk.Action, args switchArgs) (sdk.Result, error) {
 	in, err := m.liveInstance(args.ID)
 	if err != nil {
 		return sdk.Result{}, err
@@ -88,11 +53,7 @@ func (m *Module) handleSwitch(ctx context.Context, a sdk.Action) (sdk.Result, er
 }
 
 // handleClose closes an instance politely and stops it if it stays.
-func (m *Module) handleClose(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleClose(ctx context.Context, a sdk.Action, args instanceArgs) (sdk.Result, error) {
 	in, err := m.liveInstance(args.ID)
 	if err != nil {
 		return sdk.Result{}, err
@@ -113,7 +74,7 @@ func (m *Module) handleClose(ctx context.Context, a sdk.Action) (sdk.Result, err
 		return sdk.Result{Data: sdk.MustJSON(data)}, nil
 	}
 	// No window to close: tell the instance's end to count as asked-for, and stop it.
-	if _, err := m.handleClosing(sdk.Action{Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil {
+	if _, err := m.handleClosing(ctx, sdk.Action{}, instanceArgs{ID: in.ID}); err != nil {
 		return sdk.Result{}, err
 	}
 	if _, err := m.core.Do(ctx, sdk.Action{Type: contract.ActionInstanceStop, Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil &&
@@ -126,11 +87,7 @@ func (m *Module) handleClose(ctx context.Context, a sdk.Action) (sdk.Result, err
 // handleRestart stops an instance, then opens its app again with what it
 // was started with: the same action, and a release's directory,
 // environment, image and ports.
-func (m *Module) handleRestart(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	var args struct{ ID string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleRestart(ctx context.Context, a sdk.Action, args instanceArgs) (sdk.Result, error) {
 	in, err := m.liveInstance(args.ID)
 	if err != nil {
 		return sdk.Result{}, err
@@ -168,7 +125,7 @@ func (m *Module) quitApp(ctx context.Context, in Instance) (sdk.Result, bool) {
 		return sdk.Result{}, false
 	}
 	// Its end counts as asked-for.
-	if _, err := m.handleClosing(sdk.Action{Args: sdk.MustJSON(map[string]string{"id": in.ID})}); err != nil {
+	if _, err := m.handleClosing(ctx, sdk.Action{}, instanceArgs{ID: in.ID}); err != nil {
 		return sdk.Result{}, false
 	}
 	quitter := app

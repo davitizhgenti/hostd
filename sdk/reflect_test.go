@@ -7,10 +7,18 @@ import (
 	"time"
 )
 
+// change is a number or a change such as "+5".
+type change json.RawMessage
+
+func (*change) JSONSchema() json.RawMessage {
+	return json.RawMessage(`{"oneOf":[{"type":"integer"},{"type":"string","pattern":"^[+-][0-9]+$"}]}`)
+}
+
 type reflectArgs struct {
+	Step       change            `json:"step,omitempty" desc:"how far"`
 	Lamp       string            `json:"lamp" desc:"lamp name" pattern:"^[a-z]+$" max:"20"`
 	Brightness int               `json:"brightness" desc:"0-100" min:"0" max:"100"`
-	Mode       string            `json:"mode,omitempty" enum:"day,night"`
+	Mode       string            `json:"mode,omitempty" enum:"day,night" default:"day"`
 	Fade       Duration          `json:"fade,omitempty"`
 	Tags       []string          `json:"tags,omitempty" max:"3"`
 	Env        map[string]string `json:"env,omitempty"`
@@ -50,7 +58,8 @@ func TestSchemaOf(t *testing.T) {
 	for name, want := range map[string]string{
 		"lamp":       `{"description":"lamp name","maxLength":20,"pattern":"^[a-z]+$","type":"string"}`,
 		"brightness": `{"description":"0-100","maximum":100,"minimum":0,"type":"integer"}`,
-		"mode":       `{"enum":["day","night"],"type":"string"}`,
+		"mode":       `{"default":"day","enum":["day","night"],"type":"string"}`,
+		"step":       `{"description":"how far","oneOf":[{"type":"integer"},{"pattern":"^[+-][0-9]+$","type":"string"}]}`,
 		"fade":       `{"type":"string"}`,
 		"tags":       `{"items":{"type":"string"},"maxItems":3,"type":"array"}`,
 		"env":        `{"additionalProperties":{"type":"string"},"type":"object"}`,
@@ -119,6 +128,11 @@ func TestSchemaOfRefusesWhatItCannotDescribe(t *testing.T) {
 		"bad bound": func() {
 			SchemaOf[struct {
 				N int `json:"n" min:"x"`
+			}]()
+		},
+		"bad default": func() {
+			SchemaOf[struct {
+				On bool `json:"on" default:"maybe"`
 			}]()
 		},
 		"bad enum": func() {

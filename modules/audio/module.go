@@ -6,15 +6,14 @@ package audio
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/sdk/kit"
 )
 
 // EventVolumeChanged is emitted when volume or mute changes, by hostd or by
@@ -38,6 +37,8 @@ type Options struct {
 type Module struct {
 	opts Options
 	log  *slog.Logger
+
+	actions *kit.Actions
 
 	mu        sync.Mutex
 	core      sdk.Core
@@ -69,53 +70,18 @@ func New(opts Options) *Module {
 	if opts.Settle == 0 {
 		opts.Settle = 150 * time.Millisecond
 	}
-	return &Module{opts: opts, log: opts.Logger}
-}
-
-var (
-	volumeSchema = json.RawMessage(`{"type":"object","properties":{
-		"percent":{"description":"0-150, or a change such as \"+5\" or \"-5\"",
-			"oneOf":[{"type":"integer","minimum":0,"maximum":150},{"type":"string","pattern":"^([+-][0-9]{1,3}|[0-9]{1,3})$"}]}},
-		"required":["percent"]}`)
-	muteSchema = json.RawMessage(`{"type":"object","properties":{
-		"muted":{"description":"true or on, false or off, or toggle (the default)","default":"toggle",
-			"oneOf":[{"type":"boolean"},{"enum":["toggle","on","off"]}]}}}`)
-)
-
-// masterDone is how hostctl prints the volume: after a change, and for
-// hostctl volume alone (the audio read).
-var masterDone = []string{"volume {percent}% (muted) on {description|sink} if muted", "volume {percent}% on {description|sink}"}
-
-// muteWanted reads a mute argument: true or "on", false or "off", else
-// (absent, "toggle") the opposite of now.
-func muteWanted(raw json.RawMessage, now bool) bool {
-	switch strings.Trim(strings.TrimSpace(string(raw)), `"`) {
-	case "true", "on":
-		return true
-	case "false", "off":
-		return false
-	}
-	return !now
+	m := &Module{opts: opts, log: opts.Logger}
+	m.actions = m.declare()
+	return m
 }
 
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "audio", Version: "0.1.0",
-		Owns:   []string{"audio.*", "media.*"},
-		Facets: facets(),
-		Scopes: []sdk.ScopeSpec{{Name: "audio", Description: "Volume, mute, outputs, per-app audio, media keys"}},
-		Actions: append([]sdk.ActionSpec{
-			{Type: "audio.volume.set", Description: "Set the volume (0-150) or change it (\"+5\", \"-5\")",
-				Schema: volumeSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/volume"},
-				CLI:     &sdk.CLI{Alias: []string{"volume"}, Read: "audio", Done: masterDone}},
-			{Type: "audio.mute.set", Description: "Mute, unmute or toggle",
-				Schema: muteSchema, Keys: []sdk.KeyTemplate{resource}, Scope: "audio",
-				Timeout: sdk.Duration(10 * time.Second),
-				Route:   &sdk.Route{Method: "POST", Path: "/v1/audio/mute"},
-				CLI:     &sdk.CLI{Alias: []string{"mute"}, Done: masterDone}},
-		}, append(m3Actions(), mediaActions()...)...),
+		Owns:    []string{"audio.*", "media.*"},
+		Facets:  facets(),
+		Scopes:  []sdk.ScopeSpec{{Name: "audio", Description: "Volume, mute, outputs, per-app audio, media keys"}},
+		Actions: m.actions.Specs(),
 		Events: []sdk.EventSpec{
 			{Type: EventVolumeChanged, Description: "Volume or mute changed"},
 			{Type: EventOutputsChanged, Description: "An output came or went, or the default output changed"},
@@ -244,82 +210,8 @@ func (m *Module) Validate(_ context.Context, a sdk.Action) error {
 	return nil
 }
 
-// target works out the new volume: absolute, or relative to now, kept in
-// 0-150.
-func target(arg json.RawMessage, current int) (int, error) {
-	var n int
-	if json.Unmarshal(arg, &n) == nil {
-		return n, nil
-	}
-	var s string
-	if err := json.Unmarshal(arg, &s); err != nil {
-		return 0, sdk.Errorf(sdk.CodeInvalidArgs, "percent must be a number or a change such as \"+5\"")
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, sdk.Errorf(sdk.CodeInvalidArgs, "percent %q is not a number", s)
-	}
-	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
-		v += current
-	}
-	return max(0, min(150, v)), nil
-}
-
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	m.mu.Lock()
-	want := m.last
-	m.mu.Unlock()
-
-	switch a.Type {
-	case "audio.output.set":
-		return m.handleOutput(ctx, a)
-	case "audio.app.volume.set", "audio.app.mute.set":
-		return m.handleApp(ctx, a)
-	case "media.play_pause", "media.next", "media.previous":
-		return m.handleMedia(ctx, a)
-	case "audio.volume.set":
-		var args struct {
-			Percent json.RawMessage `json:"percent"`
-		}
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		p, err := target(args.Percent, want.Percent)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		want.Percent = p
-		m.expect(want)
-		if err := m.opts.Backend.SetVolume(ctx, p); err != nil {
-			return sdk.Result{}, err
-		}
-	case "audio.mute.set":
-		var args struct {
-			Muted json.RawMessage `json:"muted"`
-		}
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		want.Muted = muteWanted(args.Muted, want.Muted)
-		m.expect(want)
-		if err := m.opts.Backend.SetMute(ctx, want.Muted); err != nil {
-			return sdk.Result{}, err
-		}
-	default:
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "audio module has no action %q", a.Type)
-	}
-
-	// Read back what the system really did.
-	got, err := m.opts.Backend.Master(ctx)
-	if err == nil {
-		m.expect(got)
-		want = got
-	}
-	m.mu.Lock()
-	core := m.core
-	m.mu.Unlock()
-	core.Emit(sdk.Event{Type: EventVolumeChanged, Action: a.ID, Resource: resource, Data: sdk.MustJSON(want)})
-	return sdk.Result{Data: sdk.MustJSON(want)}, nil
+	return m.actions.Handle(ctx, a)
 }
 
 // expect records the state hostd is setting, so the monitor's echo of the

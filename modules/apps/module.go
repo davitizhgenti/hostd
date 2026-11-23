@@ -8,7 +8,6 @@ package apps
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -24,6 +23,7 @@ import (
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/execx"
 	"github.com/davitizhgenti/hostd/sdk"
+	"github.com/davitizhgenti/hostd/sdk/kit"
 
 	"github.com/davitizhgenti/hostd/modules/apps/catalog"
 )
@@ -59,9 +59,10 @@ type Options struct {
 
 // Module is the apps module.
 type Module struct {
-	opts   Options
-	status statusCache // what services said they are doing, kept a moment
-	log    *slog.Logger
+	opts    Options
+	status  statusCache // what services said they are doing, kept a moment
+	log     *slog.Logger
+	actions *kit.Actions
 
 	mu    sync.Mutex
 	core  sdk.Core
@@ -102,8 +103,10 @@ func New(opts Options) *Module {
 	if opts.Debounce == 0 {
 		opts.Debounce = 500 * time.Millisecond
 	}
-	return &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), files: map[string]catalog.AppFile{}, reported: map[string]bool{},
+	m := &Module{opts: opts, log: opts.Logger, cat: catalog.Build(nil, nil, nil), files: map[string]catalog.AppFile{}, reported: map[string]bool{},
 		instances: map[string]*Instance{}, endedAt: map[string]time.Time{}}
+	m.actions = m.declare()
+	return m
 }
 
 func (m *Module) Manifest() sdk.Manifest {
@@ -119,12 +122,7 @@ func (m *Module) Manifest() sdk.Manifest {
 			{Name: contract.ScopeDeploy, Description: "Start an app as a release of a service: its own directory and environment (deploys)"},
 			{Name: contract.ScopeRun, Description: "Run any command as the screen user, and add or remove app files (app.run, app.define)"},
 		},
-		Actions: append([]sdk.ActionSpec{
-			{Type: contract.ActionAppRescan, Description: "Read the installed apps (desktop entries) again", Scope: contract.ScopeApps,
-				Route: &sdk.Route{Method: "POST", Path: "/v1/catalog/rescan"}},
-			{Type: contract.ActionAppCheck, Description: "Check a folder of app files without using it (a followed config)", Scope: sdk.ScopeAdmin,
-				Schema: json.RawMessage(`{"type":"object","properties":{"dir":{"type":"string"}},"required":["dir"],"additionalProperties":false}`)},
-		}, append(append(append(instanceActions(), verbActions()...), runActions()...), secretActions()...)...),
+		Actions: m.actions.Specs(),
 		Events: append([]sdk.EventSpec{
 			{Type: EventCatalogChanged, Description: "Apps were added, removed or changed"},
 			{Type: EventFileRejected, Description: "An app file could not be used"},
@@ -289,54 +287,15 @@ func (m *Module) rebuild() {
 	}
 }
 
-func (m *Module) Validate(_ context.Context, a sdk.Action) error {
-	switch a.Type {
-	case contract.ActionAppOpen:
-		return m.validateStart(a)
-	case contract.ActionInstanceStop, contract.ActionInstanceClosing, contract.ActionInstanceSwitch, contract.ActionInstanceClose,
-		contract.ActionInstanceRestart:
-		return m.validateStop(a)
-	}
-	return nil
-}
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error { return m.actions.Validate(ctx, a) }
 
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	switch a.Type {
-	case contract.ActionAppOpen:
-		return m.handleStart(ctx, a)
-	case contract.ActionInstanceStop:
-		return m.handleStop(ctx, a)
-	case contract.ActionInstanceSwitch:
-		return m.handleSwitch(ctx, a)
-	case contract.ActionInstanceClose:
-		return m.handleClose(ctx, a)
-	case contract.ActionInstanceRestart:
-		return m.handleRestart(ctx, a)
-	case contract.ActionInstanceClosing:
-		return m.handleClosing(a)
-	case "secret.set", "secret.remove":
-		return m.handleSecret(a)
-	case ActionRun:
-		return m.handleRun(ctx, a)
-	}
-	if a.Type == contract.ActionAppCheck {
-		return m.handleCheck(a)
-	}
-	if a.Type == contract.ActionAppRescan {
-		m.rescan()
-		cat := m.catalog()
-		return sdk.Result{Data: sdk.MustJSON(map[string]int{"apps": cat.Len(), "problems": len(cat.Problems)})}, nil
-	}
-	return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "apps module has no action %q", a.Type)
+	return m.actions.Handle(ctx, a)
 }
 
 // handleCheck builds the catalog as it would be with dir as the app
 // files, and reports the files' problems.
-func (m *Module) handleCheck(a sdk.Action) (sdk.Result, error) {
-	var args struct{ Dir string }
-	if err := a.DecodeArgs(&args); err != nil {
-		return sdk.Result{}, err
-	}
+func (m *Module) handleCheck(_ context.Context, _ sdk.Action, args checkArgs) (sdk.Result, error) {
 	if fi, err := os.Stat(args.Dir); err != nil || !fi.IsDir() {
 		return sdk.Result{}, sdk.Errorf(sdk.CodeInvalidArgs, "%s is not a folder", args.Dir)
 	}

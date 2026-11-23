@@ -136,7 +136,7 @@ func TestQuietRunningAndTLS(t *testing.T) {
 	}
 	m, _ = newModule(t, Options{TLS: ca})
 	got, err := m.Read(ctx, "tls", nil)
-	if err != nil || got.(map[string]any)["fingerprint"] != ca.Fingerprint() {
+	if err != nil || got.(tlsInfo).Fingerprint != ca.Fingerprint() {
 		t.Fatalf("tls: %v %v", got, err)
 	}
 	if man := m.Manifest(); man.Reads[len(man.Reads)-1].Scope != sdk.ScopePublic {

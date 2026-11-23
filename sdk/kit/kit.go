@@ -75,24 +75,22 @@ type Module struct {
 	mu   sync.RWMutex
 	core sdk.Core
 
-	handlers   map[string]func(context.Context, Ctx, sdk.Action) (sdk.Result, error)
-	validators map[string]func(context.Context, Ctx, sdk.Action) error
-	reads      map[string]func(context.Context, Ctx, map[string]string) (any, error)
-	kinds      map[string]*kindHandler
-	facets     map[string]*facetHandler
-	starts     []func(context.Context, Ctx) error
-	stops      []func(context.Context) error
-	state      func(context.Context, Ctx) (any, error)
+	actions *Actions
+	reads   *Reads
+	kinds   map[string]*kindHandler
+	facets  map[string]*facetHandler
+	starts  []func(context.Context, Ctx) error
+	stops   []func(context.Context) error
+	state   func(context.Context, Ctx) (any, error)
 }
 
 // New starts a module with a name and a version.
 func New(name, version string) *Module {
 	return &Module{
-		man:        sdk.Manifest{Name: name, Version: version},
-		handlers:   map[string]func(context.Context, Ctx, sdk.Action) (sdk.Result, error){},
-		validators: map[string]func(context.Context, Ctx, sdk.Action) error{},
-		reads:      map[string]func(context.Context, Ctx, map[string]string) (any, error){},
-		kinds:      map[string]*kindHandler{},
+		man:     sdk.Manifest{Name: name, Version: version},
+		actions: NewActions(name),
+		reads:   NewReads(name),
+		kinds:   map[string]*kindHandler{},
 	}
 }
 
@@ -138,16 +136,10 @@ func (m *Module) WithState(f func(ctx context.Context, c Ctx) (any, error)) *Mod
 // if the type is declared twice or the route is malformed: a mistake in
 // the module, found when it is built.
 func Action[A, R any](m *Module, spec Spec, h func(ctx context.Context, c Ctx, args A) (R, error)) {
-	if _, dup := m.handlers[spec.Type]; dup {
-		panic(fmt.Sprintf("kit: action %q declared twice", spec.Type))
-	}
 	as := sdk.ActionSpec{
 		Type: spec.Type, Description: spec.Description, Scope: spec.Scope,
 		ArgScopes: spec.ArgScopes, Keys: spec.Keys, Secret: spec.Secret,
 		Timeout: sdk.Duration(spec.Timeout), Slow: spec.Slow, CLI: spec.CLI,
-	}
-	if !isNone[A]() {
-		as.Schema = sdk.SchemaOf[A]()
 	}
 	if spec.Route != "" {
 		method, path, ok := strings.Cut(spec.Route, " ")
@@ -156,31 +148,14 @@ func Action[A, R any](m *Module, spec Spec, h func(ctx context.Context, c Ctx, a
 		}
 		as.Route = &sdk.Route{Method: method, Path: path}
 	}
-	m.man.Actions = append(m.man.Actions, as)
-	m.handlers[spec.Type] = func(ctx context.Context, c Ctx, a sdk.Action) (sdk.Result, error) {
-		var args A
-		if err := a.DecodeArgs(&args); err != nil {
-			return sdk.Result{}, err
-		}
-		out, err := h(ctx, c, args)
-		if err != nil {
-			return sdk.Result{}, err
-		}
-		return sdk.Result{Data: dataOf(out)}, nil
-	}
+	On(m.actions, as, func(ctx context.Context, a sdk.Action, args A) (R, error) { return h(ctx, m.ctx(a), args) })
 }
 
 // Validate adds the re-check of an action's targets that runs when it
 // reaches the front of its queue (see sdk.Module.Validate). The arguments
 // have already passed the schema.
 func Validate[A any](m *Module, actionType string, f func(ctx context.Context, c Ctx, args A) error) {
-	m.validators[actionType] = func(ctx context.Context, c Ctx, a sdk.Action) error {
-		var args A
-		if err := a.DecodeArgs(&args); err != nil {
-			return err
-		}
-		return f(ctx, c, args)
-	}
+	Check(m.actions, actionType, func(ctx context.Context, a sdk.Action, args A) error { return f(ctx, m.ctx(a), args) })
 }
 
 // Read declares a read. P is the type of its parameters (path and query),
@@ -189,20 +164,8 @@ func Validate[A any](m *Module, actionType string, f func(ctx context.Context, c
 // their text where the field needs one, so P may be a struct of strings,
 // ints and bools tagged like an action's arguments, or map[string]string.
 func Read[P, R any](m *Module, spec ReadSpec, h func(ctx context.Context, c Ctx, p P) (R, error)) {
-	if _, dup := m.reads[spec.Name]; dup {
-		panic(fmt.Sprintf("kit: read %q declared twice", spec.Name))
-	}
-	m.man.Reads = append(m.man.Reads, sdk.ReadSpec{
-		Name: spec.Name, Description: spec.Description, Path: spec.Path, Scope: spec.Scope,
-		Schema: sdk.SchemaOf[R](), CLI: spec.CLI,
-	})
-	m.reads[spec.Name] = func(ctx context.Context, c Ctx, params map[string]string) (any, error) {
-		var p P
-		if err := decodeParams(params, &p); err != nil {
-			return nil, sdk.Errorf(sdk.CodeInvalidArgs, "%s: %v", spec.Name, err)
-		}
-		return h(ctx, c, p)
-	}
+	Serve(m.reads, sdk.ReadSpec{Name: spec.Name, Description: spec.Description, Path: spec.Path, Scope: spec.Scope, CLI: spec.CLI},
+		func(ctx context.Context, p P) (R, error) { return h(ctx, m.ctx(sdk.Action{}), p) })
 }
 
 // EventDef is a declared event type carrying data of type D.
@@ -233,7 +196,8 @@ func (e EventDef[D]) Emit(c Ctx, data D, resource string) {
 // Manifest implements sdk.Module.
 func (m *Module) Manifest() sdk.Manifest {
 	man := m.man
-	man.Actions = append([]sdk.ActionSpec(nil), m.man.Actions...)
+	man.Actions = m.actions.Specs()
+	man.Reads = m.reads.Specs()
 	return man
 }
 
@@ -268,29 +232,16 @@ func (m *Module) Stop(ctx context.Context) error {
 }
 
 // Validate implements sdk.Module.
-func (m *Module) Validate(ctx context.Context, a sdk.Action) error {
-	if v := m.validators[a.Type]; v != nil {
-		return v(ctx, m.ctx(a), a)
-	}
-	return nil
-}
+func (m *Module) Validate(ctx context.Context, a sdk.Action) error { return m.actions.Validate(ctx, a) }
 
 // Handle implements sdk.Module.
 func (m *Module) Handle(ctx context.Context, a sdk.Action) (sdk.Result, error) {
-	h := m.handlers[a.Type]
-	if h == nil {
-		return sdk.Result{}, sdk.Errorf(sdk.CodeNotFound, "%s has no action %q", m.man.Name, a.Type)
-	}
-	return h(ctx, m.ctx(a), a)
+	return m.actions.Handle(ctx, a)
 }
 
 // Read implements sdk.Reader.
 func (m *Module) Read(ctx context.Context, name string, params map[string]string) (any, error) {
-	r := m.reads[name]
-	if r == nil {
-		return nil, sdk.Errorf(sdk.CodeNotFound, "%s has no read %q", m.man.Name, name)
-	}
-	return r(ctx, m.ctx(sdk.Action{}), params)
+	return m.reads.Read(ctx, name, params)
 }
 
 // State implements sdk.StateReporter: f from WithState, or an empty object.

@@ -101,21 +101,21 @@ const (
 
 // AppStart is the arguments of app.open.
 type AppStart struct {
-	ID     string `json:"id"`
-	Front  bool   `json:"front,omitempty"`
-	Action string `json:"action,omitempty"`
+	ID     string `json:"id" desc:"app ID or alias"`
+	Front  bool   `json:"front,omitempty" desc:"open in front even while someone is using the screen (needs scope display.front)"`
+	Action string `json:"action,omitempty" desc:"one of the app's actions (e.g. new-private-window): always a new instance"`
 	// Args fill in the app's {placeholders}: only those its file declares,
 	// each checked against its kind (an app file's args).
-	Args map[string]string `json:"args,omitempty"`
+	Args map[string]string `json:"args,omitempty" desc:"values for the app's arguments (its file's args, such as url); a running copy is replaced"`
 	// For the deploy module (scope deploy): a release runs as a new
 	// instance (New), from its own directory (Dir), with its environment
 	// (Env, e.g. PORT).
-	Dir string            `json:"dir,omitempty"`
-	Env map[string]string `json:"env,omitempty"`
-	New bool              `json:"new,omitempty"`
+	Dir string            `json:"dir,omitempty" desc:"run in this directory: a release (needs scope deploy)"`
+	Env map[string]string `json:"env,omitempty" desc:"extra environment, e.g. PORT (needs scope deploy)"`
+	New bool              `json:"new,omitempty" desc:"always a new instance (needs scope deploy)"`
 	// A container release: the image to run (by digest) and its ports.
-	Image string   `json:"image,omitempty"`
-	Ports []string `json:"ports,omitempty"`
+	Image string   `json:"image,omitempty" desc:"a container app: run this image (needs scope deploy)"`
+	Ports []string `json:"ports,omitempty" desc:"a container app: publish these ports (needs scope deploy)"`
 }
 
 // ScopeDeploy allows starting an app as a release (AppStart Dir, Env, New).
