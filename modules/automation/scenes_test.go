@@ -72,7 +72,7 @@ func (w *world) modules() []sdk.Module {
 		{Type: contract.ActionAppOpen, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"app:{id}"}},
 		{Type: contract.ActionInstanceStop, Scope: "apps", Schema: anyArgs, Keys: []sdk.KeyTemplate{"instance:{id}"}},
 	}
-	apps.M.Reads = []sdk.ReadSpec{{Name: contract.ReadInstances, Path: "/v1/instances"}}
+	apps.M.Reads = []sdk.ReadSpec{{Name: contract.Instances.Name, Path: "/v1/instances"}}
 	for _, e := range []string{"instance.starting", "instance.started", "instance.exited", "instance.failed", "instance.closing"} {
 		apps.M.Events = append(apps.M.Events, sdk.EventSpec{Type: e})
 	}

@@ -1,11 +1,6 @@
 package contract
 
-import (
-	"context"
-	"encoding/json"
-
-	"github.com/davitizhgenti/hostd/sdk"
-)
+import "github.com/davitizhgenti/hostd/sdk"
 
 // Deploy is a service's [source]: where new versions come from, how they
 // are built, and the public port hostd serves them on. The apps module
@@ -28,30 +23,19 @@ type Deploy struct {
 	Auth          string `json:"auth,omitempty" toml:"auth"`
 }
 
+// ScopeDeploy allows starting an app as a release (AppStart Dir, Env, New).
+const ScopeDeploy = "deploy"
+
+// Catalog is the apps module's catalog as the deploy module reads it: the
+// apps, of which those with a [source] are services (?all=true: hidden
+// ones too).
+var Catalog = sdk.ReadRef[struct {
+	Apps []Service `json:"apps"`
+}]{Module: AppsModule, Name: ReadCatalog}
+
 // Service is an app that has a [source]: the part of the catalog the deploy
 // module needs.
 type Service struct {
 	ID     string  `json:"id"`
 	Deploy *Deploy `json:"deploy"`
-}
-
-// ReadServices asks the apps module for the apps with a [source], by ID.
-func ReadServices(ctx context.Context, core sdk.Core) (map[string]Service, error) {
-	raw, err := core.Read(ctx, AppsModule, ReadCatalog, map[string]string{"all": "true"})
-	if err != nil {
-		return nil, err
-	}
-	var list struct {
-		Apps []Service `json:"apps"`
-	}
-	if err := json.Unmarshal(raw, &list); err != nil {
-		return nil, err
-	}
-	out := map[string]Service{}
-	for _, a := range list.Apps {
-		if a.Deploy != nil {
-			out[a.ID] = a
-		}
-	}
-	return out, nil
 }

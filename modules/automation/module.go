@@ -141,6 +141,8 @@ func (m *Module) declare() *kit.Actions {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "automation", Version: "0.1.0",
+		// Rules and scenes send whatever actions they say.
+		Uses: []string{"*"},
 		Owns: []string{"scene.*", "rule.*", "script.*"},
 		Scopes: []sdk.ScopeSpec{
 			{Name: "scenes", Description: "Apply scenes"},

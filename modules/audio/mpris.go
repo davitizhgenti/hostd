@@ -11,6 +11,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/dbusx"
 	"github.com/davitizhgenti/hostd/sdk"
 )
@@ -148,14 +149,7 @@ func (m *Module) focusedInstance(ctx context.Context) string {
 	if core == nil {
 		return ""
 	}
-	raw, err := core.Read(ctx, "display", "display", nil)
-	if err != nil {
-		return ""
-	}
-	var st struct {
-		Focused string `json:"focused_instance"`
-	}
-	_ = json.Unmarshal(raw, &st)
+	st, _ := contract.Display.Get(ctx, core, nil)
 	return st.Focused
 }
 

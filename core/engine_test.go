@@ -489,7 +489,7 @@ func TestHoldWindowOverride(t *testing.T) {
 // res through Core.Do, like the automation module will.
 func newSceneModule(handle func(ctx context.Context, core sdk.Core, a sdk.Action) (sdk.Result, error)) *testutil.Module {
 	m := &testutil.Module{M: sdk.Manifest{
-		Name: "scene", Version: "test", Owns: []string{"scene.*"},
+		Name: "scene", Version: "test", Owns: []string{"scene.*"}, Uses: []string{"res"},
 		Actions: []sdk.ActionSpec{
 			{Type: "scene.apply", Schema: json.RawMessage(`{"type":"object","properties":{"key":{"type":"string"}}}`),
 				Keys: []sdk.KeyTemplate{"res:{key}"}, Scope: sdk.ScopeAdmin},

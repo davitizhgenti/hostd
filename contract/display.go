@@ -1,8 +1,6 @@
 package contract
 
 import (
-	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/davitizhgenti/hostd/sdk"
@@ -12,10 +10,22 @@ import (
 const (
 	DisplayModule = "display"
 
-	ReadDisplay = "display" // the display's state: DisplayState
-
 	ActionDisplayPower = "display.power" // args: {"on": bool}
+
+	// The window actions, which the apps module sends so a started app
+	// comes to the front.
+	ActionWindowFocus = "window.focus" // args: {"instance": id, "front": bool}
+	ActionWindowClose = "window.close" // args: {"instance": id}
+	// ActionMenu opens hostd's on-screen menu.
+	ActionMenu = "display.menu"
+
+	// ScopeFront lets an action take the screen even while someone is using
+	// it (app.open, instance.switch, window.focus: their front argument).
+	ScopeFront = "display.front"
 )
+
+// Display is the display module's state, as others read it.
+var Display = sdk.ReadRef[DisplayState]{Module: DisplayModule, Name: "display"}
 
 // DisplayState is the part of the display module's state others read.
 type DisplayState struct {
@@ -35,14 +45,4 @@ type DisplayOutput struct {
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
 	Power  bool   `json:"power"` // false: off (power saving)
-}
-
-// ReadDisplayState asks the display module for its state.
-func ReadDisplayState(ctx context.Context, core sdk.Core) (DisplayState, error) {
-	var st DisplayState
-	raw, err := core.Read(ctx, DisplayModule, ReadDisplay, nil)
-	if err != nil {
-		return st, err
-	}
-	return st, json.Unmarshal(raw, &st)
 }

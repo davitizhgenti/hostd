@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -306,6 +307,29 @@ func (r *Registry) CanEmit(moduleName, eventType string) bool {
 		}
 	}
 	return false
+}
+
+// Uses reports whether module from may read from, and send actions to,
+// module to: itself, or one it requires or uses (sdk.Manifest.Uses).
+func (r *Registry) Uses(from, to string) bool {
+	if from == to {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.byName[from]
+	if !ok {
+		return false
+	}
+	return slices.Contains(m.man.Requires, to) || slices.Contains(m.man.Uses, to) || slices.Contains(m.man.Uses, "*")
+}
+
+// owner is the module that declares an action type, "" if none does.
+func (r *Registry) owner(actionType string) string {
+	if m, _, ok := r.lookup(actionType); ok {
+		return m.man.Name
+	}
+	return ""
 }
 
 // Order returns module names in start order (empty before Resolve).

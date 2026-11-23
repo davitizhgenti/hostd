@@ -758,7 +758,16 @@ func (mc moduleCore) Handles(actionType string) bool {
 	return ok && mc.e.reg.started(m)
 }
 
+// undeclared is the error for a module that reads from, or sends an
+// action to, a module its manifest does not name.
+func (mc moduleCore) undeclared(other, what string) error {
+	return sdk.Errorf(sdk.CodeForbidden, "%s: module %s does not declare that it uses %s (its manifest's requires or uses)", what, mc.name, other)
+}
+
 func (mc moduleCore) Read(ctx context.Context, module, read string, params map[string]string) (json.RawMessage, error) {
+	if !mc.e.reg.Uses(mc.name, module) {
+		return nil, mc.undeclared(module, "read "+module+"/"+read)
+	}
 	v, err := mc.e.ModuleRead(ctx, module, read, params)
 	if err != nil {
 		return nil, err
@@ -776,6 +785,9 @@ func (mc moduleCore) Read(ctx context.Context, module, read string, params map[s
 // timeout then reports it. Modules avoid this by only sending child actions
 // on resources they own or on keys their action already holds.
 func (mc moduleCore) Do(ctx context.Context, a sdk.Action) (sdk.Result, error) {
+	if owner := mc.e.reg.owner(a.Type); owner != "" && !mc.e.reg.Uses(mc.name, owner) {
+		return sdk.Result{}, mc.undeclared(owner, a.Type)
+	}
 	if c, ok := ctx.Value(chainKey{}).(*chain); ok {
 		a.Source = c.root
 		a.Source.Module = mc.name

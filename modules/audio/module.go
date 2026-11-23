@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/sdk"
 	"github.com/davitizhgenti/hostd/sdk/kit"
@@ -78,6 +79,8 @@ func New(opts Options) *Module {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: "audio", Version: "0.1.0",
+		// Sound is told apart by instance; media keys go to the app in front.
+		Uses:    []string{contract.AppsModule, contract.DisplayModule},
 		Owns:    []string{"audio.*", "media.*"},
 		Facets:  facets(),
 		Scopes:  []sdk.ScopeSpec{{Name: "audio", Description: "Volume, mute, outputs, per-app audio, media keys"}},

@@ -176,7 +176,17 @@ func (m *Module) services(ctx context.Context) (map[string]service, error) {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	return contract.ReadServices(ctx, core)
+	list, err := contract.Catalog.Get(ctx, core, map[string]string{"all": "true"})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]service{}
+	for _, a := range list.Apps {
+		if a.Deploy != nil {
+			out[a.ID] = a
+		}
+	}
+	return out, nil
 }
 
 func (m *Module) service(ctx context.Context, app string) (service, error) {
@@ -292,15 +302,10 @@ func (m *Module) instanceState(ctx context.Context, id string) (state, errText s
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	raw, err := core.Read(ctx, contract.AppsModule, contract.ReadInstance, map[string]string{"id": id})
+	in, err := contract.InstanceByID.Get(ctx, core, map[string]string{"id": id})
 	if err != nil {
 		return "", err.Error()
 	}
-	var in struct {
-		State string `json:"state"`
-		Error string `json:"error"`
-	}
-	_ = json.Unmarshal(raw, &in)
 	return in.State, in.Error
 }
 

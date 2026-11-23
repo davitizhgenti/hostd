@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davitizhgenti/hostd/contract"
 	"github.com/davitizhgenti/hostd/core/store"
 	"github.com/davitizhgenti/hostd/internal/clock"
 	"github.com/davitizhgenti/hostd/internal/tlsca"
@@ -155,6 +156,8 @@ func (m *Module) declare() (*kit.Actions, *kit.Reads) {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: Name, Version: "0.1.0",
+		// quiet.wait idle: whether someone is at the screen.
+		Uses:    []string{contract.DisplayModule},
 		Owns:    []string{"token.*", "quiet.*"},
 		Kinds:   []sdk.KindSpec{moduleKind()},
 		Actions: m.actions.Specs(),
@@ -297,11 +300,8 @@ func (m *Module) busy(ctx context.Context, patterns []string, idle bool) []strin
 			}
 		}
 	}
-	if idle && c != nil && c.Handles("display.menu") {
-		var d struct {
-			Present bool `json:"present"`
-		}
-		if raw, err := c.Read(ctx, "display", "display", nil); err == nil && json.Unmarshal(raw, &d) == nil && d.Present {
+	if idle && c != nil && c.Handles(contract.ActionMenu) {
+		if d, err := contract.Display.Get(ctx, c, nil); err == nil && d.Present {
 			busy = append(busy, "someone is using the screen")
 		}
 	}

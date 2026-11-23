@@ -31,7 +31,7 @@ func (m *Module) Plan(ctx context.Context, _ string, desired json.RawMessage) ([
 	if want.Power == "" {
 		return nil, nil
 	}
-	v, err := m.Read(ctx, contract.ReadDisplay, nil)
+	v, err := m.Read(ctx, contract.Display.Name, nil)
 	if err != nil {
 		return nil, err
 	}

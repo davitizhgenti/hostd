@@ -181,7 +181,7 @@ func (m *Module) consider(ctx context.Context, r Rule, ev sdk.Event) {
 
 // idleFor is how long nobody has used the screen.
 func (m *Module) idleFor(ctx context.Context) (time.Duration, error) {
-	st, err := contract.ReadDisplayState(ctx, m.core)
+	st, err := contract.Display.Get(ctx, m.core, nil)
 	if err != nil {
 		return 0, err
 	}

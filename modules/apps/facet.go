@@ -83,7 +83,7 @@ func (m *Module) Plan(ctx context.Context, _ string, desired json.RawMessage) ([
 	m.mu.Unlock()
 
 	if want.Focus != "" {
-		st, err := contract.ReadDisplayState(ctx, m.core)
+		st, err := contract.Display.Get(ctx, m.core, nil)
 		if err != nil {
 			return out, fmt.Errorf("focus: %w", err)
 		}

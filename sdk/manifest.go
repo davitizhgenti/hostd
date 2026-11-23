@@ -32,6 +32,14 @@ type Manifest struct {
 	// Requires lists modules that must start before this one.
 	Requires []string `json:"requires,omitempty"`
 
+	// Uses lists the other modules this one reads from or sends actions
+	// to when they are there, without needing them to start first. A
+	// module may only read from, and send actions to, itself and the
+	// modules it requires or uses: its dependencies are all in its
+	// manifest. "*" is any module, for one that runs what people
+	// configure (rules, key bindings).
+	Uses []string `json:"uses,omitempty"`
+
 	// Scopes this module defines for tokens, besides the core's read and
 	// admin.
 	Scopes []ScopeSpec `json:"scopes,omitempty"`
@@ -365,6 +373,11 @@ func (m *Manifest) Validate() error {
 		}
 		if r == m.Name {
 			bad("requires itself")
+		}
+	}
+	for _, u := range m.Uses {
+		if u != "*" && !reModule.MatchString(u) {
+			bad("uses %q: not a module name", u)
 		}
 	}
 

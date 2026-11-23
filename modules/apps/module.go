@@ -112,6 +112,8 @@ func New(opts Options) *Module {
 func (m *Module) Manifest() sdk.Manifest {
 	return sdk.Manifest{
 		Name: contract.AppsModule, Version: "0.1.0",
+		// Started apps come to the front through the display module.
+		Uses:   []string{contract.DisplayModule},
 		Owns:   []string{"app.*", "instance.*", "secret.*"},
 		Kinds:  []sdk.KindSpec{appKind()},
 		Facets: facets(),
@@ -337,9 +339,9 @@ func (m *Module) Read(ctx context.Context, name string, params map[string]string
 			return a, nil
 		}
 		return nil, sdk.Errorf(sdk.CodeNotFound, "no app %q", params["id"])
-	case contract.ReadInstances:
+	case contract.Instances.Name:
 		return m.readInstances(params), nil
-	case "instance":
+	case contract.InstanceByID.Name:
 		return m.readInstance(params["id"])
 	case "logs":
 		return m.readLogs(ctx, params)

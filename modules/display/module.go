@@ -222,8 +222,10 @@ func (m *Module) Manifest() sdk.Manifest {
 		// The apps module's instances are what the display module places,
 		// focuses and closes (see contract).
 		Requires: []string{contract.AppsModule},
-		Owns:     []string{"display.*", "window.*", "controller.*", "device.*"},
-		Facets:   facets(),
+		// Key and controller bindings send whatever action they are bound to.
+		Uses:   []string{"*"},
+		Owns:   []string{"display.*", "window.*", "controller.*", "device.*"},
+		Facets: facets(),
 		Scopes: []sdk.ScopeSpec{
 			{Name: "display", Description: "Display power and mode, window fullscreen and placement"},
 		},

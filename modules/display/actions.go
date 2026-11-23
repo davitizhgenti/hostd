@@ -300,7 +300,8 @@ func (m *Module) liveInstances(ctx context.Context) []contract.Instance {
 	m.mu.Lock()
 	core := m.core
 	m.mu.Unlock()
-	return contract.LiveInstances(ctx, core)
+	all, _ := contract.Instances.Get(ctx, core, nil)
+	return contract.Live(all)
 }
 
 // --- window.place ----------------------------------------------------------------
