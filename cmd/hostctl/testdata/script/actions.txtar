@@ -38,6 +38,10 @@ stderr 'brightness must be a whole number'
 exits 4 hostctl action demo.lamp.explode
 exits 2 hostctl demo lamp explode
 exits 2 hostctl demo lamp set a b c
+# A flag nobody has is a usage mistake, before and after the command.
+exits 2 hostctl --nonsense demo lamp off
+exits 2 hostctl demo lamp off --nonsense
+stderr 'unknown flag: --nonsense'
 
 # A person's change holds the lamp against automation for 3 minutes.
 exec hostctl token create evening.sh --kind automation --scopes demo

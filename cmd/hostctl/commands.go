@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -27,6 +26,7 @@ see them all.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "print JSON instead of text")
 	root.PersistentFlags().StringVar(&a.context, "context", "", "which saved login to use (hostctl context lists them; HOSTD_CONTEXT)")
 	root.PersistentFlags().StringVar(&a.url, "url", "", "hostd address, overriding the config (unix:///path or host:port)")
@@ -35,23 +35,15 @@ see them all.`,
 	return root
 }
 
-// needsModules reports whether the command line names something that is
-// not built in, so the module commands must be fetched first. Help without
-// a command fetches them too, to list them, but tolerates failure.
-func (a *app) needsModules(args []string) bool {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--url" || arg == "--context":
-			i++ // skip its value
-		case arg == "--json" || strings.HasPrefix(arg, "--url=") || strings.HasPrefix(arg, "--context="):
-		case strings.HasPrefix(arg, "-"):
-			return isHelp([]string{arg})
-		default:
-			return !builtins[arg]
-		}
+// needsModules reports whether the command line (its words, the flags
+// taken out) names something that is not built in, so the module commands
+// must be fetched first. Help without a command fetches them too, to list
+// them, but tolerates failure.
+func (a *app) needsModules(args, words []string) bool {
+	if len(words) == 0 {
+		return isHelp(args)
 	}
-	return false
+	return !builtins[words[0]]
 }
 
 func (a *app) printJSON(v any) error {

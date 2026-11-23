@@ -81,8 +81,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root := app.rootCommand()
 	// The commands a machine has come from the machine, so the client is
 	// made before the flags are parsed: it must know which one to ask.
-	app.url, app.context = flagValue(args, "--url"), flagValue(args, "--context")
-	if app.needsModules(args) {
+	// Cobra does it: the global flags parsed, other flags let through (they
+	// are the commands', not known yet), and the first word left over is
+	// the command.
+	root.FParseErrWhitelist.UnknownFlags = true
+	_ = root.ParseFlags(args) // an error here shows again when the command line is parsed for real
+	if app.needsModules(args, root.Flags().Args()) {
 		if err := app.addModuleCommands(ctx, root); err != nil && !isHelp(args) {
 			fmt.Fprintln(stderr, "hostctl:", err)
 			return exitCode(err)
@@ -119,23 +123,6 @@ type app struct {
 
 // client connects lazily, so commands that need no server (help) work
 // without one.
-// flagValue reads the value of a flag that takes one ("--url X" or
-// "--url=X") from the arguments, before cobra has parsed them; "" if absent.
-func flagValue(args []string, name string) string {
-	for i, arg := range args {
-		if arg == "--" {
-			return ""
-		}
-		if arg == name && i+1 < len(args) {
-			return args[i+1]
-		}
-		if v, ok := strings.CutPrefix(arg, name+"="); ok {
-			return v
-		}
-	}
-	return ""
-}
-
 func (a *app) client() (*client.Client, error) {
 	if a.c != nil {
 		return a.c, nil
@@ -175,8 +162,9 @@ func isHelp(args []string) bool {
 }
 
 func isCobraUsage(err error) bool {
-	for _, p := range []string{"unknown command", "unknown flag", "unknown shorthand flag", "accepts ",
-		"requires at least", "invalid argument", "flag needs an argument", "required flag"} {
+	// Flag mistakes arrive as usageError (SetFlagErrorFunc); what is left
+	// is cobra's checks of the words.
+	for _, p := range []string{"unknown command", "accepts ", "requires at least", "invalid argument", "required flag"} {
 		if strings.Contains(err.Error(), p) {
 			return true
 		}
