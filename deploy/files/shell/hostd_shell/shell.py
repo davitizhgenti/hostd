@@ -18,6 +18,7 @@ from PySide6.QtCore import Property, QFileSystemWatcher, QObject, QTimer, Signal
 from hostd_shell import api as hapi
 from hostd_shell import background, menu, notices, views
 from hostd_shell import input as inp
+from hostd_shell.core import nav, sources
 from hostd_shell.models import RowsModel
 from hostd_shell.osd import Osd
 
@@ -41,31 +42,7 @@ BACKGROUND_MS = 5 * 60 * 1000  # the month mode's light follows the hour
 def fetch(api, category, look, tokens, path=(), tabs=()):
     """A category's (a views.Category) rows and its summary line, from
     hostd. path: the folder open in an app tab; tabs: the tabs' folders."""
-    if category.kind == "apps":
-        instances = api.get("/v1/instances?all=true") or []
-        apps = [it["spec"] for it in (api.get("/v1/apps") or []) if it.get("spec")]
-        return views.apps_page(instances, apps, path, category.root, tabs, flat=category.view == "tiles")
-    if category.kind == "users":
-        try:
-            seats = api.get("/v1/seat")
-        except hapi.APIError as e:
-            if e.status != 404:
-                raise
-            return [views.Row("Switching users is not set up", icon="info",
-                              subtitle="the seats add-on: sudo hostd-admin add seats")], ""
-        return views.users_page(seats), ""
-    if category.kind == "settings":
-        try:
-            audio = api.get("/v1/audio")
-        except hapi.APIError:
-            audio = None
-        return views.settings_page(audio, api.get("/v1/display"), look, tokens), ""
-    try:
-        devices = api.get("/v1/devices")
-    except hapi.APIError:
-        devices = []  # an older hostd
-    return views.status_page(api.get("/v1/version"), api.get("/v1/display"), api.get("/v1/actions?limit=12"),
-                             devices), ""
+    return sources.fetch(api, nav.Source(category, tuple(path), "", tuple(tabs)), look, tokens)
 
 
 class NoticesModel(RowsModel):
