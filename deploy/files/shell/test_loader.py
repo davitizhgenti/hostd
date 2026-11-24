@@ -15,7 +15,7 @@ import fixtures  # noqa: E402
 from hostd_shell import api as hapi  # noqa: E402
 from hostd_shell import background, menu, views  # noqa: E402
 from hostd_shell import input as inp  # noqa: E402
-from hostd_shell.core import loader, nav, sources, store  # noqa: E402
+from hostd_shell.core import context, loader, nav, sources, store  # noqa: E402
 from hostd_shell.core.driver import Driver  # noqa: E402
 
 LOOK = background.load("/nonexistent/ui.toml")
@@ -328,6 +328,46 @@ class Watching(unittest.TestCase):
         ld.refresh_watched({"/v1/devices"})
         hostd.deliver()
         self.assertEqual(got, [])
+
+
+class AnOlderHostd(unittest.TestCase):
+    def test_an_error_answer_calls_the_watcher_with_what_stands_for_none(self):
+        api = fixtures.FakeAPI()
+        api.reads["/v1/devices"] = fixtures.DEVICES
+        _n, ld, hostd, _ = make_loader(api=api)
+        got = []
+        ld.watch("/v1/devices", got.append, absent=[])
+        ld.refresh_watched({"/v1/devices"})
+        hostd.deliver()
+        del api.reads["/v1/devices"]  # hostd was replaced by an older one
+        ld.on_event("device.connected")
+        hostd.deliver()
+        self.assertEqual(got, [fixtures.DEVICES, []])
+
+    def test_hostd_not_reached_is_not_an_older_hostd(self):
+        _n, ld, hostd, _ = make_loader()
+        got = []
+        ld.watch("/v1/devices", got.append, absent=[])
+        ld.refresh_watched({"/v1/devices"})
+        _path, callback = hostd.queue.pop()
+        callback(sources.Answer(False, status=0, message="hostd did not answer"))
+        self.assertEqual(got, [])
+
+
+class Window(unittest.TestCase):
+    def test_listening_is_shown_and_with_the_focus(self):
+        w = context.Window()
+        self.assertFalse(w.listening)
+        self.assertTrue(w.show())
+        self.assertFalse(w.show(), "already shown")
+        self.assertFalse(w.listening, "shown but not focused yet")
+        self.assertTrue(w.set_active(True))
+        self.assertFalse(w.set_active(True))
+        self.assertTrue(w.listening)
+        self.assertTrue(w.hide())
+        self.assertFalse(w.hide())
+        self.assertFalse(w.listening, "hidden: the pads are the apps' again")
+        self.assertTrue(w.set_active(False))
 
 
 class Driven(unittest.TestCase):

@@ -44,13 +44,22 @@ class Loader:
         self._gen = 0
         self.unreachable = False  # the last thing asked could not be had
 
-    def watch(self, path, callback):
+    def watch(self, path, callback, absent=None):
         """callback(payload) whenever path is answered with success (and at
-        once if it already was)."""
-        self._watchers.setdefault(path, []).append(callback)
+        once if it already was). absent: what to call it with when hostd
+        answers with an error (an older hostd has no such page); None: not
+        called."""
+        self._watchers.setdefault(path, []).append((callback, absent))
         known = self.store.answers.get(path)
-        if known is not None and known.ok:
-            callback(known.payload)
+        if known is not None:
+            self._tell(callback, absent, known)
+
+    @staticmethod
+    def _tell(callback, absent, answer):
+        if answer.ok:
+            callback(answer.payload)
+        elif answer.status and absent is not None:
+            callback(absent)
 
     def watching(self):
         return set(self._watchers)
@@ -108,9 +117,8 @@ class Loader:
     def _answered(self, path, answer):
         self.store.answered(path, answer)
         waiters = self._inflight.pop(path, [])
-        if answer.ok:
-            for callback in self._watchers.get(path, ()):
-                callback(answer.payload)
+        for callback, absent in self._watchers.get(path, ()):
+            self._tell(callback, absent, answer)
         for job in waiters:
             if self._jobs.get(job.key) is not job:
                 continue  # a newer refresh of this category took over
@@ -140,16 +148,16 @@ class Loader:
 
     # --- events ---
 
-    def on_event(self, event_type):
+    def on_event(self, event_type, check_busy=True):
         """An event: the categories to refresh because of it (the caller
         waits a moment for more events first, then calls refresh_categories).
         Watched endpoints it made stale are asked again at once. The current
         category is left alone while an options panel or a question is open,
-        as it was before."""
+        as it was before (check_busy=False: the caller looks when it is time)."""
         paths = stale_after(event_type)
         self.store.on_event(event_type)
         self.refresh_watched(paths)
-        busy = isinstance(self.nav.overlay, (nav.Options, nav.Question))
+        busy = check_busy and self.busy()
         out = []
         for c in self.nav.cats:
             source = self.nav.source(c.key)
@@ -157,6 +165,10 @@ class Loader:
                 continue  # a page has its own clock
             out.append(c.key)
         return out
+
+    def busy(self):
+        """An options panel or a question is open: what it is about stays put."""
+        return isinstance(self.nav.overlay, (nav.Options, nav.Question))
 
     def refresh_categories(self, keys):
         for key in keys:

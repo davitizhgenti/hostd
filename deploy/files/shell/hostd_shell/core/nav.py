@@ -97,6 +97,7 @@ class Navigator:
         self.overlay = None  # None, Options, Level or Question
         self.rows, self.all_rows, self.summaries = {}, {}, {}  # by category key: shown, all, summary line
         self.currents, self.paths, self.svc_page = {}, {}, {}
+        self.on_rows = None  # called with a category's key when its shown rows or its cursor were set
         self._sync()
 
     # --- the categories ---
@@ -161,6 +162,8 @@ class Navigator:
         self.currents[key] = i
         if isinstance(self.overlay, Level) and key == self.category:
             self.overlay = Level(next((r for r in shown if r.key() == self.overlay.row.key()), self.overlay.row))
+        if self.on_rows:
+            self.on_rows(key)
 
     @staticmethod
     def _find(shown, select):

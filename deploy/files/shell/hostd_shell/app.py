@@ -9,7 +9,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
-from hostd_shell import api as hapi
+from hostd_shell.daemon import Daemon
 from hostd_shell.icons import IconProvider, app_icon, svg
 from hostd_shell.shell import Shell
 
@@ -66,9 +66,10 @@ def run(argv):
     app.setDesktopFileName("hostd-menu")  # the menu window's app_id: how hostd knows it
     t = tokens()
     app.setFont(QFont(t["font"]["text"]))
-    shell = Shell(hapi.API(), t, has_icon=lambda name: app_icon(name) is not None,
+    daemon = Daemon()
+    shell = Shell(None, t, daemon=daemon, has_icon=lambda name: app_icon(name) is not None,
                   has_tab_icon=lambda name: svg(name, "#000000") is not None)
-    if not shell.api.token:
+    if not daemon.token:
         print("hostd-shell: no token: set HOSTD_TOKEN or create ~/.config/hostd/local.token", file=sys.stderr)
 
     from hostd_shell.bus import SHELL_NAME, Bus  # the session bus: not needed by the tests

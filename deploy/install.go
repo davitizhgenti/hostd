@@ -272,10 +272,11 @@ var packages = []string{
 // shellPackages are what the shell add-on needs from Debian: hostd-shell,
 // the on-screen UI (the menu, the notices, the OSD), is Qt Quick through
 // PySide6, with the layer shell for notices over games, SVG for its icons,
-// Gio for D-Bus, in the design's typeface.
+// Gio for D-Bus, QtNetwork for hostd's API, in the design's typeface.
 var shellPackages = []string{
 	"python3-gi", "gir1.2-glib-2.0",
 	"python3-pyside6.qtcore", "python3-pyside6.qtgui", "python3-pyside6.qtqml", "python3-pyside6.qtquick",
+	"python3-pyside6.qtnetwork", // the sockets of hostd's API and its events
 	"qml6-module-qtquick", "qml6-module-qtquick-window", "qml6-module-qtqml-workerscript",
 	"qml6-module-org-kde-layershell", "qt6-wayland", "qt6-svg-plugins", "fonts-inter",
 }

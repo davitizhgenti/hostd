@@ -20,7 +20,7 @@ from hostd_shell import background, menu, views
 from hostd_shell import input as inp
 from hostd_shell.core import hints, nav, pointers
 from hostd_shell.core.driver import Driver
-from hostd_shell.shell import Shell
+from hostd_shell.legacy import Shell
 
 
 def old_shell(menu_text):

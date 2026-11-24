@@ -2,10 +2,15 @@
 for a moment, as a QObject of its own that QML binds to (shell.osd)."""
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal
+from PySide6.QtQml import QmlElement, QmlUncreatable
+
+from hostd_shell.ui import QML_IMPORT_MAJOR_VERSION, QML_IMPORT_NAME  # noqa: F401 - read by @QmlElement
 
 OSD_MS = 1600  # how long it stays
 
 
+@QmlElement
+@QmlUncreatable("The shell makes it.")
 class Osd(QObject):
     changed = Signal()
 
@@ -26,7 +31,18 @@ class Osd(QObject):
         self._visible = False
         self.changed.emit()
 
-    visible = Property(bool, lambda s: s._visible, notify=changed)
-    name = Property(str, lambda s: s._name, notify=changed)
-    value = Property(str, lambda s: s._value, notify=changed)
-    level = Property(int, lambda s: s._level, notify=changed)
+    @Property(bool, notify=changed)
+    def visible(self):
+        return self._visible
+
+    @Property(str, notify=changed)
+    def name(self):
+        return self._name
+
+    @Property(str, notify=changed)
+    def value(self):
+        return self._value
+
+    @Property(int, notify=changed)
+    def level(self):
+        return self._level
