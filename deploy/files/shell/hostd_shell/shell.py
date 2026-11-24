@@ -17,6 +17,7 @@ from hostd_shell.ui.menu import Menu
 from hostd_shell.ui.notices import Notices
 from hostd_shell.ui.osd import Osd
 from hostd_shell.ui.pointers import Pointers
+from hostd_shell.ui.status import Strip
 
 
 @QmlElement
@@ -43,12 +44,15 @@ class Shell(QObject):
         self._osd = Osd(self)
         self._notices = Notices(self)
         self._pointers = Pointers(self)
+        self._strip = Strip(self._pointers, self)
         self._menu = Menu(tokens, ask, post, self._backdrop, now, has_icon, menu_path, has_tab_icon, self)
         self._menu.pointers = self._pointers
         self._menu.stream_up = lambda: self.events is not None and self.events.connected
         self._pointers.said.connect(self._menu.say)
         self._backdrop.folderChanged.connect(self._menu.look_changed)
         self._menu.loader.watch(sources.DEVICES, self._pointers.set_devices, absent=[])  # an older hostd has none
+        self._menu.loader.watch(sources.INSTANCES, self._strip.set_instances)
+        self._menu.loader.watch(sources.APPS, self._strip.set_apps)
         self._menu.closed.connect(self.menuClosed)
         self._notices.closed.connect(self.noticeClosed)
 
@@ -81,7 +85,7 @@ class Shell(QObject):
         self._clock.start()
         self._backdrop.start({self._dir(self._menu.menu_path)})
         self._menu.start()
-        self._menu.loader.refresh_watched({sources.DEVICES})
+        self._menu.loader.refresh_watched({sources.DEVICES, sources.INSTANCES, sources.APPS})
 
     @staticmethod
     def _dir(path):
@@ -147,6 +151,10 @@ class Shell(QObject):
     @Property(Pointers, constant=True)
     def pointers(self):
         return self._pointers
+
+    @Property(Strip, constant=True)
+    def strip(self):
+        return self._strip
 
     @Property(Notices, constant=True)
     def notices(self):

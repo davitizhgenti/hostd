@@ -36,11 +36,9 @@ Window {
             anchors.fill: parent
         }
 
-        DeviceStrip {
-            pointers: window.shell.pointers
+        StatusStrip {
+            status: window.shell.strip
             menu: window.shell.menu
-            x: Theme.layoutSafeMargin
-            y: Theme.layoutSafeMargin
         }
 
         // Typing on Apps filters it.

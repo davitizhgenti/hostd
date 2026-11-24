@@ -16,7 +16,7 @@ Clock 1.0 Clock.qml
 Pointer 1.0 Pointer.qml
 Pointers 1.0 Pointers.qml
 Calibrate 1.0 Calibrate.qml
-DeviceStrip 1.0 DeviceStrip.qml
+StatusStrip 1.0 StatusStrip.qml
 PointerHits 1.0 PointerHits.qml
 Hints 1.0 Hints.qml
 Notice 1.0 Notice.qml

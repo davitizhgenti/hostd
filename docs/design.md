@@ -7,7 +7,7 @@ Everything hostd shows on a screen follows one design (the menu, notices, OSD an
 - **Simple and quiet.** Flat and square: no rounded corners, no filled pills, no shadows. Type, space and brightness carry the rest, on a calm background. Color in the content means something (running, a warning, an error) and is never decoration.
 - **One grid.** Every position on the menu comes from one place (`Place.qml`) and a few rules ([the grid](#the-grid)); tests hold every screen to them.
 - **Readable from across the room.** Body text is 26 px on a 1080-pixel-high screen, nothing smaller than 20 px; every size scales with the screen's height (never below 85 %). Text keeps a contrast of at least 4.5:1 (3:1 for muted text) on every background the shell can draw; a test checks every month and hour.
-- **One focus, always visible.** The current item sits at the top of the list, under the current category, with a larger title and full brightness; nothing moves sideways and nothing is scaled. Nothing moves the focus by itself.
+- **One focus, always visible.** The current item sits at the top of the list, under the current category, with a larger title and full brightness, a lit flat fill and a 4 px square bar at its left edge (a shape, not only colour or size); nothing moves sideways and nothing is scaled. Nothing moves the focus by itself.
 - **Every input does the same.** A keyboard, a mouse and a game controller work the same everywhere ([input](#input)). The hints at the bottom right name the buttons of whatever was used last.
 - **Ask before what cannot be undone at once.** Switching the screen to another user and turning the screen off ask first, with the safe answer (No) chosen.
 - **Calm.** Moves take 220 ms, fades 120 ms, nothing blinks. Notices never take the focus from a game.
@@ -78,7 +78,7 @@ The menu is laid out like the PSP's XMB: the categories (Apps, any [tabs](#tabs)
 - **Category names** are centred under their icons; the current one's name shows, the others' space is kept. A category that would cross the safe margin is not shown, never cut by the screen's edge.
 - **The row band** (the icons and the name) and the **list** below it never overlap: passed items scroll up and fade before the list's top.
 - **Rows** are all the same height; the title line is at the top of each, and the current row's second line sits under it. Icon, title and the trailing state or value are centred on the title line; the trail ends at the column's edge.
-- **Corners:** the clock and summary at the top right, the hints at the bottom right, the filter at the top left, the message at the bottom left, all inside the safe margins and clear of the list.
+- **Corners:** the clock and summary at the top right, the hints at the bottom right, the status strip (or the filter) at the top left, the message at the bottom left, all inside the safe margins and clear of the list.
 - **The options panel** comes in at the right edge; its heading and options line up with the menu's section and list. **A question** is a band across the middle of the screen.
 
 Placement is arithmetic, not left to Qt's list views: the rows are plain positioners, and moving is one animated offset computed from what is current.
@@ -133,7 +133,7 @@ Every input becomes one of a few verbs (`hostd_shell/input.py`), and the shell a
 | close an app | Delete | Y (△) | |
 | first category | | Select | middle click |
 
-**The devices.** With two or more pointing or playing devices (a mouse, Wii Remotes, controllers) a strip at the top left of the menu lists them, each with a square in its colour and its name, bright while it is being used (it gives way to the filter while you type). Status lists them too, under Devices; choosing one offers its colours. Names are set with `hostctl device rename` (the menu shows hostd's: "Wii Remote 2", "Mouse").
+**The status strip.** At the top left, never wider than `layout.strip-width` (so never over the clock), two lines of squares. The first: the background apps that are up, starting or failed, a small square each in the state's colour (the first that is not running names itself: "Pi-hole failed"). The second: with two or more pointing or playing devices (a mouse, Wii Remotes, controllers), a square in each one's colour, bright while it is being used, which also names itself. A line holds at most six squares (`Place.stripMax`, `core/status.MAX`); past that the sixth place is a count, "+15". It gives way to the filter while you type and to a panel or question. Status lists every device under Devices, with its name; choosing one offers its colours. Names are set with `hostctl device rename` (the menu shows hostd's: "Wii Remote 2", "Mouse").
 
 **The pointers.** Every pointing device has a pointer of its own in the menu: the mouse, and each Wii Remote pointed at the screen. None moves, hides or fades another's; each hovers and clicks the row under it (a remote's A button clicks where it points, while its other buttons move the highlight). With more than one pointing device, each is drawn in its device's colour (see [Several devices](config.md)), and underlines the row under it in that colour; alone, a pointer is plain. A pointer is a small flat square with a light edge and a dark line outside it, filled while a button is held (`layout.pointer`). The mouse's shows when it moves, fades after three seconds, and goes when the keyboard or a pad is used; a Wii Remote's shows while it points at the screen. Hovering a row underlines it but never moves the selection (the list scrolls the current row to its top, so selecting on hover would move the row from under the pointer). Clicking a row makes it current and opens it; clicking a category goes to it; clicking outside a panel or question closes it; right click opens the options of the row under the pointer; the wheel moves the selection and its tilt changes category. The real cursor is hidden over the menu; outside it, Sway hides the cursor after 2 seconds as before.
 
@@ -151,7 +151,7 @@ Super (or holding a controller's Guide button) opens it; the same goes back. Its
 | Settings | the volume, mute and sound output; each screen's resolution; turning the screen off; the background |
 | Status | the hostd version, video memory, and the latest actions with who sent them |
 
-The hints at the bottom right name only what the current row does (open, options, close) and back where there is somewhere to go back to (an open folder, a filter, a panel).
+The hints at the bottom right, each button on a square hairline key cap, name only what the current row does (open, options, close) and back where there is somewhere to go back to (an open folder, a filter, a panel).
 
 ### Tabs
 

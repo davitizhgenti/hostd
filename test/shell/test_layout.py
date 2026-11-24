@@ -4,8 +4,10 @@ nothing in the list entering the category row, a steady rhythm, the corners
 clear of the content, text that fits. A failure names the item and how far
 off it is."""
 
+import copy
 import unittest
 
+import fixtures
 from harness import SIZES, Screen
 
 TOL = 1.0  # px
@@ -290,6 +292,29 @@ class MenuLayout(Contract):
             self.assertTrue(r[0] >= safe[0] - TOL, f"{where}: {name} outside the margins")
             self.assertLessEqual(r[0] + r[2], g["trailEnd"] + TOL, f"{where}: {name} past the block's edge")
         self.assertGreaterEqual(drawn, 1, f"{where}: no tiles drawn")
+
+    def test_the_status_strip_stays_inside_its_corner(self):
+        reads = copy.deepcopy(fixtures.READS)
+        reads["/v1/devices"] = [{"id": f"pad{i}", "name": "Pad", "kind": "gamepad", "label": f"Pad {i}", "colour": "blue"}
+                                for i in range(20)]
+        for size_name, size in SIZES.items():
+            with Screen(size, reads=reads) as s:
+                s.shell.menu.loader.refresh_watched({"/v1/devices"})
+                s.settle()
+                g, p = self.grid(s), s.engine.singletonInstance("Hostd", "Place")
+                self.assertEqual(p.property("stripMax"), s.shell.strip.maxSquares, f"{size_name}: squares per line, in QML and in the shell")
+                self.assertTrue(s.shown("statusStrip"), f"{size_name}: no strip")
+                strip, clock = s.rect("statusStrip"), s.rect("clock")
+                self.near(strip[0], g["safe"], f"{size_name}: strip at the safe margin")
+                self.near(strip[1], g["safe"], f"{size_name}: strip at the safe margin, top")
+                for line in ("serviceLine", "deviceLine"):
+                    if s.shown(line):
+                        r = s.rect(line)
+                        self.assertLessEqual(r[0] + r[2], strip[0] + p.property("stripWidth") + TOL, f"{size_name}: {line} wider than the strip")
+                        self.assertLess(r[0] + r[2], clock[0], f"{size_name}: {line} reaches the clock")
+                marks = [n for n, it in s.items().items() if n.startswith("deviceMark/") and s.shown(it)]
+                self.assertEqual(len(marks), p.property("stripMax") - 1, f"{size_name}: 20 devices: five squares and a count")
+                self.assertEqual(s.item("deviceMore").property("text"), "+15", f"{size_name}: the rest, counted")
 
     def test_options_panel(self):
         for size_name, size in SIZES.items():
