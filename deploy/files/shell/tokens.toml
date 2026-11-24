@@ -76,8 +76,6 @@ section       = 56  # a section label in the column
 panel-width   = 640 # the options panel at the right edge
 notice-width  = 600
 osd-width     = 440
-tile          = 320 # a game's tile in a tiles tab, current (as wide as a library header: 460:215)
-tile-small    = 160 # the other tiles in the column
 strip-width   = 640 # the status strip at the top left: never wider, so it stays clear of the clock
 pointer       = 16  # the pointer's square, a mouse's or a Wii Remote's
 

@@ -14,7 +14,7 @@ from PySide6.QtQml import QmlElement, QmlUncreatable
 from hostd_shell import input as inp
 from hostd_shell import menu as menufile
 from hostd_shell import views
-from hostd_shell.core import context, hints, loader, nav
+from hostd_shell.core import context, grid, hints, loader, nav
 from hostd_shell.models import RowsModel
 from hostd_shell.ui import QML_IMPORT_MAJOR_VERSION, QML_IMPORT_NAME  # noqa: F401 - read by @QmlElement/
 
@@ -129,6 +129,10 @@ class Menu(QObject):
     @Property(str, notify=cursorChanged)
     def view(self):
         return "list" if self.nav.in_page() else self.nav.cat().view
+
+    @Property(int, constant=True)
+    def columns(self):  # tiles across a wall (Place.tileColumns is held equal by a test)
+        return grid.COLUMNS
 
     @Property("QVariantMap", notify=cursorChanged)
     def focus(self):

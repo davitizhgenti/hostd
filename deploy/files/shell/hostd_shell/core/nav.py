@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from hostd_shell import input as inp
 from hostd_shell import views
-from hostd_shell.core import rowlist
+from hostd_shell.core import grid, rowlist
 
 # The fixed categories' keys; a tab's is "tab:" and its folder.
 APPS, USERS, SETTINGS, STATUS = "apps", "users", "settings", "status"
@@ -200,10 +200,17 @@ class Navigator:
                 return row.title
         return ""
 
+    def wall(self):
+        """Whether the page is a wall of tiles (moving is by line and column)."""
+        return self.cat().view == "tiles" and not self.in_page()
+
     def offset(self):
         """(headers, rows) before the current item: where the list scrolls
-        to put it at the top (a launcher row is as high as a header)."""
+        to put it at the top (a launcher row is as high as a header). On a
+        wall: (headings, tile lines) above the current one's line."""
         rows, i = self.rows[self.category], max(0, self.currents[self.category])
+        if self.wall():
+            return grid.offset(rows, i)
         headers = sum(1 for j in range(min(i, len(rows))) if rows[j].kind in (views.HEADER, views.LAUNCHER))
         return headers, max(0, i - headers)
 
@@ -225,6 +232,12 @@ class Navigator:
             self.move(5 if verb == inp.PAGE_DOWN else -5)
         elif verb == inp.HOME:
             return self.go_home()
+        elif verb in (inp.LEFT, inp.RIGHT) and self.wall():
+            c = self.category
+            j = grid.horizontal(self.rows[c], self.currents[c], 1 if verb == inp.RIGHT else -1)
+            if j is None:  # the end of the line: on to the next category
+                return self.set_category(self.index() + (1 if verb == inp.RIGHT else -1))
+            self.currents[c] = j
         elif verb in (inp.LEFT, inp.PREV_TAB):
             return self.set_category(self.index() - 1)
         elif verb in (inp.RIGHT, inp.NEXT_TAB):
@@ -274,7 +287,7 @@ class Navigator:
         rows, c = self.rows[self.category], self.category
         i = self.currents[c]
         for _ in range(abs(steps)):
-            i = rowlist.step(rows, i, 1 if steps > 0 else -1)
+            i = grid.vertical(rows, i, 1 if steps > 0 else -1) if self.wall() else rowlist.step(rows, i, 1 if steps > 0 else -1)
         self.currents[c] = i
 
     def choose(self, row):

@@ -467,15 +467,30 @@ class Tabs(unittest.TestCase):
         self.assertEqual((focus["title"], focus["banner"], focus["details"], focus["launcher"]),
                          ("Mario Kart Wii", "file://" + fixtures.BANNER_A, "Last played 12 February 2026 · 3.1 GB", False))
         self.assertEqual(s.menu.offset(), (1, 0))  # the launcher above, as high as a header
-        for _ in range(4):
-            s.menu.handle("down")  # over the Other games label, onto Steam Link
-        self.assertEqual((s.menu.current_row().title, s.menu.offset()), ("Steam Link", (3, 3)))
+        for _ in range(3):
+            s.menu.handle("down")  # onto Steam, down its line of games, over the Other games label
+        self.assertEqual((s.menu.current_row().title, s.menu.offset()), ("Steam Link", (3, 2)))  # a wall: lines, not rows
         s.menu.handle("up")
         s.menu.handle("up")  # Steam, the launcher
         self.assertEqual(s.menu.current_row().title, "Steam")
         s.menu.handle("activate")  # running: brought to the front
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
         self.assertEqual([h["what"] for h in s.menu.hintList], ["open", "options", "close"])
+
+    def test_left_and_right_walk_along_a_line_and_leave_at_its_end(self):
+        s = shell(fixtures.MENU)
+        s.menu.handle("right")
+        s.menu.handle("down")  # Mario Kart Wii, the line's first tile
+        s.menu.handle("right")
+        self.assertEqual((s.menu.current_row().title, s.menu.state()["category"]), ("Super Mario Galaxy", "tab:Games"))
+        s.menu.handle("left")
+        self.assertEqual(s.menu.current_row().title, "Mario Kart Wii")
+        s.menu.handle("left")  # the line's start: on to the previous category
+        self.assertEqual(s.menu.state()["category"], "apps")
+        s.menu.handle("right")  # back on Games, where it was: Mario Kart Wii
+        s.menu.handle("right")
+        s.menu.handle("right")  # the line's end: the next category
+        self.assertEqual(s.menu.state()["category"], "tab:Services")
 
     def test_typing_in_a_tab_searches_every_app(self):
         s = shell(fixtures.MENU)

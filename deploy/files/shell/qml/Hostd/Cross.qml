@@ -121,62 +121,73 @@ Item {
     }
 
     // The list: the current item at its top.
+    // Its clip is wider than the block by the current row's fill, which
+    // reaches past the block on both sides.
     Item {
-        id: list
-        objectName: "listArea"
+        id: clipper
+        readonly property int bleed: Theme.spaceL
         visible: cross.menu.view !== "tiles"
-        x: Place.rowLeft
+        x: Place.rowLeft - bleed
         y: Place.listTop
-        width: Place.columnWidth
+        width: Place.columnWidth + 2 * bleed
         height: parent.height - Place.listTop - Place.bottomReserve
         clip: true
 
-        // A new category's items appear in place, fading in; within one
-        // category they slide.
-        property int shown: cross.menu.category
-        property bool sliding: true
-        onShownChanged: { sliding = false; enter.restart(); Qt.callLater(() => { list.sliding = true }) }
-        NumberAnimation { id: enter; target: rowsColumn; property: "opacity"; from: 0; to: 1; duration: Theme.motionBase }
+        Item {
+            id: list
+            objectName: "listArea"
+            x: clipper.bleed
+            width: Place.columnWidth
+            height: parent.height
 
-        Column {
-            id: rowsColumn
-            width: parent.width
-            y: -(cross.menu.headersBefore * Theme.layoutSection + cross.menu.rowsBefore * Theme.layoutItemHeight)
-            Behavior on y {
-                enabled: list.sliding
-                NumberAnimation { duration: Theme.motionBase; easing.type: Easing.OutCubic }
-            }
+            // A new category's items appear in place, fading in; within one
+            // category they slide.
+            property int shown: cross.menu.category
+            property bool sliding: true
+            onShownChanged: { sliding = false; enter.restart(); Qt.callLater(() => { list.sliding = true }) }
+            NumberAnimation { id: enter; target: rowsColumn; property: "opacity"; from: 0; to: 1; duration: Theme.motionBase }
 
-            Repeater {
-                model: cross.menu.pageModels[cross.menu.category]
+            Column {
+                id: rowsColumn
+                x: 0
+                width: Place.columnWidth
+                y: -(cross.menu.headersBefore * Theme.layoutSection + cross.menu.rowsBefore * Theme.layoutItemHeight)
+                Behavior on y {
+                    enabled: list.sliding
+                    NumberAnimation { duration: Theme.motionBase; easing.type: Easing.OutCubic }
+                }
 
-                ListRow {
-                    id: item
-                    required index
-                    required title
-                    required subtitle
-                    required value
-                    required badge
-                    required tone
-                    required mark
-                    required kind
-                    required icon
-                    required appIcon
-                    required app
-                    required level
-                    required mono
+                Repeater {
+                    model: cross.menu.pageModels[cross.menu.category]
 
-                    // How far above the list's top it is: passed items fade as they go.
-                    readonly property real above: -(rowsColumn.y + y)
+                    ListRow {
+                        id: item
+                        required index
+                        required title
+                        required subtitle
+                        required value
+                        required badge
+                        required tone
+                        required mark
+                        required kind
+                        required icon
+                        required appIcon
+                        required app
+                        required level
+                        required mono
 
-                    width: rowsColumn.width
-                    pointing: cross.pointers.pointer.visible
-                    pointedBy: cross.pointers.hovers.filter(h => h.row === item.index).map(h => h.colour)
-                    onActivated: cross.menu.clickItem(item.index, "left")
-                    onEntered: cross.pointers.hover(item.index)
-                    onExited: cross.pointers.hover(-1)
-                    current: index === cross.menu.current
-                    opacity: (current ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Theme.layoutItemHeight))
+                        // How far above the list's top it is: passed items fade as they go.
+                        readonly property real above: -(rowsColumn.y + y)
+
+                        width: rowsColumn.width
+                        pointing: cross.pointers.pointer.visible
+                        pointedBy: cross.pointers.hovers.filter(h => h.row === item.index).map(h => h.colour)
+                        onActivated: cross.menu.clickItem(item.index, "left")
+                        onEntered: cross.pointers.hover(item.index)
+                        onExited: cross.pointers.hover(-1)
+                        current: index === cross.menu.current
+                        opacity: (current ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Theme.layoutItemHeight))
+                    }
                 }
             }
         }

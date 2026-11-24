@@ -47,20 +47,23 @@ Item {
     objectName: tag + "/" + index
     implicitHeight: header ? Theme.layoutSection : Theme.layoutItemHeight
 
-    // The current row of a list: a flat fill and a bar at its left edge.
+    // The current row of a list: a lit flat fill, reaching past the block
+    // on both sides, and a bar at its left edge, as tall as what it holds.
     Rectangle {
         objectName: row.tag + "Fill/" + row.index
         visible: row.big && !row.header
-        width: row.width
-        height: row.height
-        color: Theme.colorSurface
-        opacity: 0.8
+        x: -Theme.spaceL
+        width: row.width + 2 * Theme.spaceL
+        height: row.subtitle !== "" ? row.height : row.line
+        color: Theme.colorText
+        opacity: 0.12
     }
     Rectangle {
         objectName: row.tag + "Bar/" + row.index
         visible: row.big && !row.header
-        width: Theme.lineFocus
-        height: row.height
+        x: -Theme.spaceL
+        width: Theme.spaceXs
+        height: row.subtitle !== "" ? row.height : row.line
         color: Theme.colorAccent
     }
 

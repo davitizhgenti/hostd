@@ -33,17 +33,19 @@ QtObject {
     readonly property int sectionTop: rowBottom + Theme.spaceL
     readonly property int listTop: sectionTop + Theme.layoutSection
 
-    // The tiles view: a column of wide tiles (a library header's shape,
-    // 460:215) at the block's left edge, the current one big, the others
-    // small under it, all centred on tileAxis; the current one's title,
-    // banner and details on the right, from tileText to the block's edge.
+    // The tiles view: a wall. Games are tiles in a library header's shape
+    // (460:215), tileColumns across, in cells one tile and one gap wide;
+    // a section label or a launcher is a line of its own. The wall starts at
+    // the block's left edge; under it, kept clear of the hints, the current
+    // tile's title and details (infoHeight high).
+    readonly property int tileColumns: 4 // core/grid.py's COLUMNS
+    readonly property int tileGap: Theme.spaceM
     readonly property real tileShape: 215 / 460
-    readonly property int tileWidth: Theme.layoutTile
+    readonly property int cellWidth: Math.floor(columnWidth / tileColumns)
+    readonly property int tileWidth: cellWidth - tileGap
     readonly property int tileHeight: Math.round(tileWidth * tileShape)
-    readonly property int tileSmallWidth: Theme.layoutTileSmall
-    readonly property int tileSmallHeight: Math.round(tileSmallWidth * tileShape)
-    readonly property int tileAxis: rowLeft + Math.round(tileWidth / 2)
-    readonly property int tileText: rowLeft + tileWidth + Theme.spaceL
+    readonly property int cellHeight: tileHeight + tileGap
+    readonly property int infoHeight: Theme.layoutItemLine + Math.round(Theme.typeLabel * 1.5) + Theme.spaceM
 
     // The status strip: services and devices at the top left, inside the
     // safe margin, never wider than stripWidth (so never over the clock).

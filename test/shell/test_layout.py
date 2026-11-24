@@ -246,59 +246,49 @@ class MenuLayout(Contract):
         g, (w, h) = self.grid(s), s.size
         p = s.engine.singletonInstance("Hostd", "Place")
         self.assertEqual(s.warnings, [], f"{where}: QML warnings")
+        self.assertEqual(p.property("tileColumns"), s.shell.menu.columns, f"{where}: the wall's columns, in QML and in the shell")
         area, band = s.rect("tilesArea"), s.rect("rowBand")
         self.assertFalse(s.shown("listArea"), f"{where}: the list shows too")
         self.near(area[0], g["rowLeft"], f"{where}: tiles at the block's left")
         self.near(area[1], g["listTop"], f"{where}: tiles at the list's top")
         self.assertLessEqual(area[1] + area[3], h - g["bottomReserve"] + TOL, f"{where}: tiles into the hints")
+        info = s.rect("tilesInfo")
+        self.near(info[1] + info[3], area[1] + area[3], f"{where}: the details at the wall's foot")
+        self.near(info[3], p.property("infoHeight"), f"{where}: the details' height")
         cur = s.shell.menu.state()["current"]
-        row = s.rect(f"tile/{cur}")
-        self.near(row[1], area[1], f"{where}: the current row at the list's top")
+        line = s.rect(f"tile/{cur}")
+        self.near(line[1], area[1], f"{where}: the current line at the wall's top")
         kind = s.item(f"tile/{cur}").property("kind")
         if kind == "launcher":
-            self.near(row[3], g["sectionHeight"], f"{where}: a launcher is as high as a section label")
+            self.near(line[3], g["sectionHeight"], f"{where}: a launcher is as high as a section label")
             self.assertTrue(s.shown(f"tileFocus/{cur}"), f"{where}: the current launcher is underlined")
         else:
-            box = s.rect(f"tileBox/{cur}")
-            self.near(box[2], p.property("tileWidth"), f"{where}: the current tile's width")
-            self.near(box[3], p.property("tileHeight"), f"{where}: the current tile's height")
-            self.near(box[3] / box[2], 215 / 460, f"{where}: a library header's shape")
+            self.assertTrue(s.shown(f"tileFrame/{cur}"), f"{where}: the current tile has its frame")
+        frames = [n for n, it in s.items().items() if n.startswith("tileFrame/") and s.shown(it)]
+        self.assertLessEqual(len(frames), 1, f"{where}: more than one frame: {frames}")
         title = s.rect("tilesTitle")
-        self.near(title[0], p.property("tileText"), f"{where}: the title on the right")
-        self.near(title[1], area[1], f"{where}: the title at the list's top")
-        info = s.rect("tilesInfo")
-        self.near(info[0] + info[2], g["trailEnd"], f"{where}: the right side ends at the block's edge")
-        banner = s.item("tilesBanner")
-        details = s.rect("tilesDetails")
-        if s.shown(banner):
-            b = s.rect(banner)
-            self.assertLessEqual(b[2], info[2] + TOL, f"{where}: the banner wider than the right side")
-            self.near(b[0], info[0], f"{where}: the banner at the right side's left")
-            ratio = banner.property("implicitHeight") / banner.property("implicitWidth")
-            self.near(b[3], b[2] * ratio, f"{where}: the banner keeps its shape")
-            sub = s.rect("tilesSubtitle")
-            self.assertGreaterEqual(b[1], sub[1] + sub[3] - TOL, f"{where}: banner over the subtitle")
-            if s.item("tilesDetails").property("text"):
-                self.assertGreaterEqual(details[1], b[1] + b[3] - TOL, f"{where}: details over the banner")
-        # Nothing on the right is cut off by the area's edge.
-        for name in ("tilesTitle", "tilesSubtitle", "tilesBanner", "tilesDetails"):
-            if s.shown(name) and (name != "tilesDetails" or s.item(name).property("text")):
-                r = s.rect(name)
-                self.assertLessEqual(r[1] + r[3], area[1] + area[3] + TOL, f"{where}: {name} cut off at the bottom")
-        if s.item("tilesDetails").property("text"):
-            self.assertLessEqual(s.item("tilesDetails").property("contentHeight"), details[3] + TOL, f"{where}: details cut")
+        self.near(title[0], area[0], f"{where}: the title at the block's left")
+        self.assertGreaterEqual(title[1], info[1], f"{where}: the title above the details")
+        for name in ("tilesTitle", "tilesLine"):
+            r = s.rect(name)
+            self.assertLessEqual(r[1] + r[3], info[1] + info[3] + TOL, f"{where}: {name} cut off at the bottom")
+            self.assertLessEqual(r[0] + r[2], g["trailEnd"] + TOL, f"{where}: {name} past the block's edge")
         safe = (g["safe"], g["safe"], w - 2 * g["safe"], h - 2 * g["safe"])
         drawn = 0
         for name, it in s.items().items():
             if not name.startswith("tileBox/") or not s.shown(it):
                 continue
             r = s.rect(it)
-            if not intersects(r, area):
-                continue
+            if not intersects(r, area) or r[1] < area[1] - TOL or r[1] + r[3] > info[1] + TOL:
+                continue  # passing the top, or under the wall's foot
             drawn += 1
-            self.near(cx(r), p.property("tileAxis"), f"{where}: {name} on the tiles' axis")
+            self.near(r[2], p.property("tileWidth"), f"{where}: {name} width")
+            self.near(r[3] / r[2], 215 / 460, f"{where}: {name} keeps a library header's shape")
+            col = (r[0] - area[0]) / p.property("cellWidth")
+            self.near(col, round(col), f"{where}: {name} on a column")
             self.assertGreaterEqual(r[1], band[1] + band[3], f"{where}: {name} enters the category row")
             self.assertTrue(r[0] >= safe[0] - TOL, f"{where}: {name} outside the margins")
+            self.assertLessEqual(r[0] + r[2], g["trailEnd"] + TOL, f"{where}: {name} past the block's edge")
         self.assertGreaterEqual(drawn, 1, f"{where}: no tiles drawn")
 
     def test_options_panel(self):
