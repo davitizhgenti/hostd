@@ -5,7 +5,7 @@ FROM debian:trixie
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
     python3 python3-gi gir1.2-glib-2.0 python3-numpy \
     python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtqml python3-pyside6.qtquick \
-    python3-pyside6.qtnetwork python3-pyside6.qtstatemachine \
+    python3-pyside6.qtnetwork python3-pyside6.qtstatemachine pyside6-tools \
     qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript \
     qml6-module-org-kde-layershell qt6-wayland qt6-svg-plugins qt6-qpa-plugins qt6-declarative-dev-tools \
     fonts-inter fonts-dejavu-core \
