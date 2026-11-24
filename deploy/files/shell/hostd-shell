@@ -35,6 +35,6 @@ if __name__ == "__main__":
         need("gi")
         from hostd_shell.bus import launch_menu
         sys.exit(launch_menu())
-    need("gi", "PySide6.QtQuick", "PySide6.QtQml")
+    need("gi", "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtNetwork")
     from hostd_shell.app import run
     sys.exit(run(sys.argv))
