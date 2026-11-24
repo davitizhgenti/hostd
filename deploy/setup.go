@@ -19,8 +19,10 @@ import (
 //go:generate go run ../scripts/uitokens -root ..
 
 // The files the installer puts on the machine, and the add-ons.
+// A folder's files named __init__.py are left out of an embedded folder (Go
+// skips names that start with "_" or "."), so the Python packages' are named.
 //
-//go:embed files addons
+//go:embed files addons files/shell/hostd_shell/core/__init__.py files/shell/hostd_shell/ui/__init__.py
 var embedded embed.FS
 
 // releaseKey is the Ed25519 public key builds are signed with (CI holds
