@@ -7,7 +7,7 @@
 # they are out of date. See docs/design.md.
 #
 # Sizes are px on a 1080-pixel-high screen; the shell scales them with the
-# screen's height (never below 85 %). Times are milliseconds.
+# screen's height (never below 70 %, so every common screen from 756 pixels high up has the same proportions). Times are milliseconds.
 
 [color] # neutral, near black; color only where it means something
 bg             = "#0b0b0c" # before the background is drawn, and under images

@@ -16,7 +16,7 @@ from hostd_shell.shell import Shell
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QML = os.path.join(HERE, "qml")
 SURFACES = ("Background", "NoticeLayer", "OsdLayer", "Menu")
-BASE_HEIGHT, MIN_SCALE = 1080, 0.85
+BASE_HEIGHT, MIN_SCALE = 1080, 0.7
 
 
 EX_CONFIG = 78  # the unit does not restart on this: retrying cannot help

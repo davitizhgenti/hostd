@@ -293,6 +293,23 @@ class MenuLayout(Contract):
             self.assertLessEqual(r[0] + r[2], g["trailEnd"] + TOL, f"{where}: {name} past the block's edge")
         self.assertGreaterEqual(drawn, 1, f"{where}: no tiles drawn")
 
+    def test_the_menu_has_the_same_proportions_at_every_common_size(self):
+        """From 756 px high up the scale follows the height, so what is where
+        is the same share of the screen (a floor above that made short
+        screens look different: bigger things and fewer rows)."""
+        sizes = {"1366x768": (1366, 768), "1280x800": (1280, 800), "1600x900": (1600, 900), "1920x1080": (1920, 1080),
+                 "2560x1440": (2560, 1440)}
+        seen = {}
+        for name, size in sizes.items():
+            with Screen(size, tabs=True) as s:
+                g = self.grid(s)
+                seen[name] = (g["rowTop"] / size[1], g["listTop"] / size[1], g["bottomReserve"] / size[1],
+                              g["columnWidth"] / size[0] * size[0] / size[1])
+        base = seen["1920x1080"]
+        for name, got in seen.items():
+            for a, b, what in zip(got, base, ("category row", "list top", "bottom reserve", "column width")):
+                self.assertLessEqual(abs(a - b), 0.01 * max(1, abs(b)) + 0.012, f"{name}: {what} {a:.3f} vs {b:.3f}")
+
     def test_the_status_strip_stays_inside_its_corner(self):
         reads = copy.deepcopy(fixtures.READS)
         reads["/v1/devices"] = [{"id": f"pad{i}", "name": "Pad", "kind": "gamepad", "label": f"Pad {i}", "colour": "blue"}

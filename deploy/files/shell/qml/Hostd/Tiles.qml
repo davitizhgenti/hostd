@@ -68,7 +68,10 @@ Item {
                     objectName: "tile/" + index
                     width: heading ? Place.columnWidth : Place.cellWidth
                     height: heading ? Theme.layoutSection : Place.cellHeight
-                    opacity: (current || kind === "header" ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Place.cellHeight))
+                    // A line that would be cut by the wall's foot is not shown: no slivers.
+                    readonly property bool fits: wall.y + y + height <= room.height + 1
+                    opacity: (current || kind === "header" ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Place.cellHeight)) * (fits ? 1 : 0)
+                    Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
 
                     MouseArea {
                         objectName: "tileHit/" + item.index
