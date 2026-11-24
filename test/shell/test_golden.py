@@ -81,7 +81,7 @@ def render(size, surface, steps):
             s.shell.notify("Steam", "Download finished", "Dota 2 is ready to play", 0, 1, -1)
             s.shell.notify("hostd", "Video memory nearly full", "3.9 GB of 4 GB in use", 0, 2, -1)
         elif steps == "osd":
-            s.shell.show_osd("Volume", "70%", 70)
+            s.shell.osd.show("Volume", "70%", 70)
         else:
             for step in steps:
                 if isinstance(step, tuple) and step[0] == "pointer":

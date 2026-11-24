@@ -48,6 +48,28 @@ def with_status_service():
     return s
 
 
+class OsdShown(unittest.TestCase):
+    """The OSD is an object of its own, shown for a moment."""
+
+    def test_shown_then_hidden(self):
+        osd = shell().osd
+        self.assertFalse(osd.visible)
+        changes = []
+        osd.changed.connect(lambda: changes.append(osd.visible))
+        osd.show("Volume", "70%", 70)
+        self.assertEqual((osd.visible, osd.name, osd.value, osd.level), (True, "Volume", "70%", 70))
+        osd.show("Screen", "guest", None)  # no bar
+        self.assertEqual((osd.name, osd.level), ("Screen", -1))
+        self.assertTrue(osd.timer.isActive())
+        osd.hide()
+        self.assertEqual(changes, [True, True, False])
+
+    def test_an_event_shows_it(self):
+        s = shell()
+        s.on_event({"type": "audio.volume.changed", "data": {"percent": 40}})
+        self.assertEqual((s.osd.visible, s.osd.value, s.osd.level), (True, "40%", 40))
+
+
 class ServicePage(unittest.TestCase):
     """A service that says what it is doing opens a page of it when chosen."""
 

@@ -11,7 +11,7 @@ Window {
     height: Math.max(1, osd.implicitHeight + Theme.layoutSafeMargin * 2)
     color: "transparent"
     flags: Qt.WindowTransparentForInput
-    visible: osdLayer.shell.osdVisible
+    visible: osdLayer.shell.osd.visible
 
     // org.kde.layershell ships no type information: qmllint cannot check these.
     // qmllint disable unresolved-type unqualified missing-property
@@ -25,8 +25,8 @@ Window {
     Osd {
         id: osd
         width: parent.width
-        name: osdLayer.shell.osdName
-        value: osdLayer.shell.osdValue
-        level: osdLayer.shell.osdLevel
+        name: osdLayer.shell.osd.name
+        value: osdLayer.shell.osd.value
+        level: osdLayer.shell.osd.level
     }
 }

@@ -19,6 +19,7 @@ from hostd_shell import api as hapi
 from hostd_shell import background, menu, notices, views
 from hostd_shell import input as inp
 from hostd_shell.models import RowsModel
+from hostd_shell.osd import Osd
 
 # The fixed categories' keys; a tab's is "tab:" and its folder.
 APPS, USERS, SETTINGS, STATUS = "apps", "users", "settings", "status"
@@ -29,7 +30,6 @@ REFRESH_ON = {
     "settings": ("audio.", "display.output", "display.mode", "display.power", "hostd."),
     "status": ("hostd.", "action.", "device.", "controller."),
 }
-OSD_MS = 1600
 SAY_MS, ERROR_MS = 4000, 8000  # how long a message stays
 POINTER_MS = 3000  # a mouse's pointer fades after this long without moving
 MOUSE_MS = 8  # a mouse's moves are applied at most this often (a gaming mouse sends a thousand a second)
@@ -83,7 +83,6 @@ class Shell(QObject):
     clockChanged = Signal()
     categoriesChanged = Signal()
     backgroundChanged = Signal()
-    osdChanged = Signal()
     menuVisibleChanged = Signal()
     menuClosed = Signal()  # the menu was hidden: its launcher can end
     noticeClosed = Signal(int, int)  # id, reason (the spec's)
@@ -133,15 +132,13 @@ class Shell(QObject):
         self._family = ""  # the kind of the controller used last (xbox, playstation, ...)
         self._menu_visible = False
         self._menu_active = False
-        self._osd = ("", "", -1)
-        self._osd_visible = False
+        self._osd = Osd(self)
         self.fullscreen = True  # the tests show the menu in a window of a set size
 
         self._posted.connect(lambda job: job[0](*job[1]))
         self.pending = set()
         self.debounce = QTimer(self, singleShot=True, interval=100, timeout=self._refresh_pending)
         self.notice_timer = QTimer(self, singleShot=True, timeout=self._expire_notices)
-        self.osd_timer = QTimer(self, singleShot=True, interval=OSD_MS, timeout=self._hide_osd)
         self.say_timer = QTimer(self, singleShot=True, timeout=lambda: self.say(""))
         # The pointers, one for each device that points: where it is as a
         # share of the screen, whether it shows, and the row under it. A
@@ -305,7 +302,7 @@ class Shell(QObject):
             self._load_devices()
         osd = notices.osd_for(ev)
         if osd is not None:
-            self.show_osd(*osd)
+            self._osd.show(*osd)
         for c in self.cats:
             if kind.startswith(REFRESH_ON[c.kind]):
                 self.pending.add(c.key)
@@ -874,16 +871,6 @@ class Shell(QObject):
             self.noticeClosed.emit(nid, notices.EXPIRED)
         self._show_notices()
 
-    def show_osd(self, name, value, level):
-        self._osd = (name, value, -1 if level is None else int(level))
-        self._osd_visible = True
-        self.osd_timer.start()
-        self.osdChanged.emit()
-
-    def _hide_osd(self):
-        self._osd_visible = False
-        self.osdChanged.emit()
-
     # --- for QML: what to show ---
 
     def _hints(self):
@@ -994,10 +981,7 @@ class Shell(QObject):
     bgImage = Property(str, lambda s: ("file://" + s.look["image"]) if s.look["mode"] == "image" else "",
                        notify=backgroundChanged)
 
-    osdVisible = Property(bool, lambda s: s._osd_visible, notify=osdChanged)
-    osdName = Property(str, lambda s: s._osd[0], notify=osdChanged)
-    osdValue = Property(str, lambda s: s._osd[1], notify=osdChanged)
-    osdLevel = Property(int, lambda s: s._osd[2], notify=osdChanged)
+    osd = Property(QObject, lambda s: s._osd, constant=True)  # name, value, level, visible
 
     def state(self):
         """The UI state as plain data, for tests and debugging."""

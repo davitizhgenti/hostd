@@ -368,7 +368,7 @@ class Overlays(Contract):
                 self.assertEqual(s.warnings, [], size_name)
                 self.assertTrue(s.window.isVisible(), size_name)
             with Screen(size, "OsdLayer") as s:
-                s.shell.show_osd("Volume", "70%", 70)
+                s.shell.osd.show("Volume", "70%", 70)
                 s.settle()
                 self.assertEqual(s.warnings, [], size_name)
 
