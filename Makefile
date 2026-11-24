@@ -5,7 +5,7 @@ VERSION  ?= $(if $(GIT_DESC),$(GIT_DESC)-dev,dev)
 LDFLAGS := -X github.com/davitizhgenti/hostd/internal/version.Version=$(VERSION)
 FUZZTIME ?= 30s
 
-.PHONY: all build dist deb docs-site release test test-e2e fuzz lint lint-scripts test-shell shell-golden shell-test-image cover tidy clean \
+.PHONY: all build dist deb docs-site release test test-e2e fuzz lint lint-scripts test-shell try-shell shell-golden shell-test-image cover tidy clean \
 	check-server test-install test-install-user e2e-bins docs-stub run run-env generate check-generated
 
 all: lint test build
@@ -118,6 +118,12 @@ lint-scripts:
 SHELL_TEST = $(PODMAN) run --rm -e PYTHONDONTWRITEBYTECODE=1 -v $(CURDIR):/repo -w /repo/test/shell hostd-shell-test
 shell-test-image:
 	$(PODMAN) build -q -t hostd-shell-test -f test/shell/Containerfile test/shell
+# The new shell with the real hostd in the test container: screenshots in
+# test/shell/out/try/ (KEEP=1: stay up, then podman exec hostd-try key Down).
+try-shell: shell-test-image
+	CGO_ENABLED=0 $(GO) build -trimpath -o bin/ ./cmd/hostd ./cmd/hostctl
+	$(PODMAN) run --rm --name hostd-try -e KEEP=$(KEEP) -v $(CURDIR):/repo:Z -w /repo/test/shell hostd-shell-test bash try.sh
+
 test-shell: shell-test-image
 	$(SHELL_TEST) python3 -m unittest discover -p "test_*.py"
 	$(SHELL_TEST) bash live.sh
