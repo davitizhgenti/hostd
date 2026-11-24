@@ -1,4 +1,4 @@
-GO      ?= go
+GO      ?= $(or $(shell command -v go),$(HOME)/.local/go/bin/go)
 TOOL    := $(GO) tool -modfile=tools/go.mod
 GIT_DESC := $(shell git describe --tags --always --dirty 2>/dev/null)
 VERSION  ?= $(if $(GIT_DESC),$(GIT_DESC)-dev,dev)

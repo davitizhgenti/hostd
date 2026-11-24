@@ -69,6 +69,18 @@ Item {
                         size: Theme.layoutIconCategory
                     }
 
+                    // The current category's bar, at the foot of its name.
+                    Rectangle {
+                        objectName: "categoryBar/" + category.index
+                        anchors.horizontalCenter: categoryIcon.horizontalCenter
+                        y: parent.height - height
+                        width: Theme.layoutIconCategory
+                        height: Theme.lineFocus
+                        color: Theme.colorAccent
+                        opacity: category.isCurrent ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
+                    }
+
                     // Its space is always there; it shows on the current one only.
                     Txt {
                         objectName: "categoryName/" + category.index

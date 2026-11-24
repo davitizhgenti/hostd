@@ -45,6 +45,14 @@ QtObject {
     readonly property int tileAxis: rowLeft + Math.round(tileWidth / 2)
     readonly property int tileText: rowLeft + tileWidth + Theme.spaceL
 
+    // The status strip: services and devices at the top left, inside the
+    // safe margin, never wider than stripWidth (so never over the clock).
+    readonly property int stripLeft: Theme.layoutSafeMargin
+    readonly property int stripTop: Theme.layoutSafeMargin
+    readonly property int stripWidth: Theme.layoutStripWidth
+    readonly property int stripMark: Theme.spaceS * 2 // a service's or device's square
+    readonly property int stripMax: 6 // squares per line before "+N"
+
     // Kept clear at the bottom for the hints and the message.
     readonly property int bottomReserve: Theme.layoutSafeMargin + Math.round(Theme.typeLabel * 1.5) + Theme.spaceL
 }

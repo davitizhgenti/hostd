@@ -8,8 +8,9 @@ import QtQuick
 //                    all centred on it
 //   the second line  under the title line, on the current row only
 // Every row is itemHeight high, so the rhythm never changes.
-// The current row is shown by its title's size and full opacity alone:
-// nothing moves sideways and nothing is scaled. A header is a section label
+// The current row is shown by its title's size, full opacity, and a flat
+// fill with a square bar at its left edge: a shape, not colour or size
+// alone. Nothing moves sideways and nothing is scaled. A header is a section label
 // at the text column.
 Item {
     id: row
@@ -45,6 +46,23 @@ Item {
 
     objectName: tag + "/" + index
     implicitHeight: header ? Theme.layoutSection : Theme.layoutItemHeight
+
+    // The current row of a list: a flat fill and a bar at its left edge.
+    Rectangle {
+        objectName: row.tag + "Fill/" + row.index
+        visible: row.big && !row.header
+        width: row.width
+        height: row.height
+        color: Theme.colorSurface
+        opacity: 0.8
+    }
+    Rectangle {
+        objectName: row.tag + "Bar/" + row.index
+        visible: row.big && !row.header
+        width: Theme.lineFocus
+        height: row.height
+        color: Theme.colorAccent
+    }
 
     Txt {
         objectName: row.tag + "Section/" + row.index
