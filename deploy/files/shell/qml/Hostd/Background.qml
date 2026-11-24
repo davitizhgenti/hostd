@@ -1,4 +1,5 @@
 import QtQuick
+import Hostd.Shell as Core
 import org.kde.layershell 1.0 as LayerShell
 
 // The screen behind every app: the background setting, on the compositor's
@@ -6,8 +7,7 @@ import org.kde.layershell 1.0 as LayerShell
 Window {
     id: background
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Backdrop look
     color: Theme.colorBg
     flags: Qt.WindowTransparentForInput
 
@@ -22,7 +22,7 @@ Window {
     // qmllint enable unresolved-type unqualified missing-property
 
     Backdrop {
-        shell: background.shell
+        look: background.look
         anchors.fill: parent
     }
 

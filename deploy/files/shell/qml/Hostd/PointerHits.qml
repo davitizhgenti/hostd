@@ -1,4 +1,5 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // What each Wii Remote's pointer is over, found in the scene as a mouse
 // would find it: the topmost enabled MouseArea under it. It tells the shell
@@ -8,7 +9,8 @@ import QtQuick
 Item {
     id: hits
 
-    required property var shell
+    required property Core.Pointers pointers
+    required property Core.Menu menu
     required property Item scene
 
     // The topmost enabled MouseArea at x, y of item (a mouse's view of it).
@@ -41,26 +43,32 @@ Item {
     }
 
     function sync() {
-        const ids = hits.shell.pointerIds
+        const ids = hits.pointers.pointerIds
         if (ids.length === 0 || (ids.length === 1 && ids[0] === "mouse"))  // the mouse alone: Qt finds what it is over
             return
-        const all = hits.shell.pointers
+        const all = hits.pointers.pointers
         for (let i = 0; i < all.length; ++i) {
             const p = all[i]
             if (p.id === "mouse")
                 continue
             const row = p.visible ? rowOf(areaOf(p)) : -1
             if (row !== p.hover)
-                hits.shell.pointerHover(p.id, row)
+                hits.pointers.pointerHover(p.id, row)
         }
     }
 
+    // Where a pointer is over, once the list moved or a pointer did.
     Connections {
-        target: hits.shell
+        target: hits.menu
+        function onCursorChanged() { hits.sync() }
+        function onOverlayChanged() { hits.sync() }
+    }
+
+    Connections {
+        target: hits.pointers
         function onPointerChanged() { hits.sync() }
-        function onChanged() { hits.sync() }
-        function onPointerPressed(id) {
-            const all = hits.shell.pointers
+        function onPressed(id) {
+            const all = hits.pointers.pointers
             for (let i = 0; i < all.length; ++i) {
                 if (all[i].id !== id)
                     continue

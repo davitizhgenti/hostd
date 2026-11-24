@@ -11,7 +11,8 @@ import unittest
 import fixtures
 import harness  # the Qt application the shell's timers need
 from hostd_shell import background, views
-from hostd_shell.shell import APPS, SETTINGS, STATUS, USERS, Shell
+from hostd_shell.core.nav import APPS, SETTINGS, STATUS, USERS
+from hostd_shell.shell import Shell
 
 
 def shell(menu=None):
@@ -23,14 +24,14 @@ def shell(menu=None):
             f.write(menu)
     s = Shell(fixtures.FakeAPI(), harness.TOKENS, now=lambda: fixtures.NOW,
               look_path=os.path.join(tempfile.mkdtemp(), "ui.toml"), menu_path=menu_path)
-    s.mouse_ms = 0  # the tests' moves are applied at once
-    for c in s.cats:
-        s.refresh(c.key)
+    s.pointers.mouse_ms = 0  # the tests' moves are applied at once
+    for c in s.menu.nav.cats:
+        s.menu.refresh(c.key)
     return s
 
 
 def titles(s):
-    return [r.title for r in s.page().rows]
+    return [r.title for r in s.menu.page().rows]
 
 
 def with_status_service():
@@ -40,11 +41,11 @@ def with_status_service():
         if a["spec"]["id"] == "homeassistant":
             a["spec"]["status"] = {"url": "http://127.0.0.1:8481/status"}
     s.api.reads["/v1/catalog/homeassistant/status"] = fixtures.STATUS
-    s.refresh("tab:Services")
-    s.handle("right")
-    s.handle("right")  # the Services tab
-    while s.current_row().title != "Home Assistant":
-        s.handle("down")
+    s.menu.refresh("tab:Services")
+    s.menu.handle("right")
+    s.menu.handle("right")  # the Services tab
+    while s.menu.current_row().title != "Home Assistant":
+        s.menu.handle("down")
     return s
 
 
@@ -75,187 +76,187 @@ class ServicePage(unittest.TestCase):
 
     def test_choosing_it_opens_the_page_and_back_returns_to_the_list(self):
         s = with_status_service()
-        self.assertEqual(s.state()["category"], "tab:Services")
-        s.handle("activate")
-        self.assertTrue(s.in_page())
+        self.assertEqual(s.menu.state()["category"], "tab:Services")
+        s.menu.handle("activate")
+        self.assertTrue(s.menu.in_page())
         self.assertEqual(titles(s), ["Running now", "Fetching eurodesk", "Processing", "Next runs", "Process", "SIROP search",
                                      "Train", "Counts", "Items stored", "New today", "Sources with errors"])
-        self.assertEqual(s.property("summary"), "Opportunities")
-        self.assertEqual(s.property("view"), "list")
-        self.assertEqual({r.kind for r in s.page().rows}, {"header", "fact"})  # a fact shows its value on every row
-        fetching = s.page().rows[1]
+        self.assertEqual(s.menu.summary, "Opportunities")
+        self.assertEqual(s.menu.view, "list")
+        self.assertEqual({r.kind for r in s.menu.page().rows}, {"header", "fact"})  # a fact shows its value on every row
+        fetching = s.menu.page().rows[1]
         self.assertEqual((fetching.subtitle, fetching.badge, fetching.tone), ("started 2 min ago", "running", "positive"))
-        self.assertEqual(s.page().rows[5].tone, "danger")  # the failed source
-        self.assertIn(("Esc", "back"), [(h["button"], h["what"]) for h in s.property("hints")])
-        s.handle("back")
-        self.assertFalse(s.in_page())
-        self.assertEqual((s.current_row().title, s.state()["category"]), ("Home Assistant", "tab:Services"))
+        self.assertEqual(s.menu.page().rows[5].tone, "danger")  # the failed source
+        self.assertIn(("Esc", "back"), [(h["button"], h["what"]) for h in s.menu.hintList])
+        s.menu.handle("back")
+        self.assertFalse(s.menu.in_page())
+        self.assertEqual((s.menu.current_row().title, s.menu.state()["category"]), ("Home Assistant", "tab:Services"))
         self.assertIn("Syncthing", titles(s))
 
     def test_its_options_are_still_there(self):
         s = with_status_service()
-        s.handle("actions")
-        self.assertEqual(s.state()["panel"], "options")
-        self.assertEqual([r.title for r in s.options_model.rows], ["Stop", "Restart"])
+        s.menu.handle("actions")
+        self.assertEqual(s.menu.state()["panel"], "options")
+        self.assertEqual([r.title for r in s.menu.options_model.rows], ["Stop", "Restart"])
 
     def test_the_page_asks_again_while_it_is_open(self):
         s = with_status_service()
-        s.handle("activate")
-        self.assertTrue(s.page_timer.isActive())
+        s.menu.handle("activate")
+        self.assertTrue(s.menu.page_timer.isActive())
         s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": True, "document": {"title": "Opportunities", "sections": [
             {"title": "Running now", "rows": [{"title": "Idle"}]}]}}
-        s._menu_visible = True
-        s._refresh_page()
+        s.menu.window.visible = True
+        s.menu._refresh_page()
         self.assertEqual(titles(s), ["Running now", "Idle"])
-        s.handle("back")
-        self.assertFalse(s.page_timer.isActive())
+        s.menu.handle("back")
+        self.assertFalse(s.menu.page_timer.isActive())
 
     def test_a_service_that_does_not_answer_is_said_so(self):
         s = with_status_service()
         s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": False, "error": "does not answer"}
-        s.handle("activate")
-        row = s.page().rows[0]
+        s.menu.handle("activate")
+        row = s.menu.page().rows[0]
         self.assertEqual((row.title, row.subtitle, row.tone), ("Not answering", "does not answer", "warning"))
         s.api.reads["/v1/catalog/homeassistant/status"] = {"ok": True, "document": {"sections": []}}
-        s._menu_visible = True
-        s._refresh_page()
+        s.menu.window.visible = True
+        s.menu._refresh_page()
         self.assertEqual(titles(s), ["Nothing to report"])
 
     def test_leaving_the_tab_or_going_home_closes_it(self):
         s = with_status_service()
-        s.handle("activate")
-        s.handle("right")
-        self.assertFalse(s.in_page())
-        s.handle("left")
-        self.assertEqual((s.state()["category"], s.in_page(), "Syncthing" in titles(s)), ("tab:Services", False, True))
-        while s.current_row().title != "Home Assistant":
-            s.handle("down")
-        s.handle("activate")
-        self.assertTrue(s.in_page())
-        s.handle("home")
-        self.assertFalse(s.in_page())
-        self.assertEqual(s.state()["category"], APPS)
+        s.menu.handle("activate")
+        s.menu.handle("right")
+        self.assertFalse(s.menu.in_page())
+        s.menu.handle("left")
+        self.assertEqual((s.menu.state()["category"], s.menu.in_page(), "Syncthing" in titles(s)), ("tab:Services", False, True))
+        while s.menu.current_row().title != "Home Assistant":
+            s.menu.handle("down")
+        s.menu.handle("activate")
+        self.assertTrue(s.menu.in_page())
+        s.menu.handle("home")
+        self.assertFalse(s.menu.in_page())
+        self.assertEqual(s.menu.state()["category"], APPS)
 
     def test_a_service_with_no_status_opens_its_options_as_before(self):
         s = with_status_service()
-        s.handle("down")  # Syncthing: says nothing
-        self.assertEqual(s.current_row().title, "Syncthing")
-        s.handle("activate")
-        self.assertEqual((s.in_page(), s.state()["panel"]), (False, "options"))
+        s.menu.handle("down")  # Syncthing: says nothing
+        self.assertEqual(s.menu.current_row().title, "Syncthing")
+        s.menu.handle("activate")
+        self.assertEqual((s.menu.in_page(), s.menu.state()["panel"]), (False, "options"))
 
 
 class Moving(unittest.TestCase):
     def test_starts_on_the_first_item(self):
         s = shell()
-        self.assertEqual(s.state()["category"], APPS)
-        self.assertEqual(s.current_row().title, "Steam")
-        self.assertEqual(s.property("section"), "")  # Apps has no headers
-        self.assertEqual((s.offset()), (0, 0))
+        self.assertEqual(s.menu.state()["category"], APPS)
+        self.assertEqual(s.menu.current_row().title, "Steam")
+        self.assertEqual(s.menu.section, "")  # Apps has no headers
+        self.assertEqual((s.menu.offset()), (0, 0))
 
     def test_running_apps_folders_then_apps_once_each(self):
         s = shell()
         self.assertEqual(titles(s)[:5], ["Steam", "Chromium", "Games", "Services", "Kodi"])
         self.assertEqual(titles(s).count("Steam"), 1)
-        self.assertEqual([r.mark for r in s.page().rows[:3]], ["positive", "warning", ""])
+        self.assertEqual([r.mark for r in s.menu.page().rows[:3]], ["positive", "warning", ""])
 
     def test_down_stops_at_the_end(self):
         s = shell()
-        s.handle("down")
-        s.handle("down")
-        self.assertEqual(s.current_row().title, "Games")
-        self.assertEqual(s.offset(), (0, 2))
+        s.menu.handle("down")
+        s.menu.handle("down")
+        self.assertEqual(s.menu.current_row().title, "Games")
+        self.assertEqual(s.menu.offset(), (0, 2))
         for _ in range(30):
-            s.handle("down")
-        self.assertEqual(s.current_row().title, "VLC")
+            s.menu.handle("down")
+        self.assertEqual(s.menu.current_row().title, "VLC")
         for _ in range(30):
-            s.handle("up")
-        self.assertEqual(s.state()["current"], 0)
+            s.menu.handle("up")
+        self.assertEqual(s.menu.state()["current"], 0)
 
     def test_left_and_right_change_category_and_wrap(self):
         s = shell()
         for want in (USERS, SETTINGS, STATUS, APPS):
-            s.handle("right")
-            self.assertEqual(s.state()["category"], want)
-        s.handle("left")
-        self.assertEqual(s.state()["category"], STATUS)
+            s.menu.handle("right")
+            self.assertEqual(s.menu.state()["category"], want)
+        s.menu.handle("left")
+        self.assertEqual(s.menu.state()["category"], STATUS)
 
     def test_each_category_remembers_its_place(self):
         s = shell()
-        s.handle("down")
-        s.handle("right")
-        s.handle("left")
-        self.assertEqual(s.current_row().title, "Chromium")
+        s.menu.handle("down")
+        s.menu.handle("right")
+        s.menu.handle("left")
+        self.assertEqual(s.menu.current_row().title, "Chromium")
 
 
 class Choosing(unittest.TestCase):
     def test_choose_sends_its_call(self):
         s = shell()
-        s.handle("activate")
+        s.menu.handle("activate")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
 
     def test_options_panel(self):
         s = shell()
-        s.handle("actions")
-        self.assertEqual(s.state()["panel"], "options")
-        self.assertEqual([r.title for r in s.options_model.rows], ["Bring to front", "Close", "Big Picture", "Dota 2"])
-        s.handle("down")
-        s.handle("down")
-        s.handle("activate")  # Big Picture
-        self.assertEqual(s.state()["panel"], "")
+        s.menu.handle("actions")
+        self.assertEqual(s.menu.state()["panel"], "options")
+        self.assertEqual([r.title for r in s.menu.options_model.rows], ["Bring to front", "Close", "Big Picture", "Dota 2"])
+        s.menu.handle("down")
+        s.menu.handle("down")
+        s.menu.handle("activate")  # Big Picture
+        self.assertEqual(s.menu.state()["panel"], "")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/steam/open", {"action": "bigpicture"}))
 
     def test_options_close_with_back_and_left(self):
         s = shell()
         for verb in ("back", "left", "actions"):
-            s.handle("actions")
-            s.handle(verb)
-            self.assertEqual(s.state()["panel"], "", verb)
-            self.assertEqual(s.state()["category"], APPS, verb)
+            s.menu.handle("actions")
+            s.menu.handle(verb)
+            self.assertEqual(s.menu.state()["panel"], "", verb)
+            self.assertEqual(s.menu.state()["category"], APPS, verb)
 
     def test_question_defaults_to_no(self):
         s = shell()
-        s.handle("right")
-        s.handle("down")  # guest
-        s.handle("activate")
-        self.assertIn("guest", s.state()["question"])
-        self.assertFalse(s.state()["yes"])
-        s.handle("activate")  # No: nothing sent
+        s.menu.handle("right")
+        s.menu.handle("down")  # guest
+        s.menu.handle("activate")
+        self.assertIn("guest", s.menu.state()["question"])
+        self.assertFalse(s.menu.state()["yes"])
+        s.menu.handle("activate")  # No: nothing sent
         self.assertEqual(s.api.sent, [])
-        s.handle("activate")
-        s.handle("right")
-        s.handle("activate")  # Yes
+        s.menu.handle("activate")
+        s.menu.handle("right")
+        s.menu.handle("activate")  # Yes
         self.assertEqual(s.api.sent[-1][2], {"type": "seat.switch", "args": {"user": "guest"}})
 
     def test_volume_panel_changes_with_up_and_down(self):
         s = shell()
-        s.handle("right")
-        s.handle("right")
-        self.assertEqual(s.current_row().title, "Volume")
-        s.handle("activate")
-        self.assertEqual(s.state()["panel"], "level")
-        s.handle("up")
+        s.menu.handle("right")
+        s.menu.handle("right")
+        self.assertEqual(s.menu.current_row().title, "Volume")
+        s.menu.handle("activate")
+        self.assertEqual(s.menu.state()["panel"], "level")
+        s.menu.handle("up")
         self.assertEqual(s.api.sent[-1][2], {"type": "audio.volume.set", "args": {"percent": "+5"}})
-        s.handle("down")
+        s.menu.handle("down")
         self.assertEqual(s.api.sent[-1][2], {"type": "audio.volume.set", "args": {"percent": "-5"}})
-        s.handle("left")  # left closes the panel, it does not change category
-        self.assertEqual((s.state()["panel"], s.state()["category"]), ("", SETTINGS))
+        s.menu.handle("left")  # left closes the panel, it does not change category
+        self.assertEqual((s.menu.state()["panel"], s.menu.state()["category"]), ("", SETTINGS))
 
     def test_back_goes_to_apps_then_to_the_app(self):
         s = shell()
-        s.handle("right")
-        s.handle("back")
-        self.assertEqual(s.state()["category"], APPS)
-        s.handle("back")
+        s.menu.handle("right")
+        s.menu.handle("back")
+        self.assertEqual(s.menu.state()["category"], APPS)
+        s.menu.handle("back")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/windows/back", None))
 
     def test_close_only_on_running_apps(self):
         s = shell()
-        s.handle("close")
+        s.menu.handle("close")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/close", None))
-        s.handle("down")
-        s.handle("down")  # a catalog app: nothing to close
+        s.menu.handle("down")
+        s.menu.handle("down")  # a catalog app: nothing to close
         sent = len(s.api.sent)
-        s.handle("close")
+        s.menu.handle("close")
         self.assertEqual(len(s.api.sent), sent)
 
 
@@ -263,51 +264,51 @@ class Filtering(unittest.TestCase):
     def test_typing_filters_apps_and_back_clears(self):
         s = shell()
         for ch in "dol":
-            self.assertTrue(s.key("Key_" + ch.upper(), ch, False))
+            self.assertTrue(s.menu.key("Key_" + ch.upper(), ch, False))
         # Dolphin, and the games in its folder (the folder is searched too).
         self.assertEqual(titles(s), ["Dolphin", "Mario Kart Wii", "Super Mario Galaxy"])
-        self.assertTrue(s.key("Key_Backspace", "", False))
-        self.assertEqual(s.state()["filter"], "do")
-        s.handle("back")
-        self.assertEqual(s.state()["filter"], "")
+        self.assertTrue(s.menu.key("Key_Backspace", "", False))
+        self.assertEqual(s.menu.state()["filter"], "do")
+        s.menu.handle("back")
+        self.assertEqual(s.menu.state()["filter"], "")
         self.assertIn("Games", titles(s))
 
     def test_typing_elsewhere_is_ignored(self):
         s = shell()
-        s.handle("right")
-        self.assertFalse(s.key("Key_A", "a", False))
-        self.assertEqual(s.state()["filter"], "")
+        s.menu.handle("right")
+        self.assertFalse(s.menu.key("Key_A", "a", False))
+        self.assertEqual(s.menu.state()["filter"], "")
 
 
 class Hints(unittest.TestCase):
     def test_hints_name_only_what_the_row_does(self):
         s = shell()
-        what = lambda: [h["what"] for h in s._hints()]  # noqa: E731
+        what = lambda: [h["what"] for h in s.menu.hintList]  # noqa: E731
         self.assertEqual(what(), ["open", "options", "close"])  # Steam, running
-        s.handle("down")
-        s.handle("down")
+        s.menu.handle("down")
+        s.menu.handle("down")
         self.assertEqual(what(), ["open"])  # the Games folder
-        s.handle("activate")
+        s.menu.handle("activate")
         self.assertEqual(what(), ["open", "back"])  # a folder open: back goes up
-        s.handle("home")
-        s.handle("down")
-        s.handle("down")
-        s.handle("down")
-        s.handle("activate")  # Services
+        s.menu.handle("home")
+        s.menu.handle("down")
+        s.menu.handle("down")
+        s.menu.handle("down")
+        s.menu.handle("activate")  # Services
         self.assertEqual(what(), ["options", "back"])  # a service acts through its options
-        s.handle("right")
-        s.handle("down")
+        s.menu.handle("right")
+        s.menu.handle("down")
         self.assertEqual(what(), ["choose"])  # Users: guest
 
     def test_hints_follow_the_device(self):
         s = shell()
         s.on_event({"type": "display.nav", "data": {"what": "down"}})  # the menu is not in front: ignored
-        self.assertEqual(s.current_row().title, "Steam")
+        self.assertEqual(s.menu.current_row().title, "Steam")
         s.showMenu()
-        s.setMenuActive(True)
+        s.menu.setMenuActive(True)
         s.on_event({"type": "display.nav", "data": {"what": "down"}})
-        self.assertEqual(s.current_row().title, "Chromium")
-        self.assertEqual([h["button"] for h in s._hints()][:2], ["A", "Menu"])
+        self.assertEqual(s.menu.current_row().title, "Chromium")
+        self.assertEqual([h["button"] for h in s.menu.hintList][:2], ["A", "Menu"])
 
 
 def nav(s, what, family="xbox"):
@@ -323,59 +324,59 @@ class FolderNavigation(unittest.TestCase):
     def go_to_games(self):
         s = self.s
         for _ in range(40):
-            if s.current_row().kind == "folder":
+            if s.menu.current_row().kind == "folder":
                 break
-            s.handle("down")
-        self.assertEqual(s.current_row().title, "Games")
-        s.handle("activate")
+            s.menu.handle("down")
+        self.assertEqual(s.menu.current_row().title, "Games")
+        s.menu.handle("activate")
 
     def test_open_drill_in_and_back_out(self):
         s = self.s
         self.go_to_games()
-        self.assertEqual((list(s.property("folderPath")), s.property("section")), (["Games"], "Games"))
+        self.assertEqual((list(s.menu.folderPath), s.menu.section), (["Games"], "Games"))
         self.assertEqual(titles(s)[:2], ["Dolphin", "Steam"])
-        self.assertEqual(s.current_row().title, "Dolphin")
-        s.handle("activate")
+        self.assertEqual(s.menu.current_row().title, "Dolphin")
+        s.menu.handle("activate")
         self.assertEqual(titles(s)[:2], ["Wii", "Dolphin"])
-        s.handle("activate")  # Wii
-        self.assertEqual(s.property("section"), "Games / Dolphin / Wii")
-        self.assertEqual(s.current_row().title, "Mario Kart Wii")
-        s.handle("back")  # up to Games / Dolphin, on Wii
-        self.assertEqual((list(s.property("folderPath")), s.current_row().title), (["Games", "Dolphin"], "Wii"))
-        s.handle("back")
-        s.handle("back")
-        self.assertEqual((list(s.property("folderPath")), s.current_row().title), ([], "Games"))
+        s.menu.handle("activate")  # Wii
+        self.assertEqual(s.menu.section, "Games / Dolphin / Wii")
+        self.assertEqual(s.menu.current_row().title, "Mario Kart Wii")
+        s.menu.handle("back")  # up to Games / Dolphin, on Wii
+        self.assertEqual((list(s.menu.folderPath), s.menu.current_row().title), (["Games", "Dolphin"], "Wii"))
+        s.menu.handle("back")
+        s.menu.handle("back")
+        self.assertEqual((list(s.menu.folderPath), s.menu.current_row().title), ([], "Games"))
         self.assertEqual(s.api.sent, [])  # folders never asked hostd to do anything
 
     def test_choosing_an_app_in_a_folder_opens_it(self):
         s = self.s
         self.go_to_games()
-        s.handle("down")  # the Steam folder
-        s.handle("activate")
+        s.menu.handle("down")  # the Steam folder
+        s.menu.handle("activate")
         self.assertEqual(titles(s)[:2], ["Dota 2", "Steam Link"])
-        s.handle("down")
-        s.handle("activate")
+        s.menu.handle("down")
+        s.menu.handle("activate")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/steam-launcher/open", None))
 
     def test_leaving_apps_and_home_close_folders(self):
         s = self.s
         self.go_to_games()
-        s.handle("right")
-        s.handle("left")
-        self.assertEqual(list(s.property("folderPath")), [])
+        s.menu.handle("right")
+        s.menu.handle("left")
+        self.assertEqual(list(s.menu.folderPath), [])
         self.go_to_games()
-        s.handle("home")
-        self.assertEqual((list(s.property("folderPath")), s.property("category")), ([], 0))
+        s.menu.handle("home")
+        self.assertEqual((list(s.menu.folderPath), s.menu.category), ([], 0))
 
     def test_back_at_the_top_still_goes_back(self):
-        self.s.handle("back")
+        self.s.menu.handle("back")
         self.assertEqual(self.s.api.sent[-1], ("POST", "/v1/windows/back", None))
 
     def test_a_filter_searches_inside_folders(self):
         s = self.s
         for ch in "mario":
-            s.key("Key_" + ch.upper(), ch, False)
-        found = sorted(r.title for r in views.visible(s.all_rows[APPS], s._filter))
+            s.menu.key("Key_" + ch.upper(), ch, False)
+        found = sorted(r.title for r in views.visible(s.menu.nav.all_rows[APPS], s.menu.nav.filter))
         self.assertEqual(found, ["Mario Kart Wii", "Super Mario Galaxy"])
 
 
@@ -384,35 +385,35 @@ class Services(unittest.TestCase):
     options, never on one press."""
 
     def open_services(self, s):
-        while s.current_row().title != "Services":
-            s.handle("down")
-        s.handle("activate")
+        while s.menu.current_row().title != "Services":
+            s.menu.handle("down")
+        s.menu.handle("activate")
 
     def test_states_and_options(self):
         s = shell()
         self.open_services(s)
-        self.assertEqual([(r.title, r.badge) for r in s.page().rows if not r.under],
+        self.assertEqual([(r.title, r.badge) for r in s.menu.page().rows if not r.under],
                          [("Home Assistant", "running"), ("Syncthing", "stopped"), ("Pi-hole", "failed")])
-        s.handle("activate")  # opens the options: nothing sent
-        self.assertEqual((s.state()["panel"], s.api.sent), ("options", []))
-        self.assertEqual([r.title for r in s.options_model.rows], ["Stop", "Restart"])
-        s.handle("down")
-        s.handle("activate")
+        s.menu.handle("activate")  # opens the options: nothing sent
+        self.assertEqual((s.menu.state()["panel"], s.api.sent), ("options", []))
+        self.assertEqual([r.title for r in s.menu.options_model.rows], ["Stop", "Restart"])
+        s.menu.handle("down")
+        s.menu.handle("activate")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/homeassistant/restart", None))
 
     def test_delete_does_not_stop_a_service(self):
         s = shell()
         self.open_services(s)
-        s.handle("close")
+        s.menu.handle("close")
         self.assertEqual(s.api.sent, [])
 
     def test_a_failed_one_starts_again(self):
         s = shell()
         self.open_services(s)
-        s.handle("down")
-        s.handle("down")
-        s.handle("activate")
-        s.handle("activate")  # Start
+        s.menu.handle("down")
+        s.menu.handle("down")
+        s.menu.handle("activate")
+        s.menu.handle("activate")  # Start
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/apps/pihole/open", None))
 
 
@@ -421,91 +422,91 @@ class Tabs(unittest.TestCase):
 
     def test_the_marked_folders_are_tabs_after_apps(self):
         s = shell(fixtures.MENU)
-        self.assertEqual([c["name"] for c in s.property("categories")],
+        self.assertEqual([c["name"] for c in s.menu.categories],
                          ["Apps", "Games", "Services", "Users", "Settings", "Status"])
-        self.assertEqual(s.property("categories")[1]["icon"], "gamepad-2")
+        self.assertEqual(s.menu.categories[1]["icon"], "gamepad-2")
         self.assertEqual(titles(s)[:3], ["Steam", "Chromium", "Kodi"])  # Apps has no Games or Services folder
-        s.handle("right")
-        self.assertEqual((s.state()["category"], s.property("category")), ("tab:Games", 1))
+        s.menu.handle("right")
+        self.assertEqual((s.menu.state()["category"], s.menu.category), ("tab:Games", 1))
         # A tiles tab: every game in it, in groups each headed by its launcher.
-        self.assertEqual((s.property("view"), titles(s), s.property("section")),
+        self.assertEqual((s.menu.view, titles(s), s.menu.section),
                          ("tiles", ["Dolphin", "Mario Kart Wii", "Super Mario Galaxy", "Steam", "Dota 2",
                                     "Other games", "Steam Link"], ""))
-        self.assertEqual([r.kind for r in s.page().rows][:4], ["launcher", "item", "item", "launcher"])
-        s.handle("right")
+        self.assertEqual([r.kind for r in s.menu.page().rows][:4], ["launcher", "item", "item", "launcher"])
+        s.menu.handle("right")
         self.assertEqual(titles(s), ["Home Assistant", "Syncthing", "Pi-hole"])
 
     def test_back_stops_at_the_tab(self):
         s = shell('[[tab]]\nfolder = "Games"\n')  # a list tab: its folders open
-        s.handle("right")
-        s.handle("activate")  # Dolphin
-        self.assertEqual((s.property("section"), titles(s)), ("Games / Dolphin", ["Wii", "Dolphin"]))
-        s.handle("back")
-        self.assertEqual((s.state()["category"], s.current_row().title), ("tab:Games", "Dolphin"))
-        s.handle("back")  # at the tab's top: back to Apps, as from any category
-        self.assertEqual(s.state()["category"], APPS)
+        s.menu.handle("right")
+        s.menu.handle("activate")  # Dolphin
+        self.assertEqual((s.menu.section, titles(s)), ("Games / Dolphin", ["Wii", "Dolphin"]))
+        s.menu.handle("back")
+        self.assertEqual((s.menu.state()["category"], s.menu.current_row().title), ("tab:Games", "Dolphin"))
+        s.menu.handle("back")  # at the tab's top: back to Apps, as from any category
+        self.assertEqual(s.menu.state()["category"], APPS)
 
     def test_a_launcher_with_no_games_yet_still_heads_its_group(self):
         s = shell(fixtures.MENU)
         s.api.reads["/v1/apps"].append({"spec": {"id": "ppsspp", "name": "PPSSPP", "surface": "window",
                                                  "folder": "Games/PPSSPP", "launcher": True}})
         s.api.reads["/v1/apps"].append({"spec": {"id": "plain", "name": "Plain Game", "surface": "window", "folder": "Games"}})
-        s.refresh("tab:Games")
-        s.handle("right")
-        rows = s.page().rows
+        s.menu.refresh("tab:Games")
+        s.menu.handle("right")
+        rows = s.menu.page().rows
         self.assertEqual([(r.title, r.kind, r.value) for r in rows if r.title in ("PPSSPP", "Plain Game")],
                          [("PPSSPP", "launcher", "0 games"), ("Plain Game", "item", "")])
         self.assertLess(titles(s).index("PPSSPP"), titles(s).index("Other games"))  # a group, not among the others
 
     def test_moving_through_groups_and_opening_a_launcher(self):
         s = shell(fixtures.MENU)
-        s.handle("right")
-        self.assertEqual((s.current_row().title, s.property("focus")["subtitle"]), ("Dolphin", "2 games"))
-        s.handle("down")  # Mario Kart Wii: its banner and details on the right
-        focus = s.property("focus")
+        s.menu.handle("right")
+        self.assertEqual((s.menu.current_row().title, s.menu.focus["subtitle"]), ("Dolphin", "2 games"))
+        s.menu.handle("down")  # Mario Kart Wii: its banner and details on the right
+        focus = s.menu.focus
         self.assertEqual((focus["title"], focus["banner"], focus["details"], focus["launcher"]),
                          ("Mario Kart Wii", "file://" + fixtures.BANNER_A, "Last played 12 February 2026 · 3.1 GB", False))
-        self.assertEqual(s.offset(), (1, 0))  # the launcher above, as high as a header
+        self.assertEqual(s.menu.offset(), (1, 0))  # the launcher above, as high as a header
         for _ in range(4):
-            s.handle("down")  # over the Other games label, onto Steam Link
-        self.assertEqual((s.current_row().title, s.offset()), ("Steam Link", (3, 3)))
-        s.handle("up")
-        s.handle("up")  # Steam, the launcher
-        self.assertEqual(s.current_row().title, "Steam")
-        s.handle("activate")  # running: brought to the front
+            s.menu.handle("down")  # over the Other games label, onto Steam Link
+        self.assertEqual((s.menu.current_row().title, s.menu.offset()), ("Steam Link", (3, 3)))
+        s.menu.handle("up")
+        s.menu.handle("up")  # Steam, the launcher
+        self.assertEqual(s.menu.current_row().title, "Steam")
+        s.menu.handle("activate")  # running: brought to the front
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/switch", None))
-        self.assertEqual([h["what"] for h in s._hints()], ["open", "options", "close"])
+        self.assertEqual([h["what"] for h in s.menu.hintList], ["open", "options", "close"])
 
     def test_typing_in_a_tab_searches_every_app(self):
         s = shell(fixtures.MENU)
-        s.handle("right")
+        s.menu.handle("right")
         for ch in "kodi":
-            self.assertTrue(s.key("Key_" + ch.upper(), ch, False))
+            self.assertTrue(s.menu.key("Key_" + ch.upper(), ch, False))
         self.assertEqual(titles(s), ["Kodi"])
-        s.handle("right")  # leaving clears it
-        self.assertEqual((s.state()["filter"], s.state()["category"]), ("", "tab:Services"))
+        s.menu.handle("right")  # leaving clears it
+        self.assertEqual((s.menu.state()["filter"], s.menu.state()["category"]), ("", "tab:Services"))
 
     def test_changing_the_file_changes_the_tabs(self):
         s = shell(fixtures.MENU)
         changed = []
-        s.categoriesChanged.connect(lambda: changed.append(1))
-        s.handle("right")
-        s.handle("right")  # Services
-        with open(s.menu_path, "w") as f:
+        s.menu.categoriesChanged.connect(lambda: changed.append(1))
+        s.menu.handle("right")
+        s.menu.handle("right")  # Services
+        with open(s.menu.menu_path, "w") as f:
             f.write('[[tab]]\nfolder = "Games"\n')
-        os.utime(s.menu_path, ns=(1, 1))  # a change the clock cannot miss
-        s.reload_menu()
+        os.utime(s.menu.menu_path, ns=(1, 1))  # a change the clock cannot miss
+        s.menu.reload_menu()
         self.assertEqual(changed, [1])
-        self.assertEqual([c["name"] for c in s.property("categories")], ["Apps", "Games", "Users", "Settings", "Status"])
-        self.assertEqual(s.state()["category"], APPS)  # its tab went: back to Apps
-        self.assertEqual(s.property("categories")[1]["icon"], "folder")
+        self.assertEqual([c["name"] for c in s.menu.categories], ["Apps", "Games", "Users", "Settings", "Status"])
+        self.assertEqual(s.menu.state()["category"], APPS)  # its tab went: back to Apps
+        self.assertEqual(s.menu.categories[1]["icon"], "folder")
         self.assertIn("Services", titles(s))
-        with open(s.menu_path, "w") as f:
+        with open(s.menu.menu_path, "w") as f:
             f.write("[[tab]]\nfolder = 3\n")
-        os.utime(s.menu_path, ns=(2, 2))
-        s.reload_menu()
-        self.assertEqual(len(s.property("categories")), 4)
-        self.assertIn("menu.toml", s.property("message"))
+        os.utime(s.menu.menu_path, ns=(2, 2))
+        s.menu.reload_menu()
+        self.assertEqual(len(s.menu.categories), 4)
+        self.assertIn("menu.toml", s.menu.message)
 
 
 class Controllers(unittest.TestCase):
@@ -515,29 +516,29 @@ class Controllers(unittest.TestCase):
     def setUp(self):
         self.s = shell()
         self.s.showMenu()
-        self.s.setMenuActive(True)
+        self.s.menu.setMenuActive(True)
 
     def test_bumpers_change_category_and_triggers_page(self):
         s = self.s
         nav(s, "next_tab")
-        self.assertEqual(s.state()["category"], USERS)
+        self.assertEqual(s.menu.state()["category"], USERS)
         nav(s, "next_tab")
         nav(s, "prev_tab")
-        self.assertEqual(s.state()["category"], USERS)
+        self.assertEqual(s.menu.state()["category"], USERS)
         nav(s, "prev_tab")
-        self.assertEqual(s.state()["category"], APPS)
-        before = s.state()["current"]
+        self.assertEqual(s.menu.state()["category"], APPS)
+        before = s.menu.state()["current"]
         nav(s, "page_down")
-        self.assertGreater(s.state()["current"], before + 3)
+        self.assertGreater(s.menu.state()["current"], before + 3)
         nav(s, "page_up")
-        self.assertEqual(s.state()["current"], before)
+        self.assertEqual(s.menu.state()["current"], before)
 
     def test_close_and_actions(self):
         s = self.s
         nav(s, "close")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/steam/close", None))
         nav(s, "actions")
-        self.assertEqual(s.state()["panel"], "options")
+        self.assertEqual(s.menu.state()["panel"], "options")
 
     def test_home_goes_back_to_the_first_app(self):
         s = self.s
@@ -546,10 +547,10 @@ class Controllers(unittest.TestCase):
         nav(s, "next_tab")
         nav(s, "next_tab")
         nav(s, "home")
-        self.assertEqual((s.state()["category"], s.current_row().title, s.state()["filter"]), (APPS, "Steam", ""))
-        s.set_filter("dol")
+        self.assertEqual((s.menu.state()["category"], s.menu.current_row().title, s.menu.state()["filter"]), (APPS, "Steam", ""))
+        s.menu.set_filter("dol")
         nav(s, "home")
-        self.assertEqual((s.state()["filter"], s.current_row().title), ("", "Steam"))
+        self.assertEqual((s.menu.state()["filter"], s.menu.current_row().title), ("", "Steam"))
 
     def test_the_hints_follow_the_controller_in_hand(self):
         s = self.s
@@ -557,16 +558,16 @@ class Controllers(unittest.TestCase):
                 "nintendo": ["A", "+", "X"], "wii": ["A", "+", "2"], "generic": ["A", "Menu", "Y"]}
         for family, buttons in want.items():
             nav(s, "up", family)
-            self.assertEqual([h["button"] for h in s._hints()], buttons, family)
+            self.assertEqual([h["button"] for h in s.menu.hintList], buttons, family)
         nav(s, "up", "not-a-family")  # an unknown one falls back to the generic labels
-        self.assertEqual(s._hints()[0]["button"], "A")
+        self.assertEqual(s.menu.hintList[0]["button"], "A")
         nav(s, "up", None)  # as does a missing or odd one
-        self.assertEqual(s._hints()[0]["button"], "A")
+        self.assertEqual(s.menu.hintList[0]["button"], "A")
 
     def test_a_controller_does_nothing_while_the_menu_is_away(self):
         s = shell()
         nav(s, "next_tab")
-        self.assertEqual(s.state()["category"], APPS)
+        self.assertEqual(s.menu.state()["category"], APPS)
 
 
 WII1, WII2 = "057e:0306-hidraw3", "057e:0306-hidraw4"
@@ -584,19 +585,19 @@ class SeveralPointers(unittest.TestCase):
     def setUp(self):
         self.s = shell()
         self.s.showMenu()
-        self.s.setMenuActive(True)
-        self.s.devices = [
+        self.s.menu.setMenuActive(True)
+        self.s.pointers.core.devices = [
             {"id": "mouse-1", "kind": "pointer", "label": "Mouse", "colour": "blue", "pointer": True},
             {"id": WII1, "kind": "gamepad", "label": "Wii Remote 1", "colour": "orange", "pointer": True},
             {"id": WII2, "kind": "gamepad", "label": "Mia", "colour": "violet", "pointer": True}]
 
     def by_id(self):
-        return {p["id"]: p for p in self.s.property("pointers")}
+        return {p["id"]: p for p in self.s.pointers.pointers}
 
     def test_each_device_has_its_own_pointer(self):
         s = self.s
-        s.mouseAt(90, 90, 1000, 1000)
-        s.mouseAt(100, 100, 1000, 1000)
+        s.pointers.mouseAt(90, 90, 1000, 1000)
+        s.pointers.mouseAt(100, 100, 1000, 1000)
         point(s, WII1, 0.2, 0.3)
         point(s, WII2, 0.8, 0.6, down=True)
         p = self.by_id()
@@ -612,28 +613,29 @@ class SeveralPointers(unittest.TestCase):
 
     def test_the_mouse_fading_or_a_key_leaves_the_remotes_pointing(self):
         s = self.s
-        s.mouseAt(90, 90, 1000, 1000)
-        s.mouseAt(100, 100, 1000, 1000)
+        s.pointers.mouseAt(90, 90, 1000, 1000)
+        s.pointers.mouseAt(100, 100, 1000, 1000)
         point(s, WII1, 0.2, 0.3)
-        s.pointer_timer.timeout.emit()
+        s.pointers._fade.timeout.emit()
         self.assertEqual((self.by_id()["mouse"]["visible"], self.by_id()[WII1]["visible"]), (False, True))
-        s.mouseAt(110, 110, 1000, 1000)
-        s.key("Key_Down", "", False)
+        s.pointers.mouseAt(110, 110, 1000, 1000)
+        s.menu.key("Key_Down", "", False)
         self.assertEqual((self.by_id()["mouse"]["visible"], self.by_id()[WII1]["visible"]), (False, True))
-        self.assertFalse(s.pointer_timer.isActive())
+        self.assertFalse(s.pointers._fade.isActive())
 
     def test_colours_tell_them_apart_only_when_there_are_several(self):
         s = self.s
         point(s, WII1, 0.2, 0.3)
         self.assertEqual(self.by_id()[WII1]["colour"], "orange")
-        s.devices = [d for d in s.devices if d["id"] != WII2 and d["kind"] != "pointer"]  # alone: plain
-        s.pointerChanged.emit()
+        alone = [d for d in s.pointers.core.devices if d["id"] != WII2 and d["kind"] != "pointer"]  # alone: plain
+        s.pointers.core.devices = alone
+        s.pointers.pointerChanged.emit()
         self.assertEqual(self.by_id()[WII1]["colour"], "")
 
     def test_a_remote_button_going_down_clicks_once_where_it_points(self):
         s = self.s
         pressed = []
-        s.pointerPressed.connect(pressed.append)
+        s.pointers.pressed.connect(pressed.append)
         point(s, WII1, 0.2, 0.3)
         point(s, WII1, 0.2, 0.3, down=True)
         point(s, WII1, 0.21, 0.3, down=True)  # held and moved: not another click
@@ -651,30 +653,30 @@ class SeveralPointers(unittest.TestCase):
         s.on_event({"type": "display.nav", "data": {"what": "choose", "family": "wii", "device": WII1}})
         self.assertEqual(s.api.sent, [])  # the click comes from pointerPressed
         nav(s, "down", "wii")  # its other buttons still move the highlight
-        self.assertEqual(s.current_row().title, "Chromium")
+        self.assertEqual(s.menu.current_row().title, "Chromium")
 
     def test_hover_is_each_pointers_own_and_underlines_in_its_colour(self):
         s = self.s
-        s.mouseAt(90, 90, 1000, 1000)
-        s.mouseAt(100, 100, 1000, 1000)
-        s.hover(1)
+        s.pointers.mouseAt(90, 90, 1000, 1000)
+        s.pointers.mouseAt(100, 100, 1000, 1000)
+        s.pointers.hover(1)
         point(s, WII1, 0.2, 0.3)
-        s.pointerHover(WII1, 1)
+        s.pointers.pointerHover(WII1, 1)
         point(s, WII2, 0.2, 0.3)
-        s.pointerHover(WII2, 0)
-        self.assertEqual(sorted((h["row"], h["colour"]) for h in s.property("hovers")),
+        s.pointers.pointerHover(WII2, 0)
+        self.assertEqual(sorted((h["row"], h["colour"]) for h in s.pointers.hovers),
                          [(0, "violet"), (1, "blue"), (1, "orange")])
         point(s, WII1, 0, 0, visible=False)
-        self.assertEqual(sorted(h["row"] for h in s.property("hovers")), [0, 1])
-        s.mouseButton("right")  # the mouse's row, not a remote's
-        self.assertEqual(s.current_row().title, "Chromium")
+        self.assertEqual(sorted(h["row"] for h in s.pointers.hovers), [0, 1])
+        s.menu.mouseButton("right")  # the mouse's row, not a remote's
+        self.assertEqual(s.menu.current_row().title, "Chromium")
 
     def test_devices_come_from_hostd_and_follow_its_events(self):
         s = self.s
         s.api.reads["/v1/devices"] = [{"id": WII1, "kind": "gamepad", "label": "Dad", "colour": "teal", "pointer": True},
                                       {"id": WII2, "kind": "gamepad", "label": "Mia", "colour": "pink", "pointer": True}]
         s.on_event({"type": "device.changed", "data": {}})
-        self.assertEqual([d["label"] for d in s.property("deviceList")], ["Dad", "Mia"])
+        self.assertEqual([d["label"] for d in s.pointers.deviceList], ["Dad", "Mia"])
         point(s, WII1, 0.2, 0.3)  # a pointer event that carries no name: the device's
         self.assertEqual((self.by_id()[WII1]["name"], self.by_id()[WII1]["colour"]), ("Dad", "teal"))
         s.api.reads["/v1/devices"][0]["label"] = "Granddad"  # renamed: the pointer follows
@@ -682,7 +684,7 @@ class SeveralPointers(unittest.TestCase):
         self.assertEqual(self.by_id()[WII1]["name"], "Granddad")
         del s.api.reads["/v1/devices"]  # an older hostd
         s.on_event({"type": "device.disconnected", "data": {}})
-        self.assertEqual(s.property("deviceList"), [])
+        self.assertEqual(s.pointers.deviceList, [])
 
 
 class DevicesShown(unittest.TestCase):
@@ -690,42 +692,42 @@ class DevicesShown(unittest.TestCase):
 
     def test_the_strip_lists_pointing_and_playing_devices_from_two_up(self):
         s = shell()
-        self.assertEqual(s.property("strip"), [])  # no devices
-        s.devices = fixtures.DEVICES[:1]
-        self.assertEqual(s.property("strip"), [])  # one needs no telling apart
-        s.devices = fixtures.DEVICES
-        self.assertEqual([d["label"] for d in s.property("strip")], ["Mouse", "Wii Remote 1", "Mia"])  # not the keyboard
-        self.assertEqual([d["colour"] for d in s.property("strip")], ["blue", "orange", "violet"])
+        self.assertEqual(s.pointers.strip, [])  # no devices
+        s.pointers.core.devices = fixtures.DEVICES[:1]
+        self.assertEqual(s.pointers.strip, [])  # one needs no telling apart
+        s.pointers.core.devices = fixtures.DEVICES
+        self.assertEqual([d["label"] for d in s.pointers.strip], ["Mouse", "Wii Remote 1", "Mia"])  # not the keyboard
+        self.assertEqual([d["colour"] for d in s.pointers.strip], ["blue", "orange", "violet"])
 
     def test_hostd_being_unreachable_keeps_what_was_known(self):
         s = shell()
-        s.devices = fixtures.DEVICES
+        s.pointers.core.devices = fixtures.DEVICES
 
         def down(path):
             raise ConnectionRefusedError(path)
         s.api.get = down
-        s._load_devices()  # at start, or on an event while hostd restarts: no crash
-        self.assertEqual(len(s.property("deviceList")), 4)
+        s.menu.loader.refresh_watched({"/v1/devices"})  # at start, or on an event while hostd restarts: no crash
+        self.assertEqual(len(s.pointers.deviceList), 4)
 
     def test_the_one_in_use_is_marked(self):
         s = shell()
         s.showMenu()
-        s.setMenuActive(True)
-        s.devices = fixtures.DEVICES
-        s.mouseAt(10, 10, 100, 100)
-        s.mouseAt(20, 20, 100, 100)
+        s.menu.setMenuActive(True)
+        s.pointers.core.devices = fixtures.DEVICES
+        s.pointers.mouseAt(10, 10, 100, 100)
+        s.pointers.mouseAt(20, 20, 100, 100)
         point(s, WII2, 0.5, 0.5)
-        self.assertEqual({d["label"]: d["active"] for d in s.property("strip")},
+        self.assertEqual({d["label"]: d["active"] for d in s.pointers.strip},
                          {"Mouse": True, "Wii Remote 1": False, "Mia": True})
-        s.pointer_timer.timeout.emit()
+        s.pointers._fade.timeout.emit()
         point(s, WII2, 0, 0, visible=False)
-        self.assertEqual([d["active"] for d in s.property("strip")], [False, False, False])
+        self.assertEqual([d["active"] for d in s.pointers.strip], [False, False, False])
 
     def test_status_lists_the_devices_and_offers_their_colours(self):
         s = shell()
         s.api.reads["/v1/devices"] = fixtures.DEVICES
-        s.refresh(STATUS)
-        rows = {r.title: r for r in s.all_rows[STATUS]}
+        s.menu.refresh(STATUS)
+        rows = {r.title: r for r in s.menu.nav.all_rows[STATUS]}
         self.assertIn("Devices", rows)
         self.assertNotIn("Keyboard", rows)
         mia = rows["Mia"]
@@ -734,8 +736,8 @@ class DevicesShown(unittest.TestCase):
         self.assertEqual(orange.call.body, {"type": "device.colour", "args": {"id": WII2, "colour": "orange"}})
         self.assertEqual(next(r for r in mia.sheet if r.value == "now").title, "Violet")
         del s.api.reads["/v1/devices"]  # an older hostd: no group
-        s.refresh(STATUS)
-        self.assertNotIn("Devices", [r.title for r in s.all_rows[STATUS]])
+        s.menu.refresh(STATUS)
+        self.assertNotIn("Devices", [r.title for r in s.menu.nav.all_rows[STATUS]])
 
 
 class Calibrating(unittest.TestCase):
@@ -743,38 +745,38 @@ class Calibrating(unittest.TestCase):
 
     def setUp(self):
         self.s = shell()
-        self.s.devices = fixtures.DEVICES
+        self.s.pointers.core.devices = fixtures.DEVICES
 
     def event(self, **data):
         self.s.on_event({"type": "display.calibrate", "data": {"device": WII2, "name": "Mia", "colour": "violet", **data}})
 
     def test_the_corner_to_aim_at_shows_until_it_is_done(self):
         s = self.s
-        self.assertEqual(s.property("calibrating"), {})
+        self.assertEqual(s.pointers.calibrating, {})
         self.event(state="aim", step=2, corner="bottom left")
-        c = s.property("calibrating")
+        c = s.pointers.calibrating
         self.assertEqual((c["name"], c["step"], c["corner"], c["colour"]), ("Mia", 2, "bottom left", "violet"))
         self.event(state="aim", step=2, corner="bottom left", reason="the remote does not see the sensor bar")
-        self.assertIn("sensor bar", s.property("calibrating")["reason"])
+        self.assertIn("sensor bar", s.pointers.calibrating["reason"])
         self.event(state="done", calibration={"W": 4})
-        self.assertEqual(s.property("calibrating"), {})
-        self.assertEqual((s.property("message"), s.property("messageError")), ("Mia is calibrated", False))
+        self.assertEqual(s.pointers.calibrating, {})
+        self.assertEqual((s.menu.message, s.menu.messageError), ("Mia is calibrated", False))
 
     def test_cancelled_failed_and_reset(self):
         s = self.s
         self.event(state="aim", step=0, corner="top left")
         self.event(state="cancelled")
-        self.assertEqual(s.property("calibrating"), {})
+        self.assertEqual(s.pointers.calibrating, {})
         self.event(state="failed", reason="those four points are not a screen")
-        self.assertEqual((s.property("message"), s.property("messageError")), ("those four points are not a screen", True))
+        self.assertEqual((s.menu.message, s.menu.messageError), ("those four points are not a screen", True))
         self.event(state="reset")
-        self.assertEqual(s.property("message"), "Mia's calibration is cleared")
+        self.assertEqual(s.menu.message, "Mia's calibration is cleared")
 
     def test_status_offers_calibrating_a_remote_and_not_a_mouse(self):
         s = self.s
         s.api.reads["/v1/devices"] = fixtures.DEVICES
-        s.refresh(STATUS)
-        rows = {r.title: r for r in s.all_rows[STATUS]}
+        s.menu.refresh(STATUS)
+        rows = {r.title: r for r in s.menu.nav.all_rows[STATUS]}
         self.assertEqual([r.title for r in rows["Mia"].sheet][:2], ["Calibrate", "Reset calibration"])
         self.assertEqual(rows["Mia"].sheet[0].call.body, {"type": "device.calibrate", "args": {"id": WII2}})
         self.assertEqual(rows["Mia"].sheet[1].call.body["args"], {"id": WII2, "reset": True})
@@ -791,120 +793,120 @@ class Mouse(unittest.TestCase):
 
     def test_moving_shows_the_pointer_and_it_fades(self):
         s = self.s
-        self.assertFalse(s.property("pointer")["visible"])
-        s.mouseAt(900, 270, 1920, 1080)  # where it was when the menu opened: no pointer yet
-        self.assertFalse(s.property("pointer")["visible"])
-        s.mouseAt(901, 270, 1920, 1080)  # a hover with no movement
-        self.assertFalse(s.property("pointer")["visible"])
-        s.mouseAt(960, 270, 1920, 1080)
-        p = s.property("pointer")
+        self.assertFalse(s.pointers.pointer["visible"])
+        s.pointers.mouseAt(900, 270, 1920, 1080)  # where it was when the menu opened: no pointer yet
+        self.assertFalse(s.pointers.pointer["visible"])
+        s.pointers.mouseAt(901, 270, 1920, 1080)  # a hover with no movement
+        self.assertFalse(s.pointers.pointer["visible"])
+        s.pointers.mouseAt(960, 270, 1920, 1080)
+        p = s.pointers.pointer
         self.assertEqual((p["x"], p["y"], p["visible"], p["source"]), (0.5, 0.25, True, "mouse"))
-        self.assertTrue(s.pointer_timer.isActive())
-        s.pointer_timer.timeout.emit()  # three seconds without moving
-        self.assertFalse(s.property("pointer")["visible"])
+        self.assertTrue(s.pointers._fade.isActive())
+        s.pointers._fade.timeout.emit()  # three seconds without moving
+        self.assertFalse(s.pointers.pointer["visible"])
 
     def test_a_flood_of_moves_is_applied_once_per_frame_and_the_last_one_wins(self):
         s = self.s
-        s.mouse_ms = 50
-        s.mouseAt(0, 0, 1000, 1000)  # the first sample is where it already was
-        s.mouseAt(100, 100, 1000, 1000)  # applied at once
-        self.assertEqual(s.property("pointer")["x"], 0.1)
+        s.pointers.mouse_ms = 50
+        s.pointers.mouseAt(0, 0, 1000, 1000)  # the first sample is where it already was
+        s.pointers.mouseAt(100, 100, 1000, 1000)  # applied at once
+        self.assertEqual(s.pointers.pointer["x"], 0.1)
         for x in range(110, 200, 10):  # a thousand a second: the rest wait their turn
-            s.mouseAt(x, 100, 1000, 1000)
-        self.assertEqual(s.property("pointer")["x"], 0.1)
-        self.assertTrue(s.mouse_timer.isActive())
-        s.mouse_timer.timeout.emit()
-        self.assertEqual(s.property("pointer")["x"], 0.19)  # where it ended up, not where it was
+            s.pointers.mouseAt(x, 100, 1000, 1000)
+        self.assertEqual(s.pointers.pointer["x"], 0.1)
+        self.assertTrue(s.pointers._mouse_timer.isActive())
+        s.pointers._mouse_timer.timeout.emit()
+        self.assertEqual(s.pointers.pointer["x"], 0.19)  # where it ended up, not where it was
 
     def test_moving_changes_neither_the_hover_lists_nor_the_strip(self):
         s = self.s
         told = []
-        s.hoversChanged.connect(lambda: told.append("hovers"))
-        s.stripChanged.connect(lambda: told.append("strip"))
-        s.mouseAt(0, 0, 1000, 1000)
+        s.pointers.hoversChanged.connect(lambda: told.append("hovers"))
+        s.pointers.stripChanged.connect(lambda: told.append("strip"))
+        s.pointers.mouseAt(0, 0, 1000, 1000)
         for x in range(100, 140, 10):
-            s.mouseAt(x, 100, 1000, 1000)
+            s.pointers.mouseAt(x, 100, 1000, 1000)
         self.assertEqual(told, [])  # nothing under it, no devices: rows and strip are not rebuilt
-        s.hover(1)
+        s.pointers.hover(1)
         self.assertEqual(told, ["hovers"])
-        s.mouseAt(500, 100, 1000, 1000)
+        s.pointers.mouseAt(500, 100, 1000, 1000)
         self.assertEqual(told, ["hovers"])  # moved over the same row
 
     def test_keys_and_pads_put_it_away_and_a_wii_remote_does_not(self):
         s = self.s
         s.showMenu()
-        s.setMenuActive(True)
-        s.mouseAt(90, 90, 1000, 1000)
-        s.mouseAt(100, 100, 1000, 1000)
-        self.assertTrue(s.property("pointer")["visible"])
-        s.key("Key_Down", "", False)
-        self.assertFalse(s.property("pointer")["visible"])
-        s.mouseAt(110, 110, 1000, 1000)
+        s.menu.setMenuActive(True)
+        s.pointers.mouseAt(90, 90, 1000, 1000)
+        s.pointers.mouseAt(100, 100, 1000, 1000)
+        self.assertTrue(s.pointers.pointer["visible"])
+        s.menu.key("Key_Down", "", False)
+        self.assertFalse(s.pointers.pointer["visible"])
+        s.pointers.mouseAt(110, 110, 1000, 1000)
         s.on_event({"type": "display.nav", "data": {"what": "down", "family": "xbox"}})
-        self.assertFalse(s.property("pointer")["visible"])
+        self.assertFalse(s.pointers.pointer["visible"])
         s.on_event({"type": "display.pointer", "data": {"x": 0.25, "y": 0.5, "visible": True, "down": False, "family": "wii"}})
         s.on_event({"type": "display.nav", "data": {"what": "choose", "family": "wii"}})
-        p = s.property("pointer")
+        p = s.pointers.pointer
         self.assertEqual((p["x"], p["y"], p["visible"], p["source"]), (0.25, 0.5, True, "wii"))
-        self.assertFalse(s.pointer_timer.isActive())  # a Wii pointer shows while it points at the screen
+        self.assertFalse(s.pointers._fade.isActive())  # a Wii pointer shows while it points at the screen
         s.on_event({"type": "display.pointer", "data": {"x": 2, "y": -1, "visible": False, "family": "wii"}})
-        self.assertEqual((s.property("pointer")["visible"], s.property("pointer")["x"]), (False, 1.0))
+        self.assertEqual((s.pointers.pointer["visible"], s.pointers.pointer["x"]), (False, 1.0))
         s.on_event({"type": "display.pointer", "data": {"x": "no"}})  # junk is ignored
 
     def test_a_pointer_event_while_the_menu_is_away_is_ignored(self):
         s = self.s
         s.on_event({"type": "display.pointer", "data": {"x": 0.5, "y": 0.5, "visible": True}})
-        self.assertFalse(s.property("pointer")["visible"])
+        self.assertFalse(s.pointers.pointer["visible"])
 
     def test_the_button_down_fills_it(self):
         s = self.s
-        s.mouseAt(10, 10, 100, 100)
-        s.mouseAt(20, 20, 100, 100)
-        s.mouseDown(True)
-        self.assertTrue(s.property("pointer")["down"])
-        s.mouseDown(False)
-        self.assertFalse(s.property("pointer")["down"])
+        s.pointers.mouseAt(10, 10, 100, 100)
+        s.pointers.mouseAt(20, 20, 100, 100)
+        s.pointers.mouseDown(True)
+        self.assertTrue(s.pointers.pointer["down"])
+        s.pointers.mouseDown(False)
+        self.assertFalse(s.pointers.pointer["down"])
 
     def test_clicking_a_row_makes_it_current_and_opens_it(self):
         s = self.s
-        s.hover(1)  # hovering moves nothing
-        self.assertEqual(s.current_row().title, "Steam")
-        s.clickItem(1, "left")
-        self.assertEqual(s.current_row().title, "Chromium")
+        s.pointers.hover(1)  # hovering moves nothing
+        self.assertEqual(s.menu.current_row().title, "Steam")
+        s.menu.clickItem(1, "left")
+        self.assertEqual(s.menu.current_row().title, "Chromium")
         self.assertEqual(s.api.sent[-1], ("POST", "/v1/instances/chromium/switch", None))
 
     def test_a_right_click_opens_the_options_of_the_row_under_the_pointer(self):
         s = self.s
-        s.hover(1)
-        s.mouseButton("right")
-        self.assertEqual((s.state()["panel"], s.current_row().title), ("options", "Chromium"))
-        s.mouseButton("back")
-        self.assertEqual(s.state()["panel"], "")
-        s.hover(-1)
-        s.mouseButton("right")  # over no row: the current one's options
-        self.assertEqual((s.state()["panel"], s.current_row().title), ("options", "Chromium"))
+        s.pointers.hover(1)
+        s.menu.mouseButton("right")
+        self.assertEqual((s.menu.state()["panel"], s.menu.current_row().title), ("options", "Chromium"))
+        s.menu.mouseButton("back")
+        self.assertEqual(s.menu.state()["panel"], "")
+        s.pointers.hover(-1)
+        s.menu.mouseButton("right")  # over no row: the current one's options
+        self.assertEqual((s.menu.state()["panel"], s.menu.current_row().title), ("options", "Chromium"))
 
     def test_clicks_on_headers_and_during_a_panel_do_nothing(self):
         s = self.s
-        s.clickItem(99, "left")
-        s.handle("actions")
+        s.menu.clickItem(99, "left")
+        s.menu.handle("actions")
         sent = len(s.api.sent)
-        s.clickItem(2, "left")
-        self.assertEqual((len(s.api.sent), s.state()["panel"]), (sent, "options"))
+        s.menu.clickItem(2, "left")
+        self.assertEqual((len(s.api.sent), s.menu.state()["panel"]), (sent, "options"))
 
     def test_the_other_buttons(self):
         s = self.s
-        s.mouseButton("forward")
-        self.assertEqual(s.state()["category"], USERS)
-        s.mouseButton("middle")
-        self.assertEqual(s.state()["category"], APPS)
+        s.menu.mouseButton("forward")
+        self.assertEqual(s.menu.state()["category"], USERS)
+        s.menu.mouseButton("middle")
+        self.assertEqual(s.menu.state()["category"], APPS)
 
     def test_the_wheel(self):
         s = self.s
-        s.wheel(0, -120)
-        self.assertEqual(s.current_row().title, "Chromium")
-        s.wheel(-120, 0)
-        self.assertEqual(s.state()["category"], USERS)
+        s.menu.wheel(0, -120)
+        self.assertEqual(s.menu.current_row().title, "Chromium")
+        s.menu.wheel(-120, 0)
+        self.assertEqual(s.menu.state()["category"], USERS)
 
 
 class MenuWindow(unittest.TestCase):
@@ -913,10 +915,10 @@ class MenuWindow(unittest.TestCase):
         closed = []
         s.menuClosed.connect(lambda: closed.append(True))
         s.showMenu()
-        self.assertTrue(s.property("menuVisible"))
-        s.handle("actions")
+        self.assertTrue(s.menu.visible)
+        s.menu.handle("actions")
         s.hideMenu()
-        self.assertEqual((s.property("menuVisible"), closed, s.state()["panel"]), (False, [True], ""))
+        self.assertEqual((s.menu.visible, closed, s.menu.state()["panel"]), (False, [True], ""))
 
 
 def contrast(a, b):
@@ -961,20 +963,20 @@ class Readability(unittest.TestCase):
 class Models(unittest.TestCase):
     def test_same_rows_update_in_place(self):
         s = shell()
-        model = s.pages[APPS]
+        model = s.menu.pages[APPS]
         resets = []
         model.modelReset.connect(lambda: resets.append(1))
-        s.refresh(APPS)
+        s.menu.refresh(APPS)
         self.assertEqual(resets, [])  # same items: data changed, no reset
         s.api.reads["/v1/instances?all=true"] = []
-        s.refresh(APPS)
+        s.menu.refresh(APPS)
         self.assertEqual(resets, [1])
-        self.assertEqual(s.current_row().title, "Steam")  # the same app, no longer first
+        self.assertEqual(s.menu.current_row().title, "Steam")  # the same app, no longer first
         self.assertEqual(titles(s)[:2], ["Games", "Services"])
 
     def test_roles(self):
         s = shell()
-        model = s.pages[APPS]
+        model = s.menu.pages[APPS]
         names = {bytes(v).decode(): k for k, v in model.roleNames().items()}
         steam = model.index(0)
         self.assertEqual(model.data(steam, names["title"]), "Steam")

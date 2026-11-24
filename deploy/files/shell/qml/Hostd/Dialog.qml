@@ -1,12 +1,12 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // A question across the middle of the screen, answered No or Yes; No is
 // chosen first.
 Rectangle {
     id: dialog
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Menu menu
     objectName: "band"
 
     width: parent.width
@@ -14,7 +14,7 @@ Rectangle {
     anchors.verticalCenter: parent.verticalCenter
     color: Theme.colorSurface
     visible: opacity > 0
-    opacity: dialog.shell.question !== "" ? 1 : 0
+    opacity: dialog.menu.question !== "" ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
 
     Rectangle { width: parent.width; height: Theme.lineHair; color: Theme.colorBorder }
@@ -28,7 +28,7 @@ Rectangle {
         Txt {
             anchors.horizontalCenter: parent.horizontalCenter
             role: "title"
-            text: dialog.shell.question
+            text: dialog.menu.question
         }
 
         Row {
@@ -37,14 +37,14 @@ Rectangle {
 
             Button {
                 text: "No"
-                current: !dialog.shell.answerYes
-                onClicked: dialog.shell.dismiss()
+                current: !dialog.menu.answerYes
+                onClicked: dialog.menu.dismiss()
             }
 
             Button {
                 text: "Yes"
-                current: dialog.shell.answerYes
-                onClicked: { dialog.shell.handle("right"); dialog.shell.handle("activate") }
+                current: dialog.menu.answerYes
+                onClicked: dialog.menu.answer(true)
             }
         }
     }

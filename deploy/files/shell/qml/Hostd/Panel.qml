@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 
 // The options panel, at the right edge (the PSP's triangle menu): the
 // current item's options, or a level (the volume) changed with up and
@@ -7,10 +8,10 @@ import QtQuick
 Rectangle {
     id: panel
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Menu menu
+    required property Core.Pointers pointers
 
-    readonly property bool open: panel.shell.panel !== ""
+    readonly property bool open: panel.menu.panel !== ""
     readonly property int inset: Theme.spaceXxl
 
     objectName: "panel"
@@ -35,21 +36,21 @@ Rectangle {
         role: "label"
         caps: true
         muted: true
-        text: panel.shell.panelTitle
+        text: panel.menu.panelTitle
     }
 
     ListView {
         id: options
         objectName: "panelList"
-        visible: panel.shell.panel === "options"
+        visible: panel.menu.panel === "options"
         x: panel.inset
         y: Place.listTop
         width: parent.width - 2 * panel.inset
         height: parent.height - Place.listTop - Place.bottomReserve
         clip: true
         interactive: false
-        model: panel.shell.options
-        currentIndex: panel.shell.option
+        model: panel.menu.options
+        currentIndex: panel.menu.option
         highlightMoveDuration: Theme.motionBase
         highlightMoveVelocity: -1
 
@@ -64,12 +65,12 @@ Rectangle {
             required app
 
             width: options.width
-            pointing: panel.shell.pointer.visible
-            onActivated: panel.shell.clickOption(option.index)
+            pointing: panel.pointers.pointer.visible
+            onActivated: panel.menu.clickOption(option.index)
             column: Theme.layoutIconItem
             tag: "option"
             compact: true
-            current: index === panel.shell.option
+            current: index === panel.menu.option
             opacity: current ? 1 : 0.55
             Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
         }
@@ -79,7 +80,7 @@ Rectangle {
     Column {
         id: levelColumn
         objectName: "panelLevel"
-        visible: panel.shell.panel === "level"
+        visible: panel.menu.panel === "level"
         x: panel.inset
         y: Place.listTop
         height: panel.height - Place.listTop - Place.bottomReserve
@@ -88,12 +89,12 @@ Rectangle {
         Txt {
             id: levelValue
             role: "display"
-            text: panel.shell.levelValue
+            text: panel.menu.levelValue
         }
 
         Level {
             vertical: true
-            value: panel.shell.levelLevel
+            value: panel.menu.levelLevel
             maximum: 150
             height: levelColumn.height - levelValue.height - levelColumn.spacing
         }

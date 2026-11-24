@@ -40,13 +40,12 @@ def scale_for(height):
 
 
 def engine_for(app, shell):
-    """A QML engine with the Hostd module and the icons. Every surface is
-    given the shell as its `shell` property (no context properties: the
-    QML stays typed and lintable)."""
+    """A QML engine with the Hostd module and the icons. Each surface is
+    given what it draws from as properties (see initial_properties): no
+    context properties, so the QML stays typed and lintable."""
     engine = QQmlApplicationEngine()
     engine.addImportPath(QML)
     engine.addImageProvider("icons", IconProvider())
-    engine.setInitialProperties({"shell": shell})
     engine.warnings.connect(lambda ws: [print("hostd-shell: qml:", w.toString(), file=sys.stderr) for w in ws])
     theme = engine.singletonInstance("Hostd", "Theme")
     screen = app.primaryScreen()
@@ -55,7 +54,14 @@ def engine_for(app, shell):
     return engine
 
 
-def load(engine, name):
+def initial_properties(name, shell):
+    """What a surface draws from."""
+    return {"Menu": {"shell": shell}, "Background": {"look": shell.backdrop}, "OsdLayer": {"display": shell.osd},
+            "NoticeLayer": {"queue": shell.notices}, "Gallery": {"look": shell.backdrop}}[name]
+
+
+def load(engine, name, shell):
+    engine.setInitialProperties(initial_properties(name, shell))
     engine.load(QUrl.fromLocalFile(os.path.join(QML, "Hostd", name + ".qml")))
     return bool(engine.rootObjects())
 
@@ -90,7 +96,7 @@ def run(argv):
               "sudo hostd-admin add shell, or sudo hostd-admin prepare", file=sys.stderr)
         return EX_CONFIG
     for name in surfaces:
-        if not load(engine, name):
+        if not load(engine, name, shell):
             print(f"hostd-shell: cannot load {name}.qml", file=sys.stderr)
             return 1
     shell.start()

@@ -1,22 +1,23 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // The menu: a full-screen window over the apps (its app_id is hostd-menu,
 // so hostd knows it). Shown while the shell says so; keys, clicks and the
 // wheel go to the shell, which decides what they do.
 Window {
-    id: menu
+    id: window
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    // The app's shell: the menu's state, the pointers, and the rest.
+    required property Core.Shell shell
 
     title: "hostd"
     color: Theme.colorBg
-    visibility: !menu.shell.menuVisible ? Window.Hidden : menu.shell.windowed ? Window.Windowed : Window.FullScreen
-    onActiveChanged: menu.shell.setMenuActive(active)
-    onClosing: (close) => { close.accepted = false; menu.shell.hideMenu() }
+    visibility: !window.shell.menu.visible ? Window.Hidden : window.shell.menu.windowed ? Window.Windowed : Window.FullScreen
+    onActiveChanged: window.shell.menu.setMenuActive(active)
+    onClosing: (close) => { close.accepted = false; window.shell.menu.hideMenu() }
 
     Backdrop {
-        shell: menu.shell
+        look: window.shell.backdrop
         anchors.fill: parent
     }
 
@@ -26,16 +27,18 @@ Window {
         focus: true
 
         Keys.onPressed: (event) => {
-            event.accepted = menu.shell.keyCode(event.key, event.text, (event.modifiers & Qt.ShiftModifier) !== 0)
+            event.accepted = window.shell.menu.keyCode(event.key, event.text, (event.modifiers & Qt.ShiftModifier) !== 0)
         }
 
         Cross {
-            shell: menu.shell
+            menu: window.shell.menu
+            pointers: window.shell.pointers
             anchors.fill: parent
         }
 
         DeviceStrip {
-            shell: menu.shell
+            pointers: window.shell.pointers
+            menu: window.shell.menu
             x: Theme.layoutSafeMargin
             y: Theme.layoutSafeMargin
         }
@@ -46,10 +49,10 @@ Window {
             x: Theme.layoutSafeMargin
             y: Theme.layoutSafeMargin
             spacing: Theme.spaceM
-            visible: menu.shell.filter !== ""
+            visible: window.shell.menu.filter !== ""
 
             Txt { role: "label"; caps: true; muted: true; text: "Filter"; anchors.baseline: typed.baseline }
-            Txt { id: typed; role: "title"; text: menu.shell.filter }
+            Txt { id: typed; role: "title"; text: window.shell.menu.filter }
             Rectangle {
                 width: Theme.lineFocus
                 height: typed.height
@@ -63,7 +66,8 @@ Window {
         }
 
         Clock {
-            shell: menu.shell
+            ticker: window.shell.clock
+            menu: window.shell.menu
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: Theme.layoutSafeMargin
@@ -75,15 +79,15 @@ Window {
             anchors.bottom: parent.bottom
             anchors.margins: Theme.layoutSafeMargin
             role: "label"
-            text: menu.shell.message
-            color: menu.shell.messageError ? Theme.colorDanger : Theme.colorTextMuted
+            text: window.shell.menu.message
+            color: window.shell.menu.messageError ? Theme.colorDanger : Theme.colorTextMuted
         }
 
         // Over the menu: a dimmed screen under the panel and the question.
         Rectangle {
             anchors.fill: parent
             color: Theme.colorBg
-            opacity: menu.shell.panel !== "" || menu.shell.question !== "" ? 0.6 : 0
+            opacity: window.shell.menu.panel !== "" || window.shell.menu.question !== "" ? 0.6 : 0
             visible: opacity > 0
             Behavior on opacity { NumberAnimation { duration: Theme.motionBase } }
 
@@ -91,27 +95,27 @@ Window {
                 anchors.fill: parent
                 enabled: parent.visible
                 cursorShape: Qt.BlankCursor
-                onClicked: menu.shell.dismiss()
+                onClicked: window.shell.menu.dismiss()
             }
         }
 
-        Panel { shell: menu.shell }
+        Panel { menu: window.shell.menu; pointers: window.shell.pointers }
 
-        Dialog { shell: menu.shell }
+        Dialog { menu: window.shell.menu }
 
         Hints {
-            shell: menu.shell
+            menu: window.shell.menu
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: Theme.layoutSafeMargin
         }
 
-        Calibrate { shell: menu.shell; anchors.fill: parent }
+        Calibrate { pointers: window.shell.pointers; anchors.fill: parent }
 
         // The pointers: the mouse's, and one for each Wii Remote (hostd's
         // display.pointer); a remote's finds the row it is over and clicks it.
-        PointerHits { shell: menu.shell; scene: scene }
-        Pointers { shell: menu.shell; anchors.fill: parent; z: 1000 }
+        PointerHits { pointers: window.shell.pointers; menu: window.shell.menu; scene: scene }
+        Pointers { source: window.shell.pointers; anchors.fill: parent; z: 1000 }
 
         // The mouse, over everything but taking nothing: where it is, the wheel,
         // and the buttons that are on no row (the rows have their own).
@@ -119,20 +123,20 @@ Window {
             objectName: "pointerTracker"
             cursorShape: Qt.BlankCursor
             // Only a mouse that is over the window: with none, Qt still reports (0, 0).
-            onPointChanged: if (hovered) menu.shell.mouseAt(point.position.x, point.position.y, menu.width, menu.height)
+            onPointChanged: if (hovered) window.shell.pointers.mouseAt(point.position.x, point.position.y, window.width, window.height)
         }
         WheelHandler {
-            onWheel: (event) => menu.shell.wheel(event.angleDelta.x, event.angleDelta.y)
+            onWheel: (event) => window.shell.menu.wheel(event.angleDelta.x, event.angleDelta.y)
         }
         TapHandler {
             acceptedButtons: Qt.RightButton | Qt.MiddleButton | Qt.BackButton | Qt.ForwardButton
-            onTapped: (point, button) => menu.shell.mouseButton(
+            onTapped: (point, button) => window.shell.menu.mouseButton(
                 button === Qt.RightButton ? "right" : button === Qt.MiddleButton ? "middle"
                 : button === Qt.BackButton ? "back" : "forward")
         }
         TapHandler {
             acceptedButtons: Qt.LeftButton
-            onPressedChanged: menu.shell.mouseDown(pressed)
+            onPressedChanged: window.shell.pointers.mouseDown(pressed)
         }
     }
 }

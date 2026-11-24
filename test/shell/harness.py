@@ -23,7 +23,7 @@ SHELL = os.path.join(REPO, "deploy", "files", "shell")
 sys.path.insert(0, SHELL)
 sys.path.insert(0, HERE)
 
-from PySide6.QtCore import QCoreApplication, QEvent, QRectF, QUrl  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QRectF  # noqa: E402
 from PySide6.QtGui import QFont, QGuiApplication  # noqa: E402
 
 import fixtures  # noqa: E402
@@ -53,8 +53,8 @@ class Screen:
                 f.write(fixtures.MENU)
         self.api = fixtures.FakeAPI(reads)
         self.shell = Shell(self.api, TOKENS, now=lambda: fixtures.NOW, look_path=look_path, menu_path=menu_path)
-        self.shell.fullscreen = False
-        self.shell.mouse_ms = 0  # the tests' moves are applied at once
+        self.shell.menu.fullscreen = False
+        self.shell.pointers.mouse_ms = 0  # the tests' moves are applied at once
         self.warnings = []
         self.engine = shellapp.engine_for(APP, self.shell)
         self.engine.warnings.connect(lambda ws: self.warnings.extend(w.toString() for w in ws))
@@ -62,9 +62,9 @@ class Screen:
         theme.setProperty("scale", shellapp.scale_for(size[1]))
         theme.setProperty("screenWidth", size[0])
         theme.setProperty("animate", 0)
-        for c in self.shell.cats:
-            self.shell.refresh(c.key)
-        self.engine.load(QUrl.fromLocalFile(os.path.join(shellapp.QML, "Hostd", surface + ".qml")))
+        for c in self.shell.menu.nav.cats:
+            self.shell.menu.refresh(c.key)
+        shellapp.load(self.engine, surface, self.shell)
         roots = self.engine.rootObjects()
         if not roots:
             raise RuntimeError(f"{surface}.qml did not load: {self.warnings}")
@@ -116,11 +116,11 @@ class Screen:
 
     def verb(self, *verbs):
         for v in verbs:
-            self.shell.handle(v)
+            self.shell.menu.handle(v)
             self.settle()
 
     def key(self, name, text=""):
-        took = self.shell.key(name, text, False)
+        took = self.shell.menu.key(name, text, False)
         self.settle()
         return took
 

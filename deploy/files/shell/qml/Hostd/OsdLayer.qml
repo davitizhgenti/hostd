@@ -1,17 +1,17 @@
 import QtQuick
+import Hostd.Shell as Core
 import org.kde.layershell 1.0 as LayerShell
 
 // The OSD at the bottom centre: the volume as it changes, whose screen it is.
 Window {
     id: osdLayer
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Osd display
     width: Theme.layoutOsdWidth
     height: Math.max(1, osd.implicitHeight + Theme.layoutSafeMargin * 2)
     color: "transparent"
     flags: Qt.WindowTransparentForInput
-    visible: osdLayer.shell.osd.visible
+    visible: osdLayer.display.visible
 
     // org.kde.layershell ships no type information: qmllint cannot check these.
     // qmllint disable unresolved-type unqualified missing-property
@@ -25,8 +25,8 @@ Window {
     Osd {
         id: osd
         width: parent.width
-        name: osdLayer.shell.osd.name
-        value: osdLayer.shell.osd.value
-        level: osdLayer.shell.osd.level
+        name: osdLayer.display.name
+        value: osdLayer.display.value
+        level: osdLayer.display.level
     }
 }

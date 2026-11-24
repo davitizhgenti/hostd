@@ -1,13 +1,13 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 
 // The component sheet: every token and control in its states, on one
 // screen. `hostd-shell --gallery` shows it; the design review starts here.
 Window {
     id: gallery
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Backdrop look
 
     title: "hostd components"
     color: Theme.colorBg
@@ -19,7 +19,7 @@ Window {
                                       "play", "arrow-up-right", "x", "user", "info", "volume-2", "volume-x",
                                       "speaker", "monitor", "power", "palette", "image", "history", "memory-stick"]
 
-    Backdrop { anchors.fill: parent; shell: gallery.shell }
+    Backdrop { anchors.fill: parent; look: gallery.look }
 
     Row {
         anchors.fill: parent

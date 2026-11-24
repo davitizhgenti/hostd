@@ -306,6 +306,13 @@ class Menu(QObject):
     def clickOption(self, i):  # noqa: N802
         self._run(self.nav.click_option(i))
 
+    @Slot(bool)
+    def answer(self, yes):
+        """The question is answered: yes or no."""
+        if isinstance(self.nav.overlay, nav.Question):
+            self.handle(inp.RIGHT if yes else inp.LEFT)
+            self.handle(inp.ACTIVATE)
+
     @Slot()
     def dismiss(self):
         """A click outside a panel or question."""

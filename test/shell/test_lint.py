@@ -20,7 +20,8 @@ def typed_imports():
     """A QML import path that knows the shell's Python objects (module
     Hostd.Shell): their type information, made from their source."""
     root = tempfile.mkdtemp()
-    sources = sorted(glob.glob(os.path.join(SHELL, "hostd_shell", "ui", "*.py")))
+    package = os.path.join(SHELL, "hostd_shell")
+    sources = sorted([*glob.glob(os.path.join(package, "ui", "*.py")), os.path.join(package, "shell.py")])
     dump = os.path.join(root, "types.json")
     subprocess.run([DUMP, *sources, "-o", dump], check=True, capture_output=True, cwd=SHELL)
     module = os.path.join(root, "Hostd", "Shell")
@@ -33,11 +34,12 @@ def typed_imports():
 
 
 class Lint(unittest.TestCase):
-    @unittest.skipUnless(os.path.exists(QMLLINT), "qmllint is not installed (qt6-declarative-dev-tools)")
+    @unittest.skipUnless(DUMP and REGISTRAR and os.path.exists(QMLLINT), "qmllint or the pyside6 tools are not installed")
     def test_no_warnings(self):
         qml = os.path.join(SHELL, "qml")
         files = sorted(glob.glob(os.path.join(qml, "Hostd", "*.qml")))
-        out = subprocess.run([QMLLINT, "--max-warnings", "0", "-I", qml, *files], capture_output=True, text=True,
+        command = [QMLLINT, "--max-warnings", "0", "-I", qml, "-I", typed_imports(), *files]
+        out = subprocess.run(command, capture_output=True, text=True,
                              env={**os.environ, "LANG": "C.UTF-8"})
         warnings = [line for line in (out.stdout + out.stderr).splitlines() if line.startswith("Warning")]
         self.assertEqual((out.returncode, warnings), (0, []), out.stdout + out.stderr)

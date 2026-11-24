@@ -1,5 +1,6 @@
 """The wire codec (hostd_shell.core.wire) with no sockets and no Qt (make lint-scripts)."""
 
+import contextlib
 import json
 import os
 import random
@@ -9,7 +10,6 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from hostd_shell import api as old  # noqa: E402
 from hostd_shell.core import wire  # noqa: E402
 
 
@@ -150,36 +150,18 @@ class WebSocket(unittest.TestCase):
                 i += n
             self.assertEqual(got, msgs, seed)
 
-    def test_it_reads_what_the_old_blocking_client_reads(self):
-        """The decoder the Shell used until now, and this one, on the same bytes."""
-
-        class Sock:
-            def __init__(self, data, rnd):
-                self.data, self.rnd = data, rnd
-
-            def recv(self, n):
-                k = self.rnd.randrange(1, 40)
-                out, self.data = self.data[:min(n, k)], self.data[min(n, k):]
-                return out
-
-        for seed in range(25):
-            rnd = random.Random(seed)
-            frames, expect = [], []
-            for _ in range(rnd.randrange(1, 12)):
-                text = json.dumps({"type": rnd.choice(["a", "audio.volume.changed"]), "v": "y" * rnd.randrange(0, 60)}).encode()
-                if rnd.random() < 0.3 and len(text) > 2:  # in two fragments, a ping between
-                    cut = rnd.randrange(1, len(text))
-                    frames += [b"\x01" + bytes([cut]) + text[:cut], b"\x89\x00", b"\x80" + bytes([len(text) - cut]) + text[cut:]]
-                    expect += [(wire.PING, b""), (wire.TEXT, text)]
-                else:
-                    frames.append(wire.frame(wire.TEXT, text, mask=False))
-                    expect.append((wire.TEXT, text))
-            data = b"".join(frames)
-            reader, theirs = old.Frames(Sock(data, rnd)), []
-            while len(theirs) < len(expect):
-                theirs.append(reader.next())
-            self.assertEqual(theirs, expect, seed)
-            self.assertEqual(wire.Frames().feed(data), expect, seed)
+    def test_random_bytes_are_decoded_or_refused_never_worse(self):
+        rnd = random.Random(7)
+        for _ in range(500):
+            data = bytes(rnd.randrange(256) for _ in range(rnd.randrange(1, 200)))
+            with contextlib.suppress(wire.ProtocolError):
+                wire.Frames().feed(data)
+            r = wire.Response()
+            try:
+                r.feed(data)
+                r.eof()
+            except wire.ProtocolError:
+                pass
 
 
 if __name__ == "__main__":

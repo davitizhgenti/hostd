@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 
 // The cross: the categories on one row, the current one centred on the
 // axis; under it, the current item's section, then its items in one column
@@ -12,8 +13,8 @@ import QtQuick
 Item {
     id: cross
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Menu menu
+    required property Core.Pointers pointers
 
     readonly property int step: Theme.layoutCategoryStep
 
@@ -27,21 +28,21 @@ Item {
 
         Row {
             id: categories
-            x: Place.axis - cross.step / 2 - cross.shell.category * cross.step
+            x: Place.axis - cross.step / 2 - cross.menu.category * cross.step
             Behavior on x { NumberAnimation { duration: Theme.motionBase; easing.type: Easing.OutCubic } }
 
             Repeater {
-                model: cross.shell.categories
+                model: cross.menu.categories
 
                 Item {
                     id: category
                     required property var modelData
                     required property int index
-                    readonly property bool isCurrent: index === cross.shell.category
+                    readonly property bool isCurrent: index === cross.menu.category
                     // Where its icon would be on screen once the row has
                     // settled: a category that would cross the safe margin is
                     // not shown at all, never cut by the screen's edge.
-                    readonly property real iconX: Place.axis + (index - cross.shell.category) * cross.step
+                    readonly property real iconX: Place.axis + (index - cross.menu.category) * cross.step
                                                   - Theme.layoutIconCategory / 2
                     readonly property bool fits: iconX >= Theme.layoutSafeMargin
                                                  && iconX + Theme.layoutIconCategory <= cross.width - Theme.layoutSafeMargin
@@ -57,7 +58,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.BlankCursor
-                        onClicked: cross.shell.clickCategory(category.index)
+                        onClicked: cross.menu.clickCategory(category.index)
                     }
 
                     Icon {
@@ -96,13 +97,14 @@ Item {
         role: "label"
         caps: true
         muted: true
-        text: cross.shell.section
+        text: cross.menu.section
     }
 
     // A tab of tiles, in place of the list.
     Tiles {
-        shell: cross.shell
-        visible: cross.shell.view === "tiles"
+        menu: cross.menu
+        pointers: cross.pointers
+        visible: cross.menu.view === "tiles"
         height: parent.height - Place.listTop - Place.bottomReserve
     }
 
@@ -110,7 +112,7 @@ Item {
     Item {
         id: list
         objectName: "listArea"
-        visible: cross.shell.view !== "tiles"
+        visible: cross.menu.view !== "tiles"
         x: Place.rowLeft
         y: Place.listTop
         width: Place.columnWidth
@@ -119,7 +121,7 @@ Item {
 
         // A new category's items appear in place, fading in; within one
         // category they slide.
-        property int shown: cross.shell.category
+        property int shown: cross.menu.category
         property bool sliding: true
         onShownChanged: { sliding = false; enter.restart(); Qt.callLater(() => { list.sliding = true }) }
         NumberAnimation { id: enter; target: rowsColumn; property: "opacity"; from: 0; to: 1; duration: Theme.motionBase }
@@ -127,14 +129,14 @@ Item {
         Column {
             id: rowsColumn
             width: parent.width
-            y: -(cross.shell.headersBefore * Theme.layoutSection + cross.shell.rowsBefore * Theme.layoutItemHeight)
+            y: -(cross.menu.headersBefore * Theme.layoutSection + cross.menu.rowsBefore * Theme.layoutItemHeight)
             Behavior on y {
                 enabled: list.sliding
                 NumberAnimation { duration: Theme.motionBase; easing.type: Easing.OutCubic }
             }
 
             Repeater {
-                model: cross.shell.pageModels[cross.shell.category]
+                model: cross.menu.pageModels[cross.menu.category]
 
                 ListRow {
                     id: item
@@ -156,12 +158,12 @@ Item {
                     readonly property real above: -(rowsColumn.y + y)
 
                     width: rowsColumn.width
-                    pointing: cross.shell.pointer.visible
-                    pointedBy: cross.shell.hovers.filter(h => h.row === item.index).map(h => h.colour)
-                    onActivated: cross.shell.clickItem(item.index, "left")
-                    onEntered: cross.shell.hover(item.index)
-                    onExited: cross.shell.hover(-1)
-                    current: index === cross.shell.current
+                    pointing: cross.pointers.pointer.visible
+                    pointedBy: cross.pointers.hovers.filter(h => h.row === item.index).map(h => h.colour)
+                    onActivated: cross.menu.clickItem(item.index, "left")
+                    onEntered: cross.pointers.hover(item.index)
+                    onExited: cross.pointers.hover(-1)
+                    current: index === cross.menu.current
                     opacity: (current ? 1 : 0.6) * Math.max(0, Math.min(1, 1 - above / Theme.layoutItemHeight))
                 }
             }

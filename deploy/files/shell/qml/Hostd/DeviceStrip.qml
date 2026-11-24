@@ -1,4 +1,5 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // The devices at the top left: a square in each one's color and its name,
 // bright while it is being used. Shown when there are two or more, so each
@@ -7,10 +8,11 @@ Row {
     id: strip
     objectName: "deviceStrip"
 
-    required property var shell
-    readonly property var devices: shell.strip
+    required property Core.Pointers pointers
+    required property Core.Menu menu
+    readonly property var devices: pointers.strip
 
-    visible: devices.length > 0 && shell.filter === "" // the filter has this place while typing
+    visible: devices.length > 0 && menu.filter === "" // the filter has this place while typing
     spacing: Theme.spaceXl
 
     Repeater {

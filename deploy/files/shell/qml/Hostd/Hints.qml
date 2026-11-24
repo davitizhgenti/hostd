@@ -1,17 +1,17 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 
 // What the buttons do now, named for the input used last.
 Row {
     id: hints
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Menu menu
     objectName: "hints"
     spacing: Theme.spaceXl
 
     Repeater {
-        model: hints.shell.hints
+        model: hints.menu.hintList
 
         Row {
             id: hint

@@ -1,4 +1,5 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // Calibrating a Wii Remote: the screen dimmed, a marker at the corner to
 // point at (in the remote's color), and what to do. A at the marker keeps it;
@@ -7,8 +8,8 @@ Rectangle {
     id: calibrate
     objectName: "calibrate"
 
-    required property var shell
-    readonly property var now: shell.calibrating
+    required property Core.Pointers pointers
+    readonly property var now: pointers.calibrating
     readonly property int step: now.step === undefined ? 0 : now.step
     readonly property color tint: Devices.colour(now.colour)
     // The markers sit inside the safe margin, where a remote can reach.

@@ -13,7 +13,8 @@ from hostd_shell import input as inp
 from hostd_shell import views
 from hostd_shell.core import rowlist
 
-APPS = "apps"
+# The fixed categories' keys; a tab's is "tab:" and its folder.
+APPS, USERS, SETTINGS, STATUS = "apps", "users", "settings", "status"
 
 # --- effects: what the caller must do ---------------------------------------
 

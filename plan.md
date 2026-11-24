@@ -12,7 +12,7 @@ Updated 2026-11-13. The history of every earlier plan (the 1.0 work items, the i
 
 ## The shell and the design system (2026-11-13)
 
-One design for everything hostd draws (docs/design.md). `hostd-shell` (PySide6, Qt Quick) is one process for the menu, the background behind the apps, notices and the OSD; Python holds the state and the behaviour, QML only draws it. The menu stays hostd's app `hostd-menu`: its command `hostd-shell menu` asks the shell to show the menu and runs until it closes, and the window's app_id (`[match]`) makes it the instance's. The layout follows one grid (`Place.qml`) like the PSP's XMB; tokens (`deploy/files/shell/tokens.toml`) generate a typed `Theme.qml`. `make test-shell` holds it: the layout contract at three sizes, golden images, behaviour, contrast on every background, qmllint, and a live Wayland check. Review renders locally in `test/shell/out/index.html`.
+One design for everything hostd draws (docs/design.md). `hostd-shell` (PySide6, Qt Quick) is one process for the menu, the background behind the apps, notices and the OSD; Python holds the state and the behaviour (a Qt-free core, an async client, typed QObjects; docs/design.md), QML only draws it. The menu stays hostd's app `hostd-menu`: its command `hostd-shell menu` asks the shell to show the menu and runs until it closes, and the window's app_id (`[match]`) makes it the instance's. The layout follows one grid (`Place.qml`) like the PSP's XMB; tokens (`deploy/files/shell/tokens.toml`) generate a typed `Theme.qml`. `make test-shell` holds it: the layout contract at three sizes, golden images, behaviour, contrast on every background, qmllint, and a live Wayland check. Review renders locally in `test/shell/out/index.html`.
 
 ## Screen sharing: tried, dropped
 

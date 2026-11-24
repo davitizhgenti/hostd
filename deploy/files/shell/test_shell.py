@@ -2,20 +2,16 @@
 python3 -m unittest discover -s deploy/files/shell -p "test_*.py"."""
 
 import datetime
-import http.server
 import json
 import os
 import re
-import socket
-import socketserver
 import sys
 import tempfile
-import threading
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hostd_shell import api, background, menu, notices, views
+from hostd_shell import background, menu, notices, views
 from hostd_shell import input as inp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -641,30 +637,6 @@ class Garbage(unittest.TestCase):
     """What hostd's socket, the settings file or the program's own
     environment send must not take the shell down."""
 
-    def test_websocket_frames_survive_random_bytes(self):
-        import random
-        rng = random.Random(7)
-        for _ in range(300):
-            data = bytes(rng.randrange(256) for _ in range(rng.randrange(1, 200)))
-            a, b = socket.socketpair()
-            a.sendall(data)
-            a.close()
-            f = api.Frames(b)
-            try:
-                for _i in range(50):
-                    f.next()
-            except (ValueError, OSError, EOFError):
-                pass  # ended: the stream reconnects
-            b.close()
-
-    def test_an_oversized_frame_is_refused_not_allocated(self):
-        a, b = socket.socketpair()
-        a.sendall(bytes([0x81, 127]) + (1 << 40).to_bytes(8, "big"))
-        a.close()
-        with self.assertRaises((ValueError, OSError, EOFError)):
-            api.Frames(b).next()
-        b.close()
-
     def test_the_settings_file_may_be_anything(self):
         d = tempfile.mkdtemp()
         file = os.path.join(d, "ui.toml")
@@ -717,108 +689,6 @@ class Theme(unittest.TestCase):
                 with open(os.path.join(qml, name)) as f:
                     src = f.read()
                 self.assertEqual(re.findall(r'"#[0-9a-fA-F]{3,8}"|Qt\.rgba?\(', src), [], name)
-
-
-class FakeHostd(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
-
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *_):
-        pass
-
-    def address_string(self):
-        return "local"
-
-    def reply(self, status, body):
-        data = json.dumps(body).encode()
-        self.send_response(status)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
-    def do_GET(self):
-        if self.headers.get("Authorization") != "Bearer tok":
-            return self.reply(401, {"error": {"code": "unauthorized", "message": "no token"}})
-        if self.path == "/v1/seat":
-            return self.reply(200, [{"user": "serve", "vt": 7, "holds": True}])
-        self.reply(404, {"error": {"code": "not_found", "message": "no such read"}})
-
-    def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        self.reply(200, {"status": "applied", "got": body})
-
-
-class API(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.mkdtemp()
-        self.sock = os.path.join(self.dir, "hostd.sock")
-        self.srv = FakeHostd(self.sock, Handler)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-
-    def tearDown(self):
-        self.srv.shutdown()
-        self.srv.server_close()
-
-    def test_get_and_do(self):
-        a = api.API(self.sock, "tok")
-        self.assertEqual(a.get("/v1/seat")[0]["user"], "serve")
-        res = a.do("seat.switch", {"user": "guest"})
-        self.assertEqual(res["got"], {"type": "seat.switch", "args": {"user": "guest"}})
-
-    def test_errors(self):
-        a = api.API(self.sock, "tok")
-        with self.assertRaises(api.APIError) as e:
-            a.get("/v1/nothing")
-        self.assertEqual((e.exception.code, e.exception.status), ("not_found", 404))
-        with self.assertRaises(api.APIError) as e:
-            api.API(self.sock, "wrong").get("/v1/seat")
-        self.assertEqual(e.exception.code, "unauthorized")
-
-    def test_token_file(self):
-        cfg = os.path.join(self.dir, "cfg")
-        os.makedirs(os.path.join(cfg, "hostd"))
-        with open(os.path.join(cfg, "hostd", "local.token"), "w") as f:
-            f.write("tok\n")
-        old = dict(os.environ)
-        try:
-            os.environ.pop("HOSTD_TOKEN", None)
-            os.environ["XDG_CONFIG_HOME"] = cfg
-            self.assertEqual(api.API(self.sock).token, "tok")
-        finally:
-            os.environ.clear()
-            os.environ.update(old)
-
-
-class Frames(unittest.TestCase):
-    def frames(self, data):
-        a, b = socket.socketpair()
-        a.sendall(data)
-        a.close()
-        return api.Frames(b)
-
-    def test_text_fragmented_and_control(self):
-        f = self.frames(bytes([0x01, 3]) + b"abc" + bytes([0x89, 1]) + b"p" + bytes([0x80, 2]) + b"de")
-        self.assertEqual(f.next(), (0x9, b"p"))  # a ping inside a message comes whole
-        self.assertEqual(f.next(), (0x1, b"abcde"))
-
-    def test_lengths_and_mask(self):
-        long = b"x" * 300
-        f = self.frames(bytes([0x81, 126]) + (300).to_bytes(2, "big") + long
-                        + bytes([0x81, 0x80 | 2]) + b"\x01\x02\x03\x04" + bytes([ord("h") ^ 1, ord("i") ^ 2]))
-        self.assertEqual(f.next(), (0x1, long))
-        self.assertEqual(f.next(), (0x1, b"hi"))
-        with self.assertRaises(ValueError):
-            f.next()
-
-    def test_send_frame_is_masked(self):
-        a, b = socket.socketpair()
-        api.send_frame(a, 0xA, b"pong")
-        data = b.recv(64)
-        self.assertEqual(data[0], 0x8A)
-        self.assertEqual(data[1], 0x80 | 4)
-        mask, body = data[2:6], data[6:]
-        self.assertEqual(bytes(c ^ mask[i % 4] for i, c in enumerate(body)), b"pong")
 
 
 if __name__ == "__main__":

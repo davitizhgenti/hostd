@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 
 // A tab of tiles, as the PSP showed games: on the left, one column of wide
 // tiles (a library header's shape) at the list block's left edge, grouped
@@ -15,8 +16,8 @@ Item {
     id: tiles
     objectName: "tilesArea"
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Menu menu
+    required property Core.Pointers pointers
 
     readonly property int gap: Theme.spaceS
     readonly property int smallStep: Place.tileSmallHeight + gap
@@ -27,7 +28,7 @@ Item {
     clip: true
 
     // A new category's tiles appear in place, fading in; within one they slide.
-    property int shown: tiles.shell.category
+    property int shown: tiles.menu.category
     property bool sliding: true
     onShownChanged: { sliding = false; enter.restart(); Qt.callLater(() => { tiles.sliding = true }) }
     NumberAnimation { id: enter; target: column; property: "opacity"; from: 0; to: 1; duration: Theme.motionBase }
@@ -37,14 +38,14 @@ Item {
         width: Place.tileWidth
         // Every game row before the current one is small; headings are
         // section-high (the shell counts them).
-        y: -(tiles.shell.headersBefore * Theme.layoutSection + tiles.shell.rowsBefore * tiles.smallStep)
+        y: -(tiles.menu.headersBefore * Theme.layoutSection + tiles.menu.rowsBefore * tiles.smallStep)
         Behavior on y {
             enabled: tiles.sliding
             NumberAnimation { duration: Theme.motionBase; easing.type: Easing.OutCubic }
         }
 
         Repeater {
-            model: tiles.shell.pageModels[tiles.shell.category]
+            model: tiles.menu.pageModels[tiles.menu.category]
 
             Item {
                 id: item
@@ -55,7 +56,7 @@ Item {
                 required property string icon
                 required property string tile
 
-                readonly property bool current: index === tiles.shell.current
+                readonly property bool current: index === tiles.menu.current
                 readonly property bool heading: kind === "header" || kind === "launcher"
                 // How far above the area's top it is: passed rows fade as they go.
                 readonly property real above: -(column.y + y)
@@ -66,9 +67,9 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.BlankCursor
-                    onClicked: tiles.shell.clickItem(item.index, "left")
-                    onEntered: tiles.shell.hover(item.index)
-                    onExited: tiles.shell.hover(-1)
+                    onClicked: tiles.menu.clickItem(item.index, "left")
+                    onEntered: tiles.pointers.hover(item.index)
+                    onExited: tiles.pointers.hover(-1)
                 }
                 width: column.width
                 height: heading ? Theme.layoutSection
@@ -154,7 +155,7 @@ Item {
     Item {
         id: info
         objectName: "tilesInfo"
-        readonly property var now: tiles.shell.focus
+        readonly property var now: tiles.menu.focus
         x: Place.tileText - Place.rowLeft
         width: tiles.width - x
         height: tiles.height

@@ -37,24 +37,24 @@ class ShellOnDaemon(unittest.TestCase):
         return sum(1 for m, p, _, _ in self.fake.requests if m == "GET" and p == path)
 
     def open(self):
-        self.assertTrue(wait_until(lambda: self.shell.events.connected and self.shell.page().rows))
+        self.assertTrue(wait_until(lambda: self.shell.events.connected and self.shell.menu.page().rows))
         self.shell.showMenu()
-        self.shell.setMenuActive(True)
+        self.shell.menu.setMenuActive(True)
         wait_until(lambda: False, 0.4)  # hostd.connected has everything listed again; let that finish
 
     def test_it_loads_and_a_controller_drives_it_through_the_event_stream(self):
         self.open()
-        first = self.shell.current_row().title
+        first = self.shell.menu.current_row().title
         self.fake.push({"type": "display.nav", "data": {"what": "down", "family": "xbox"}})
-        self.assertTrue(wait_until(lambda: self.shell.current_row().title != first))
-        self.assertEqual(self.shell.property("hints")[0]["button"], "A")  # the buttons of the pad that was used
+        self.assertTrue(wait_until(lambda: self.shell.menu.current_row().title != first))
+        self.assertEqual(self.shell.menu.hintList[0]["button"], "A")  # the buttons of the pad that was used
 
     def test_a_controller_is_ignored_while_the_menu_is_not_in_front(self):
-        self.assertTrue(wait_until(lambda: self.shell.events.connected and self.shell.page().rows))
-        first = self.shell.current_row().title
+        self.assertTrue(wait_until(lambda: self.shell.events.connected and self.shell.menu.page().rows))
+        first = self.shell.menu.current_row().title
         self.fake.push({"type": "display.nav", "data": {"what": "down"}})
         wait_until(lambda: False, 0.2)
-        self.assertEqual(self.shell.current_row().title, first)
+        self.assertEqual(self.shell.menu.current_row().title, first)
 
     def test_an_event_lists_again_only_what_it_changed_and_shows_the_osd(self):
         self.open()
@@ -67,15 +67,15 @@ class ShellOnDaemon(unittest.TestCase):
 
     def test_choosing_sends_the_call_and_lists_again_behind_it(self):
         self.open()
-        self.shell.handle(inp.RIGHT)  # Users
-        self.shell.handle(inp.RIGHT)  # Settings
+        self.shell.menu.handle(inp.RIGHT)  # Users
+        self.shell.menu.handle(inp.RIGHT)  # Settings
         for _ in range(12):
-            row = self.shell.current_row()
+            row = self.shell.menu.current_row()
             if row is not None and row.call is not None and row.kind != "slider":
                 break
-            self.shell.handle(inp.DOWN)
+            self.shell.menu.handle(inp.DOWN)
         n = len(self.fake.requests)
-        self.shell.handle(inp.ACTIVATE)
+        self.shell.menu.handle(inp.ACTIVATE)
         self.assertTrue(wait_until(lambda: any(m == "POST" for m, *_ in self.fake.requests[n:])))
 
     def test_the_screen_keeps_moving_while_hostd_hangs(self):
@@ -87,12 +87,12 @@ class ShellOnDaemon(unittest.TestCase):
         timer.start()
         self.fake.push({"type": "seat.switched", "data": {"user": "guest"}})
         for verb in (inp.RIGHT, inp.RIGHT, inp.DOWN, inp.LEFT, inp.ACTIONS, inp.BACK, inp.HOME) * 3:
-            self.shell.handle(verb)
+            self.shell.menu.handle(verb)
             wait_until(lambda: False, 0.02)
         timer.stop()
         gaps = [b - a for a, b in itertools.pairwise(ticks)]
         self.assertLess(max(gaps), 0.15, "the screen stopped while hostd was hanging")
-        self.assertEqual(self.shell.property("category"), 0)
+        self.assertEqual(self.shell.menu.category, 0)
 
 
 if __name__ == "__main__":

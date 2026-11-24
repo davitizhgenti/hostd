@@ -75,8 +75,8 @@ def render(size, surface, steps):
         reads["/v1/devices"] = fixtures.DEVICES
     with Screen(size, surface, reads=reads, tabs=extra in ("tabs", "page")) as s:
         if extra == "devices":
-            s.shell._load_devices()
-            s.shell.refresh("status")
+            s.shell.menu.loader.refresh_watched({"/v1/devices"})
+            s.shell.menu.refresh("status")
         if steps == "notices":
             s.shell.notify("Steam", "Download finished", "Dota 2 is ready to play", 0, 1, -1)
             s.shell.notify("hostd", "Video memory nearly full", "3.9 GB of 4 GB in use", 0, 2, -1)
@@ -88,9 +88,9 @@ def render(size, surface, steps):
                     _, px, py, row = step  # the pointer at px, py (shares of the screen), over row `row`
                     w, h = s.size
                     s.mute_hover()
-                    s.shell.mouseAt(w * px - 30, h * py, w, h)
-                    s.shell.mouseAt(w * px, h * py, w, h)
-                    s.shell.hover(row)
+                    s.shell.pointers.mouseAt(w * px - 30, h * py, w, h)
+                    s.shell.pointers.mouseAt(w * px, h * py, w, h)
+                    s.shell.pointers.hover(row)
                 elif isinstance(step, tuple) and step[0] == "calibrate":
                     _, device, name, colour, n, corner = step
                     s.shell.on_event({"type": "display.calibrate", "data": {
@@ -98,7 +98,7 @@ def render(size, surface, steps):
                     s.settle()
                 elif isinstance(step, tuple) and step[0] == "wii":
                     _, device, px, py = step  # a Wii Remote's pointer, over what is there
-                    s.shell.setMenuActive(True)
+                    s.shell.menu.setMenuActive(True)
                     s.shell.on_event({"type": "display.pointer", "data": {
                         "x": px, "y": py, "visible": True, "down": False, "family": "wii", "device": device}})
                     s.settle()

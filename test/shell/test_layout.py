@@ -62,7 +62,7 @@ class Contract(unittest.TestCase):
         # icon on the axis; all of the row inside its band.
         band = s.rect("rowBand")
         self.near(band[1], g["rowTop"], f"{where}: row band top")
-        n = len(s.shell.property("categories"))
+        n = len(s.shell.menu.categories)
         for c in range(n):
             icon, name = s.rect(f"categoryIcon/{c}"), s.rect(f"categoryName/{c}")
             self.near(cx(name), cx(icon), f"{where}: category {c} name centred on its icon")
@@ -76,7 +76,7 @@ class Contract(unittest.TestCase):
         # The axis is the screen's centre; the list is a block centred on it.
         self.near(g["axis"], w / 2, f"{where}: the axis is the screen's centre")
         self.near(g["rowLeft"] + g["columnWidth"] / 2, w / 2, f"{where}: the list block is centred")
-        current = s.shell.property("category")
+        current = s.shell.menu.category
         self.near(cx(s.rect(f"categoryIcon/{current}")), g["axis"], f"{where}: current category on the axis")
 
         # The section label and the list: under the band, on the text column.
@@ -113,15 +113,15 @@ class Contract(unittest.TestCase):
                 self.near(trail[0] + trail[2], g["trailEnd"], f"{label} trail ends at the column's edge")
                 self.near(cy(trail), cy(title), f"{label} trail on the title line")
             if it.property("current"):
-                self.assertEqual(i, s.shell.state()["current"], f"{label} current but not the shell's")
+                self.assertEqual(i, s.shell.menu.state()["current"], f"{label} current but not the shell's")
             truncated = s.item(f"itemTitle/{i}").property("truncated")
             long_title = "very long title" in it.property("title")
             self.assertEqual(truncated, long_title, f"{label} title elided: {truncated}")
 
         # The current row is the first drawn, at the list's top.
         first_i, first = rows[0]
-        if s.shell.state()["current"] >= 0 and not s.shell.state()["filter"]:
-            self.assertEqual(first_i, s.shell.state()["current"], f"{where}: the current row is not at the top")
+        if s.shell.menu.state()["current"] >= 0 and not s.shell.menu.state()["filter"]:
+            self.assertEqual(first_i, s.shell.menu.state()["current"], f"{where}: the current row is not at the top")
             self.near(s.rect(first)[1], area[1], f"{where}: the current row's top")
 
         # The corners: inside the safe margins, clear of the row and the list.
@@ -156,11 +156,11 @@ class MenuLayout(Contract):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
                 w, h = size
-                s.shell.devices = [
+                s.shell.pointers.core.devices = [
                     {"id": "m", "kind": "pointer", "label": "Mouse", "colour": "blue", "pointer": True},
                     {"id": "w1", "kind": "gamepad", "label": "Wii Remote 1", "colour": "orange", "pointer": True}]
                 s.shell.showMenu()
-                s.shell.setMenuActive(True)
+                s.shell.menu.setMenuActive(True)
                 s.mute_hover()
                 s.settle(12)
 
@@ -169,18 +169,18 @@ class MenuLayout(Contract):
                 s.shell.on_event({"type": "display.pointer", "data": {
                     "x": x, "y": y, "visible": True, "down": False, "family": "wii", "device": "w1"}})
                 s.settle()
-                self.assertEqual([h_["row"] for h_ in s.shell.property("hovers") if h_["colour"] == "orange"], [1], size_name)
+                self.assertEqual([h_["row"] for h_ in s.shell.pointers.hovers if h_["colour"] == "orange"], [1], size_name)
                 self.assertTrue(s.shown("itemPointed/1/0"), size_name)
-                self.assertEqual(s.shell.current, 0, size_name)  # hovering moves nothing
+                self.assertEqual(s.shell.menu.current, 0, size_name)  # hovering moves nothing
                 # Its button goes down on the row: that row opens.
                 s.shell.on_event({"type": "display.pointer", "data": {
                     "x": x, "y": y, "visible": True, "down": True, "family": "wii", "device": "w1"}})
                 s.settle()
                 self.assertEqual(s.api.sent[-1][1], "/v1/instances/chromium/switch", size_name)
-                self.assertEqual(s.shell.current, 1, size_name)
+                self.assertEqual(s.shell.menu.current, 1, size_name)
                 # Both pointers are drawn, each where it is.
-                s.shell.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
-                s.shell.mouseAt(w * 0.3, h * 0.7, w, h)
+                s.shell.pointers.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
+                s.shell.pointers.mouseAt(w * 0.3, h * 0.7, w, h)
                 s.settle()
                 self.assertTrue(s.shown("pointer") and s.shown("pointer/w1"), size_name)  # the mouse's moved last
                 r = s.rect("pointer/w1")
@@ -192,10 +192,10 @@ class MenuLayout(Contract):
             with Screen(size) as s:
                 w, h = size
                 s.mute_hover()
-                s.shell.hide_pointer()
-                self.assertFalse(s.shell.property("pointer")["visible"], size_name)
-                s.shell.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
-                s.shell.mouseAt(w * 0.3, h * 0.7, w, h)
+                s.shell.pointers.hide_mouse()
+                self.assertFalse(s.shell.pointers.pointer["visible"], size_name)
+                s.shell.pointers.mouseAt(w * 0.3 - 20, h * 0.7, w, h)
+                s.shell.pointers.mouseAt(w * 0.3, h * 0.7, w, h)
                 s.settle()
                 r = s.rect("pointer")
                 self.assertTrue(s.shown("pointer"), size_name)
@@ -212,13 +212,13 @@ class MenuLayout(Contract):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
                 s.verb("down", "down")
-                self.assertEqual(s.shell.current_row().kind, "folder")
+                self.assertEqual(s.shell.menu.current_row().kind, "folder")
                 self.check(s, f"{size_name} a folder row")
                 s.verb("activate")
-                self.assertEqual(s.shell.property("section"), "Games")
+                self.assertEqual(s.shell.menu.section, "Games")
                 self.check(s, f"{size_name} Games")
                 s.verb("activate")  # Dolphin, the first folder in Games
-                self.assertEqual(s.shell.property("section"), "Games / Dolphin")
+                self.assertEqual(s.shell.menu.section, "Games / Dolphin")
                 self.check(s, f"{size_name} Games / Dolphin")
                 s.verb("back", "back")
                 self.check(s, f"{size_name} back at the top")
@@ -251,7 +251,7 @@ class MenuLayout(Contract):
         self.near(area[0], g["rowLeft"], f"{where}: tiles at the block's left")
         self.near(area[1], g["listTop"], f"{where}: tiles at the list's top")
         self.assertLessEqual(area[1] + area[3], h - g["bottomReserve"] + TOL, f"{where}: tiles into the hints")
-        cur = s.shell.state()["current"]
+        cur = s.shell.menu.state()["current"]
         row = s.rect(f"tile/{cur}")
         self.near(row[1], area[1], f"{where}: the current row at the list's top")
         kind = s.item(f"tile/{cur}").property("kind")
@@ -329,7 +329,7 @@ class MenuLayout(Contract):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
                 s.verb("right", "right", "activate")  # Settings: Volume
-                self.assertEqual(s.shell.state()["panel"], "level", size_name)
+                self.assertEqual(s.shell.menu.state()["panel"], "level", size_name)
                 g, h = self.grid(s), s.size[1]
                 level = s.rect("panelLevel")
                 self.near(level[1], g["listTop"], f"{size_name}: level at the list's top")
@@ -341,7 +341,7 @@ class MenuLayout(Contract):
         for size_name, size in SIZES.items():
             with Screen(size) as s:
                 s.verb("right", "down", "activate")  # Users: guest, which asks first
-                self.assertTrue(s.shell.state()["question"], f"{size_name}: no question")
+                self.assertTrue(s.shell.menu.state()["question"], f"{size_name}: no question")
                 w, h = s.size
                 band = s.rect("band")
                 self.near(cy(band), h / 2, f"{size_name}: band centred")

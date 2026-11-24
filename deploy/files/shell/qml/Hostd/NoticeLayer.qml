@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import Hostd.Shell as Core
 import org.kde.layershell 1.0 as LayerShell
 
 // Notices at the top right, over everything (fullscreen games too), under
@@ -7,8 +8,7 @@ import org.kde.layershell 1.0 as LayerShell
 Window {
     id: layer
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Notices queue
 
     readonly property int margin: Theme.layoutSafeMargin
 
@@ -36,7 +36,7 @@ Window {
 
         Repeater {
             id: notices
-            model: layer.shell.noticeModel
+            model: layer.queue.model
 
             Notice {
                 required property string title

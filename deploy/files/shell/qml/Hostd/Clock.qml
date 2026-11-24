@@ -1,33 +1,34 @@
 import QtQuick
+import Hostd.Shell as Core
 
 // The time, the date, and the category's summary, right-aligned at the top
 // right. The time comes from the shell, so tests can set it.
 Column {
     id: clock
 
-    // The shell (Python): what is current, the data, and what input does.
-    required property var shell
+    required property Core.Clock ticker
+    required property Core.Menu menu
     objectName: "clock"
     spacing: Theme.spaceXs
 
     Txt {
         anchors.right: parent.right
         role: "title"
-        text: clock.shell.clockTime
+        text: clock.ticker.time
     }
 
     Txt {
         anchors.right: parent.right
         role: "label"
         muted: true
-        text: clock.shell.clockDate
+        text: clock.ticker.date
     }
 
     Txt {
         anchors.right: parent.right
         role: "label"
         muted: true
-        text: clock.shell.summary
+        text: clock.menu.summary
         visible: text !== ""
     }
 }
