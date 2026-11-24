@@ -99,7 +99,7 @@ lint-scripts:
 	python3 -m py_compile deploy/addons/steam/hostd-steam-games deploy/addons/dolphin/hostd-dolphin-games examples/python-module/lights.py clients/python/hostd.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper
 	ruff check --no-cache deploy/files/shell/hostd-shell \
-		deploy/files/shell/hostd_shell deploy/files/shell/test_shell.py deploy/files/shell/test_nav.py deploy/files/shell/test_pointers.py test/shell/*.py \
+		deploy/files/shell/hostd_shell deploy/files/shell/test_shell.py deploy/files/shell/test_nav.py deploy/files/shell/test_pointers.py deploy/files/shell/test_wire.py deploy/files/shell/test_loader.py test/shell/*.py \
 		deploy/addons/steam/hostd-steam-games deploy/addons/steam/test_steam_games.py \
 		deploy/addons/dolphin/hostd-dolphin-games deploy/addons/dolphin/test_dolphin_games.py \
 		deploy/addons/seats/hostd-seat deploy/addons/seats/hostd-seat-helper deploy/addons/seats/test_helper.py examples/python-module/lights.py \
